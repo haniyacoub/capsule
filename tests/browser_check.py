@@ -27,10 +27,15 @@ import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = Path(tempfile.mkdtemp(prefix="capsule-browser-"))
+
+# Started the way PRODUCTION.md says: from a folder, with the data folder named from there
+# ("./data-production"), not by its full path. Pictures once could not be shown when started so.
+HOME = Path(tempfile.mkdtemp(prefix="capsule-browser-")).resolve()
+os.chdir(HOME)
+DATA = HOME / "data-production"
 
 # The app reads its settings when it is imported, so they are set first.
-os.environ.update(CAPSULE_ENV="production", SECRET_KEY=secrets.token_urlsafe(48), WARDROBE_DATA_DIR=str(DATA),
+os.environ.update(CAPSULE_ENV="production", SECRET_KEY=secrets.token_urlsafe(48), WARDROBE_DATA_DIR="./data-production",
                   OPENAI_API_KEY="stand-in", SITE_URL="http://127.0.0.1")
 for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "SMTP_URL"):
     os.environ.pop(name, None)
@@ -85,6 +90,11 @@ def run(base: str) -> None:
         def total() -> str:
             return page.locator("#summary .num b").nth(0).inner_text()
 
+        def shows(selector: str, what: str) -> None:
+            """The picture itself is on the page, not only the place for it."""
+            page.wait_for_function("s => { const i = document.querySelector(s); return i && i.complete; }", arg=selector)
+            assert page.eval_on_selector(selector, "i => i.naturalWidth") > 0, f"{what} has its place on the page but did not load"
+
         def sign_up():
             page.goto(base + "/signup", wait_until="networkidle")
             page.fill("input[name=email]", f"check-{secrets.token_hex(4)}@example.com")
@@ -111,6 +121,7 @@ def run(base: str) -> None:
             assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
             page.wait_for_selector(f"{first} .look-bar.wait")              # asked for by itself, then waited for
             page.wait_for_selector(f"{first} .look-pic img")
+            shows(f"{first} .look-pic img", "the picture of the outfit")
             assert page.locator(f"{first} .collage").is_hidden(), "the product photos still show under the picture"
             assert page.locator(f"{first} .spot").count() == page.locator(f"{first} .piece-row").count(), "a dot per piece"
             assert "AI picture" in page.locator(f"{first} .look-bar").inner_text(), "the picture is not labelled"
@@ -194,7 +205,7 @@ def run(base: str) -> None:
             assert len(asked) > before and "in his thirties" in asked[-1]["prompt"], "the new model was not drawn"
 
         def my_photo():
-            photo = DATA / "me.png"
+            photo = HOME / "me.png"
             photo.write_bytes(picture(900, 1200, (180, 150, 130)))
             page.goto(base + "/profile", wait_until="networkidle")
             page.set_input_files("[data-photo-form] input[type=file]", str(photo))
@@ -203,6 +214,7 @@ def run(base: str) -> None:
             page.click("[data-photo-form] button")
             page.wait_for_load_state("networkidle")
             assert page.locator(".me img").count() == 1, "the photo is not shown back: " + " / ".join(page.locator(".flash").all_inner_texts())
+            shows(".me img", "the photo")
             page.goto(base + "/outfits", wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             assert asked[-1]["photo"], "the photo did not go with the request"
@@ -247,7 +259,8 @@ def main() -> int:
         run(f"http://127.0.0.1:{server.server_port}")
     finally:
         server.shutdown()
-        shutil.rmtree(DATA, ignore_errors=True)
+        os.chdir(ROOT)
+        shutil.rmtree(HOME, ignore_errors=True)
     if failures:
         print("\nFailed:")
         for line in failures:
