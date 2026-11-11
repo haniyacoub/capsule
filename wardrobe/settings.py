@@ -14,6 +14,8 @@ and optionally:
     MAIL_FROM                sender address for those emails
     TRUSTED_PROXY_HOPS       how many reverse proxies sit in front (0 = none, 1 = typical)
     SESSION_DAYS             how long a login lasts (default 30)
+    INVITE_CODE              if set, only people who know it can create an account ("by invitation").
+                             At least 8 characters. Give it out as  <SITE_URL>/signup?code=<the code>
 
 In either mode, one of these switches on the AI pictures of outfits (looks.py):
     OPENAI_API_KEY           a key from platform.openai.com
@@ -34,6 +36,8 @@ SMTP_URL = os.environ.get("SMTP_URL", "")
 MAIL_FROM = os.environ.get("MAIL_FROM", "Capsule <no-reply@localhost>")
 TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "0") or 0)
 SESSION_DAYS = int(os.environ.get("SESSION_DAYS", "30") or 30)
+INVITE_CODE = os.environ.get("INVITE_CODE", "").strip()      # empty: anybody may create an account
+MIN_INVITE_CODE_LENGTH = 8
 
 # Keys of the image services. Secrets: they come from the environment only, never from a file in the project.
 UNUSABLE_KEYS: list[str] = []      # names of keys that are set but cannot be keys
@@ -70,9 +74,22 @@ def on_this_machine() -> bool:
     return (urlsplit(SITE_URL).hostname or "") in ("127.0.0.1", "localhost", "::1")
 
 
+PLACEHOLDER = "replace-me"      # how the values in deploy/app.env.example begin: known to everyone
+
+
 def check() -> None:
     """Refuse to start in production with settings that would be unsafe."""
-    if PRODUCTION and len(SECRET_KEY) < 32:
+    if not PRODUCTION:
+        return
+    if len(SECRET_KEY) < 32 or SECRET_KEY.startswith(PLACEHOLDER):
         raise SystemExit(
-            "CAPSULE_ENV=production needs a SECRET_KEY of at least 32 characters.\n"
-            "Make one with:  python -c \"import secrets; print(secrets.token_urlsafe(48))\"")
+            "CAPSULE_ENV=production needs a SECRET_KEY of its own, at least 32 characters"
+            + (": this one is still the example's placeholder.\n" if SECRET_KEY.startswith(PLACEHOLDER) else ".\n")
+            + "Make one with:  python -c \"import secrets; print(secrets.token_urlsafe(48))\"")
+    if INVITE_CODE and (len(INVITE_CODE) < MIN_INVITE_CODE_LENGTH or INVITE_CODE.startswith(PLACEHOLDER)):
+        raise SystemExit(
+            "INVITE_CODE would keep nobody out: "
+            + ("it is still the example's placeholder" if INVITE_CODE.startswith(PLACEHOLDER)
+               else f"use at least {MIN_INVITE_CODE_LENGTH} characters") + ".\n"
+            "Make one with:  python -c \"import secrets; print(secrets.token_urlsafe(9))\"\n"
+            "(or leave INVITE_CODE out to let anybody create an account)")

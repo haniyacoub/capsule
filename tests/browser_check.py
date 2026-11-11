@@ -95,6 +95,18 @@ def run(base: str) -> None:
             page.wait_for_function("s => { const i = document.querySelector(s); return i && i.complete; }", arg=selector)
             assert page.eval_on_selector(selector, "i => i.naturalWidth") > 0, f"{what} has its place on the page but did not load"
 
+        def in_view(selector: str, words: str) -> None:
+            """A message is where the eye is after the page has jumped: on the screen, with nothing over it."""
+            page.wait_for_selector(selector)
+            assert words in page.locator(selector).first.inner_text(), f"no message saying {words!r} at {selector}"
+            where = page.eval_on_selector(selector, """el => {
+                const box = el.getBoundingClientRect();
+                if (box.bottom <= 0 || box.top >= window.innerHeight) return 'off the screen';
+                const top = document.elementFromPoint(box.left + box.width / 2, box.top + Math.min(box.height / 2, 12));
+                return top && (top === el || el.contains(top)) ? 'in view' : 'covered';
+            }""")
+            assert where == "in view", f"the message {words!r} is {where} after the page has jumped to it"
+
         def sign_up():
             page.goto(base + "/signup", wait_until="networkidle")
             page.fill("input[name=email]", f"check-{secrets.token_hex(4)}@example.com")
@@ -199,22 +211,37 @@ def run(base: str) -> None:
             page.wait_for_load_state("networkidle")
             words = page.locator("#model").inner_text()
             assert "in his thirties" in words and "athletic build" in words, "the choices are not described back"
+            in_view("#model .flash", "Model saved")
             before = len(asked)
             page.goto(base + "/outfits", wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             assert len(asked) > before and "in his thirties" in asked[-1]["prompt"], "the new model was not drawn"
 
         def my_photo():
+            chosen = "[data-photo-form] input[type=file]"
+            note = "[data-photo-form] [data-photo-ready]"
+            page.goto(base + "/profile", wait_until="networkidle")
+
+            # A file the browser cannot open as a picture, named like an iPhone's photo: said at once, nothing sent.
+            unreadable = HOME / "IMG_0042.HEIC"
+            unreadable.write_bytes(os.urandom(4000))
+            page.set_input_files(chosen, str(unreadable))
+            page.wait_for_selector(f"{note}.bad")
+            assert "HEIC" in page.locator(note).inner_text(), "it does not say why the photo cannot be used"
+            assert page.eval_on_selector(chosen, "i => i.files.length") == 0, "the unreadable file is still chosen and would be sent"
+
             photo = HOME / "me.png"
             photo.write_bytes(picture(900, 1200, (180, 150, 130)))
-            page.goto(base + "/profile", wait_until="networkidle")
-            page.set_input_files("[data-photo-form] input[type=file]", str(photo))
+            page.set_input_files(chosen, str(photo))
             page.wait_for_function("() => document.querySelector('[data-photo-form] input[type=file]').files[0].type === 'image/jpeg'")
+            page.wait_for_selector(f"{note}:not(.bad) img:not([hidden])")
+            assert "ready" in page.locator(note).inner_text(), "it does not say that the photo is ready to send"
             page.check("[data-photo-form] input[name=agree]")
             page.click("[data-photo-form] button")
             page.wait_for_load_state("networkidle")
             assert page.locator(".me img").count() == 1, "the photo is not shown back: " + " / ".join(page.locator(".flash").all_inner_texts())
             shows(".me img", "the photo")
+            in_view("#photo .flash", "Photo saved")
             page.goto(base + "/outfits", wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             assert asked[-1]["photo"], "the photo did not go with the request"

@@ -3,7 +3,14 @@
 {% block main %}
 <section class="card auth">
   <h1>Create your account</h1>
+  {% if invite %}
+  <p class="muted">Capsule is open by invitation for now. You need the code you were given.</p>
+  {% endif %}
   <form class="form" method="post" action="{{ url_for('auth.signup') }}">{{ csrf_field() }}
+    {% if invite %}
+    <label class="field"><span>Invitation code</span>
+      <input type="text" name="code" autocomplete="off" autocapitalize="off" spellcheck="false" required value="{{ code or '' }}"></label>
+    {% endif %}
     <label class="field"><span>Email</span>
       <input type="email" name="email" autocomplete="username" required value="{{ email or '' }}"></label>
     <label class="field"><span>Password <small>(at least 10 characters)</small></span>

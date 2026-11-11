@@ -71,7 +71,8 @@ jobs:
           cp deploy/app.env.example deploy/app.env
           cp deploy/tunnel.env.example deploy/tunnel.env     # compose wants the file to exist; the tunnel is not started
           key="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-          sed -i "s|^SECRET_KEY=.*|SECRET_KEY=$key|; s|^SITE_URL=.*|SITE_URL=http://127.0.0.1:8000|" deploy/app.env
+          code="$(python3 -c 'import secrets; print(secrets.token_urlsafe(9))')"
+          sed -i "s|^SECRET_KEY=.*|SECRET_KEY=$key|; s|^SITE_URL=.*|SITE_URL=http://127.0.0.1:8000|; s|^INVITE_CODE=.*|INVITE_CODE=$code|" deploy/app.env
       - name: Build the image and start the app (without the tunnel)
         run: docker compose -f deploy/compose.yaml up -d --build app
       - name: Wait until it reports healthy

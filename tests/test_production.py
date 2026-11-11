@@ -94,6 +94,20 @@ class PublicSite(ProductionCase):
         with self.assertRaises(SystemExit):
             create_app()
 
+    def test_it_will_not_start_on_the_values_the_example_file_comes_with(self):
+        # deploy/app.env.example is public: whoever forgets to change a line must not end up running on it.
+        example = (paths.ROOT / "deploy" / "app.env.example").read_text()
+        given = dict(line.split("=", 1) for line in example.splitlines() if line and not line.startswith("#"))
+        self.assertGreaterEqual(len(given["SECRET_KEY"]), 32, "long enough to pass the length check, so it needs its own")
+        settings.SECRET_KEY = given["SECRET_KEY"]
+        with self.assertRaises(SystemExit) as stop:
+            create_app()
+        self.assertIn("placeholder", str(stop.exception))
+        settings.SECRET_KEY = "t" * 48
+        with mock.patch.object(settings, "INVITE_CODE", given["INVITE_CODE"]), self.assertRaises(SystemExit) as stop:
+            create_app()
+        self.assertIn("placeholder", str(stop.exception))
+
 
 class Accounts(ProductionCase):
     def test_signing_up_lands_in_your_own_capsule(self):
@@ -286,6 +300,127 @@ class Guards(ProductionCase):
             third = self.post(self.app.test_client(), "/signup", email="three@example.com", password=PASSWORD)
         self.assertEqual(third.status_code, 400)
         self.assertIsNone(db.get_user_by_email("three@example.com"))
+
+
+CODE = "by-invitation-2026"
+
+
+class ByInvitation(ProductionCase):
+    """INVITE_CODE is set: the website is open to all, creating an account needs the code."""
+
+    def setUp(self):
+        super().setUp()
+        invited = mock.patch.object(settings, "INVITE_CODE", CODE)
+        invited.start()
+        self.addCleanup(invited.stop)
+
+    def join(self, email, **more):
+        return self.post(self.app.test_client(), "/signup", email=email, password=PASSWORD, **more)
+
+    def test_the_pages_say_so(self):
+        visitor = self.app.test_client()
+        self.assertIn(b"by invitation", visitor.get("/").data)
+        self.assertIn(b'name="code"', visitor.get("/signup").data)
+
+    def test_no_account_without_the_code(self):
+        for attempt in ({}, {"code": ""}, {"code": "by-invitation-2025"}, {"code": CODE.upper()}):
+            refused = self.join("eve@example.com", **attempt)
+            self.assertEqual(refused.status_code, 400, attempt)
+            self.assertIn(b"invitation code is not right", refused.data)
+        self.assertIsNone(db.get_user_by_email("eve@example.com"))
+
+    def test_the_code_lets_you_in(self):
+        self.assertEqual(self.join("ada@example.com", code=f" {CODE} ").status_code, 302)      # pasted with spaces around it
+        self.assertIsNotNone(db.get_user_by_email("ada@example.com"))
+
+    def test_an_invitation_link_fills_the_code_in(self):
+        page = self.app.test_client().get(f"/signup?code={CODE}")
+        self.assertIn(f'value="{CODE}"'.encode(), page.data)
+
+    def test_the_code_cannot_be_tried_at_speed(self):
+        with mock.patch.object(settings, "SIGNUPS_PER_IP_PER_HOUR", 3):
+            for guess in range(3):
+                self.assertEqual(self.join("eve@example.com", code=f"guess-number-{guess}").status_code, 400)
+            late = self.join("eve@example.com", code=CODE)
+        self.assertEqual(late.status_code, 400, "the right code, after too many wrong ones from the same connection")
+        self.assertIn(b"Too many", late.data)
+        self.assertIsNone(db.get_user_by_email("eve@example.com"))
+
+    def test_what_is_not_counted_says_nothing_about_the_code(self):
+        # A form that is refused before it is counted (here: a password too short) must be refused
+        # the same way with the right code and with a wrong one.
+        wrong = self.post(self.app.test_client(), "/signup", email="eve@example.com", password="short", code="a-wrong-guess")
+        right = self.post(self.app.test_client(), "/signup", email="eve@example.com", password="short", code=CODE)
+        self.assertEqual((wrong.status_code, right.status_code), (400, 400))
+        for answer in (wrong, right):
+            self.assertNotIn(b"invitation code is not right", answer.data)
+
+    def test_those_who_have_an_account_log_in_as_before(self):
+        with mock.patch.object(settings, "INVITE_CODE", ""):
+            self.member("ada@example.com")
+        back = self.post(self.app.test_client(), "/login", email="ada@example.com", password=PASSWORD)
+        self.assertEqual(back.status_code, 302)
+
+    def test_a_code_too_short_to_keep_anybody_out_stops_the_start(self):
+        with mock.patch.object(settings, "INVITE_CODE", "abc"), self.assertRaises(SystemExit) as stop:
+            create_app()
+        self.assertIn("INVITE_CODE", str(stop.exception))
+
+    def test_without_a_code_anybody_may_join(self):
+        with mock.patch.object(settings, "INVITE_CODE", ""):
+            visitor = self.app.test_client()
+            self.assertNotIn(b'name="code"', visitor.get("/signup").data)
+            self.assertNotIn(b"by invitation", visitor.get("/").data)
+            self.assertEqual(self.join("ada@example.com").status_code, 302)
+
+
+class BehindCloudflare(ProductionCase):
+    """TRUSTED_PROXY_HOPS=1: the app sits behind one proxy (Cloudflare's tunnel) that passes on who
+    is asking and whether they came by https. Every request then arrives from the proxy's own address."""
+
+    def setUp(self):
+        super().setUp()
+        proxied = mock.patch.object(settings, "TRUSTED_PROXY_HOPS", 1)
+        proxied.start()
+        self.addCleanup(proxied.stop)
+        self.app = create_app()
+
+    def join(self, email, came_from):
+        """A sign-up as the proxy hands it over: its own note of the visitor's address comes last."""
+        client = self.app.test_client()
+        headers = {"X-Forwarded-For": came_from, "X-Forwarded-Proto": "https"}
+        client.get("/login", headers=headers)
+        with client.session_transaction() as session:
+            token = session["csrf"]
+        return client.post("/signup", data={"email": email, "password": PASSWORD, "csrf_token": token}, headers=headers)
+
+    def test_limits_count_the_visitor_not_the_proxy(self):
+        with mock.patch.object(settings, "SIGNUPS_PER_IP_PER_HOUR", 2):
+            self.assertEqual(self.join("one@example.com", "203.0.113.7").status_code, 302)
+            self.assertEqual(self.join("two@example.com", "203.0.113.7").status_code, 302)
+            self.assertEqual(self.join("three@example.com", "203.0.113.7").status_code, 400, "the third from one visitor")
+            self.assertEqual(self.join("four@example.com", "198.51.100.9").status_code, 302, "another visitor is not held up")
+
+    def test_a_visitor_cannot_pose_as_somebody_else(self):
+        # Whatever a visitor writes into the header themselves comes before the proxy's own entry.
+        with mock.patch.object(settings, "SIGNUPS_PER_IP_PER_HOUR", 2):
+            self.assertEqual(self.join("one@example.com", "10.0.0.1, 203.0.113.7").status_code, 302)
+            self.assertEqual(self.join("two@example.com", "10.0.0.2, 203.0.113.7").status_code, 302)
+            self.assertEqual(self.join("three@example.com", "10.0.0.3, 203.0.113.7").status_code, 400)
+
+    def test_https_at_the_proxy_counts_as_https(self):
+        visitor = self.app.test_client()
+        by_https = visitor.get("/login", headers={"X-Forwarded-For": "203.0.113.7", "X-Forwarded-Proto": "https"})
+        self.assertIn("max-age", by_https.headers.get("Strict-Transport-Security", ""))
+        plain = visitor.get("/login", headers={"X-Forwarded-For": "203.0.113.7", "X-Forwarded-Proto": "http"})
+        self.assertNotIn("Strict-Transport-Security", plain.headers)
+
+    def test_without_a_proxy_the_header_is_not_believed(self):
+        with mock.patch.object(settings, "TRUSTED_PROXY_HOPS", 0), mock.patch.object(settings, "SIGNUPS_PER_IP_PER_HOUR", 2):
+            self.app = create_app()
+            self.assertEqual(self.join("one@example.com", "203.0.113.7").status_code, 302)
+            self.assertEqual(self.join("two@example.com", "198.51.100.9").status_code, 302)
+            self.assertEqual(self.join("three@example.com", "192.0.2.44").status_code, 400, "all three came from one connection")
 
 
 def product(store, sku, name, price, colour, hex_=None, **more):

@@ -110,20 +110,26 @@ def _throttled(email: str) -> bool:
 def signup():
     if g.user:
         return redirect(url_for("wardrobe"))
+    invite = bool(settings.INVITE_CODE)         # by invitation: the form also asks for the code
     if request.method == "GET":
-        return render_template("auth_signup.html")
+        return render_template("auth_signup.html", invite=invite, code=request.args.get("code", "")[:200])
     email, password = _email(request.form.get("email")), request.form.get("password", "")
+    code = request.form.get("code", "").strip()[:200]
     problem = "Enter a valid email address." if not email else password_problem(password, email)
+    # Every attempt from here on is counted, a wrong invitation code included: the code cannot be
+    # tried at speed. (Nothing above this line looks at the code, so nothing uncounted reveals it.)
     if not problem and db.note_signup(request.remote_addr or "") > settings.SIGNUPS_PER_IP_PER_HOUR:
         problem = "Too many new accounts from this connection. Try again in an hour."
+    if not problem and invite and not hmac.compare_digest(code.encode(), settings.INVITE_CODE.encode()):
+        problem = "That invitation code is not right. Capsule is open by invitation for now."
     if problem:
         flash(problem)
-        return render_template("auth_signup.html", email=request.form.get("email", "")), 400
+        return render_template("auth_signup.html", email=request.form.get("email", ""), invite=invite, code=code), 400
     assert email is not None
     user_id = db.create_user(email, generate_password_hash(password))
     if user_id is None:
         flash("There is already an account with this email address. Log in, or reset the password.")
-        return render_template("auth_signup.html", email=email), 400
+        return render_template("auth_signup.html", email=email, invite=invite, code=code), 400
     user = db.get_user(user_id)
     assert user is not None
     start_session(user)

@@ -126,12 +126,28 @@ document.addEventListener('click', (e) => {
 
 // 10. Your photo: make it smaller before it is sent. That is quicker, and the
 //     copy carries none of the details a phone stores inside a photo (place, time).
+//     What became of the chosen file is said right under it: a small copy of the
+//     picture when it is ready to send, or why it cannot be used. A file this
+//     browser cannot open as a picture (an iPhone's HEIC, in most browsers) is not
+//     sent at all: the server could not use it either.
 document.addEventListener('change', async (e) => {
   const input = e.target;
   if (!(input instanceof HTMLInputElement) || input.type !== 'file' || !input.closest('[data-photo-form]')) return;
+  const form = input.form;
+  const note = form.querySelector('[data-photo-ready]');
+  const say = (text, preview) => {
+    if (!note) return;
+    note.hidden = !text;
+    note.classList.toggle('bad', Boolean(text) && !preview);
+    note.querySelector('p').textContent = text || '';
+    const small = note.querySelector('img');
+    small.hidden = !preview;
+    if (preview) small.src = preview;
+  };
   const file = input.files[0];
-  if (!file) return;
-  const send = input.form.querySelector('button');
+  if (!file) { say(''); return; }
+  if (typeof createImageBitmap !== 'function') return;    // a very old browser: send it as it is, the server checks it
+  const send = form.querySelector('button');
   send.disabled = true;     // not before the smaller copy is in place: the original must not be what is sent
   try {
     const picture = await createImageBitmap(file);
@@ -141,12 +157,24 @@ document.addEventListener('change', async (e) => {
     canvas.height = Math.round(picture.height * scale);
     canvas.getContext('2d').drawImage(picture, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise((done) => canvas.toBlob(done, 'image/jpeg', 0.88));
+    if (!blob) throw new Error('no picture came out');
     const smaller = new DataTransfer();
     smaller.items.add(new File([blob], 'me.jpg', { type: 'image/jpeg' }));
     input.files = smaller.files;
+    const thumb = document.createElement('canvas');       // what will be sent, small, so you see it is the right one
+    thumb.width = 108;
+    thumb.height = 144;
+    const fit = Math.max(thumb.width / canvas.width, thumb.height / canvas.height);
+    thumb.getContext('2d').drawImage(canvas, (thumb.width - canvas.width * fit) / 2, (thumb.height - canvas.height * fit) / 2,
+      canvas.width * fit, canvas.height * fit);
+    say('This photo is ready. Tick the box and press the button to use it.', thumb.toDataURL('image/jpeg', 0.8));
   } catch (err) {
-    // A browser that cannot do this sends the photo as it is. The server keeps only the picture
-    // either way, and refuses a file that is too large.
+    input.value = '';       // nothing is sent
+    const heic = /\.hei[cf]$/i.test(file.name) || /hei[cf]/i.test(file.type);
+    say(heic
+      ? 'This browser cannot open HEIC photos, the kind an iPhone saves. Save a copy as JPEG first '
+        + '(in Photos: File, Export. In Preview: File, Export, Format JPEG), then choose that copy.'
+      : 'This browser cannot open that file as a picture. Choose a JPEG or PNG photo.');
   }
   send.disabled = false;
 });
