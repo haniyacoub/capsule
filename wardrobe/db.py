@@ -25,7 +25,7 @@ from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 LOCAL_USER_ID = 1
 
 SCHEMA = """
@@ -83,20 +83,23 @@ CREATE TABLE reset_tokens (             -- only a hash of each emailed token is 
 );
 """
 
-# Added in version 3: the AI pictures of outfits (looks.py).
+# Added in version 3: the AI pictures of outfits (looks.py). Version 4 changed look_requests:
+# an entry now outlives its account (with no name on it), so that deleting an account and
+# signing up again cannot be used to get round the day's total.
 # (No semicolons inside the comments: the statements are split on them.)
 SCHEMA_PICTURES = """
 CREATE TABLE IF NOT EXISTS looks (      -- one row per picture, the files are in <data>/looks/
     key        TEXT PRIMARY KEY,        -- fingerprint of what was sent to the image service
     user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,   -- only for a picture of someone's own photo
-    status     TEXT NOT NULL,           -- working | ready | failed
+    status     TEXT NOT NULL,           -- waiting (its turn) | working | ready | failed
     started_at REAL NOT NULL,
     file       TEXT,                    -- the picture, once there is one
     error      TEXT,                    -- why the last attempt failed
     service    TEXT NOT NULL DEFAULT ''
 );
-CREATE TABLE IF NOT EXISTS look_requests (   -- when each user asked for a picture: the daily limits
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS look_requests (   -- when a picture was asked for: the daily limits
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     at      REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS look_requests_at ON look_requests (at);
@@ -120,34 +123,79 @@ def connect():
         con.close()
 
 
+@contextmanager
+def exclusive():
+    """Like connect(), but holding the write lock from the start: what is read inside cannot
+    have changed by the time it is written. Other writers wait their turn (up to ten seconds)."""
+    paths.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(paths.DB_PATH, timeout=10, isolation_level=None)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA foreign_keys = ON")
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        yield con
+        con.execute("COMMIT")
+    except BaseException:
+        if con.in_transaction:
+            con.execute("ROLLBACK")
+        raise
+    finally:
+        con.close()
+
+
 def init() -> None:
     """Create the tables, or bring an older database up to date. Safe to call often."""
     with connect() as con:
         version = con.execute("PRAGMA user_version").fetchone()[0]
     if version < SCHEMA_VERSION:
-        _migrate(version)
+        _migrate()
     if not settings.PRODUCTION:
         ensure_local_user()
 
 
-def _migrate(version: int) -> None:
-    with connect() as con:
-        con.execute("PRAGMA journal_mode = WAL")       # readers don't block the writer
+def _migrate() -> None:
+    """Bring the database up to date. Several server processes may start at the same moment:
+    whichever gets the write lock first does the work, and the others then find it done."""
+    for attempt in range(100):                         # switching to WAL needs the file to itself for a moment
+        try:
+            with connect() as con:
+                con.execute("PRAGMA journal_mode = WAL")   # readers don't block the writer
+                _copy_before_accounts(con)
+            break
+        except sqlite3.OperationalError:
+            if attempt == 99:
+                raise
+            time.sleep(0.05)
+    with exclusive() as con:
+        version = con.execute("PRAGMA user_version").fetchone()[0]    # read again, now that nobody else can write
+        if version >= SCHEMA_VERSION:
+            return
         if version < 2:                                # a new database, or the single-user layout of version 1
             _add_accounts(con)
-        for statement in SCHEMA_PICTURES.split(";"):   # version 3; safe to repeat
+        if version == 3:                               # look_requests in its first shape: set it aside
+            con.execute("ALTER TABLE look_requests RENAME TO look_requests_v3")
+            con.execute("DROP INDEX IF EXISTS look_requests_at")
+        for statement in SCHEMA_PICTURES.split(";"):   # safe to repeat
             if statement.strip():
                 con.execute(statement)
+        if version == 3:
+            con.execute("INSERT INTO look_requests (user_id, at) SELECT user_id, at FROM look_requests_v3")
+            con.execute("DROP TABLE look_requests_v3")
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+
+def _copy_before_accounts(con: sqlite3.Connection) -> None:
+    """Keep an untouched copy of a database from before accounts existed (the single-user layout)."""
+    tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    if "users" not in tables and any(t in tables for t in ("settings", "slots", "saved_outfits")):
+        backup = paths.DB_PATH.with_name(paths.DB_PATH.name + ".before-accounts")
+        if not backup.exists():
+            con.execute("VACUUM INTO ?", (str(backup),))
 
 
 def _add_accounts(con: sqlite3.Connection) -> None:
     tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     old = [t for t in ("settings", "slots", "saved_outfits") if t in tables]   # the single-user layout
-    if old:   # keep an untouched copy of the database as it was before accounts existed
-        backup = paths.DB_PATH.with_name(paths.DB_PATH.name + ".before-accounts")
-        if not backup.exists():
-            con.execute("VACUUM INTO ?", (str(backup),))
     for table in old:
         con.execute(f"ALTER TABLE {table} RENAME TO {table}_v1")
     for statement in SCHEMA.split(";"):
@@ -466,31 +514,37 @@ def look_rows(keys: list[str]) -> dict[str, dict]:
     return {r["key"]: dict(r) for r in rows}
 
 
-def start_look(key: str, service: str, stale_before: float, again: bool = False, owner: int | None = None) -> bool:
-    """Claim the drawing of one picture. True for exactly one caller: a new picture, another
-    try after a failure or a stalled attempt, or (with `again`) a fresh version of a finished one."""
+def start_look(key: str, service: str, stale_before: float, waiting_before: float,
+               again: bool = False, owner: int | None = None) -> bool:
+    """Claim the drawing of one picture. True for exactly one caller: a new picture, another try
+    after a failure or after an attempt that died (drawing since before `stale_before`, or waiting
+    its turn since before `waiting_before`), or with `again` a fresh version of a finished one."""
     now = time.time()
     with connect() as con:
         cur = con.execute("INSERT OR IGNORE INTO looks (key, user_id, status, started_at, service) "
-                          "VALUES (?, ?, 'working', ?, ?)", (key, owner, now, service))
+                          "VALUES (?, ?, 'waiting', ?, ?)", (key, owner, now, service))
         if cur.rowcount == 1:
             return True
         cur = con.execute(
-            "UPDATE looks SET status = 'working', started_at = ?, error = NULL, service = ? WHERE key = ? AND "
-            "(status = 'failed' OR (status = 'working' AND started_at < ?) OR (status = 'ready' AND ?))",
-            (now, service, key, stale_before, int(again)))
+            "UPDATE looks SET status = 'waiting', started_at = ?, error = NULL, service = ? WHERE key = ? AND "
+            "(status = 'failed' OR (status = 'working' AND started_at < ?) "
+            " OR (status = 'waiting' AND started_at < ?) OR (status = 'ready' AND ?))",
+            (now, service, key, stale_before, waiting_before, int(again)))
         return cur.rowcount == 1
 
 
-def touch_look(key: str) -> None:
-    """The drawing really starts now (it may have waited its turn)."""
+def touch_look(key: str) -> bool:
+    """Its turn has come: the drawing starts now. False if it is no longer wanted (the row is
+    gone with its account, or somebody started it afresh in the meantime)."""
     with connect() as con:
-        con.execute("UPDATE looks SET started_at = ? WHERE key = ? AND status = 'working'", (time.time(), key))
+        cur = con.execute("UPDATE looks SET status = 'working', started_at = ? WHERE key = ? AND status = 'waiting'",
+                          (time.time(), key))
+        return cur.rowcount == 1
 
 
 def finish_look(key: str, file: str) -> str | None:
     """Record the finished picture. Returns the file it replaces, if any; LookupError if the row is gone."""
-    with connect() as con:
+    with exclusive() as con:
         row = con.execute("SELECT file FROM looks WHERE key = ?", (key,)).fetchone()
         if row is None:
             raise LookupError(key)
@@ -507,30 +561,42 @@ def fail_look(key: str, error: str) -> None:
 
 def drop_personal_looks(user_id: int) -> list[str]:
     """Forget the pictures drawn from this user's photo. Returns their files, for deleting."""
-    with connect() as con:
+    with exclusive() as con:
         files = [r["file"] for r in con.execute("SELECT file FROM looks WHERE user_id = ? AND file IS NOT NULL",
                                                 (user_id,))]
         con.execute("DELETE FROM looks WHERE user_id = ?", (user_id,))
     return files
 
 
-def note_look_request() -> int:
-    """Count one picture asked for by the current user. Returns the entry, so it can be given back."""
-    now = time.time()
-    with connect() as con:
+def take_look_ticket(since: float, per_day: int, per_user: int | None) -> tuple[int, str]:
+    """Count one picture for the current user, if the limits leave room for it.
+
+    Returns (ticket, "") when it was counted, or (0, "mine") / (0, "all") naming the limit that
+    is used up: `per_user` for this user (None: no such limit), `per_day` for everyone together.
+    Looking and counting happen in one step, so requests arriving together cannot all slip under.
+    """
+    user_id, now = uid(), time.time()
+    with exclusive() as con:
         con.execute("DELETE FROM look_requests WHERE at < ?", (now - 48 * 3600,))
-        cur = con.execute("INSERT INTO look_requests (user_id, at) VALUES (?, ?)", (uid(), now))
-        return int(cur.lastrowid or 0)
+        if per_user is not None:
+            mine = con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ? AND at > ?",
+                               (user_id, since)).fetchone()[0]
+            if mine >= per_user:
+                return 0, "mine"
+        if con.execute("SELECT COUNT(*) FROM look_requests WHERE at > ?", (since,)).fetchone()[0] >= per_day:
+            return 0, "all"
+        cur = con.execute("INSERT INTO look_requests (user_id, at) VALUES (?, ?)", (user_id, now))
+        return int(cur.lastrowid or 0), ""
 
 
-def drop_look_request(entry: int) -> None:
-    """A request that came to nothing does not count towards the day's limit."""
+def drop_look_request(ticket: int) -> None:
+    """Give a ticket back: a request that certainly cost nothing does not count towards the day's limits."""
     with connect() as con:
-        con.execute("DELETE FROM look_requests WHERE rowid = ?", (entry,))
+        con.execute("DELETE FROM look_requests WHERE id = ?", (ticket,))
 
 
 def look_requests(since: float, mine: bool = False) -> int:
-    """How many pictures were asked for since then: by the current user, or by everyone."""
+    """How many pictures were counted since then: for the current user, or for everyone."""
     with connect() as con:
         if mine:
             return con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ? AND at > ?",

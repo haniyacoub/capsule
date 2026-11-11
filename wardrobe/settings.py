@@ -36,8 +36,23 @@ TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "0") or 0)
 SESSION_DAYS = int(os.environ.get("SESSION_DAYS", "30") or 30)
 
 # Keys of the image services. Secrets: they come from the environment only, never from a file in the project.
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
-GEMINI_API_KEY = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+UNUSABLE_KEYS: list[str] = []      # names of keys that are set but cannot be keys
+
+
+def _key(*names: str) -> str:
+    """The first of these environment variables that is set. A value that cannot be a key (a pasted
+    placeholder such as "sk-…", a stray space or line break) counts as not set, and its name is noted."""
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value and value.isascii() and value.isprintable() and " " not in value:
+            return value
+        if value:
+            UNUSABLE_KEYS.append(name)
+    return ""
+
+
+OPENAI_API_KEY = _key("OPENAI_API_KEY")
+GEMINI_API_KEY = _key("GEMINI_API_KEY", "GOOGLE_API_KEY")
 
 # Accounts
 MIN_PASSWORD_LENGTH = 10

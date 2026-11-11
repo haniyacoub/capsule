@@ -21,6 +21,7 @@ import os
 import re
 import threading
 import time
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,11 +32,14 @@ from .garments import GARMENTS
 log = logging.getLogger("capsule.looks")
 
 STALE_SECONDS = imagegen.TIMEOUT + 60          # a drawing still "working" after this has died
+QUEUE_SECONDS = 30 * 60                        # … and one still waiting its turn after this
 FORGET_FAILURE_SECONDS = 3600                  # after this, or once the app was restarted, a failure is tried afresh
 STARTED = time.time()                          # when this server process started
 _TURNS = threading.BoundedSemaphore(2)         # pictures being drawn at once, per server process
+IN_LINE = "Waiting its turn: pictures are drawn two at a time."
 
 SAY = {
+    "photo": "The image service could not use your photo. Try a different one on the Profile page.",
     "key": "The image service did not accept the key.",
     "account": "The image service account cannot draw right now: no credit, a spending limit, or it still needs verifying.",
     "model": "The image service does not know the model named in config/looks.toml.",
@@ -120,6 +124,9 @@ def status() -> tuple[bool, str]:
     chosen = service()
     if chosen:
         return True, f"on — drawn by {chosen.label}, model {chosen.model}"
+    if settings.UNUSABLE_KEYS:
+        return False, (f"off — {' and '.join(settings.UNUSABLE_KEYS)} is set, but what is in it cannot be a key "
+                       "(it has spaces, line breaks or characters such as “…”). Paste the key itself.")
     wanted = load_rules()["service"]["use"]
     need = {"openai": "OPENAI_API_KEY", "google": "GEMINI_API_KEY"}.get(wanted, "OPENAI_API_KEY or GEMINI_API_KEY")
     return False, f"off — set {need} and start the app again"
@@ -194,7 +201,10 @@ def _describe(piece: dict, pieces: list[dict]) -> str:
     if piece.get("owned"):
         named = _clean(piece.get("slot_name"), 60)
         return line + (f" Described as: {named}." if named else "")
-    name = _clean(piece.get("name"), 90)
+    # The store's own name for the product. (`name` may be the slot's name, which a customer typed,
+    # standing in for a product that has none: outfits saved before `store_name` existed only have that.)
+    theirs = piece["store_name"] if "store_name" in piece else ("" if settings.PRODUCTION else piece.get("name"))
+    name = _clean(theirs, 90)
     english = ""
     if piece.get("store") in ("cos", "weekday"):         # their web addresses carry the name in English
         english = _clean(re.sub(r"-\d{6,}$", "", piece.get("slug") or "").replace("-", " "), 90)
@@ -259,14 +269,22 @@ def _view(row: dict | None) -> Look | None:
     if row["user_id"] is not None and row["user_id"] != db.uid():
         return None                              # drawn from somebody else's photo
     file = row["file"] if row["file"] and (folder() / row["file"]).is_file() else None
-    state, message = row["status"], row["error"] or ""
-    if state == "working" and row["started_at"] < time.time() - STALE_SECONDS:
-        state, message = ("ready" if file else "failed"), SAY["stalled"]    # the server stopped mid-drawing
-    elif state == "failed" and row["started_at"] < max(STARTED, time.time() - FORGET_FAILURE_SECONDS):
-        return None                              # an old failure: whatever was wrong may have been fixed since
-    if state == "ready" and file is None:
-        return None                              # the file was deleted by hand: as if never drawn
-    return Look(row["key"], state, file, message)
+    state, message, now = row["status"], row["error"] or "", time.time()
+    if state == "waiting" and row["started_at"] >= now - QUEUE_SECONDS:
+        return Look(row["key"], "working", file, IN_LINE)
+    if state == "working" and row["started_at"] >= now - STALE_SECONDS:
+        return Look(row["key"], "working", file)
+    if state in ("waiting", "working"):          # the server stopped while it waited or drew
+        state, message = "failed", SAY["stalled"]
+    # What went wrong is worth showing for a while. After an hour, or once the app was restarted,
+    # it may have been put right: the message goes, and a picture that failed is tried afresh.
+    if row["started_at"] < max(STARTED, now - FORGET_FAILURE_SECONDS):
+        message = ""
+    if file:                                     # there is a picture, whatever happened to the last attempt
+        return Look(row["key"], "ready", file, message)
+    if state == "failed" and message:
+        return Look(row["key"], "failed", None, message)
+    return None                                  # nothing to show: as if it had never been asked for
 
 
 def get(key: str) -> Look | None:
@@ -291,8 +309,9 @@ def attach(boards: list[dict]) -> bool:
         return False
     rules = load_rules()
     who = person.current(rules["pictures"]["photos"])
-    for board in boards:
-        board["look_key"] = fingerprint(chosen, prompt(board["pieces"], rules, who), who.mark)
+    for board in boards:      # "look_pieces": what to describe, where that is not exactly what the board shows
+        described = board.get("look_pieces") or board["pieces"]
+        board["look_key"] = fingerprint(chosen, prompt(described, rules, who), who.mark)
     rows = db.look_rows([board["look_key"] for board in boards])
     for board in boards:
         board["look"] = _view(rows.get(board["look_key"]))
@@ -302,15 +321,10 @@ def attach(boards: list[dict]) -> bool:
 
 # ── asking for a picture ──────────────────────────────────────────────────────
 
-def _over_the_limit(rules: dict) -> str | None:
-    since = time.time() - 24 * 3600
-    limits = rules["pictures"]
-    if settings.PRODUCTION and db.look_requests(since, mine=True) >= limits["per_customer_per_day"]:
-        return "You have had today's pictures. There are more tomorrow."
-    if db.look_requests(since) >= limits["per_day"]:
-        return "Today's pictures are used up." + ("" if settings.PRODUCTION
-                                                  else " The limit is per_day in config/looks.toml.")
-    return None
+USED_UP = {
+    "mine": "You have had today's pictures. There are more tomorrow.",
+    "all": "Today's pictures are used up.",
+}
 
 
 def request(pieces: list[dict], again: bool = False) -> Look | None:
@@ -330,19 +344,28 @@ def request(pieces: list[dict], again: bool = False) -> Look | None:
     look = _view(row)
     if look and (look.status == "working" or (look.status == "ready" and not again)):
         return look
-    waiting = held_off()
-    refusal = waiting or _over_the_limit(rules)
-    if refusal:
-        if look and look.status == "ready":
-            look.message = refusal
+    def refused(why: str, status: str) -> Look:
+        if look and look.status == "ready":      # the picture that is there stays; only the new version is refused
+            look.message = why
             return look
-        return Look(key, "failed" if waiting else "limit", message=refusal)
+        return Look(key, status, message=why)
+
+    waiting = held_off()
+    if waiting:
+        return refused(waiting, "failed")
+    now, limits = time.time(), rules["pictures"]
+    ticket, used_up = db.take_look_ticket(now - 24 * 3600, limits["per_day"],
+                                          limits["per_customer_per_day"] if settings.PRODUCTION else None)
+    if not ticket:
+        hint = "" if settings.PRODUCTION or used_up == "mine" else " The limit is per_day in config/looks.toml."
+        return refused(USED_UP[used_up] + hint, "limit")
     lost = row is not None and row["status"] == "ready" and look is None    # its file was deleted by hand
     owner = db.uid() if who.photo else None
-    if db.start_look(key, chosen.tag, time.time() - STALE_SECONDS, again=again or lost, owner=owner):
-        ticket = db.note_look_request()
+    if db.start_look(key, chosen.tag, now - STALE_SECONDS, now - QUEUE_SECONDS, again=again or lost, owner=owner):
         photo = who.photo.read_bytes() if who.photo else None
         _spawn(lambda: _draw(key, chosen, text, photo, ticket))
+    else:
+        db.drop_look_request(ticket)             # somebody else asked for the same picture a moment ago
     return get(key) or Look(key, "working")
 
 
@@ -353,11 +376,19 @@ def _spawn(job) -> None:
 
 def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ticket: int) -> None:
     """Background: have the picture drawn and record how it went. Never raises.
-    `ticket` is this request's entry in the day's count; a request that fails gives it back."""
+    `ticket` is this request's entry in the day's count. It is given back only when the service
+    certainly drew (and billed) nothing; anything else counts, which is what bounds "Try again"."""
     global _held
     with _TURNS:
         try:
-            db.touch_look(key)
+            waiting = held_off()
+            if waiting:                                  # the service failed for another picture meanwhile
+                db.fail_look(key, waiting)
+                db.drop_look_request(ticket)
+                return
+            if not db.touch_look(key):                   # no longer wanted: its account went, or it was started afresh
+                db.drop_look_request(ticket)
+                return
             data, ext = imagegen.draw(chosen, text, photo)
             name = f"{key}-{int(time.time())}.{ext}"     # a new name each time, so browsers don't show the old one
             folder().mkdir(parents=True, exist_ok=True)
@@ -373,9 +404,14 @@ def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ti
                 (folder() / before).unlink(missing_ok=True)
             log.info("Drew look %s with %s", key, chosen.tag)
         except imagegen.DrawError as problem:
+            if photo is not None and problem.kind == "request":
+                # The request the service would not take carried this person's photo. That is their
+                # problem to solve, not a reason to stop drawing for everybody, and it counts as theirs.
+                problem = imagegen.DrawError("photo", problem.detail)
             said = _say(problem)
             db.fail_look(key, said)
-            db.drop_look_request(ticket)
+            if problem.free:
+                db.drop_look_request(ticket)
             wait = HOLD_OFF.get("operator" if problem.kind in OPERATORS else problem.kind)
             if wait:
                 _held = (time.time() + wait, said)
@@ -383,10 +419,11 @@ def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ti
             log.log(level, "Look %s was not drawn (%s): %s", key, problem.kind, problem.detail)
             _write_down(key, chosen, problem.kind, problem.detail)
         except Exception as error:
-            log.exception("Look %s was not drawn", key)
+            # Never the exception's own words in a log that outlives the process: they could quote the key.
+            trace = traceback.format_exc()
+            log.error("Look %s was not drawn\n%s", key, trace.replace(chosen.key, "(the key)") if chosen.key else trace)
             db.fail_look(key, SAY["unknown"])
-            db.drop_look_request(ticket)
-            _write_down(key, chosen, "unknown", f"{type(error).__name__}: {error}")
+            _write_down(key, chosen, "unknown", type(error).__name__)
 
 
 def _say(problem: imagegen.DrawError) -> str:
@@ -402,7 +439,10 @@ def _write_down(key: str, chosen: imagegen.Service, kind: str, detail: str) -> N
     """Keep the reason a picture failed in <data>/looks/problems.log, where the operator can find it later."""
     try:
         folder().mkdir(parents=True, exist_ok=True)
-        with (folder() / "problems.log").open("a", encoding="utf-8") as book:
+        book_path = folder() / "problems.log"
+        if book_path.exists() and book_path.stat().st_size > 512 * 1024:     # keep it readable: one older file, no more
+            os.replace(book_path, folder() / "problems.old.log")
+        with book_path.open("a", encoding="utf-8") as book:
             book.write(f"{db.now_iso()}  {kind:<8} {chosen.tag}  look {key}  {' '.join(detail.split())[:500]}\n")
     except OSError:
         pass                                             # the server log has it too
@@ -415,9 +455,10 @@ def forget_pictures_of(user_id: int) -> None:
 
 
 def forget_photo(user_id: int) -> None:
-    """Delete a user's photo and every picture drawn from it."""
-    forget_pictures_of(user_id)
+    """Delete a user's photo and every picture drawn from it. The photo goes first, so that no
+    new picture of them can be started while the old ones are being removed."""
     person.remove_photo(user_id)
+    forget_pictures_of(user_id)
 
 
 # ── checking the key from the command line ────────────────────────────────────

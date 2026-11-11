@@ -35,12 +35,16 @@
       <b>{{ o.data.name }}</b>
       <span>{{ store(o.data.store) }} {{ pill(o.score) }} {% if o.price > 0 %}{{ o.price|eur }}{% else %}no price{% endif %}{% if not o.available %} · not in your size{% endif %}</span>
     </span>
+    {% if o.price > 0 %}
     <form method="post" action="{{ url_for('slot_pick', slot_id=s.slot.id) }}">{{ csrf_field() }}
       <input type="hidden" name="candidate" value="{{ o.id }}">
       <input type="hidden" name="outfit" value="{{ sig }}">
       <input type="hidden" name="occasion" value="{{ occasion }}">
       <button class="btn ghost small">Choose</button>
     </form>
+    {% else %}
+    <a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id) }}#cand-{{ o.id }}">Add its price</a>
+    {% endif %}
   </li>
   {% endfor %}
 </ul>

@@ -1,9 +1,14 @@
 """Production mode: customer accounts, isolation between customers, and the guards around them."""
 import json
+import os
 import re
 import sqlite3
+import subprocess
+import sys
+import tempfile
 import unittest
 from contextlib import closing
+from pathlib import Path
 from unittest import mock
 
 from wardrobe import catalog, db, mail, paths, selection, settings, shared
@@ -364,6 +369,43 @@ class SharedStoreCatalogue(ProductionCase):
         with self.assertRaises(SystemExit) as stop:
             main(["publish", str(paths.DATA_DIR)])
         self.assertIn("production", str(stop.exception))
+
+
+class StartedTheWayTheGuideSays(unittest.TestCase):
+    """PRODUCTION.md starts the service with WARDROBE_DATA_DIR=./data-production: a folder named
+    from where you stand, not by its full path. The other tests all name theirs in full."""
+
+    ASK_FOR_A_PICTURE = """
+import time
+from wardrobe import db, looks, paths
+from wardrobe.app import create_app
+
+app = create_app()
+db.init()
+key = "ab" * 12
+name = f"{key}-{int(time.time())}.png"
+looks.folder().mkdir(parents=True, exist_ok=True)
+(looks.folder() / name).write_bytes(b"a picture")
+db.start_look(key, "a test", 0, 0)
+db.touch_look(key)
+db.finish_look(key, name)
+print(paths.DATA_DIR)
+print(app.test_client().get(f"/looks/{name}").status_code)
+"""
+
+    def test_a_drawn_picture_is_found_again_when_the_data_folder_is_named_from_where_you_stand(self):
+        # It was drawn, saved and announced on the page, and then could not be sent: Flask took
+        # "data-production/looks/…" as lying inside the app's own folder (a 500 for every picture).
+        settings_of_a_first_start = {name: value for name, value in os.environ.items()
+                                     if name not in ("CAPSULE_ENV", "SECRET_KEY", "SITE_URL")}
+        with tempfile.TemporaryDirectory() as where:
+            ran = subprocess.run(
+                [sys.executable, "-c", self.ASK_FOR_A_PICTURE], cwd=where, capture_output=True, text=True,
+                env={**settings_of_a_first_start, "WARDROBE_DATA_DIR": "./data-production", "PYTHONPATH": str(paths.ROOT)})
+            self.assertEqual(ran.returncode, 0, ran.stderr[-2000:])
+            folder, status = ran.stdout.splitlines()[-2:]
+            self.assertEqual(Path(folder), Path(where).resolve() / "data-production")
+            self.assertEqual(status, "200", ran.stderr[-2000:])
 
 
 class LocalModeStillWorks(unittest.TestCase):

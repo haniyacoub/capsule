@@ -12,6 +12,8 @@ customer's rows.
 """
 from __future__ import annotations
 
+import ipaddress
+import math
 import random
 import re
 import secrets
@@ -107,6 +109,24 @@ def _asset_version() -> int:
     return max((int(p.stat().st_mtime) for p in static.glob("*.*")), default=0)
 
 
+def _this_computer(host: str) -> bool:
+    """Whether the address a browser asked for names this machine directly: localhost, a numeric
+    address, or a name on the home network (something.local).
+
+    Without a login, the app on your own machine trusts whoever can reach it. A web page elsewhere
+    can make a browser talk to it by pointing a domain name of its own at 127.0.0.1; such a request
+    arrives under that domain name, and is refused here.
+    """
+    name = (urlsplit("//" + host).hostname or "").lower()
+    if name == "localhost" or name.endswith(".local"):
+        return True
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return False
+
+
 def _pictures_on() -> bool:
     """Whether AI pictures are switched on. A typo in config/looks.toml must not take the public pages down."""
     try:
@@ -164,6 +184,8 @@ def create_app() -> Flask:
         # A page on some other website must not be able to press buttons here.
         origin = request.headers.get("Origin")
         if request.method == "POST" and origin and urlsplit(origin).netloc != request.host:
+            abort(403)
+        if not conf.PRODUCTION and not _this_computer(request.host):
             abort(403)
         if request.endpoint == "profile_photo":     # the one form that carries a file
             request.max_content_length = person.MAX_PHOTO + 64 * 1024
@@ -311,8 +333,11 @@ def create_app() -> Flask:
     def slot_pick(slot_id: str):
         view = selection.build().get(slot_id)
         cand_id = request.form.get("candidate", "")
-        if view is None or not any(c.id == cand_id for c in view.cands):
+        wanted = next((c for c in view.cands if c.id == cand_id), None) if view else None
+        if wanted is None:
             abort(404)
+        if wanted.price <= 0:           # an item without a price would silently make the wardrobe cheaper
+            abort(409, "That item has no price yet. Add its price on the slot's page first.")
         # Choosing by hand locks the choice, so the price level can't undo it.
         db.update_slot(slot_id, pick=cand_id, locked=True, owned=False)
         if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
@@ -385,10 +410,12 @@ def create_app() -> Flask:
         sizes_given = [s for s in re.split(r"[,;\s]+", form.get("sizes", "").strip()) if s]
         price_text = form.get("price", "").replace("€", "").replace(",", ".").strip()
         try:
-            price = float(price_text) if price_text else None
-        except ValueError:
+            price = round(float(price_text), 2) if price_text else None
+            if price is not None and not (math.isfinite(price) and 0 < price <= 100_000):
+                raise ValueError
+        except (ValueError, OverflowError):
             price = None
-            flash(f"“{form.get('price')}” isn't a price.")
+            flash(f"“{form.get('price', '')[:20]}” isn't a price.")
 
         def change(cat: dict) -> None:
             cand = catalog.find(cat, slot_id, cand_id)
@@ -446,8 +473,11 @@ def create_app() -> Flask:
                 for piece in fav["pieces"]:   # has the wardrobe moved on since this was saved?
                     piece["changed"] = (not piece["owned"]
                                         and now_picked.get(piece["slot_id"]) != piece["cand_id"])
+                same_today = outfits.find(w, fav["key"])       # still one of today's outfits, product for product
                 boards.append({"key": fav["key"], "sig": "", "label": fav["label"],
                                "pieces": outfits.with_roles(fav["pieces"]),
+                               # Its picture is the one "See it worn" would draw: of today's pieces if it still exists.
+                               "look_pieces": outfits.snapshot(same_today) if same_today else None,
                                "cost": round(sum(p["price"] for p in fav["pieces"]), 2),
                                "saved": True, "saved_at": catalog.collected_label({"collected_at": fav["saved_at"]})})
             total = len(boards)
@@ -457,6 +487,8 @@ def create_app() -> Flask:
             if at:      # one particular combination, shown first: after a swap, or "wear something else here"
                 first = outfits.find_by_sig(w, at)
                 if first:
+                    if not first.suits(occasion):
+                        total += 1              # shown although it is not of this occasion: count it
                     chosen = [first] + [o for o in chosen if o.key != first.key]
                 else:
                     flash("With that change the combination no longer passes the outfit rules, "
@@ -709,12 +741,12 @@ def create_app() -> Flask:
 
     @app.post("/profile/photo")
     def profile_photo():
-        if not looks.load_rules()["pictures"]["photos"]:
-            abort(404)
-        if request.form.get("remove") == "1":
+        if request.form.get("remove") == "1":       # always possible, also once uploads were switched off
             looks.forget_photo(db.uid())
             flash("Your photo and the pictures made from it are deleted.")
             return redirect(url_for("profile_page") + "#model")
+        if not looks.load_rules()["pictures"]["photos"]:
+            abort(404)
         upload = request.files.get("photo")
         data = upload.read(person.MAX_PHOTO + 1) if upload else b""
         if not data:

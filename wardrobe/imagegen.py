@@ -27,6 +27,7 @@ and the service's own words.
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import re
 import secrets
@@ -68,11 +69,15 @@ class DrawError(Exception):
         key, account, model, request    something the operator has to fix
         refused                         the service will not draw this
         busy, empty                     worth another try
+
+    `free` is True only when the service certainly drew nothing and so billed nothing: it could
+    not be reached, or it turned the request away at the door. A request that got as far as being
+    worked on may have been charged for, whatever came back.
     """
 
-    def __init__(self, kind: str, detail: str = ""):
+    def __init__(self, kind: str, detail: str = "", free: bool = False):
         super().__init__(f"{kind}: {detail}")
-        self.kind, self.detail = kind, detail
+        self.kind, self.detail, self.free = kind, detail, free
 
 
 def draw(service: Service, prompt: str, photo: bytes | None = None) -> tuple[bytes, str]:
@@ -130,14 +135,14 @@ def _openai_error(status: int, error: object, service: Service) -> DrawError:
     if code == "moderation_blocked" or kind == "image_generation_user_error" or "safety system" in said:
         return DrawError("refused", detail)
     if status == 401:
-        return DrawError("key", detail)
+        return DrawError("key", detail, free=True)
     if status in (402, 403) or code in _NO_CREDIT or kind == "insufficient_quota":
-        return DrawError("account", detail)          # no credit, a spend limit, or the account is not verified
+        return DrawError("account", detail, free=True)   # no credit, a spend limit, or the account is not verified
     if status == 404 or code == "model_not_found" or ("model" in said and "not exist" in said):
-        return DrawError("model", detail)
+        return DrawError("model", detail, free=True)
     if status == 429 or status >= 500:
-        return DrawError("busy", detail)
-    return DrawError("request", detail)
+        return DrawError("busy", detail, free=status == 429)
+    return DrawError("request", detail, free=True)
 
 
 # ── Google ────────────────────────────────────────────────────────────────────
@@ -207,15 +212,17 @@ def _google_error(status: int, error: object, service: Service) -> DrawError:
     if names & {"no_image", "image_other"}:
         return DrawError("empty", detail)
     if status == 401 or names & {"authentication", "unauthenticated"} or "api key" in said:
-        return DrawError("key", detail)
-    if (status in (402, 403) or names & {"payment_required", "permission_denied", "quota_exceeded"}
-            or (status == 429 and "quota" in said)):
-        return DrawError("account", detail)          # billing is off, the quota is used up, or no permission
+        return DrawError("key", detail, free=True)
+    # A 429 can be "slow down" (a per-minute limit: wait a little) or "nothing left" (a daily quota,
+    # no credit: the operator has to act). Google words both as "quota"; only the lasting kind counts here.
+    used_up = status == 429 and any(word in said for word in ("per day", "daily", "billing", "credit", "prepay"))
+    if status in (402, 403) or names & {"payment_required", "permission_denied", "quota_exceeded"} or used_up:
+        return DrawError("account", detail, free=True)   # billing is off, the quota is used up, or no permission
     if status == 404 or names & {"model_not_found", "not_found"}:
-        return DrawError("model", detail)
+        return DrawError("model", detail, free=True)
     if status == 429 or status >= 500:
-        return DrawError("busy", detail)
-    return DrawError("request", detail)
+        return DrawError("busy", detail, free=status == 429)
+    return DrawError("request", detail, free=True)
 
 
 # ── shared plumbing ───────────────────────────────────────────────────────────
@@ -235,14 +242,25 @@ _opener = urllib.request.build_opener(urllib.request.ProxyHandler(urllib.request
 
 def _send(url: str, headers: dict[str, str], body: bytes) -> tuple[int, bytes]:
     """One HTTPS POST. Returns the status and the bytes of the answer."""
+    host = url.split("/")[2]
     request = urllib.request.Request(url, data=body, headers={"User-Agent": AGENT, **headers}, method="POST")
     try:
-        with _opener.open(request, timeout=TIMEOUT) as answer:
-            return answer.status, answer.read(MAX_ANSWER)
+        answer = _opener.open(request, timeout=TIMEOUT)
     except urllib.error.HTTPError as refusal:        # an answer with an error status
         return refusal.code, refusal.read(1024 * 1024)
-    except OSError as problem:                       # no connection, or no answer in time
-        raise DrawError("busy", f"no answer from {url.split('/')[2]}: {type(problem).__name__}: {problem}") from None
+    except urllib.error.URLError as problem:         # it could not be reached: nothing was sent, nothing drawn
+        raise DrawError("busy", f"{host} could not be reached: {type(problem.reason).__name__}", free=True) from None
+    except ValueError:
+        # A header that cannot be sent: in practice a key with a line break or a character such as "…"
+        # in it. The error's own words would quote the key, so they are not passed on.
+        raise DrawError("key", "the key contains characters that no key has", free=True) from None
+    except (OSError, http.client.HTTPException) as problem:    # sent, but no (whole) answer came back in time
+        raise DrawError("busy", f"no answer from {host}: {type(problem).__name__}") from None
+    try:
+        with answer:
+            return answer.status, answer.read(MAX_ANSWER)
+    except (OSError, http.client.HTTPException) as problem:    # the answer broke off half-way
+        raise DrawError("busy", f"the answer from {host} broke off: {type(problem).__name__}") from None
 
 
 def _form(fields: dict[str, str], files: list[tuple[str, str, str, bytes]]) -> tuple[bytes, str]:
