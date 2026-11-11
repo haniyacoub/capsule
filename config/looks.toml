@@ -58,8 +58,8 @@ avoid = "No bag, hat, scarf, gloves, glasses or jewellery unless listed above. N
 # them here if the dots sit beside the garments.
 [hotspots]
 outer  = [66, 50]   # coat or jacket, worn open: its right-hand panel
-mid    = [41, 40]   # blazer, cardigan or overshirt, worn open: its left-hand panel
+mid    = [45, 40]   # blazer, cardigan or overshirt, worn open: its left-hand panel, inside the coat's lapel
 top    = [50, 30]   # chest
 collar = [50, 22]   # a shirt under a jumper shows only here
 bottom = [45, 66]   # thigh
-shoes  = [56, 94]
+shoes  = [58, 92]   # the middle of one shoe
