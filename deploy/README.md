@@ -66,14 +66,33 @@ Both cost money and need your name on them, so they are yours to set up.
   docker compose -f deploy/compose.yaml cp app:/data/backup.db ./capsule-$(date +%F).db
   ```
 
-## A preview from your own Mac, without a server
+## A preview from your own Mac, without a server, an account or a domain
 
-The same tunnel can end on your Mac instead: install `cloudflared`
-(`brew install cloudflared`), set the tunnel's public hostname to
-`http://localhost:8000`, and run `cloudflared tunnel run --token <the token>`
-while the app is running. The site is then reachable on your domain for as
-long as the Mac is on. Good for showing it to someone; not a place for
-customers' data. Put Access in front (step 4) first.
+For showing Capsule to someone, or trying it on your phone. Not a place for
+customers: it runs on your Mac and only while a Terminal window is open.
+
+In the Terminal window the service runs in, stop it with Ctrl+C, then:
+
+```bash
+./deploy/preview.sh
+```
+
+It needs `cloudflared` (`brew install cloudflared`; free, and this kind of
+tunnel needs no Cloudflare account). The script opens a tunnel, reads the
+address Cloudflare gives it (something like
+`https://four-random-words.trycloudflare.com`), and starts the service for
+that address **by invitation**: you log in as always, and only people who have
+the link it prints can create an account. Ctrl+C stops both. The address is
+gone then, and the next run gets a new one.
+
+Pictures a guest draws are billed to your key, within the limits in
+`config/looks.toml`.
+
+With a Cloudflare account and a domain, the tunnel of step 1 can end on your
+Mac instead of a server and keep one address: set its public hostname to
+`http://localhost:8000` and run `cloudflared tunnel run --token <the token>`
+while the service is running, with `SITE_URL`, `TRUSTED_PROXY_HOPS=1` and
+`INVITE_CODE` set as in `deploy/app.env.example`.
 
 ## What has and has not been run
 
@@ -81,3 +100,8 @@ Written without Docker or a Cloudflare account to hand. The GitHub checks build
 the image and start the `app` service from `compose.yaml` on every push. The
 `tunnel` service, the Cloudflare steps and the backup lines above have not been
 run by anyone yet: expect to adjust a detail the first time.
+
+`preview.sh` is tested with a stand-in for `cloudflared` that says what the
+real one says (`tests/test_preview.py`): the service it starts, the invitation,
+the stop. No real tunnel has been opened with it yet, so the first run is the
+first time Cloudflare's side is seen.

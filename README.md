@@ -267,7 +267,7 @@ wardrobe/                  the code; wardrobe/__init__.py lists what each file d
 tests/                     python -m unittest; browser_check.py is the walk-through in a browser
 check.sh                   every check in one go (see "Checks")
 gunicorn.conf.py           read by gunicorn in production mode: stop if workers keep dying (PRODUCTION.md)
-deploy/                    running it on a server behind Cloudflare (deploy/README.md)
+deploy/                    running it on a server behind Cloudflare, or a preview from this Mac (deploy/README.md)
 ```
 
 To start over, stop the app and delete the `data/` folder.
