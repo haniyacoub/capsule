@@ -92,6 +92,11 @@ jobs:
               with urllib.request.urlopen('http://127.0.0.1:8000' + path, timeout=5) as answer:
                   print(answer.status, path)
           "
+      - name: gunicorn read gunicorn.conf.py (it stops if workers keep dying, and opens no control socket)
+        run: |
+          docker compose -f deploy/compose.yaml logs app > app.log
+          grep "Guard on" app.log
+          if grep -i "control socket" app.log; then echo "gunicorn opened its control socket"; exit 1; fi
       - name: What the app logged
         if: always()
         run: docker compose -f deploy/compose.yaml logs app

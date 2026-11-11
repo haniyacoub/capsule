@@ -75,7 +75,7 @@ persistent disk and TLS in front will do as well.
 
 The `Dockerfile` and `deploy/compose.yaml` were written without Docker to hand.
 The GitHub checks build the image and start it on every push, which is the
-only place they have run.
+only place they have run. The Tunnel has never been started.
 
 - **Database:** one SQLite file in WAL mode. That is deliberate: nothing else to
   run, and it comfortably serves a small service on one machine. It rules out
@@ -84,6 +84,18 @@ only place they have run.
 - **Backups:** `sqlite3 "$WARDROBE_DATA_DIR/wardrobe.db" ".backup '/backups/capsule-$(date +%F).db'"`
   on a schedule, copied off the machine. Not set up.
 - **Health check:** `GET /healthz`.
+- **If workers keep dying:** gunicorn starts a new worker for every one that
+  dies, without limit. When something kills each worker as it starts, that is a
+  loop of several a second: on 2026-11-11 a reload on a Mac went through 3,485
+  workers in five minutes. [gunicorn.conf.py](gunicorn.conf.py), which gunicorn
+  reads by itself when it is started from this folder, stops the service after
+  a handful of workers have died within seconds of starting, and says why in
+  its last lines. It also switches off gunicorn's control socket, which the
+  service does not use and which is what made that reload fatal on macOS.
+- **After changing the code:** `kill -HUP <the pid gunicorn prints first>`
+  starts fresh workers and retires the old ones without dropping requests.
+  Settings typed into the terminal (a key, `SITE_URL`) need a stop and a start
+  instead.
 
 ## What is in place
 

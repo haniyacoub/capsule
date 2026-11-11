@@ -1,5 +1,5 @@
 # The public service: the app in production mode behind gunicorn.
-# NOT BUILT OR RUN YET — written without Docker available; test it before relying on it.
+# Built and started by the GitHub checks on every push. It has not yet run on a real server.
 #
 #   docker build -t capsule .
 #   docker run -p 8000:8000 -v capsule-data:/data \
@@ -19,6 +19,8 @@ RUN pip install --no-cache-dir -r requirements-prod.txt
 
 COPY wardrobe ./wardrobe
 COPY config ./config
+# gunicorn reads this by itself from the folder it starts in: stop if workers keep dying, no control socket.
+COPY gunicorn.conf.py .
 
 # The database lives on a volume, owned by an unprivileged user.
 RUN useradd --system --uid 10001 capsule && mkdir /data && chown capsule /data

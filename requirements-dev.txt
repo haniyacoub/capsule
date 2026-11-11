@@ -5,3 +5,4 @@ pyflakes>=4.1      # unused names, typos
 coverage>=7.17     # how much of the code the tests exercise
 bandit>=1.9        # risky patterns
 pip-audit>=2.10    # known vulnerabilities in the packages the app runs on
+gunicorn>=23       # the production server: tests/test_guard.py starts it with gunicorn.conf.py
