@@ -264,6 +264,7 @@ data/browser-profile/      the collector's own Chrome profile (cookies and cache
 wardrobe/                  the code; wardrobe/__init__.py lists what each file does
 tests/                     python -m unittest; browser_check.py is the walk-through in a browser
 check.sh                   every check in one go (see "Checks")
+gunicorn.conf.py           read by gunicorn in production mode: stop if workers keep dying (PRODUCTION.md)
 deploy/                    running it on a server behind Cloudflare (deploy/README.md)
 ```
 

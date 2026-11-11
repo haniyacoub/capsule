@@ -16,13 +16,13 @@ PY="${PYTHON:-python}"
 step() { printf '\n== %s\n' "$1"; }
 
 step "pyflakes: unused names and typos"
-"$PY" -m pyflakes wardrobe tests
+"$PY" -m pyflakes wardrobe tests gunicorn.conf.py
 
 step "mypy: types"
 "$PY" -m mypy wardrobe
 
 step "bandit: risky patterns"
-"$PY" -m bandit -q -c pyproject.toml -r wardrobe
+"$PY" -m bandit -q -c pyproject.toml -r wardrobe gunicorn.conf.py
 
 step "tests, with coverage (expected errors are printed along the way; the verdict is at the end)"
 "$PY" -m coverage run -m unittest
