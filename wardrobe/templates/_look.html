@@ -6,7 +6,7 @@
 {% if look and look.status == 'working' %}
 <p class="look-bar wait" role="status" hx-get="{{ url_for('outfits_look_state', look_key=look.key, outfit=key) }}" hx-trigger="load delay:3s">
   <span class="spin" aria-hidden="true"></span>
-  <span>Drawing this outfit on the model: up to a minute.</span>
+  <span>{{ look.message or 'Drawing this outfit on the model: up to a minute.' }}</span>
 </p>
 {% elif look and look.status == 'ready' %}
 <div class="look-pic">

@@ -41,6 +41,11 @@ It prints an address like `http://192.168.x.x:8000`; open that on a phone on the
 same Wi-Fi. There is no login, so anyone on that network can open it while it
 runs. Use it on a network you trust, and leave `--lan` off otherwise.
 
+Without a login the app answers only when it is asked for by this computer's
+own address: `localhost`, a numeric address like the one above, or a name
+ending in `.local`. A request arriving under any other name is refused, which
+stops a web page elsewhere from talking to it through your browser.
+
 ## Refresh the data
 
 ```bash
@@ -198,8 +203,9 @@ Things to know:
 - **Your model**, on the Profile page, sets who wears the outfits: age, height,
   build, skin, hair, beard. Each picture is drawn afresh, so the face differs a
   little between outfits. Upload **your own photo** there and the pictures show
-  you instead; the photo is kept in `data/people/` and sent to the service with
-  every picture.
+  you instead. Only the picture is kept, in `data/people/`: where and when it
+  was taken, which a phone writes into the file, is cut out first. It is sent
+  to the service with every picture.
 - By default a picture is drawn as soon as you look at an outfit. Set
   `auto = false` in [config/looks.toml](config/looks.toml) to draw only when
   you press "See it worn". `per_day` in the same file caps how many are started
@@ -216,8 +222,13 @@ Things to know:
 - After a failure that needs you (wrong key, no credit, a model name the
   service does not know) the app leaves the service alone for five minutes
   instead of asking again for every outfit you open. Restarting the app clears
-  that, and outfits that failed before are then tried afresh. A request that
-  fails is not counted against `per_day`.
+  that, and outfits that failed before are then tried afresh.
+- What counts against `per_day`: every picture asked for, except a request the
+  service certainly did nothing with (it could not be reached, or it turned
+  the request away: wrong key, no credit, unknown model, "slow down"). A
+  picture the service refused to draw, or an answer that could not be read,
+  may have been charged for, so it counts.
+- Pictures are drawn two at a time; the rest wait their turn and say so.
 
 ## Checks
 

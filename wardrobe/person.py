@@ -8,6 +8,10 @@ described in config/looks.toml.
 The photo is kept in <data>/people/ under your user number and is sent to the
 image service every time a picture of you is drawn. Removing it also removes
 the pictures made from it (the app does that; see looks.forget_photo).
+
+What is kept is the picture and nothing else: the notes a camera or phone
+writes into a photo file (where and when it was taken, on what device, a small
+preview of the original) are cut out before it is stored, see tidy().
 """
 from __future__ import annotations
 
@@ -18,7 +22,8 @@ from pathlib import Path
 
 from . import db, imagegen, paths
 
-MAX_PHOTO = 6 * 1024 * 1024      # bytes; the page shrinks a photo to a fraction of this before sending it
+MAX_PHOTO = 2 * 1024 * 1024      # bytes; the page shrinks a photo to a fraction of this before sending it
+MIN_SIDE, MAX_SIDE = 128, 8000   # pixels: smaller is no use to the image service, larger is not a photo
 
 
 @dataclass(frozen=True)
@@ -127,19 +132,125 @@ def photo() -> Path | None:
 
 def save_photo(data: bytes) -> str | None:
     """Keep this picture as the user's photo. Returns what is wrong with it, or None when saved."""
-    ext = imagegen.kind_of(data)
-    if ext is None:
-        return "That file is not a JPEG, PNG or WebP picture."
     if len(data) > MAX_PHOTO:
-        return "That picture is too large. Use one under 6 MB."
+        return "That photo is too large and could not be made smaller in this browser. Choose one under 2 MB."
+    tidied = tidy(data)
+    if tidied is None:
+        return "That file is not a photo this can use. Choose a JPEG or PNG picture, at least 128 pixels a side."
+    picture, ext = tidied
     user_id = db.uid()
     remove_photo(user_id)
     _folder().mkdir(parents=True, exist_ok=True)
     target = _folder() / f"{user_id}.{ext}"
     tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_bytes(data)
+    tmp.write_bytes(picture)
     os.replace(tmp, target)
     db.set_setting("photo_added", db.now_iso())      # when, and that consent was given then
+    return None
+
+
+# ── only the picture: reading a photo file's structure ────────────────────────
+
+def tidy(data: bytes) -> tuple[bytes, str] | None:
+    """The picture in a JPEG or PNG file, without anything else the file carries, and its type.
+
+    None if the file is not a well-formed JPEG or PNG of a sensible size. This walks the file's
+    structure; it does not decode the picture, so a file can pass and still be rejected by the
+    image service (looks.py then tells the person their photo could not be used).
+    """
+    kind = imagegen.kind_of(data)
+    found = _jpeg(data) if kind == "jpg" else _png(data) if kind == "png" else None
+    if found is None:
+        return None
+    picture, width, height = found
+    if not (MIN_SIDE <= width <= MAX_SIDE and MIN_SIDE <= height <= MAX_SIDE):
+        return None
+    return picture, str(kind)
+
+
+_JPEG_SIZE = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}   # "start of frame"
+
+
+def _jpeg(data: bytes) -> tuple[bytes, int, int] | None:
+    """A JPEG is a row of segments, each starting 0xFF + a marker. Kept: everything the picture
+    needs. Dropped: comments and the "application" segments, where Exif (place, time, device, a
+    preview) and editing history live; the colour profile and Adobe's colour note stay. Whatever
+    follows the end marker (phones append clips and second pictures there) is left out."""
+    if data[:2] != b"\xff\xd8":
+        return None
+    out = bytearray(b"\xff\xd8")
+    width = height = 0
+    at, size = 2, len(data)
+    while at + 2 <= size:
+        if data[at] != 0xFF:
+            return None
+        marker = data[at + 1]
+        if marker == 0xFF:                       # padding between segments
+            at += 1
+            continue
+        if marker == 0xD9:                       # the end of the picture
+            out += b"\xff\xd9"
+            return (bytes(out), width, height) if width and height else None
+        if at + 4 > size:
+            return None
+        length = int.from_bytes(data[at + 2:at + 4], "big")
+        end = at + 2 + length
+        if length < 2 or end > size:
+            return None
+        segment = data[at:end]
+        if marker in _JPEG_SIZE and length >= 7:
+            height, width = int.from_bytes(segment[5:7], "big"), int.from_bytes(segment[7:9], "big")
+        colour_note = (marker == 0xE2 and segment[4:15] == b"ICC_PROFILE") or (marker == 0xEE and segment[4:9] == b"Adobe")
+        if not (marker == 0xFE or (0xE1 <= marker <= 0xEF and not colour_note)):
+            out += segment
+        at = end
+        if marker == 0xDA:                       # "start of scan": the picture data runs to the next real marker
+            stop = _next_marker(data, at)
+            if stop < 0:
+                return None
+            out += data[at:stop]
+            at = stop
+    return None
+
+
+def _next_marker(data: bytes, at: int) -> int:
+    """Where picture data ends: the next 0xFF that is not a stuffed 0xFF00 or a restart marker."""
+    while True:
+        at = data.find(b"\xff", at)
+        if at < 0 or at + 1 >= len(data):
+            return -1
+        following = data[at + 1]
+        if following == 0x00 or 0xD0 <= following <= 0xD7:
+            at += 2
+        elif following == 0xFF:
+            at += 1
+        else:
+            return at
+
+
+_PNG_PICTURE = {b"IHDR", b"PLTE", b"IDAT", b"IEND", b"tRNS", b"gAMA", b"cHRM", b"sRGB", b"iCCP", b"sBIT", b"pHYs"}
+
+
+def _png(data: bytes) -> tuple[bytes, int, int] | None:
+    """A PNG is a row of chunks: length, four-letter type, content, checksum. Kept: the ones the
+    picture needs. Dropped: text, time, Exif, and anything unknown."""
+    out = bytearray(data[:8])
+    width = height = 0
+    at = 8
+    while at + 12 <= len(data):
+        length, kind = int.from_bytes(data[at:at + 4], "big"), data[at + 4:at + 8]
+        end = at + 12 + length
+        if end > len(data) or (at == 8) != (kind == b"IHDR"):      # the header comes first, and only first
+            return None
+        if kind == b"IHDR":
+            if length != 13:
+                return None
+            width, height = int.from_bytes(data[at + 8:at + 12], "big"), int.from_bytes(data[at + 12:at + 16], "big")
+        if kind in _PNG_PICTURE:
+            out += data[at:end]
+        at = end
+        if kind == b"IEND":
+            return (bytes(out), width, height) if width and height else None
     return None
 
 

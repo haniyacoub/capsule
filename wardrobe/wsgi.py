@@ -14,6 +14,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 if settings.PRODUCTION and not settings.SMTP_URL:
     logging.getLogger("capsule").warning("SMTP_URL is not set: password-reset emails will not be sent.")
 
+if settings.PRODUCTION and settings.on_this_machine():
+    logging.getLogger("capsule").info("SITE_URL points at this machine: treated as a trial run, so when a picture "
+                                      "fails the page shows the image service's own words.")
 try:
     logging.getLogger("capsule").info("AI pictures of outfits: %s", looks.status()[1])
 except ConfigError as problem:      # the pages will show the same message

@@ -127,7 +127,8 @@ def snapshot(outfit: Outfit) -> list[dict]:
             "slot_id": p.view.slot["id"], "slot_name": p.view.slot["name"],
             "layer": p.layer, "role": role, "category": p.category, "owned": p.owned, "hex": p.hex,
             "cand_id": chosen.id if chosen else None,
-            "name": data.get("name") or p.view.slot["name"],
+            "name": data.get("name") or p.view.slot["name"],      # what the page shows
+            "store_name": data.get("name") or "",                  # the store's own words, or nothing
             "store": data.get("store", ""), "price": p.price,
             "url": data.get("url", ""), "image_url": data.get("image_url", ""),
             # what the piece is like, for describing it: the store's own words

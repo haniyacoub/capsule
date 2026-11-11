@@ -92,13 +92,18 @@
     <button class="btn">Save model</button>
   </form>
 
-  {% if photos %}
+  {% if photos or has_photo %}
   <h2 class="sec" id="photo">Or be the model yourself</h2>
+  {% endif %}
   {% if has_photo %}
   <div class="me">
     <img src="{{ url_for('profile_photo_file') }}" alt="Your photo" width="96" height="128">
     <div>
+      {% if photos %}
       <p>The pictures are drawn from this photo of you (added {{ photo_added }}). Height and build are still taken from the choices above.</p>
+      {% else %}
+      <p>This photo of you is still stored (added {{ photo_added }}). Pictures are no longer drawn from photos, so it is not used.</p>
+      {% endif %}
       <form method="post" action="{{ url_for('profile_photo') }}" data-confirm="Delete your photo and the pictures made from it?">{{ csrf_field() }}
         <input type="hidden" name="remove" value="1">
         <button class="link danger">Delete my photo and the pictures made from it</button>
@@ -106,13 +111,14 @@
     </div>
   </div>
   {% endif %}
+  {% if photos %}
   <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
     <label class="field"><span>{{ 'Use a different photo' if has_photo else 'A clear, well-lit photo of you facing the camera' }}</span>
-      <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label>
+      <input type="file" name="photo" accept="image/*" required></label>
     <label class="check"><input type="checkbox" name="agree" required> <span>This is a photo of me, I am an adult, and I agree that it is sent to {{ drawn_by }} to draw my outfits.</span></label>
     <button class="btn small">{{ 'Replace photo' if has_photo else 'Use this photo' }}</button>
   </form>
-  <p class="muted small">The photo is kept {{ 'by this service' if production else 'in data/people on this computer' }} until you delete it, and goes to the image service each time a picture is drawn. Your face in a picture will be close, not exact.</p>
+  <p class="muted small">Only the picture is kept: where and when it was taken is removed. It stays {{ 'with this service' if production else 'in data/people on this computer' }} until you delete it, and goes to the image service each time a picture is drawn. Your face in a picture will be close, not exact.</p>
   {% endif %}
 </section>
 {% endif %}

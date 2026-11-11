@@ -107,10 +107,18 @@ only place they have run.
     Anything a customer typed (slot names, links, items added by hand) is left
     out of the description.
   - A customer may upload a photo of themselves after ticking a consent box.
-    It is stored under their account, sent to the image service with each
-    picture, visible to nobody else, and deleted with the pictures made from
-    it when they remove it or delete the account. `photos = false` in
-    `config/looks.toml` switches uploads off.
+    Only the picture is stored (what a phone writes into the file about place,
+    time and device is cut out), under their account. It is sent to the image
+    service with each picture, visible to nobody else, and deleted with the
+    pictures made from it when they remove it or delete the account.
+    `photos = false` in `config/looks.toml` switches uploads off; photos
+    already stored can still be deleted by their owners.
+  - What counts against the limits: every picture asked for, unless the
+    service certainly did nothing with the request. Deleting an account does
+    not give its pictures back to the day's total, and "Try again" on a
+    picture the service refuses stops at the customer's allowance.
+  - A photo the image service cannot use is that customer's failure: it does
+    not pause pictures for everybody else.
   - When the service refuses for a reason only you can fix (key, credit,
     model name), customers read "Pictures are not available at the moment".
     The reason is in the server log and in `looks/problems.log` in the data

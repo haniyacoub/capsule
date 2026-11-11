@@ -103,7 +103,8 @@ if (sheet) {
   });
   sheet.addEventListener('click', (e) => {
     const box = sheet.getBoundingClientRect();
-    const outside = e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom;
+    const outside = e.target === sheet    // the dark area around it; a key press on a button inside has no position
+      && (e.clientX < box.left || e.clientX > box.right || e.clientY < box.top || e.clientY > box.bottom);
     if (outside || e.target.closest('[data-close]')) sheet.close();
   });
 }
@@ -130,6 +131,8 @@ document.addEventListener('change', async (e) => {
   if (!(input instanceof HTMLInputElement) || input.type !== 'file' || !input.closest('[data-photo-form]')) return;
   const file = input.files[0];
   if (!file) return;
+  const send = input.form.querySelector('button');
+  send.disabled = true;     // not before the smaller copy is in place: the original must not be what is sent
   try {
     const picture = await createImageBitmap(file);
     const scale = Math.min(1, 1280 / Math.max(picture.width, picture.height));
@@ -142,8 +145,10 @@ document.addEventListener('change', async (e) => {
     smaller.items.add(new File([blob], 'me.jpg', { type: 'image/jpeg' }));
     input.files = smaller.files;
   } catch (err) {
-    // A browser that cannot do this sends the photo as it is; the server checks it either way.
+    // A browser that cannot do this sends the photo as it is. The server keeps only the picture
+    // either way, and refuses a file that is too large.
   }
+  send.disabled = false;
 });
 
 // 11. A button on a page that has gone out of date (the outfit changed meanwhile): reload.

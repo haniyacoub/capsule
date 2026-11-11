@@ -45,6 +45,16 @@ DEFAULT_MODE = "cheapest"
 DEFAULT_THRESHOLD = 70
 
 
+def usable_price(value: object) -> float:
+    """A price in euros and whole cents, or 0 when there is none: nothing stored, or something
+    stored that is not a price (text, a negative or absurd number) in a file or a feed."""
+    try:
+        price = float(value or 0)       # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+    return round(price, 2) if math.isfinite(price) and 0 < price < 1_000_000 else 0.0
+
+
 @dataclass
 class Cand:
     """One candidate, with everything the pages need worked out."""
@@ -68,7 +78,7 @@ class Cand:
 
     @property
     def price(self) -> float:
-        return float(self.data.get("price") or 0)
+        return usable_price(self.data.get("price"))
 
     @property
     def available(self) -> bool:
@@ -187,6 +197,7 @@ class Wardrobe:
 
 def _cand(raw: dict, slot: dict, profile: dict, rules: dict, charts: dict) -> Cand:
     data = {**raw, **(raw.get("manual") or {})}     # details you typed in win over collected ones
+    data["price"] = usable_price(data.get("price"))
     category = slot["category"]
     raw_hex = data.get("colour_hex")
     if colours.is_hex(raw_hex):
@@ -281,7 +292,8 @@ def fit_budget(free: list[tuple[str, int, list[Cand]]], budget: float,
         for a, b in zip(steps, steps[1:]):
             price = cents[sid][b.id] - cents[sid][a.id]
             gain = (b.score.total - a.score.total) * weight.get(sid, 1.0)
-            upgrades.append((-gain / price, price, sid, a.id, b))
+            if price > 0:                                   # (always, since each rung costs more than the last)
+                upgrades.append((-gain / price, price, sid, a.id, b))
     upgrades.sort(key=lambda u: u[:4])                      # most gain per euro first; ties: cheaper, then by name
     for _, price, sid, from_id, to in upgrades:
         if picks[sid].id == from_id and price <= left:      # only from where the slot stands now
