@@ -259,6 +259,7 @@ details.why summary::-webkit-details-marker { display: none; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 10px; }
 .looks { position: relative; }
 .reel {   /* a row of full-width slides; the browser snaps to one outfit at a time */
+  position: relative;   /* what is placed inside a slide stays inside the row; else the page grows to all the outfits' width */
   display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
   overscroll-behavior-x: contain; scrollbar-width: none; margin: 0 -14px; outline: none;
 }

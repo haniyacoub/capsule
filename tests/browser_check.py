@@ -73,6 +73,7 @@ imagegen.draw = stand_in
 
 failures: list[str] = []
 PASSWORD = "only for this check 123"
+EMAIL = f"check-{secrets.token_hex(4)}@example.com"
 
 
 def run(base: str) -> None:
@@ -109,10 +110,39 @@ def run(base: str) -> None:
 
         def sign_up():
             page.goto(base + "/signup", wait_until="networkidle")
-            page.fill("input[name=email]", f"check-{secrets.token_hex(4)}@example.com")
+            page.fill("input[name=email]", EMAIL)
             page.fill("input[name=password]", PASSWORD)
             page.click("button:has-text('Create account')")
             page.wait_for_url("**/profile")
+
+        def nothing_scrolls_sideways():
+            # A page wider than the screen makes a phone zoom out until everything on it is tiny, and lets
+            # a computer scroll sideways into nothing. It happened to Outfits: hidden labels inside the row
+            # of outfits were placed against the page instead of the row, and stretched it to twelve outfits.
+            wide: list[str] = []
+            for width, phone in ((390, True), (1280, False)):
+                context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
+                other = context.new_page()
+
+                def measure(path: str) -> None:
+                    other.goto(base + path, wait_until="networkidle")
+                    other.wait_for_timeout(300)
+                    seen = other.evaluate("() => [innerWidth, document.documentElement.scrollWidth]")
+                    if seen[0] != width or seen[1] > width + 1:
+                        wide.append(f"{path} at {width}px is {seen[1]}px wide")
+
+                for path in ("/", "/signup", "/login"):        # as a visitor
+                    measure(path)
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_load_state("networkidle")
+                slot = other.locator("a[href^='/slot/']").first.get_attribute("href")
+                for path in ("/", "/slots", slot, "/outfits", "/outfits?occasion=saved", "/list", "/profile", "/account"):
+                    measure(path)
+                context.close()
+            assert not wide, "wider than the screen: " + "; ".join(wide)
 
         def price_levels():
             page.goto(base + "/", wait_until="networkidle")
@@ -264,6 +294,7 @@ def run(base: str) -> None:
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),
+                 ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("delete the account", delete_account)]
         for name, step in steps:
