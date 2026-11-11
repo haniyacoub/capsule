@@ -25,6 +25,10 @@ from . import db, imagegen, paths
 MAX_PHOTO = 2 * 1024 * 1024      # bytes; the page shrinks a photo to a fraction of this before sending it
 MIN_SIDE, MAX_SIDE = 128, 8000   # pixels: smaller is no use to the image service, larger is not a photo
 
+TOO_LARGE = "That photo is too large and could not be made smaller in this browser. Choose one under 2 MB."
+NOT_A_PHOTO = ("That file is not a photo this can use. Choose a JPEG or PNG picture, at least 128 pixels a side. "
+               "(Photos from an iPhone are often HEIC: save a copy as JPEG first.)")
+
 
 @dataclass(frozen=True)
 class Choice:
@@ -133,10 +137,10 @@ def photo() -> Path | None:
 def save_photo(data: bytes) -> str | None:
     """Keep this picture as the user's photo. Returns what is wrong with it, or None when saved."""
     if len(data) > MAX_PHOTO:
-        return "That photo is too large and could not be made smaller in this browser. Choose one under 2 MB."
+        return TOO_LARGE
     tidied = tidy(data)
     if tidied is None:
-        return "That file is not a photo this can use. Choose a JPEG or PNG picture, at least 128 pixels a side."
+        return NOT_A_PHOTO
     picture, ext = tidied
     user_id = db.uid()
     remove_photo(user_id)

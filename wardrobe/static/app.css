@@ -471,6 +471,11 @@ details[open] > summary .edit { visibility: hidden; }
 .me { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; align-items: start; margin: 10px 0 14px; }
 .me img { width: 96px; height: 128px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
 .me p { font-size: 14px; }
+.photo-ready { display: flex; align-items: center; gap: 12px; font-size: 14px; line-height: 1.4; background: var(--soft); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
+.photo-ready[hidden] { display: none; }
+.photo-ready img { width: 54px; height: 72px; object-fit: cover; border-radius: 7px; border: 1px solid var(--line); flex: none; }
+.photo-ready.bad, .flash.bad { color: var(--poor); background: var(--poor-bg); border-color: color-mix(in srgb, var(--poor) 35%, var(--line)); }
+:target { scroll-margin-top: 84px; }       /* a place the page jumps to must not land under the bar that sticks to the top */
 .check input { flex: none; }
 .check span { flex: 1; min-width: 0; }
 .open-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: 10px 14px 14px; border-top: 1px solid var(--line); }

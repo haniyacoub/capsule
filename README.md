@@ -205,7 +205,9 @@ Things to know:
   little between outfits. Upload **your own photo** there and the pictures show
   you instead. Only the picture is kept, in `data/people/`: where and when it
   was taken, which a phone writes into the file, is cut out first. It is sent
-  to the service with every picture.
+  to the service with every picture. It has to be a JPEG or PNG: an iPhone's
+  HEIC photo cannot be opened by most browsers, and the page says so as soon
+  as you choose one (save a copy as JPEG in Photos or Preview first).
 - By default a picture is drawn as soon as you look at an outfit. Set
   `auto = false` in [config/looks.toml](config/looks.toml) to draw only when
   you press "See it worn". `per_day` in the same file caps how many are started

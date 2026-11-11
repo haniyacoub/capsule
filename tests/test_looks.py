@@ -887,6 +887,53 @@ class TheModel(WithPictures, AppCase):
         self.post("/outfits/look", key=outfit.key)
         self.assertIsNone(self.drawn[2]["photo"])
 
+    def parts(self) -> tuple[str, str, str]:
+        """The Profile page as it is read: what comes before the model's section, the model, the photo."""
+        page = self.client.get("/profile").data.decode()
+        top, _, rest = page.partition('id="model"')
+        model, _, photo = rest.partition('id="photo"')
+        return top, model, photo
+
+    def test_what_became_of_a_photo_is_said_where_the_page_lands(self):
+        # After the form is sent the page jumps down to the photo. A message at the top of the page
+        # is then never seen: a photo that was refused looked saved, and the pictures showed somebody else.
+        refused = self.upload(b"an iPhone's HEIC, or anything else that is not a JPEG or PNG", agree="on")
+        self.assertTrue(refused.headers["Location"].endswith("/profile#photo"))
+        top, model, photo = self.parts()
+        self.assertIn("Not saved.", photo)
+        self.assertIn("HEIC", photo)
+        self.assertNotIn("Not saved.", top + model)
+
+        self.upload()                                                # the box not ticked
+        self.assertIn("Not saved. Tick the box", self.parts()[2])
+
+        self.upload(agree="on")
+        top, model, photo = self.parts()
+        self.assertIn("Photo saved.", photo)
+        self.assertNotIn("Photo saved.", top + model)
+        self.assertNotIn("Photo saved.", self.parts()[2], "said once, not on every later visit")
+
+        self.client.post("/profile/model", data={"build": "slim"})
+        top, model, photo = self.parts()
+        self.assertIn("Model saved.", model)
+        self.assertNotIn("Model saved.", top + photo)
+
+        self.client.post("/profile/photo", data={"remove": "1"})
+        self.assertIn("are deleted", self.parts()[2])
+
+    def test_a_photo_too_large_to_take_comes_back_to_the_form(self):
+        huge = self.upload(PHOTO + b"\x00" * (person.MAX_PHOTO + 128 * 1024), agree="on")
+        self.assertEqual(huge.status_code, 302, "back to the Profile page, not a bare error page")
+        self.assertTrue(huge.headers["Location"].endswith("/profile#photo"))
+        self.assertIn("Not saved. That photo is too large", self.parts()[2])
+        self.assertIsNone(person.photo())
+
+    def test_messages_of_other_pages_stay_at_the_top(self):
+        self.client.post("/profile", data={"budget": "1500"})
+        top, model, photo = self.parts()
+        self.assertIn("Profile saved", top)
+        self.assertNotIn("Profile saved", model + photo)
+
     def test_photos_can_be_switched_off_altogether(self):
         self.upload(agree="on")
         self.with_rules(photos=False)

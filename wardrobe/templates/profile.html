@@ -74,6 +74,9 @@
 {% if looks_on or not production %}
 <section class="card" id="model">
   <h1>Your model</h1>
+  {% for message in get_flashed_messages(category_filter=['model']) %}
+  <p class="flash" role="status">{{ message }}</p>
+  {% endfor %}
   <p class="muted">Who wears your outfits in the AI pictures. Pick what you like; whatever stays on “Any” is left to the image service.</p>
   {% if not looks_on %}
   <p class="demo"><b>AI pictures are switched off.</b> You can set the model up now; it is used once a key for the image service is set (README, “AI pictures of outfits”).</p>
@@ -92,9 +95,15 @@
     <button class="btn">Save model</button>
   </form>
 
-  {% if photos or has_photo %}
-  <h2 class="sec" id="photo">Or be the model yourself</h2>
-  {% endif %}
+  {# What became of a photo that was just sent or deleted is said here, where the page lands. #}
+  <div id="photo">
+    {% if photos or has_photo %}
+    <h2 class="sec">Or be the model yourself</h2>
+    {% endif %}
+    {% for message in get_flashed_messages(category_filter=['photo']) %}
+    <p class="flash{% if message.startswith('Not saved') or message.startswith('No photo') %} bad{% endif %}" role="status">{{ message }}</p>
+    {% endfor %}
+  </div>
   {% if has_photo %}
   <div class="me">
     <img src="{{ url_for('profile_photo_file') }}" alt="Your photo" width="96" height="128">
@@ -115,6 +124,8 @@
   <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
     <label class="field"><span>{{ 'Use a different photo' if has_photo else 'A clear, well-lit photo of you facing the camera' }}</span>
       <input type="file" name="photo" accept="image/*" required></label>
+    {# app.js says here what it made of the chosen file: ready to send, or not a picture this browser can open. #}
+    <div class="photo-ready" data-photo-ready role="status" hidden><img alt="" width="54" height="72" hidden><p></p></div>
     <label class="check"><input type="checkbox" name="agree" required> <span>This is a photo of me, I am an adult, and I agree that it is sent to {{ drawn_by }} to draw my outfits.</span></label>
     <button class="btn small">{{ 'Replace photo' if has_photo else 'Use this photo' }}</button>
   </form>

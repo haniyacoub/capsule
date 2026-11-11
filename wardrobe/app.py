@@ -233,6 +233,9 @@ def create_app() -> Flask:
     def http_error(err: HTTPException):
         if request.headers.get("HX-Request") or err.code in (301, 302, 303, 307, 308):
             return err
+        if err.code == 413 and request.endpoint == "profile_photo":     # back to the form, not to a dead end
+            flash(f"Not saved. {person.TOO_LARGE}", "photo")
+            return redirect(url_for("profile_page") + "#photo")
         titles = {400: "That didn't go through", 403: "Not allowed", 404: "Page not found",
                   409: "That changed in the meantime", 413: "Too much data", 429: "Too many attempts",
                   501: "Not available yet"}
@@ -301,7 +304,8 @@ def create_app() -> Flask:
     @app.get("/")
     def wardrobe():
         if conf.PRODUCTION and g.user is None:
-            return render_template("landing.html", looks_on=_pictures_on())      # the public website
+            return render_template("landing.html", looks_on=_pictures_on(),      # the public website
+                                   invite=bool(conf.INVITE_CODE))
         return page("wardrobe.html", tab="wardrobe")
 
     @app.post("/settings")
@@ -736,29 +740,33 @@ def create_app() -> Flask:
     @app.post("/profile/model")
     def profile_model():
         person.save({group: request.form.get(group, "") for group in person.GROUPS})
-        flash("Model saved. Pictures drawn from now on show it; open Outfits to see.")
+        # Said where the page lands (the "model" and "photo" kinds are shown inside that section,
+        # not at the top of the page, which is off the screen by then).
+        flash("Model saved. Pictures drawn from now on show it; open Outfits to see.", "model")
         return redirect(url_for("profile_page") + "#model")
 
     @app.post("/profile/photo")
     def profile_photo():
+        back = redirect(url_for("profile_page") + "#photo")
         if request.form.get("remove") == "1":       # always possible, also once uploads were switched off
             looks.forget_photo(db.uid())
-            flash("Your photo and the pictures made from it are deleted.")
-            return redirect(url_for("profile_page") + "#model")
+            flash("Your photo and the pictures made from it are deleted.", "photo")
+            return back
         if not looks.load_rules()["pictures"]["photos"]:
             abort(404)
         upload = request.files.get("photo")
         data = upload.read(person.MAX_PHOTO + 1) if upload else b""
         if not data:
-            flash("Choose a photo first.")
+            flash("No photo arrived. Choose a photo first.", "photo")
         elif request.form.get("agree") != "on":
-            flash("Tick the box to confirm that it is a photo of you and may be sent to the image service.")
+            flash("Not saved. Tick the box to confirm that it is a photo of you and may be sent to the image service.", "photo")
         else:
             problem = person.save_photo(data)
             if problem is None:
                 looks.forget_pictures_of(db.uid())      # those showed the previous photo
-            flash(problem or "Photo saved. Pictures drawn from now on show you; open Outfits to see.")
-        return redirect(url_for("profile_page") + "#model")
+            flash(f"Not saved. {problem}" if problem
+                  else "Photo saved. Pictures drawn from now on show you; open Outfits to see.", "photo")
+        return back
 
     @app.get("/profile/photo")
     def profile_photo_file():

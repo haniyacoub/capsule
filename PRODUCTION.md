@@ -63,6 +63,7 @@ All through environment variables (documented in `wardrobe/settings.py`).
 | `TRUSTED_PROXY_HOPS` | usually `1` | number of reverse proxies in front, so addresses and https are read correctly |
 | `SMTP_URL`, `MAIL_FROM` | for resets | `smtp://user:password@host:587` (or `smtps://…:465`) |
 | `SESSION_DAYS` | no | how long a login lasts (default 30) |
+| `INVITE_CODE` | while the service is not open to everyone | if set (8 characters or more), creating an account needs this code. Give it out as `<SITE_URL>/signup?code=<the code>`. Wrong codes count against the sign-up limit per connection |
 | `OPENAI_API_KEY` or `GEMINI_API_KEY` | for AI pictures | the image service's key; every picture is billed to it. Which service, model and limits: `config/looks.toml` |
 
 ## Deploying
