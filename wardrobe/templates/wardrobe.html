@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Wardrobe · Capsule{% endblock %}
+{% block main %}
+{# The price level and the quality slider. Any change posts the form; the slot
+   cards below are re-rendered and swapped in, and the summary bar and the
+   level totals with them. hx-sync makes quick taps take turns, so the page
+   always ends on the latest state. #}
+<div hx-sync="this:queue all">
+<form id="controls" class="controls" method="post" action="{{ url_for('settings') }}"
+      hx-post="{{ url_for('settings') }}" hx-target="#wardrobe-body" hx-swap="innerHTML"
+      hx-trigger="change, input delay:150ms from:#threshold">{{ csrf_field() }}
+  <div class="seg levels" role="radiogroup" aria-label="Which option fills each slot: a price level, or the best your budget buys">
+    {% for key, label in MODES.items() %}
+    <label title="{{ level_hints[key] }}"{% if key == 'budget' %} class="wide"{% endif %}><input type="radio" name="mode" value="{{ key }}"{% if w.mode == key %} checked{% endif %}><span>{{ label }}{% include "_level_total.html" %}</span></label>
+    {% endfor %}
+  </div>
+  <label class="thr" for="threshold">
+    <span class="thr-text"><span>Minimum quality <small>(0 = anything goes)</small></span><output id="thr-out" for="threshold">{{ w.threshold }}</output></span>
+    <input type="range" id="threshold" name="threshold" min="0" max="100" step="1" value="{{ w.threshold }}">
+  </label>
+  <noscript><button class="btn small">Apply</button></noscript>
+</form>
+
+<div id="wardrobe-body" hx-target="this" hx-swap="innerHTML">
+  {% include "_wardrobe_body.html" %}
+</div>
+</div>
+{% endblock %}

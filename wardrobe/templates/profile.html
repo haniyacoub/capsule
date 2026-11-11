@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Profile · Capsule{% endblock %}
+{% block main %}
+{% macro colour_names(keys) %}{% for k in keys %}{{ COLOURS[k].label|lower if k in COLOURS else k }}{{ ', ' if not loop.last }}{% endfor %}{% endmacro %}
+<section class="card">
+  <h1>About you</h1>
+  {% if profile.example %}
+  <p class="demo"><b>These are example values.</b> Replace them with your own and save — the capsule is then re-proposed around your colours and what the wardrobe is for.</p>
+  {% else %}
+  <p class="muted">Sizes decide what counts as “in stock”, colours and use shape the capsule, the budget drives the bar at the top.</p>
+  {% endif %}
+
+  <form class="form" method="post" action="{{ url_for('profile_page') }}">{{ csrf_field() }}
+    <h2 class="sec">Sizes</h2>
+    <div class="row">
+      <label class="field"><span>Tops</span>
+        <select name="top_size">
+          {% for size in ALPHA %}<option{% if profile.top_size == size %} selected{% endif %}>{{ size }}</option>{% endfor %}
+        </select></label>
+      <label class="field"><span>Shoes (EU)</span>
+        <input type="text" name="shoe" inputmode="decimal" value="{{ profile.shoe }}"></label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Trousers waist (inches)</span>
+        <input type="number" name="waist" min="26" max="46" inputmode="numeric" value="{{ profile.waist }}"></label>
+      <label class="field"><span>Trousers length (inches)</span>
+        <input type="number" name="length" min="28" max="38" inputmode="numeric" value="{{ profile.length }}"></label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Height (cm)</span>
+        <input type="number" name="height_cm" min="140" max="220" inputmode="numeric" value="{{ profile.height_cm }}"></label>
+      <label class="field"><span>Weight (kg)</span>
+        <input type="number" name="weight_kg" min="40" max="200" inputmode="numeric" value="{{ profile.weight_kg }}"></label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Chest (cm) <small>optional</small></span>
+        <input type="text" name="chest_cm" inputmode="decimal" placeholder="e.g. 98" value="{{ '%g'|format(profile.chest_cm) if profile.chest_cm else '' }}"></label>
+      <label class="field"><span>Waist (cm) <small>optional</small></span>
+        <input type="text" name="waist_cm" inputmode="decimal" placeholder="e.g. 84" value="{{ '%g'|format(profile.waist_cm) if profile.waist_cm else '' }}"></label>
+    </div>
+    <p class="muted small">The size check flags oversized and slim cuts, half shoe sizes and odd trouser lengths from the sizes above. With your chest and body waist it also compares you with each store's size chart and says where you fall between two sizes.</p>
+
+    <h2 class="sec">Budget</h2>
+    <label class="field"><span>For the whole wardrobe (EUR)</span>
+      <input type="number" name="budget" min="0" step="10" inputmode="numeric" value="{{ profile.budget }}"></label>
+
+    <h2 class="sec">Colours</h2>
+    <label class="field"><span>Colours I like <small>(most important first, comma-separated)</small></span>
+      <input type="text" name="liked" value="{{ colour_names(profile.liked) }}" autocapitalize="off"></label>
+    <label class="field"><span>Colours I refuse</span>
+      <input type="text" name="refused" value="{{ colour_names(profile.refused) }}" autocapitalize="off" placeholder="e.g. yellow, pink"></label>
+    <p class="muted small">Recognised: {% for c in COLOURS.values() %}<span class="mini"><i style="background:{{ c.hex }}"></i>{{ c.label|lower }}</span>{% endfor %}</p>
+
+    <h2 class="sec">What it is for</h2>
+    <div class="seg" role="radiogroup" aria-label="Use">
+      {% for key, label in USES.items() %}
+      <label><input type="radio" name="use" value="{{ key }}"{% if profile.use == key %} checked{% endif %}><span>{{ label }}</span></label>
+      {% endfor %}
+    </div>
+    <label class="check"><input type="checkbox" name="shoes"{% if profile.shoes %} checked{% endif %}> Include shoes</label>
+    <label class="check"><input type="checkbox" name="outerwear"{% if profile.outerwear %} checked{% endif %}> Include outerwear</label>
+
+    <h2 class="sec">Already in your wardrobe</h2>
+    <label class="field"><span>Things to build around <small>(one per line, e.g. “white leather sneakers”)</small></span>
+      <textarea name="owned" rows="4" autocapitalize="off">{{ profile.owned }}</textarea></label>
+    <p class="muted small">Each line is matched to a slot of that garment type and marked as owned, so it costs nothing and still appears in outfits.</p>
+
+    <button class="btn">Save profile</button>
+  </form>
+</section>
+
+{# Who wears the outfits in the AI pictures (person.py). Customers of a service
+   without AI pictures are not shown a menu that would do nothing. #}
+{% if looks_on or not production %}
+<section class="card" id="model">
+  <h1>Your model</h1>
+  <p class="muted">Who wears your outfits in the AI pictures. Pick what you like; whatever stays on “Any” is left to the image service.</p>
+  {% if not looks_on %}
+  <p class="demo"><b>AI pictures are switched off.</b> You can set the model up now; it is used once a key for the image service is set (README, “AI pictures of outfits”).</p>
+  {% endif %}
+  <form class="form" method="post" action="{{ url_for('profile_model') }}">{{ csrf_field() }}
+    {% for group, entry in groups.items() %}
+    <fieldset class="pick">
+      <legend>{{ entry[0] }}</legend>
+      <label><input type="radio" name="{{ group }}" value=""{% if group not in model %} checked{% endif %}><span>Any</span></label>
+      {% for o in entry[1] %}
+      <label><input type="radio" name="{{ group }}" value="{{ o.key }}"{% if model.get(group) == o.key %} checked{% endif %}><span>{% if o.swatch %}<i style="background:{{ o.swatch }}"></i>{% endif %}{{ o.label }}</span></label>
+      {% endfor %}
+    </fieldset>
+    {% endfor %}
+    <p class="muted small">Described to the image service as: “{{ model_words }}”. Each picture is drawn afresh, so the face differs a little from one outfit to the next; with your own photo it stays you.</p>
+    <button class="btn">Save model</button>
+  </form>
+
+  {% if photos %}
+  <h2 class="sec" id="photo">Or be the model yourself</h2>
+  {% if has_photo %}
+  <div class="me">
+    <img src="{{ url_for('profile_photo_file') }}" alt="Your photo" width="96" height="128">
+    <div>
+      <p>The pictures are drawn from this photo of you (added {{ photo_added }}). Height and build are still taken from the choices above.</p>
+      <form method="post" action="{{ url_for('profile_photo') }}" data-confirm="Delete your photo and the pictures made from it?">{{ csrf_field() }}
+        <input type="hidden" name="remove" value="1">
+        <button class="link danger">Delete my photo and the pictures made from it</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+  <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
+    <label class="field"><span>{{ 'Use a different photo' if has_photo else 'A clear, well-lit photo of you facing the camera' }}</span>
+      <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label>
+    <label class="check"><input type="checkbox" name="agree" required> <span>This is a photo of me, I am an adult, and I agree that it is sent to {{ drawn_by }} to draw my outfits.</span></label>
+    <button class="btn small">{{ 'Replace photo' if has_photo else 'Use this photo' }}</button>
+  </form>
+  <p class="muted small">The photo is kept {{ 'by this service' if production else 'in data/people on this computer' }} until you delete it, and goes to the image service each time a picture is drawn. Your face in a picture will be close, not exact.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

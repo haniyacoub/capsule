@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>{% block title %}Capsule{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231b1b1a'/%3E%3Cpath d='M16 11a2.5 2.5 0 1 0-2.5-2.5M16 11v2.5l9 6.5H7l9-6.5' fill='none' stroke='%23f6f5f2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="manifest" href="{{ url_for('static', filename='app.webmanifest') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ asset_v }}">
+  <script src="{{ url_for('static', filename='vendor/htmx.min.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js') }}?v={{ asset_v }}" defer></script>
+</head>
+{# In production every HTMX request carries the CSRF token in a header. #}
+<body{% if production %} hx-headers='{"X-CSRF-Token": "{{ csrf_token() }}"}'{% endif %}>
+  <header class="top">
+    <a class="brand" href="{{ url_for('wardrobe') }}">Capsule</a>
+    {% block nav %}
+    <nav class="tabs" aria-label="Sections">
+      {% for key, label, endpoint in nav %}
+      <a href="{{ url_for(endpoint) }}"{% if tab == key %} class="on" aria-current="page"{% endif %}>{{ label }}</a>
+      {% endfor %}
+    </nav>
+    {% if production and user %}
+    <a class="account-link{% if tab == 'account' %} on{% endif %}" href="{{ url_for('auth.account') }}">Account</a>
+    {% endif %}
+    {% endblock %}
+  </header>
+
+  {% block summary %}{% include "_summary.html" %}{% endblock %}
+
+  <main>
+    {% block notices %}
+    {% if w is defined and w.source == 'mock' %}
+    <p class="demo"><b>Demo data</b> — invented items, not real products, prices or stock.</p>
+    {% endif %}
+    {% endblock %}
+    {% for message in get_flashed_messages() %}
+    <p class="flash" role="status">{{ message }}</p>
+    {% endfor %}
+    {% block main %}{% endblock %}
+  </main>
+
+  {% if production %}
+  <footer class="site-foot">
+    {% for name, title in legal_pages.items() %}<a href="{{ url_for('legal_page', name=name) }}">{{ title }}</a>{% endfor %}
+    <span>Not affiliated with any retailer.</span>
+  </footer>
+  {% endif %}
+</body>
+</html>

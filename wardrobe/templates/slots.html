@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Slots · Capsule{% endblock %}
+{% block main %}
+{% from "_macros.html" import slot_fields %}
+{% set pieces = w.slots|sum(attribute='qty') %}
+<section class="card">
+  <h1>Your capsule</h1>
+  <p class="muted">{{ w.slots|length }} slots, {{ pieces }} pieces. Each slot is one thing to find in the stores, so shape this list before any data is collected: rename, recolour, remove or add.</p>
+  <div class="palette">
+    {% for role, c in palette %}
+    <span class="swatch-chip"><i style="background:{{ c.hex }}"></i>{{ c.label }} <small>{{ role|lower }}</small></span>
+    {% endfor %}
+  </div>
+  <p class="muted small">Proposed from your profile ({{ USES[profile.use]|lower }} use). Trousers and shoes stay neutral so nearly every top works with every pair of trousers; the accent colour appears on a top layer or two.</p>
+  <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Replace the whole slot list with a fresh proposal from your profile? Your edits, locks and “already own” marks will be lost.">{{ csrf_field() }}
+    <button class="btn ghost small">Re-propose from profile</button>
+  </form>
+</section>
+
+{% for section, items in w.sections %}
+<h2 class="sec">{{ section }}</h2>
+<ul class="slot-list">
+  {% for s in items %}
+  <li id="slot-{{ s.slot.id }}">
+    <details>
+      <summary>
+        <i class="dot" style="background:{{ s.colour.hex }}"></i>
+        <span class="nm">{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</span>
+        <span class="kind">{{ s.garment.label }}{% if s.state == 'owned' %} · owned{% endif %}</span>
+        <span class="edit">Edit</span>
+      </summary>
+      <div class="slot-edit">
+        <form class="form" method="post" action="{{ url_for('slots_save', slot_id=s.slot.id) }}">{{ csrf_field() }}
+          {{ slot_fields(s.slot) }}
+          <button class="btn small">Save</button>
+        </form>
+        <form method="post" action="{{ url_for('slots_delete', slot_id=s.slot.id) }}" data-confirm="Remove “{{ s.slot.name }}” from the capsule?">{{ csrf_field() }}
+          <button class="link danger">Remove this slot</button>
+        </form>
+      </div>
+    </details>
+  </li>
+  {% endfor %}
+</ul>
+{% endfor %}
+
+<section class="card add">
+  <h2>Add a slot</h2>
+  <form class="form" method="post" action="{{ url_for('slots_add') }}">{{ csrf_field() }}
+    {{ slot_fields() }}
+    <button class="btn small">Add slot</button>
+  </form>
+</section>
+{% endblock %}

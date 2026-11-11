@@ -1,0 +1,32 @@
+{# A shopping list (`sl`) store by store: used by the List page and by "Buy this outfit".
+   "Open all" opens every product page of one store at once (app.js); each store has
+   its own basket, so that is as close as it gets to buying everything in one go. #}
+{% from "_macros.html" import icon %}
+{% for g in sl.groups %}
+<section class="card store-list">
+  <header class="store-head">
+    <h2>{{ g.label }}</h2>
+    <span class="muted">{{ g.pieces }} {{ 'piece' if g.pieces == 1 else 'pieces' }}</span>
+    <b class="subtotal">{{ g.subtotal|eur }}</b>
+  </header>
+  <ul class="buys">
+    {% for line in g.lines %}
+    <li class="buy">
+      <div class="buy-main">
+        <span class="buy-slot">{{ line.slot }}{% if line.qty > 1 %} <span class="qty">×{{ line.qty }}</span>{% endif %}</span>
+        <a class="buy-product" href="{{ line.url|weblink }}" target="_blank" rel="noopener noreferrer">{{ line.product }} {{ icon('ext') }}</a>
+        <span class="buy-meta">{% if line.colour %}{{ line.colour }} · {% endif %}size <b>{{ line.size }}</b>{% if line.qty > 1 %} · {{ line.qty }} × {{ line.unit_price|eur }}{% endif %}</span>
+        {% for note in line.notes %}<span class="buy-note">{{ note }}</span>{% endfor %}
+      </div>
+      <span class="buy-total">{{ line.total|eur }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if g.lines|length > 1 %}
+  <p class="open-all no-print">
+    <button class="btn ghost small" type="button" data-open-all>{{ icon('ext') }} Open all {{ g.lines|length }} at {{ g.label }}</button>
+    <span class="open-hint" hidden>Your browser held some of the tabs back. Allow pop-ups for this site, or use the links above.</span>
+  </p>
+  {% endif %}
+</section>
+{% endfor %}

@@ -1,0 +1,67 @@
+{# Small building blocks shared by the pages. #}
+
+{% macro icon(name) -%}
+<svg class="ic" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{%- if name == 'lock' -%}
+<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>
+{%- elif name == 'unlock' -%}
+<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.7"/>
+{%- elif name == 'check' -%}
+<path d="M5 12.5l4.5 4.5L19 7.5"/>
+{%- elif name == 'hanger' -%}
+<path d="M12 8a2 2 0 1 0-2-2"/><path d="M12 8v2l8.5 6.2a1 1 0 0 1-.6 1.8H4.1a1 1 0 0 1-.6-1.8L12 10"/>
+{%- elif name == 'ext' -%}
+<path d="M14 5h5v5"/><path d="M19 5l-8 8"/><path d="M18 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4"/>
+{%- elif name == 'shuffle' -%}
+<path d="M4 7h3c4 0 6 10 10 10h3"/><path d="M4 17h3c1.5 0 2.7-1.4 3.8-3.2"/><path d="M13.3 10.1C14.4 8.4 15.5 7 17 7h3"/><path d="M18 4.5L20.5 7 18 9.5"/><path d="M18 14.5l2.5 2.5-2.5 2.5"/>
+{%- elif name == 'back' -%}
+<path d="M15 5l-7 7 7 7"/>
+{%- elif name == 'heart' -%}
+<path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/>
+{%- elif name == 'flag' -%}
+<path d="M6 21V4"/><path d="M6 5h11l-2.5 4L17 13H6"/>
+{%- endif -%}
+</svg>
+{%- endmacro %}
+
+{# A picture with the colour swatch underneath it. If there is no image, or it
+   fails to load (app.js adds .noimg), the swatch and its caption show instead. #}
+{% macro pic(image_url, hex, alt='', caption='') -%}
+<span class="pic{% if not image_url %} noimg{% endif %}" style="--sw:{{ hex }};--on:{{ ink_on(hex) }}">
+{%- if image_url %}<img src="{{ image_url }}" alt="{{ alt }}" loading="lazy" decoding="async" referrerpolicy="no-referrer">{% endif -%}
+<span class="fb">{{ caption }}</span></span>
+{%- endmacro %}
+
+{% macro pill(score) -%}
+<span class="pill {{ score.band }}" title="Quality score {{ score.total }} of 100">{{ score.total }}</span>
+{%- endmacro %}
+
+{% macro store(key) -%}
+<span class="store">{{ STORES.get(key, key) }}</span>
+{%- endmacro %}
+
+{# The fields of one slot, used for both "edit" and "add". #}
+{% macro slot_fields(slot=None) -%}
+<label class="field"><span>Name</span>
+  <input type="text" name="name" maxlength="60" value="{{ slot.name if slot else '' }}" placeholder="{{ '' if slot else 'e.g. Olive overshirt (optional)' }}"></label>
+<div class="row">
+  <label class="field"><span>Garment</span>
+    <select name="category">
+      {% for key, g in GARMENTS.items() %}
+      <option value="{{ key }}"{% if slot and slot.category == key %} selected{% endif %}>{{ g.label }}</option>
+      {% endfor %}
+    </select></label>
+  <label class="field"><span>Colour</span>
+    <select name="colour">
+      {% for key, c in COLOURS.items() %}
+      <option value="{{ key }}"{% if slot and slot.colour == key %} selected{% endif %}>{{ c.label }}</option>
+      {% endfor %}
+    </select></label>
+</div>
+<div class="row narrow-first">
+  <label class="field"><span>How many</span>
+    <input type="number" name="qty" min="1" max="9" inputmode="numeric" value="{{ slot.qty if slot else 1 }}"></label>
+  <label class="field"><span>Keywords <small>(guide the search, e.g. wool, oxford)</small></span>
+    <input type="text" name="keywords" maxlength="80" value="{{ slot.keywords if slot else '' }}"></label>
+</div>
+{%- endmacro %}

@@ -1,0 +1,11 @@
+.venv
+.git
+.github
+data
+data-production
+deploy
+tests
+**/__pycache__
+.mypy_cache
+.coverage
+*.md

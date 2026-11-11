@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Outfits · Capsule{% endblock %}
+{% block main %}
+{% from "_macros.html" import icon, pic %}
+
+{# One piece of an outfit, as something to tap. In today's outfits it opens the
+   pop-up (see _piece.html); in a saved outfit it goes to the product page. #}
+{% macro piece(o, p, cls, title, style='') %}
+{% if o.sig %}
+<button class="{{ cls }}" type="button" title="{{ title }}"{% if style %} style="{{ style }}"{% endif %}
+        hx-get="{{ url_for('outfits_piece', at=o.sig, slot=p.slot_id, occasion=occasion) }}" hx-target="#piece-body" hx-swap="innerHTML">{{ caller() }}</button>
+{% elif p.owned %}
+<a class="{{ cls }}" href="{{ url_for('slot_page', slot_id=p.slot_id) }}" title="{{ title }}"{% if style %} style="{{ style }}"{% endif %}>{{ caller() }}</a>
+{% else %}
+<a class="{{ cls }}" href="{{ p.url|weblink }}" target="_blank" rel="noopener noreferrer" title="{{ title }}"{% if style %} style="{{ style }}"{% endif %}>{{ caller() }}</a>
+{% endif %}
+{% endmacro %}
+
+<div class="toolbar">
+  <div class="chips" aria-label="Which outfits">
+    {% for key, label in OCCASIONS.items() %}
+    <a class="chip-link{% if occasion == key %} on{% endif %}" href="{{ url_for('outfits_page', occasion=key) }}">{{ label }}</a>
+    {% endfor %}
+    <a class="chip-link{% if occasion == 'saved' %} on{% endif %}" href="{{ url_for('outfits_page', occasion='saved') }}">{{ icon('heart') }} Saved{% if n_saved %} {{ n_saved }}{% endif %}</a>
+  </div>
+  {% if occasion != 'saved' %}
+  <a class="btn ghost small" href="{{ url_for('outfits_page', occasion=occasion, n=n, seed=next_seed) }}">{{ icon('shuffle') }} Shuffle</a>
+  {% endif %}
+</div>
+
+{% if boards %}
+<p class="lead">
+  {% if occasion == 'saved' %}Your saved outfits, as they were when you saved them. A piece marked “changed” is no longer what your wardrobe selects for that slot.
+  {% else %}{{ boards|length }} of {{ total }} outfits your pieces make. Swipe, or use the arrows, to move between them; tap a piece to see it, swap it or leave it off.{% endif %}
+</p>
+
+<section class="looks" aria-label="Outfits, one at a time">
+  <div class="reel" id="reel" tabindex="0">
+    {% for o in boards %}
+    <article class="slide" id="outfit-{{ o.key }}" data-slide aria-label="Outfit {{ loop.index }} of {{ boards|length }}">
+      <div class="stage">
+        {# The pieces as pictures. Shown until there is an AI picture of the outfit. #}
+        <div class="collage c{{ o.pieces|length }}">
+          {% for p in o.pieces %}
+          {% call piece(o, p, 'tile', p.slot_name ~ (' — you own this' if p.owned else ': ' ~ p.name)) %}
+            {{ pic('' if p.owned else p.image_url, p.hex, p.name, p.slot_name) }}
+            <span class="cap">{% if p.owned %}Owned{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% if p.changed %} · changed{% endif %}{% endif %}</span>
+          {% endcall %}
+          {% endfor %}
+        </div>
+        {% if looks_on %}
+        <div class="look" id="look-{{ o.key }}" hx-target="this" hx-swap="innerHTML">
+          {% with key = o.key, look = o.look %}{% include "_look.html" %}{% endwith %}
+        </div>
+        {# A dot on each piece of the AI picture (only shown once there is one). #}
+        <div class="spots">
+          {% for p in o.pieces %}
+          {% call piece(o, p, 'spot', p.slot_name, 'left:' ~ p.spot[0] ~ '%;top:' ~ p.spot[1] ~ '%') %}
+            <span class="tip"><b>{{ p.slot_name }}</b>{% if p.owned %}Owned{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% endif %}</span>
+          {% endcall %}
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="about">
+        <header class="about-head">
+          <span class="tag">{{ o.label }}</span>
+          <span class="count">{{ loop.index }} / {{ boards|length }}</span>
+          <b class="board-cost" title="What the pieces in this outfit cost together">{{ o.cost|eur }}</b>
+          {% include "_save_button.html" %}
+        </header>
+        <ul class="pieces">
+          {% for p in o.pieces %}
+          <li>
+            {% call piece(o, p, 'piece-row', p.slot_name) %}
+              {{ pic('' if p.owned else p.image_url, p.hex) }}
+              <span class="piece-text"><b>{{ p.slot_name }}</b><span>{% if p.owned %}You own this{% else %}{{ p.name }}{% endif %}</span></span>
+              <span class="piece-price">{% if p.owned %}0 €{% else %}{{ p.price|eur }}<small>{{ STORES.get(p.store, p.store) }}{% if p.changed %} · changed{% endif %}</small>{% endif %}</span>
+            {% endcall %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% if o.saved_at %}<p class="saved-on">Saved {{ o.saved_at }}</p>{% endif %}
+        {% if o.sig %}
+        <p class="about-actions"><a class="btn small" href="{{ url_for('outfits_buy', at=o.sig) }}">Buy this outfit</a></p>
+        {% endif %}
+        {% if tryon_available and o.sig %}
+        {# Extension point: appears once a provider is set in wardrobe/tryon.py #}
+        <form class="tryon" method="post" action="{{ url_for('outfits_tryon') }}" target="_blank">{{ csrf_field() }}
+          <input type="hidden" name="key" value="{{ o.key }}">
+          <button class="btn ghost small">Try on</button>
+        </form>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+    {% if occasion != 'saved' and boards|length < total %}
+    <article class="slide more-slide" data-slide>
+      <p class="muted">That was {{ boards|length }} of {{ total }}.</p>
+      <a class="btn" href="{{ url_for('outfits_page', occasion=occasion, n=n + 12, seed=seed) }}#outfit-{{ boards[-1].key }}">Show more outfits</a>
+    </article>
+    {% endif %}
+  </div>
+  <button class="reel-nav prev" type="button" data-reel="-1" aria-label="Previous outfit">{{ icon('back') }}</button>
+  <button class="reel-nav next" type="button" data-reel="1" aria-label="Next outfit">{{ icon('back') }}</button>
+</section>
+
+{# The pop-up for one piece. Its content comes from /outfits/piece when a piece is tapped. #}
+<dialog class="sheet" id="piece" aria-label="This piece">
+  <button class="sheet-close" type="button" data-close aria-label="Close">&times;</button>
+  <div id="piece-body"></div>
+</dialog>
+
+{% elif occasion == 'saved' %}
+<p class="empty">Nothing saved yet. Tap the heart on an outfit to keep it here.</p>
+{% else %}
+<p class="empty">
+  No outfits to show{% if occasion != 'all' %} for “{{ OCCASIONS[occasion]|lower }}”{% endif %}.
+  An outfit needs at least a top and trousers among your filled slots{% if occasion != 'all' %} — or try <a href="{{ url_for('outfits_page', occasion='all') }}">all occasions</a>{% endif %}.
+</p>
+{% endif %}
+
+{% if not looks_on and not production %}
+<p class="foot">Pictures of each outfit worn by a model are switched off. They are drawn by an AI image service and need your key from OpenAI or Google: see “AI pictures of outfits” in the README, or run <code>python -m wardrobe looks</code>.</p>
+{% endif %}
+{% endblock %}

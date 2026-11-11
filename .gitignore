@@ -1,0 +1,17 @@
+# What must never leave this machine: everyone's data, and secrets.
+data/
+data-production/
+deploy/*.env
+.env
+*.db
+*.db-wal
+*.db-shm
+
+# Things that are rebuilt, not kept.
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.coverage
+htmlcov/
+.DS_Store

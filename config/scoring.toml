@@ -1,0 +1,347 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  Quality score rules
+#
+#  Edit anything here, save, and reload the page — no restart needed.
+#
+#  Every candidate gets three sub-scores from 0 to 100:
+#    fabric  what it is made of, judged per garment type
+#    brand   how good this store is at this kind of garment
+#    price   whether the price is plausible for this kind of garment
+#  The final score is their weighted average. The app shows the working for
+#  every item under "Why this score".
+#
+#  Garment types: coat, jacket, blazer, overshirt, cardigan, knit, shirt, polo,
+#  tee, longsleeve, trousers, chinos, jeans, sneakers, shoes, boots
+# ══════════════════════════════════════════════════════════════════════════════
+
+[weights]            # relative importance; they are rescaled to add up to 100 %
+fabric = 0.50
+brand  = 0.30
+price  = 0.20
+
+
+# ── Fabric ────────────────────────────────────────────────────────────────────
+# Base value of each fibre: 0 = avoid, 100 = best. The fabric score is the
+# percentage-weighted average of the fibres in the composition, so
+# "80 % wool, 20 % polyamide" = 0.8 × wool + 0.2 × polyamide.
+
+[fabric.fibres]
+cashmere       = 100
+merino         = 95
+wool           = 90
+alpaca         = 90
+mohair         = 85
+silk           = 88
+linen          = 82
+organic_cotton = 80
+cotton         = 76
+hemp           = 78
+leather        = 90
+suede          = 85
+lyocell        = 68
+cupro          = 66
+modal          = 60
+viscose        = 50
+elastane       = 50
+polyamide      = 40
+polyester      = 25
+polyurethane   = 20
+acrylic        = 12
+rubber         = 50
+other          = 45    # any fibre not listed above
+
+# Per-garment overrides: the same fibre matters differently in a jumper than in
+# a rain jacket. Anything not listed for a garment falls back to the base value.
+
+[fabric.by_category.knit]
+merino    = 100
+wool      = 98
+cotton    = 68
+organic_cotton = 72
+viscose   = 40
+polyamide = 35
+polyester = 15
+acrylic   = 5
+
+[fabric.by_category.cardigan]
+merino    = 100
+wool      = 98
+cotton    = 68
+organic_cotton = 72
+viscose   = 40
+polyamide = 35
+polyester = 15
+acrylic   = 5
+
+[fabric.by_category.coat]
+wool      = 96
+merino    = 96
+cotton    = 60
+polyamide = 45
+polyester = 20
+
+[fabric.by_category.blazer]
+wool      = 96
+linen     = 85
+cotton    = 72
+viscose   = 45
+polyester = 22
+
+[fabric.by_category.overshirt]
+wool      = 92
+cotton    = 80
+organic_cotton = 84
+polyester = 22
+
+[fabric.by_category.jacket]      # technical shells are legitimately synthetic
+cotton    = 78
+organic_cotton = 82
+polyamide = 62
+polyester = 45
+
+[fabric.by_category.shirt]
+cotton    = 85
+organic_cotton = 88
+linen     = 85
+polyester = 20
+
+[fabric.by_category.polo]
+cotton    = 82
+organic_cotton = 85
+merino    = 98
+viscose   = 45
+polyamide = 35
+
+[fabric.by_category.tee]
+cotton    = 82
+organic_cotton = 86
+polyester = 20
+
+[fabric.by_category.longsleeve]
+cotton    = 82
+organic_cotton = 86
+polyester = 20
+
+[fabric.by_category.trousers]
+wool      = 95
+cotton    = 75
+viscose   = 45
+elastane  = 60       # a little stretch in trousers is fine
+polyester = 30
+
+[fabric.by_category.chinos]
+cotton    = 85
+organic_cotton = 88
+elastane  = 60
+polyester = 28
+
+[fabric.by_category.jeans]
+cotton    = 88
+organic_cotton = 90
+elastane  = 55
+lyocell   = 62
+polyester = 30
+
+[fabric.by_category.sneakers]
+leather   = 90
+suede     = 85
+cotton    = 65       # canvas
+polyester = 40
+polyurethane = 25
+
+[fabric.by_category.shoes]
+leather   = 95
+suede     = 88
+polyurethane = 10
+
+[fabric.by_category.boots]
+leather   = 95
+suede     = 88
+polyurethane = 10
+
+[fabric.adjustments]
+# "Mostly synthetic" penalty: applied when these fibres together make up more
+# than the given share of the fabric.
+synthetic_fibres         = ["polyester", "acrylic", "polyamide", "polyurethane", "elastane"]
+mostly_synthetic_above   = 50      # percent
+mostly_synthetic_penalty = 15      # points taken off the fabric score
+mostly_synthetic_exempt  = ["jacket"]   # garment types where synthetics are normal
+
+# Wool-rich bonus, for the garments where wool is the point.
+wool_fibres          = ["wool", "merino", "cashmere", "alpaca", "mohair"]
+wool_rich_from       = 50          # percent
+wool_rich_bonus      = 5           # points added to the fabric score
+wool_rich_categories = ["knit", "cardigan", "coat", "blazer", "trousers", "overshirt"]
+
+unknown_composition = 45           # fabric score when nothing at all is known about the fabric
+
+# When a store's product page can't be read (COS and Weekday refuse automated
+# browsers there), the composition is estimated from the product name until you
+# type the real one in ("Add details" on the slot page). These are the shares
+# assumed for the fibre the name mentions; the rest counts as "other".
+[fabric.name_guess]
+enabled     = true
+pure_share  = 100      # "100 % Wolle", "aus reinem Kaschmir", "pure"
+plain_share = 85       # "Pullover aus Merinowolle": named, no amount given
+blend_share = 50       # "Wollmix", "Wollmischung", "blend"
+trace_share = 25       # "mit Wollanteil"
+penalty     = 5        # points off the fabric score, because it is a guess
+
+# Last resort when the name says nothing either: what the garment type is
+# normally made of. Leave a type out to score it as unknown instead.
+[fabric.assume_when_unknown]
+jeans  = "99 % Baumwolle, 1 % Elasthan"
+chinos = "97 % Baumwolle, 3 % Elasthan"
+
+
+# ── Brand tier per garment type ───────────────────────────────────────────────
+# 0-100: how much you trust this store for this kind of garment.
+
+[brand.cos]
+default    = 72
+knit       = 92
+cardigan   = 92
+coat       = 92
+blazer     = 90
+trousers   = 88
+shirt      = 82
+overshirt  = 80
+polo       = 80
+chinos     = 78
+jacket     = 78
+tee        = 74
+longsleeve = 74
+jeans      = 70
+sneakers   = 72
+shoes      = 75
+boots      = 75
+
+[brand.weekday]
+default    = 60
+jeans      = 88
+tee        = 82
+longsleeve = 80
+chinos     = 68
+overshirt  = 66
+jacket     = 64
+shirt      = 62
+polo       = 60
+knit       = 58
+cardigan   = 58
+trousers   = 58
+coat       = 60
+blazer     = 55
+sneakers   = 50
+shoes      = 50
+boots      = 50
+
+[brand.zara]         # scores up on the trend pieces: overshirts and jackets
+default    = 55
+overshirt  = 70
+jacket     = 70
+blazer     = 62
+coat       = 58
+shirt      = 58
+polo       = 58
+trousers   = 58
+chinos     = 58
+jeans      = 58
+tee        = 55
+longsleeve = 55
+knit       = 52
+cardigan   = 52
+sneakers   = 55
+shoes      = 52
+boots      = 52
+
+
+# ── Price sanity ──────────────────────────────────────────────────────────────
+# Per garment type, in EUR:
+#   suspicious_below  cheaper than this usually means corners were cut
+#   fair              full marks anywhere inside this band
+#   steep_above       beyond this you are paying for something other than quality
+# The score slides in a straight line between those points.
+
+[price]
+score_when_suspicious = 40   # score at or below suspicious_below
+score_when_steep      = 55   # score at or above steep_above
+
+[price.bands.tee]
+suspicious_below = 8
+fair             = [12, 40]
+steep_above      = 60
+
+[price.bands.longsleeve]
+suspicious_below = 10
+fair             = [15, 50]
+steep_above      = 75
+
+[price.bands.polo]
+suspicious_below = 15
+fair             = [25, 90]
+steep_above      = 130
+
+[price.bands.shirt]
+suspicious_below = 20
+fair             = [30, 95]
+steep_above      = 140
+
+[price.bands.knit]
+suspicious_below = 25
+fair             = [45, 140]
+steep_above      = 220
+
+[price.bands.cardigan]
+suspicious_below = 30
+fair             = [50, 150]
+steep_above      = 240
+
+[price.bands.overshirt]
+suspicious_below = 30
+fair             = [45, 150]
+steep_above      = 230
+
+[price.bands.blazer]
+suspicious_below = 60
+fair             = [100, 260]
+steep_above      = 400
+
+[price.bands.coat]
+suspicious_below = 80
+fair             = [130, 380]
+steep_above      = 550
+
+[price.bands.jacket]
+suspicious_below = 40
+fair             = [60, 200]
+steep_above      = 320
+
+[price.bands.trousers]
+suspicious_below = 30
+fair             = [50, 150]
+steep_above      = 230
+
+[price.bands.chinos]
+suspicious_below = 20
+fair             = [30, 100]
+steep_above      = 150
+
+[price.bands.jeans]
+suspicious_below = 25
+fair             = [40, 120]
+steep_above      = 180
+
+[price.bands.sneakers]
+suspicious_below = 35
+fair             = [60, 180]
+steep_above      = 280
+
+[price.bands.shoes]
+suspicious_below = 50
+fair             = [80, 230]
+steep_above      = 350
+
+[price.bands.boots]
+suspicious_below = 55
+fair             = [90, 260]
+steep_above      = 380

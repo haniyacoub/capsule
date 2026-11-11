@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · Capsule</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  <main>
+    <section class="card" style="margin-top:24px">
+      <h1>{{ title }}</h1>
+      {% if plain %}
+      {% if message %}<p style="margin:10px 0">{{ message }}</p>{% endif %}
+      <p><a class="btn ghost small" href="{{ url_for('wardrobe') }}">Back to Capsule</a></p>
+      {% else %}
+      <p style="margin:10px 0"><code>{{ message }}</code></p>
+      <p class="muted">Fix the file, save it, and reload this page — no restart needed.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

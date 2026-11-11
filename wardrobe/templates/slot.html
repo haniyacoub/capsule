@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ s.slot.name }} · Capsule{% endblock %}
+{% block main %}
+{% from "_macros.html" import icon %}
+<p class="crumb"><a href="{{ url_for('wardrobe') }}#card-{{ s.slot.id }}">{{ icon('back') }} Wardrobe</a></p>
+<div id="slot-body" hx-target="this" hx-swap="innerHTML" hx-sync="this:queue all">
+  {% include "_slot_body.html" %}
+</div>
+{% endblock %}

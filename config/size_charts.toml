@@ -1,0 +1,159 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  Size charts per store
+#
+#  APPROXIMATE. COS and Zara ask automated visitors (robots.txt) not to open
+#  their size-guide pages, so these figures were not collected: they are the
+#  brands' usual published body measurements as best known, rounded. Before you
+#  rely on a flag, open the size guide on the product page and correct the
+#  numbers here — the app re-reads this file on the next page load.
+#
+#  Two kinds of table per store:
+#
+#  1. Labels   [cos.tops] / [cos.bottoms]
+#     Translate a label the store prints into YOUR size from the Profile page.
+#       tops     label -> your top size(s)
+#       bottoms  label -> your jeans waist(s) in inches
+#     Labels that need no translation are understood without an entry: "M" for
+#     tops, "32/32" or "W32 L32" for trousers, EU shoe sizes.
+#
+#  2. Body measurements   [cos.body.tops] / [cos.body.bottoms]
+#     The body the store says each size fits, in cm, as [from, to].
+#       body.tops     size  -> chest
+#       body.bottoms  label -> waist
+#     Used only if you enter your chest / waist on the Profile page.
+# ══════════════════════════════════════════════════════════════════════════════
+
+[check]
+near_edge_cm   = 1.5    # this close to the border between two sizes counts as "between sizes"
+tall_from_cm   = 190    # from this height, flag garments that come in one length
+short_up_to_cm = 170    # up to this height, likewise
+slim_build_bmi = 21.5   # at or below: oversized cuts will look bigger still
+broad_build_bmi = 26.0  # at or above: slim cuts may be tight
+
+# ── COS ───────────────────────────────────────────────────────────────────────
+[cos.tops]       # coats and blazers come in EU numbers; tees and knits in XS–XL
+"44" = ["XS"]
+"46" = ["S"]
+"48" = ["M"]
+"50" = ["L"]
+"52" = ["XL"]
+"54" = ["XXL"]
+"56" = ["XXXL"]
+
+[cos.bottoms]    # tailored trousers and chinos come in EU numbers
+"44" = [28, 29]
+"46" = [30, 31]
+"48" = [32, 33]
+"50" = [34, 35]
+"52" = [36, 37]
+"54" = [38, 39]
+"56" = [40, 41]
+"XS" = [28, 29]
+"S"  = [30, 31]
+"M"  = [32, 33]
+"L"  = [34, 35]
+"XL" = [36, 37, 38]
+"XXL" = [39, 40, 41]
+
+[cos.body.tops]
+XS  = [86, 90]
+S   = [90, 94]
+M   = [94, 98]
+L   = [98, 102]
+XL  = [102, 106]
+XXL = [106, 110]
+
+[cos.body.bottoms]
+"44" = [74, 78]
+"46" = [78, 82]
+"48" = [82, 86]
+"50" = [86, 90]
+"52" = [90, 94]
+"54" = [94, 99]
+"56" = [99, 104]
+
+# ── Weekday ───────────────────────────────────────────────────────────────────
+[weekday.tops]
+"44" = ["XS"]
+"46" = ["S"]
+"48" = ["M"]
+"50" = ["L"]
+"52" = ["XL"]
+"54" = ["XXL"]
+"56" = ["XXXL"]
+
+[weekday.bottoms]   # jeans come as waist/length and need no translation
+"44" = [28, 29]
+"46" = [30, 31]
+"48" = [32, 33]
+"50" = [34, 35]
+"52" = [36, 37]
+"54" = [38, 39]
+"56" = [40, 41]
+"XS" = [28, 29]
+"S"  = [30, 31]
+"M"  = [32, 33]
+"L"  = [34, 35]
+"XL" = [36, 37, 38]
+"XXL" = [39, 40, 41]
+
+[weekday.body.tops]     # H&M-group sizing: wide steps, and Weekday cuts many pieces loose
+XS  = [78, 86]
+S   = [86, 94]
+M   = [94, 102]
+L   = [102, 110]
+XL  = [110, 118]
+XXL = [118, 126]
+
+[weekday.body.bottoms]
+"44" = [74, 78]
+"46" = [78, 82]
+"48" = [82, 86]
+"50" = [86, 90]
+"52" = [90, 94]
+"54" = [94, 99]
+"56" = [99, 104]
+
+# ── Zara ──────────────────────────────────────────────────────────────────────
+[zara.tops]
+"44" = ["XS"]
+"46" = ["S"]
+"48" = ["M"]
+"50" = ["L"]
+"52" = ["XL"]
+"54" = ["XXL"]
+"56" = ["XXXL"]
+
+[zara.bottoms]   # Zara's EU trouser numbers run differently from COS: 42 is about W32
+"36" = [28]
+"38" = [29, 30]
+"40" = [31]
+"42" = [32]
+"44" = [33, 34]
+"46" = [35, 36]
+"48" = [37, 38]
+"50" = [39, 40]
+"XS" = [28, 29]
+"S"  = [30, 31]
+"M"  = [32, 33]
+"L"  = [34, 35]
+"XL" = [36, 37, 38]
+"XXL" = [39, 40, 41]
+
+[zara.body.tops]
+XS  = [84, 90]
+S   = [90, 96]
+M   = [96, 102]
+L   = [102, 108]
+XL  = [108, 114]
+XXL = [114, 120]
+
+[zara.body.bottoms]
+"36" = [70, 74]
+"38" = [74, 78]
+"40" = [78, 82]
+"42" = [82, 86]
+"44" = [86, 90]
+"46" = [90, 95]
+"48" = [95, 100]
+"50" = [100, 105]

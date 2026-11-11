@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Account · Capsule{% endblock %}
+{% block summary %}{% endblock %}
+{% block notices %}{% endblock %}
+{% block main %}
+<section class="card">
+  <h1>Your account</h1>
+  <p class="muted">Signed in as <b>{{ user.email }}</b>.</p>
+  <form method="post" action="{{ url_for('auth.logout') }}">{{ csrf_field() }}
+    <button class="btn ghost small">Log out</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Change password</h2>
+  <form class="form" method="post" action="{{ url_for('auth.change_password') }}">{{ csrf_field() }}
+    <label class="field"><span>Current password</span>
+      <input type="password" name="current" autocomplete="current-password" required></label>
+    <label class="field"><span>New password <small>(at least 10 characters)</small></span>
+      <input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+    <button class="btn small">Change password</button>
+  </form>
+  <p class="muted small">Changing it signs you out on every other device.</p>
+</section>
+
+<section class="card">
+  <h2>Your data</h2>
+  <p class="muted">Everything Capsule stores about you: your profile, your slots and choices, your saved outfits and anything you added by hand.</p>
+  <p><a class="btn ghost small" href="{{ url_for('auth.export_data') }}">Download a copy (.json)</a></p>
+</section>
+
+<section class="card">
+  <h2>Delete account</h2>
+  <p class="muted">This removes your account and all of the above at once. It cannot be undone.</p>
+  <form class="form" method="post" action="{{ url_for('auth.delete_account') }}" data-confirm="Delete your account and all your data? This cannot be undone.">{{ csrf_field() }}
+    <label class="field"><span>Your password, to confirm</span>
+      <input type="password" name="current" autocomplete="current-password" required></label>
+    <button class="btn small danger">Delete my account</button>
+  </form>
+</section>
+{% endblock %}

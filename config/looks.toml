@@ -1,0 +1,65 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  AI pictures of outfits ("looks")
+#
+#  On the Outfits page an image service draws each outfit on a model, from a
+#  written description of the pieces. It is off until a key is set:
+#
+#      export OPENAI_API_KEY="sk-…"      (from platform.openai.com), or
+#      export GEMINI_API_KEY="…"         (from aistudio.google.com)
+#
+#  and the app is started again. `python -m wardrobe looks` says whether it is
+#  on; `python -m wardrobe looks --test` draws one sample picture.
+#
+#  Every picture is billed to that key by the service (a few cents each), so
+#  the limits below matter. Edits here apply on the next page load.
+# ══════════════════════════════════════════════════════════════════════════════
+
+[service]
+use = "auto"                 # "auto" = whichever key is set (OpenAI first) | "openai" | "google"
+
+[service.openai]
+# The services rename and retire models every few months. If pictures stop with
+# "does not know the model", put the current name here (their docs list them).
+model   = "gpt-image-2.5-flare"   # the fast one; "gpt-image-2.5-sunburst" is their most capable
+quality = "medium"                # low | medium | high — higher looks better, takes longer, costs more
+
+[service.google]
+model      = "gemini-nano-banana-2.1"
+image_size = "1K"                 # 1K | 2K | 4K — larger costs more
+
+
+[pictures]
+auto   = true      # draw an outfit's picture as soon as it is looked at (false: only when "See it worn" is pressed)
+photos = true      # people may upload a photo of themselves to be the model
+
+# How many pictures may be started in 24 hours. Each one costs money.
+per_day              = 100   # everyone together (on your own machine: you)
+per_customer_per_day = 10    # each customer of a public service
+
+
+# What the image service is told. The list of pieces is added by the app.
+[text]
+# The model, for anyone who has not put their own together on the Profile page.
+model = "an adult male fashion model with an average build"
+
+# How the picture is taken. {model} is replaced by the description of the model.
+scene = "A full-length studio photograph for a menswear lookbook: {model}, standing upright in a relaxed, natural pose, facing the camera, arms loosely at the sides. The whole figure is in frame from head to shoes, centred, with a little space above the head and below the shoes. Plain light-grey studio background, soft even daylight, realistic fabric textures and true colours."
+
+# Used instead when someone uploaded their own photo. {body} is replaced by the
+# height and build they chose, if any.
+scene_with_photo = "A full-length studio photograph for a menswear lookbook. The model is the person in the attached photo: keep their face, hair, skin tone and apparent age exactly as they are, and ignore the clothes and the background of the photo. {body}They stand upright in a relaxed, natural pose, facing the camera, arms loosely at the sides. The whole figure is in frame from head to shoes, centred, with a little space above the head and below the shoes. Plain light-grey studio background, soft even daylight, realistic fabric textures and true colours."
+
+# What must not appear.
+avoid = "No bag, hat, scarf, gloves, glasses or jewellery unless listed above. No text, logos, labels or watermarks anywhere in the picture. One person only, no props."
+
+
+# Where the dot for each piece sits on the picture: [from the left %, from the top %].
+# The pictures all use the same pose and framing, so fixed places work; nudge
+# them here if the dots sit beside the garments.
+[hotspots]
+outer  = [66, 50]   # coat or jacket, worn open: its right-hand panel
+mid    = [41, 40]   # blazer, cardigan or overshirt, worn open: its left-hand panel
+top    = [50, 30]   # chest
+collar = [50, 22]   # a shirt under a jumper shows only here
+bottom = [45, 66]   # thigh
+shoes  = [56, 94]

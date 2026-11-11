@@ -1,0 +1,270 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  Where the collector looks, and how gently
+#
+#  `python -m wardrobe refresh` opens one ordinary Chrome window and, for each
+#  slot, visits only the category pages listed here for that garment type —
+#  never search pages, never whole catalogues. It reads each store's robots.txt
+#  first and skips anything that file disallows. The first "Access Denied" or
+#  captcha from a store ends that store's run; nothing is retried or disguised.
+#
+#  Category addresses change when a store reorganises its menu. If a page comes
+#  back "not found", open the store, copy the new address into the list below.
+# ══════════════════════════════════════════════════════════════════════════════
+
+[collector]
+browser            = "chrome"   # "chrome" = your installed Google Chrome; "chromium" = Playwright's own
+headless           = false      # the stores refuse headless browsers outright, so keep the window
+pause_seconds      = [5, 9]     # wait a random time in this range between two page loads
+max_candidates     = 6          # per slot, per store
+max_listing_pages  = 3          # pages of a category to read ("?page=2", …) before giving up
+max_pages_per_store = 160       # hard ceiling on page loads per store in one run
+page_timeout_seconds = 45
+
+# Plain capsule pieces only: names containing these words are skipped unless
+# the slot's own keywords ask for them.
+skip_words = [
+  "gestreift", "streifen", "striped", "stripe", "kariert", "karo", "check", "print", "bedruckt",
+  "jacquard", "muster", "camouflage", "grafik", "graphic", "logo", "stickerei", "embroider",
+  "batik", "tie-dye", "kontrast", "contrast", "farbblock", "color block", "colour block",
+  "mehrfarbig", "bunt", "schriftzug", "slogan", "cropped", "pack", "set ",
+]
+
+# Slot keywords are written in English; product names are mostly German.
+[collector.keyword_words]
+wool        = ["woll", "wool"]
+merino      = ["merino"]
+cashmere    = ["kaschmir", "cashmere"]
+cotton      = ["baumwoll", "cotton"]
+linen       = ["leinen", "linen"]
+leather     = ["leder", "leather"]
+suede       = ["veloursleder", "wildleder", "suede"]
+oxford      = ["oxford"]
+poplin      = ["popeline", "poplin"]
+flannel     = ["flanell", "flannel"]
+heavyweight = ["schwer", "heavy"]
+lightweight = ["leicht", "light"]
+knitted     = ["strick", "knit"]
+crew-neck   = ["rundhals", "crew"]
+tailored    = ["anzug", "tailored", "bundfalte", "formell", "smart"]
+straight    = ["gerade", "straight"]
+slim        = ["schmal", "slim"]
+relaxed     = ["relax", "locker", "lässig"]
+derby       = ["derby"]
+loafer      = ["loafer", "mokassin", "slipper"]
+chelsea     = ["chelsea"]
+harrington  = ["harrington"]
+bomber      = ["bomber"]
+
+
+# ── COS ───────────────────────────────────────────────────────────────────────
+# Category pages give name, price, colour, picture and link. COS answers
+# "Access Denied" to automated browsers on product pages, so those are not
+# visited: fabric is estimated from the product name and size stock is unknown
+# until you add it by hand (slot page → "Add details").
+[cos]
+label         = "COS"
+base          = "https://www.cos.com"
+product_pages = false
+
+[cos.garments.coat]
+pages   = ["/de-de/men/coats-and-jackets/wool-coats", "/de-de/men/coats-and-jackets"]
+include = ["mantel", "coat"]
+exclude = ["weste", "gilet", "jacke", "leder", "wattiert", "stepp", "daunen", "puffer"]
+
+[cos.garments.jacket]
+pages   = ["/de-de/men/coats-and-jackets"]
+include = ["jacke", "jacket", "blouson", "bomber"]
+exclude = ["mantel", "coat", "weste", "gilet", "leder", "steppjacke", "wattiert", "daunen", "puffer", "hemdjacke", "overshirt", "strickjacke"]
+
+[cos.garments.blazer]
+pages   = ["/de-de/men/suits"]
+include = ["blazer", "sakko"]
+exclude = ["smoking", "samt", "tuxedo"]
+
+[cos.garments.overshirt]
+pages   = ["/de-de/men/shirts", "/de-de/men/coats-and-jackets"]
+include = ["overshirt", "hemdjacke"]
+exclude = ["leder"]
+
+[cos.garments.cardigan]
+pages   = ["/de-de/men/knitwear/cardigans"]
+exclude = ["weste", "pullunder"]
+
+[cos.garments.knit]
+pages   = ["/de-de/men/knitwear/jumper"]
+exclude = ["cardigan", "polo", "hoodie", "kapuze", "weste", "pullunder", "sweatshirt", "reißverschluss", "zip"]
+
+[cos.garments.shirt]
+pages   = ["/de-de/men/shirts"]
+exclude = ["overshirt", "hemdjacke", "kurzarm", "short-sleeve", "polo", "t-shirt"]
+
+[cos.garments.polo]
+pages   = ["/de-de/men/polo-shirts"]
+
+[cos.garments.tee]
+pages   = ["/de-de/men/t-shirts"]
+exclude = ["langarm", "long-sleeve", "tank", "ärmellos", "polo", "henley"]
+
+[cos.garments.longsleeve]
+pages   = ["/de-de/men/t-shirts"]
+include = ["langarm", "long-sleeve"]
+exclude = ["polo", "henley"]
+
+[cos.garments.trousers]
+pages   = ["/de-de/men/trousers"]
+exclude = ["chino", "jeans", "jogg", "shorts", "cargo", "leder", "sweat"]
+
+[cos.garments.chinos]
+pages   = ["/de-de/men/trousers"]
+include = ["chino"]
+
+[cos.garments.jeans]
+pages   = ["/de-de/men/jeans"]
+exclude = ["shorts", "jacke", "hemd"]
+
+[cos.garments.sneakers]
+pages   = ["/de-de/men/shoes"]
+include = ["sneaker", "trainer"]
+
+[cos.garments.shoes]
+pages   = ["/de-de/men/shoes/loafers", "/de-de/men/shoes"]
+include = ["loafer", "derby", "schnürschuh", "lace-up", "mokassin"]
+exclude = ["sneaker", "boot", "stiefel", "sandal"]
+
+[cos.garments.boots]
+pages   = ["/de-de/men/shoes/boots"]
+
+
+# ── Weekday ───────────────────────────────────────────────────────────────────
+# Category pages give name, price, colour, picture, link and size stock.
+# Product pages are refused to automated browsers (as at COS), so fabric is
+# estimated from the name. Weekday sells no men's shoes.
+[weekday]
+label         = "Weekday"
+base          = "https://www.weekday.com"
+product_pages = false
+
+[weekday.garments.coat]
+pages   = ["/de-de/men/jackets-and-coats/"]
+include = ["mantel", "coat"]
+exclude = ["leder", "wattiert", "stepp", "daunen", "puffer"]
+
+[weekday.garments.jacket]
+pages   = ["/de-de/men/jackets-and-coats/"]
+exclude = ["mantel", "coat", "weste", "vest", "blazer", "puffer", "daunen", "stepp", "leder", "fleece"]
+
+[weekday.garments.blazer]
+pages   = ["/de-de/men/jackets-and-coats/"]
+include = ["blazer", "sakko"]
+
+[weekday.garments.overshirt]
+pages   = ["/de-de/men/shirts/"]
+include = ["overshirt", "hemdjacke"]
+exclude = ["leder"]
+
+[weekday.garments.cardigan]
+pages   = ["/de-de/men/knitwear/cardigans/"]
+
+[weekday.garments.knit]
+pages   = ["/de-de/men/knitwear/sweaters/"]
+exclude = ["cardigan", "strickjacke", "hoodie", "weste", "zip", "reißverschluss", "polo"]
+
+[weekday.garments.shirt]
+pages   = ["/de-de/men/shirts/"]
+exclude = ["overshirt", "hemdjacke", "kurzarm", "short-sleeve", "kurzärm"]
+
+[weekday.garments.polo]
+pages   = ["/de-de/men/t-shirts-and-tops/"]
+include = ["polo"]
+
+[weekday.garments.tee]
+pages   = ["/de-de/men/t-shirts-and-tops/"]
+include = ["t-shirt"]
+exclude = ["langarm", "long-sleeve", "longsleeve", "tank", "polo", "ärmellos"]
+
+[weekday.garments.longsleeve]
+pages   = ["/de-de/men/t-shirts-and-tops/"]
+include = ["langarm", "long-sleeve", "longsleeve"]
+exclude = ["polo"]
+
+[weekday.garments.trousers]
+pages   = ["/de-de/men/trousers/"]
+exclude = ["jogg", "sweat", "cargo", "chino", "shorts", "track", "jeans", "leder", "5-pocket", "denim", "bootcut"]
+
+[weekday.garments.chinos]
+pages   = ["/de-de/men/trousers/"]
+include = ["chino"]
+
+[weekday.garments.jeans]
+pages   = ["/de-de/men/jeans/"]
+exclude = ["shorts", "jacke", "jorts"]
+
+
+# ── Zara ──────────────────────────────────────────────────────────────────────
+# Category pages give name, price and colours; each shortlisted product page
+# then gives fabric, sizes in stock and pictures.
+[zara]
+label         = "Zara"
+base          = "https://www.zara.com"
+product_pages = true
+
+[zara.garments.coat]
+pages   = ["/de/de/herren-jacken-maentel-maentel-l719.html"]
+exclude = ["weste", "leder", "wattiert", "stepp", "daunen", "puffer", "parka", "felloptik", "kunstfell"]
+
+[zara.garments.jacket]
+pages   = ["/de/de/herren-jacken-l640.html"]
+exclude = ["mantel", "weste", "leder", "puffer", "daunen", "stepp", "overshirt", "hemdjacke", "kunstfell", "felloptik", "parka"]
+
+[zara.garments.blazer]
+pages   = ["/de/de/herren-blazer-l608.html"]
+exclude = ["smoking", "samt", "weste", "hose"]
+
+[zara.garments.overshirt]
+pages   = ["/de/de/man-overshirts-l3174.html"]
+exclude = ["leder"]
+
+[zara.garments.cardigan]
+pages   = ["/de/de/herren-strickwaren-cardigans-l685.html"]
+include = ["cardigan", "strickjacke"]
+exclude = ["weste", "pullunder"]
+
+[zara.garments.knit]
+pages   = ["/de/de/herren-pullover-l19632.html"]
+exclude = ["cardigan", "polo", "weste", "pullunder", "reißverschluss", "zip", "kapuze"]
+
+[zara.garments.shirt]
+pages   = ["/de/de/herren-hemden-l737.html"]
+exclude = ["overshirt", "hemdjacke", "kurzarm", "kurzärm", "smoking"]
+
+[zara.garments.polo]
+pages   = ["/de/de/herren-poloshirts-l733.html"]
+
+[zara.garments.tee]
+pages   = ["/de/de/herren-t-shirts-l855.html"]
+exclude = ["langarm", "tank", "ärmellos", "polo"]
+
+[zara.garments.longsleeve]
+pages   = ["/de/de/herren-t-shirts-langarm-l2541.html"]
+exclude = ["polo"]
+
+[zara.garments.trousers]
+pages   = ["/de/de/herren-hosen-l838.html"]
+exclude = ["chino", "jogg", "cargo", "jeans", "shorts", "bermuda", "leder", "sweat"]
+
+[zara.garments.chinos]
+pages   = ["/de/de/herren-hosen-chinos-l845.html"]
+
+[zara.garments.jeans]
+pages   = ["/de/de/herren-jeans-l659.html"]
+exclude = ["shorts", "bermuda", "jacke"]
+
+[zara.garments.sneakers]
+pages   = ["/de/de/herren-schuhe-sneaker-l797.html"]
+
+[zara.garments.shoes]
+pages   = ["/de/de/herren-schuhe-schnurung-l4378.html", "/de/de/herren-schuhe-mokassins-l789.html"]
+exclude = ["sneaker", "stiefel", "boot", "sandal"]
+
+[zara.garments.boots]
+pages   = ["/de/de/herren-schuhe-stiefel-l781.html"]

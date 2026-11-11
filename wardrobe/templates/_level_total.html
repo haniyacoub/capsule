@@ -1,0 +1,2 @@
+{# What the whole wardrobe costs at one price level. Sent again with every change, like the summary bar. #}
+<small id="level-{{ key }}"{% if oob %} hx-swap-oob="true"{% endif %}>{{ w.levels[key]|eur }}</small>

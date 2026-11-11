@@ -1,0 +1,14 @@
+{% extends "_public.html" %}
+{% block title %}Reset password · Capsule{% endblock %}
+{% block main %}
+<section class="card auth">
+  <h1>Reset your password</h1>
+  <p class="muted">Enter your email address and we'll send a link to choose a new password.</p>
+  <form class="form" method="post" action="{{ url_for('auth.forgot') }}">{{ csrf_field() }}
+    <label class="field"><span>Email</span>
+      <input type="email" name="email" autocomplete="username" required></label>
+    <button class="btn">Send the link</button>
+  </form>
+  <p class="muted small"><a href="{{ url_for('auth.login') }}">Back to log in</a></p>
+</section>
+{% endblock %}

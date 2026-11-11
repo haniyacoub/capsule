@@ -1,0 +1,3 @@
+# What the public service runs on. No Playwright: the collector is not part of it.
+flask>=3.1,<4
+gunicorn>=23

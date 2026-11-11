@@ -1,0 +1,63 @@
+{# The pop-up for one piece of an outfit: what it is, what else could fill its
+   slot, and what else could be worn in its place. `s` is the slot, `sig` the
+   outfit it was opened from. #}
+{% from "_macros.html" import icon, pic, pill, store %}
+{% set c = s.chosen %}
+<div class="piece-head">
+  {% if s.state == 'owned' or not c %}{{ pic('', s.colour.hex) }}{% else %}{{ pic(c.data.image_url, c.colour_hex, c.data.name) }}{% endif %}
+  <div class="piece-facts">
+    <p class="piece-slot">{{ s.slot.name }}</p>
+    {% if s.state == 'owned' or not c %}
+    <h2>You already own this</h2>
+    <p class="muted">It costs nothing and still counts in your outfits.</p>
+    {% else %}
+    <h2>{{ c.data.name }}</h2>
+    <p class="piece-cost"><b>{{ c.price|eur }}</b> {{ store(c.data.store) }} {{ pill(c.score) }}</p>
+    <p class="fabric">{{ c.fabric }}{% if c.score.fabric_source in ('name', 'assumed') %} <span class="est">estimated</span>{% endif %}</p>
+    <p class="sizeline">
+      {% if not c.size.known %}<span class="unk">Check that your size is in stock</span>
+      {% elif c.available %}<span class="yes">Your size: {{ c.size.text }}</span>
+      {% else %}<span class="no">{{ c.size.text }}</span>{% endif %}
+    </p>
+    <a class="extlink" href="{{ c.data.url|weblink }}" target="_blank" rel="noopener noreferrer">Open at {{ STORES.get(c.data.store, c.data.store) }} {{ icon('ext') }}</a>
+    {% endif %}
+    <p class="muted small">In {{ worn }} of the {{ n_outfits }} outfits your pieces make.{% if c and s.state != 'owned' %} Price and stock as of {{ w.collected }}.{% endif %}</p>
+  </div>
+</div>
+
+{% if others %}
+<h3 class="sec">Swap it for</h3>
+<ul class="swap">
+  {% for o in others %}
+  <li{% if not o.available %} class="out"{% endif %}>
+    {{ pic(o.data.image_url, o.colour_hex, o.data.name) }}
+    <span class="swap-text">
+      <b>{{ o.data.name }}</b>
+      <span>{{ store(o.data.store) }} {{ pill(o.score) }} {% if o.price > 0 %}{{ o.price|eur }}{% else %}no price{% endif %}{% if not o.available %} · not in your size{% endif %}</span>
+    </span>
+    <form method="post" action="{{ url_for('slot_pick', slot_id=s.slot.id) }}">{{ csrf_field() }}
+      <input type="hidden" name="candidate" value="{{ o.id }}">
+      <input type="hidden" name="outfit" value="{{ sig }}">
+      <input type="hidden" name="occasion" value="{{ occasion }}">
+      <button class="btn ghost small">Choose</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+<p class="muted small">Choosing one makes it your pick for “{{ s.slot.name }}” in every outfit, and locks it.
+  <a href="{{ url_for('slot_page', slot_id=s.slot.id) }}">All {{ s.cands|length }} options, with scores and sizes</a></p>
+{% elif s.state != 'owned' %}
+<p class="muted small">There is no other candidate for this slot. <a href="{{ url_for('slot_page', slot_id=s.slot.id) }}#add">Add one by link</a></p>
+{% endif %}
+
+{% if swaps or without %}
+<h3 class="sec">In this outfit</h3>
+<div class="chips">
+  {% for other, target in swaps %}
+  <a class="chip-link" href="{{ url_for('outfits_page', at=target, occasion=occasion or None) }}"><i class="dot" style="background:{{ other.hex }}"></i>Wear the {{ other.view.slot.name|lower }} instead</a>
+  {% endfor %}
+  {% if without %}
+  <a class="chip-link" href="{{ url_for('outfits_page', at=without, occasion=occasion or None) }}">Leave the {{ s.garment.label|lower }} off</a>
+  {% endif %}
+</div>
+{% endif %}

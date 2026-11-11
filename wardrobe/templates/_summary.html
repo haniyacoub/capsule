@@ -1,0 +1,17 @@
+{# The sticky bar with the running total. Sent again with every button press
+   (hx-swap-oob replaces the one on the page), which is how it updates live. #}
+<section id="summary" class="summary{% if w.remaining < 0 %} over{% endif %}"{% if oob %} hx-swap-oob="true"{% endif %} aria-label="Budget">
+  <div class="summary-in">
+    <div class="nums">
+      <div class="num"><span class="lbl">Total</span><b>{{ w.total|eur }}</b></div>
+      <div class="num"><span class="lbl">Budget</span><b>{{ w.budget|eur }}</b></div>
+      <div class="num left"><span class="lbl">{{ 'Over budget' if w.remaining < 0 else 'Left' }}</span><b>{{ w.remaining|abs|eur }}</b></div>
+    </div>
+    <div class="bar" role="presentation"><i style="width:{{ '%.1f'|format(w.spent_pct) }}%"></i></div>
+    <p class="sub">
+      {{ w.n_buy }} {{ 'piece' if w.n_buy == 1 else 'pieces' }} to buy
+      {%- if w.n_owned %} · {{ w.n_owned }} already owned{% endif %}
+      {%- if w.n_unfilled %} · <span class="warn">{{ w.n_unfilled }} {{ 'slot' if w.n_unfilled == 1 else 'slots' }} unfilled</span>{% endif %}
+    </p>
+  </div>
+</section>

@@ -1,0 +1,21 @@
+# Settings for the quality checks (./check.sh, .github/workflows/checks.yml).
+# The app is not a package to install: it runs from this folder.
+
+[tool.mypy]
+python_version = "3.13"       # the oldest Python the app runs on (the container's)
+
+[tool.coverage.run]
+source = ["wardrobe"]
+
+[tool.coverage.report]
+# The tests exercise 88% of the code. What they cannot reach is the collector's live
+# browser, outgoing email and parts of the command line. Below 85%, something new went untested.
+fail_under = 85
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = [
+    "B101",   # assert: only used to tell the type checker that a value is present
+    "B110",   # try/except/pass: each one carries a comment saying why
+    "B311",   # random: shuffling outfits and pausing between page loads, never for secrets
+]

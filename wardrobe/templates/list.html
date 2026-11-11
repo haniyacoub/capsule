@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Shopping list · Capsule{% endblock %}
+{% block main %}
+{% from "_macros.html" import icon %}
+<div class="toolbar no-print">
+  <p class="lead">What your wardrobe selects right now, grouped by store. Prices and stock as of {{ sl.collected }}.</p>
+  <div class="chips">
+    <a class="btn ghost small" href="{{ url_for('list_markdown') }}">Download .md</a>
+    <a class="btn ghost small" href="{{ url_for('list_csv') }}">Download .csv</a>
+    <button class="btn ghost small" type="button" data-print>Print</button>
+  </div>
+</div>
+
+{% if not sl.groups %}
+<p class="empty">Nothing to buy yet: no slot has a selected item.</p>
+{% endif %}
+
+{% include "_buy_groups.html" %}
+
+{% if sl.groups %}
+<section class="card grand">
+  <div class="grand-row"><span>Total for {{ sl.pieces }} pieces</span><b>{{ sl.total|eur }}</b></div>
+  <div class="grand-row muted"><span>Budget</span><span>{{ sl.budget|eur }}</span></div>
+  <div class="grand-row {{ 'neg' if sl.remaining < 0 else 'pos' }}"><span>{{ 'Over budget' if sl.remaining < 0 else 'Left' }}</span><b>{{ sl.remaining|abs|eur }}</b></div>
+</section>
+{% endif %}
+
+{% if sl.missing %}
+<section class="card">
+  <h2>Still missing</h2>
+  <ul class="plain">{% for slot, why in sl.missing %}<li><b>{{ slot }}</b> — {{ why }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% if sl.owned %}
+<section class="card">
+  <h2>Already own</h2>
+  <ul class="plain">{% for name in sl.owned %}<li>{{ name }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}

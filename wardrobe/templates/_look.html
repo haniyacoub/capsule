@@ -1,0 +1,30 @@
+{# The AI picture of one outfit, in whichever state it is. HTMX swaps this in
+   place: the button asks for the picture, and the waiting state asks every few
+   seconds whether it is done. `key` is the outfit's fingerprint, `look` its
+   picture (or nothing yet). With `auto`, app.js presses "See it worn" by itself
+   once the outfit has been on screen for a moment. #}
+{% if look and look.status == 'working' %}
+<p class="look-bar wait" role="status" hx-get="{{ url_for('outfits_look_state', look_key=look.key, outfit=key) }}" hx-trigger="load delay:3s">
+  <span class="spin" aria-hidden="true"></span>
+  <span>Drawing this outfit on the model: up to a minute.</span>
+</p>
+{% elif look and look.status == 'ready' %}
+<div class="look-pic">
+  <img src="{{ url_for('look_image', name=look.file) }}" alt="AI-generated picture of a model wearing this outfit" loading="lazy" decoding="async">
+</div>
+<form class="look-bar" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}">{{ csrf_field() }}
+  <input type="hidden" name="key" value="{{ key }}">
+  <input type="hidden" name="again" value="1">
+  <span><b>AI picture.</b> Look and fit will differ on the real pieces: check their photos and sizes.{% if look.message %} <span class="look-msg">{{ look.message }}</span>{% endif %}</span>
+  <span class="look-links">
+    <a class="link" href="{{ url_for('look_image', name=look.file) }}" target="_blank" rel="noopener">Full size</a>
+    <button class="link">Draw again</button>
+  </span>
+</form>
+{% else %}
+<form class="look-bar ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-trigger="submit, draw"{% if not look and auto %} data-auto-look{% endif %}>{{ csrf_field() }}
+  <input type="hidden" name="key" value="{{ key }}">
+  {% if look %}<span class="look-msg" role="status">{{ look.message }}</span>{% else %}<span>See this outfit worn by the model, drawn by AI.</span>{% endif %}
+  {% if not look or look.status == 'failed' %}<button class="btn small">{{ 'Try again' if look else 'See it worn' }}</button>{% endif %}
+</form>
+{% endif %}

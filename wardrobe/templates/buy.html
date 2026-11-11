@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Buy this outfit · Capsule{% endblock %}
+{% block main %}
+{% from "_macros.html" import icon %}
+<p class="crumb"><a href="{{ url_for('outfits_page', at=outfit.sig) }}">{{ icon('back') }} Back to the outfit</a></p>
+
+<section class="card">
+  <h1>Buy this outfit</h1>
+  <p class="muted">{{ outfit.label }} · {{ sl.pieces }} {{ 'piece' if sl.pieces == 1 else 'pieces' }} to buy · <b>{{ sl.total|eur }}</b>. Prices and stock as of {{ sl.collected }}.</p>
+  <p class="muted">Each store sells through its own basket and checkout, so the outfit cannot be paid for in one go. “Open all” brings up every product page of a store at once: choose the size shown here, add it to the basket, and check out once per store.</p>
+</section>
+
+{% if not sl.groups %}
+<p class="empty">Nothing to buy: you own every piece of this outfit.</p>
+{% endif %}
+
+{% include "_buy_groups.html" %}
+
+{% if sl.owned %}
+<section class="card">
+  <h2>Already yours</h2>
+  <ul class="plain">{% for name in sl.owned %}<li>{{ name }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+<p class="foot">For everything your wardrobe selects, not just this outfit, see the <a href="{{ url_for('list_page') }}">List</a>.</p>
+{% endblock %}

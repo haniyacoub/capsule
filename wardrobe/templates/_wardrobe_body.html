@@ -1,0 +1,66 @@
+{% from "_macros.html" import icon, pic, pill, store %}
+{% if w.note %}<p class="demo" role="status">{{ w.note }}</p>{% endif %}
+{% if not w.slots %}
+<p class="empty">No slots yet. <a href="{{ url_for('slots_page') }}">Add some on the Slots page</a>, or re-propose the capsule from your profile there.</p>
+{% endif %}
+{% for section, items in w.sections %}
+<h2 class="sec">{{ section }}</h2>
+<div class="grid">
+  {% for s in items %}
+  {% set c = s.chosen %}
+  <article class="slot is-{{ s.state }}{% if s.warn %} has-warn{% endif %}" id="card-{{ s.slot.id }}">
+    <a class="slot-main" href="{{ url_for('slot_page', slot_id=s.slot.id) }}" aria-label="{{ s.slot.name }}: see all candidates">
+      {% if c and s.state != 'owned' %}
+        {{ pic(c.data.image_url, c.colour_hex, c.data.name) }}
+      {% else %}
+        {{ pic('', s.colour.hex) }}
+      {% endif %}
+      <span class="slot-text">
+        <span class="line">
+          <span class="slot-name">{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</span>
+          <span class="slot-price">{% if s.state == 'owned' %}0&nbsp;€{% elif c %}{{ s.cost|eur }}{% else %}—{% endif %}</span>
+        </span>
+        {% if s.state == 'owned' %}
+          <span class="item">You already own this</span>
+        {% elif c %}
+          <span class="line">
+            <span class="item">{{ c.data.name }}</span>
+            {% if s.qty > 1 %}<span class="each">{{ s.qty }} × {{ c.price|eur }}</span>{% endif %}
+          </span>
+          <span class="meta">{{ store(c.data.store) }}{{ pill(c.score) }}<span class="fab">{{ c.fabric }}</span></span>
+          {% if c.check.notes %}<span class="hint">{{ icon('flag') }} {{ c.check.notes[0] }}{% if c.check.notes|length > 1 %} <b>+{{ c.check.notes|length - 1 }}</b>{% endif %}</span>{% endif %}
+        {% endif %}
+        {% if s.note and s.state != 'owned' %}<span class="note">{{ s.note }}</span>{% endif %}
+      </span>
+    </a>
+    <div class="slot-actions">
+      {% set locked = s.state == 'locked' %}
+      <form method="post" action="{{ url_for('slot_lock', slot_id=s.slot.id) }}" hx-post="{{ url_for('slot_lock', slot_id=s.slot.id) }}">{{ csrf_field() }}
+        <button id="lock-{{ s.slot.id }}" class="act{% if locked %} on{% endif %}" aria-pressed="{{ 'true' if locked else 'false' }}"
+                title="{{ 'Locked: the price level will not change this. Tap to unlock.' if locked else 'Lock this choice so the price level cannot change it' }}"
+                {% if s.state == 'owned' or not c %}disabled{% endif %}>{{ icon('lock' if locked else 'unlock') }}<span>{{ 'Locked' if locked else 'Lock' }}</span></button>
+      </form>
+      {% set owned = s.state == 'owned' %}
+      <form method="post" action="{{ url_for('slot_own', slot_id=s.slot.id) }}" hx-post="{{ url_for('slot_own', slot_id=s.slot.id) }}">{{ csrf_field() }}
+        <button id="own-{{ s.slot.id }}" class="act{% if owned %} on{% endif %}" aria-pressed="{{ 'true' if owned else 'false' }}"
+                title="{{ 'Marked as already owned. Tap to undo.' if owned else 'I already own this (costs nothing)' }}">{{ icon('hanger') }}<span>{{ 'Owned' if owned else 'Own it' }}</span></button>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% endfor %}
+{% if w.slots %}
+<div class="foot">
+  {% if w.source == 'mock' %}
+  <p>Store data: demo, {{ w.collected }}.{% if not production %} Collect real data with <code>python -m wardrobe refresh</code>.{% endif %}</p>
+  {% else %}
+  <p>Store data collected {{ w.collected }}.{% if not production %} Update it with <code>python -m wardrobe refresh</code>.{% endif %}</p>
+  <ul>
+    {% for key, st in w.stores.items() %}
+    <li><b>{{ STORES.get(key, key) }}</b> — {{ st.gives if st.status == 'ok' else st.message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+{% endif %}

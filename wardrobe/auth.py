@@ -1,0 +1,248 @@
+"""Customer accounts (production mode only).
+
+Sign-up, log-in, log-out, password reset, and the account page with the two
+things data-protection law gives every customer: a copy of their data and its
+deletion. Also the request-level guards: who is signed in, and the CSRF token
+that every form and HTMX request must carry.
+
+Passwords are stored only as salted scrypt hashes (werkzeug). A login cookie
+holds the user id and a counter; changing the password raises the counter,
+which signs the account out everywhere else.
+"""
+from __future__ import annotations
+
+import hmac
+import json
+import re
+import secrets
+
+from flask import (Blueprint, Response, abort, flash, g, redirect, render_template, request,
+                   session, url_for)
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from . import db, looks, mail, person, settings
+from .onboarding import ensure_setup
+
+bp = Blueprint("auth", __name__)
+
+EMAIL = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+# Checked when the address is unknown, so a wrong address takes as long as a wrong password.
+_DUMMY_HASH = generate_password_hash("not a real password")
+
+
+# ── who is signed in ──────────────────────────────────────────────────────────
+
+def load_user() -> None:
+    """Runs before every request: find the signed-in user and scope the database to them."""
+    g.user = None
+    user_id = session.get("uid")
+    if user_id is not None:
+        user = db.get_user(user_id)
+        if user and user["session_epoch"] == session.get("epoch"):
+            g.user = user
+        else:
+            session.clear()             # deleted account, or signed out everywhere
+    g.user_token = db.set_user(g.user["id"] if g.user else None)
+
+
+def unload_user(_exc=None) -> None:
+    token = g.pop("user_token", None)
+    if token is not None:
+        db.reset_user(token)
+
+
+def start_session(user: dict) -> None:
+    session.clear()                     # a fresh cookie: nothing carries over from before login
+    session["uid"], session["epoch"] = user["id"], user["session_epoch"]
+    session["csrf"] = secrets.token_urlsafe(32)
+    session.permanent = True
+    db.set_user(user["id"])
+    g.user = user
+
+
+# ── CSRF ──────────────────────────────────────────────────────────────────────
+
+def csrf_token() -> str:
+    if "csrf" not in session:
+        session["csrf"] = secrets.token_urlsafe(32)
+    return session["csrf"]
+
+
+def check_csrf() -> None:
+    """Every request that changes something must prove it came from one of our own pages."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return
+    sent = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token", "")
+    if not sent or not hmac.compare_digest(sent, session.get("csrf", "")):
+        abort(400, "This page was open for too long or was not sent from Capsule. Reload it and try again.")
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _email(value: str | None) -> str | None:
+    value = (value or "").strip().lower()
+    return value if len(value) <= 254 and EMAIL.fullmatch(value) else None
+
+
+def password_problem(password: str, email: str = "") -> str | None:
+    if len(password) < settings.MIN_PASSWORD_LENGTH:
+        return f"Use at least {settings.MIN_PASSWORD_LENGTH} characters."
+    if len(password) > 200:
+        return "That password is too long."
+    if email and password.lower() == email.lower():
+        return "The password must not be your email address."
+    return None
+
+
+def _next_page() -> str:
+    target = request.values.get("next", "")
+    return target if target.startswith("/") and not target.startswith("//") else url_for("wardrobe")
+
+
+def _throttled(email: str) -> bool:
+    by_email, by_ip = db.failed_logins(email, request.remote_addr or "", settings.LOGIN_WINDOW_SECONDS)
+    return by_email >= settings.LOGIN_MAX_FAILURES_PER_EMAIL or by_ip >= settings.LOGIN_MAX_FAILURES_PER_IP
+
+
+# ── sign up, log in, log out ──────────────────────────────────────────────────
+
+@bp.route("/signup", methods=["GET", "POST"])
+def signup():
+    if g.user:
+        return redirect(url_for("wardrobe"))
+    if request.method == "GET":
+        return render_template("auth_signup.html")
+    email, password = _email(request.form.get("email")), request.form.get("password", "")
+    problem = "Enter a valid email address." if not email else password_problem(password, email)
+    if not problem and db.note_signup(request.remote_addr or "") > settings.SIGNUPS_PER_IP_PER_HOUR:
+        problem = "Too many new accounts from this connection. Try again in an hour."
+    if problem:
+        flash(problem)
+        return render_template("auth_signup.html", email=request.form.get("email", "")), 400
+    assert email is not None
+    user_id = db.create_user(email, generate_password_hash(password))
+    if user_id is None:
+        flash("There is already an account with this email address. Log in, or reset the password.")
+        return render_template("auth_signup.html", email=email), 400
+    user = db.get_user(user_id)
+    assert user is not None
+    start_session(user)
+    ensure_setup()
+    flash("Welcome. Start with your sizes, colours and budget — the capsule is built from them.")
+    return redirect(url_for("profile_page"))
+
+
+@bp.route("/login", methods=["GET", "POST"])
+def login():
+    if g.user:
+        return redirect(_next_page())
+    if request.method == "GET":
+        return render_template("auth_login.html", next=request.args.get("next", ""))
+    email = _email(request.form.get("email")) or ""
+    password = request.form.get("password", "")
+    if _throttled(email):
+        flash("Too many attempts. Wait fifteen minutes, or reset the password.")
+        return render_template("auth_login.html", email=email, next=request.form.get("next", "")), 429
+    user = db.get_user_by_email(email) if email else None
+    stored = user["password_hash"] if user and user["password_hash"] else _DUMMY_HASH
+    if not check_password_hash(stored, password) or not user or not user["password_hash"]:
+        db.note_failed_login(email, request.remote_addr or "")
+        flash("Email or password is wrong.")
+        return render_template("auth_login.html", email=email, next=request.form.get("next", "")), 401
+    db.clear_failed_logins(email)
+    start_session(user)
+    return redirect(_next_page())
+
+
+@bp.post("/logout")
+def logout():
+    session.clear()
+    flash("You are logged out.")
+    return redirect(url_for("wardrobe"))
+
+
+# ── forgotten password ────────────────────────────────────────────────────────
+
+@bp.route("/forgot", methods=["GET", "POST"])
+def forgot():
+    if request.method == "GET":
+        return render_template("auth_forgot.html")
+    email = _email(request.form.get("email"))
+    user = db.get_user_by_email(email) if email else None
+    if user and user["password_hash"] and not _throttled(email or ""):
+        token = secrets.token_urlsafe(32)
+        db.add_reset_token(user["id"], token, settings.RESET_TOKEN_MINUTES)
+        link = settings.SITE_URL + url_for("auth.reset", token=token)
+        mail.send(user["email"], f"Reset your {settings.SITE_NAME} password",
+                  f"Someone asked to reset the password for this address.\n\n"
+                  f"Choose a new one here (the link works for {settings.RESET_TOKEN_MINUTES} minutes):\n{link}\n\n"
+                  "If that wasn't you, ignore this message; nothing changes.")
+    # The same answer whether or not the address has an account.
+    flash("If there is an account for that address, a reset link is on its way.")
+    return redirect(url_for("auth.login"))
+
+
+@bp.route("/reset/<token>", methods=["GET", "POST"])
+def reset(token: str):
+    user_id = db.reset_token_user(token)
+    if user_id is None:
+        flash("That reset link has expired or was already used. Ask for a new one.")
+        return redirect(url_for("auth.forgot"))
+    if request.method == "GET":
+        return render_template("auth_reset.html", token=token)
+    user = db.get_user(user_id)
+    password = request.form.get("password", "")
+    problem = password_problem(password, user["email"] if user else "")
+    if problem or not user:
+        flash(problem or "That account no longer exists.")
+        return render_template("auth_reset.html", token=token), 400
+    db.set_password(user_id, generate_password_hash(password))
+    db.clear_failed_logins(user["email"])
+    session.clear()
+    flash("Password changed. Log in with the new one.")
+    return redirect(url_for("auth.login"))
+
+
+# ── the account page ──────────────────────────────────────────────────────────
+
+@bp.get("/account")
+def account():
+    return render_template("account.html", tab="account")
+
+
+@bp.post("/account/password")
+def change_password():
+    current, new = request.form.get("current", ""), request.form.get("password", "")
+    if not check_password_hash(g.user["password_hash"], current):
+        flash("The current password is wrong.")
+    elif (problem := password_problem(new, g.user["email"])):
+        flash(problem)
+    else:
+        db.set_password(g.user["id"], generate_password_hash(new))
+        refreshed = db.get_user(g.user["id"])
+        assert refreshed is not None
+        start_session(refreshed)        # this device stays in; all others are signed out
+        flash("Password changed. Other devices have been signed out.")
+    return redirect(url_for("auth.account"))
+
+
+@bp.get("/account/export")
+def export_data():
+    data = db.export_user()
+    data["your_photo"] = ("stored: see it, replace it or delete it on the Profile page" if person.photo()
+                          else "none stored")
+    body = json.dumps(data, ensure_ascii=False, indent=2)
+    return Response(body, mimetype="application/json",
+                    headers={"Content-Disposition": "attachment; filename=capsule-my-data.json"})
+
+
+@bp.post("/account/delete")
+def delete_account():
+    if not check_password_hash(g.user["password_hash"], request.form.get("current", "")):
+        flash("The password is wrong, so nothing was deleted.")
+        return redirect(url_for("auth.account"))
+    looks.forget_photo(g.user["id"])    # the files: their photo and the pictures drawn from it
+    db.delete_user(g.user["id"])
+    session.clear()
+    flash("Your account and everything in it have been deleted.")
+    return redirect(url_for("wardrobe"))

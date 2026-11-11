@@ -1,0 +1,32 @@
+{% extends "_public.html" %}
+{% block title %}Capsule — a small wardrobe that works together{% endblock %}
+{% block main %}
+<section class="hero">
+  <h1>A small wardrobe where everything goes with everything.</h1>
+  <p class="hero-lead">Tell Capsule your sizes, colours and budget. It plans about eighteen pieces in one palette, finds the best-value option for each, and shows you the outfits they make.</p>
+  <p class="hero-cta">
+    <a class="btn" href="{{ url_for('auth.signup') }}">Create a free account</a>
+    <a class="btn ghost" href="{{ url_for('auth.login') }}">Log in</a>
+  </p>
+  <div class="hero-board" aria-hidden="true">
+    {% for kind, hex in [('coat', '3c3e42'), ('knit', '8d8f92'), ('shirt', 'f5f4f0'), ('trousers', '3c3e42'), ('chinos', 'cdc4b2'), ('sneakers', 'f5f4f0')] %}
+    <img src="{{ url_for('mock_image', kind=kind, c=hex) }}" alt="" loading="lazy">
+    {% endfor %}
+  </div>
+</section>
+
+<section class="steps">
+  <article class="card">
+    <h2>1 · Plan</h2>
+    <p>A capsule of fifteen to twenty slots, built from the colours you like and avoiding the ones you don't. Edit any slot, or mark what you already own.</p>
+  </article>
+  <article class="card">
+    <h2>2 · Choose</h2>
+    <p>Every candidate gets a quality score from its fabric, its price and the brand, with the working shown. Set a price level, from the cheapest to the top, or let Capsule fit the whole wardrobe to your budget. Any piece can still be picked by hand.</p>
+  </article>
+  <article class="card">
+    <h2>3 · Wear</h2>
+    <p>See the outfits your pieces make, one at a time{% if looks_on %}, each drawn on a model you put together, or on you{% endif %}. Tap a piece to swap it or leave it off, save the outfits you like, and buy an outfit store by store in the right sizes.</p>
+  </article>
+</section>
+{% endblock %}

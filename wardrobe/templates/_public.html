@@ -1,0 +1,15 @@
+{# Layout for pages without the wardrobe around them: the landing page, log-in,
+   sign-up, legal pages. #}
+{% extends "base.html" %}
+{% block nav %}
+<nav class="public-nav" aria-label="Account">
+  {% if user %}
+  <a class="btn small" href="{{ url_for('wardrobe') }}">Open my wardrobe</a>
+  {% else %}
+  <a class="btn ghost small" href="{{ url_for('auth.login') }}">Log in</a>
+  <a class="btn small" href="{{ url_for('auth.signup') }}">Create account</a>
+  {% endif %}
+</nav>
+{% endblock %}
+{% block summary %}{% endblock %}
+{% block notices %}{% endblock %}

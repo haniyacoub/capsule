@@ -1,0 +1,15 @@
+{% extends "_public.html" %}
+{% block title %}Create account · Capsule{% endblock %}
+{% block main %}
+<section class="card auth">
+  <h1>Create your account</h1>
+  <form class="form" method="post" action="{{ url_for('auth.signup') }}">{{ csrf_field() }}
+    <label class="field"><span>Email</span>
+      <input type="email" name="email" autocomplete="username" required value="{{ email or '' }}"></label>
+    <label class="field"><span>Password <small>(at least 10 characters)</small></span>
+      <input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+    <button class="btn">Create account</button>
+  </form>
+  <p class="muted small">By creating an account you accept the <a href="{{ url_for('legal_page', name='terms') }}">terms of use</a> and the <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>. Already have one? <a href="{{ url_for('auth.login') }}">Log in</a></p>
+</section>
+{% endblock %}

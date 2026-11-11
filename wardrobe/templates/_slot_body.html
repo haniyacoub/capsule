@@ -1,0 +1,154 @@
+{% from "_macros.html" import icon, pic, pill, store %}
+{% set sid = s.slot.id %}
+{% set here = {'slot_id': sid, 'view': 'slot', 'sort': sort} %}
+{% set fit_words = {'slim': 'Slim cut', 'relaxed': 'Relaxed cut', 'oversized': 'Oversized cut'} %}
+{% set demo = w.source == 'mock' %}
+
+<header class="slot-head">
+  <h1>{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</h1>
+  <p class="state">
+    {% if s.state == 'owned' %}
+      You already own this, so it costs nothing and nothing is picked.
+    {% elif s.state == 'locked' %}
+      <b>Locked.</b> The price level and slider will not change this choice.
+    {% elif s.chosen %}
+      Picked automatically: {% if w.mode == 'budget' %}what your budget allows here{% else %}the {{ MODES[w.mode]|lower }} option{% endif %}{% if w.threshold > 0 %} scoring {{ w.threshold }} or more{% endif %}. Choose another below to swap it in.
+    {% else %}
+      {{ s.note }}.
+    {% endif %}
+    {% if s.note and s.chosen and s.state != 'owned' %}<span class="note">{{ s.note }}.</span>{% endif %}
+  </p>
+  <div class="head-actions">
+    {% if s.state == 'locked' %}
+    <form method="post" action="{{ url_for('slot_lock', **here) }}" hx-post="{{ url_for('slot_lock', **here) }}">{{ csrf_field() }}
+      <button class="btn ghost small">{{ icon('unlock') }} Unlock (back to automatic)</button>
+    </form>
+    {% elif s.state == 'auto' and s.chosen %}
+    <form method="post" action="{{ url_for('slot_lock', **here) }}" hx-post="{{ url_for('slot_lock', **here) }}">{{ csrf_field() }}
+      <button class="btn ghost small">{{ icon('lock') }} Lock this choice</button>
+    </form>
+    {% endif %}
+    <form method="post" action="{{ url_for('slot_own', **here) }}" hx-post="{{ url_for('slot_own', **here) }}">{{ csrf_field() }}
+      <button class="btn ghost small">{{ icon('hanger') }} {{ 'I don’t own this after all' if s.state == 'owned' else 'I already own this' }}</button>
+    </form>
+  </div>
+</header>
+
+{% if cands %}
+<div class="sortbar">
+  <span>{{ s.cands|length }} candidates · {{ s.n_available }} in stock in your size</span>
+  <span class="chips">
+    <a class="chip-link{% if sort == 'price' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid) }}">By price</a>
+    <a class="chip-link{% if sort == 'score' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, sort='score') }}">By score</a>
+  </span>
+</div>
+{% else %}
+<p class="empty">
+  {% if demo %}The demo data has nothing for this garment type.
+  {% elif production %}No store had this in {{ s.colour.label|lower }} when the catalogue was last updated. Give the slot another colour on the Slots page, or add a product by link below.
+  {% else %}No store had this in {{ s.colour.label|lower }} at the last refresh, or the slot is new. Try <code>python -m wardrobe refresh --slot {{ sid }}</code>, give the slot another colour on the Slots page, or add a product by link below.{% endif %}
+</p>
+{% endif %}
+
+<ul class="cands">
+  {% for c in cands %}
+  {% set d = c.data %}
+  {% set is_chosen = s.chosen and s.chosen.id == c.id and s.state != 'owned' %}
+  <li class="cand{% if is_chosen %} chosen{% endif %}{% if not c.available %} out{% endif %}" id="cand-{{ c.id }}">
+    {{ pic(d.image_url, c.colour_hex, d.name, d.colour) }}
+    <div class="cand-body">
+      <div class="cand-top">
+        <span>{{ store(d.store) }} <span class="colour-name">{{ d.colour }}</span>{% if c.manual %} <span class="tag">added by you</span>{% endif %}</span>
+        <span class="price">
+          {% if c.price > 0 %}{{ c.price|eur }}{% else %}no price{% endif %}
+          {% if d.price_before and d.price_before > c.price %}<s class="was">{{ d.price_before|eur }}</s>{% endif %}
+        </span>
+      </div>
+      <h3>{{ d.name }}</h3>
+      <p class="fabric">{{ c.fabric }}{% if c.score.fabric_source in ('name', 'assumed') %} <span class="est">estimated</span>{% endif %}</p>
+      <p class="sizeline">
+        {% if not c.size.known %}{# said once, by the size note below #}
+        {% elif c.available %}<span class="yes">Your size: {{ c.size.text }}</span>
+        {% elif c.size.label %}<span class="no">Your size: {{ c.size.text }}</span>
+        {% else %}<span class="no">{{ c.size.text }}</span>{% endif %}
+        {% if d.fit in fit_words %}<span class="tag">{{ fit_words[d.fit] }}</span>{% endif %}
+      </p>
+      {% if c.check.notes %}
+      <ul class="size-notes">{% for note in c.check.notes %}<li>{{ icon('flag') }} {{ note }}</li>{% endfor %}</ul>
+      {% endif %}
+
+      <details class="why">
+        <summary>{{ pill(c.score) }} <u>Why this score</u></summary>
+        <div class="breakdown">
+          {% for part in c.score.parts %}
+          <div class="part">
+            <div class="part-head"><span>{{ part.label }} {{ '%.0f'|format(part.score) }}</span><span class="muted">× {{ '%.0f'|format(part.weight * 100) }}% = {{ '%.1f'|format(part.points) }}</span></div>
+            <ul>{% for line in part.lines %}<li>{{ line }}</li>{% endfor %}</ul>
+          </div>
+          {% endfor %}
+          <div class="part-head total"><span>Score</span><span>{{ c.score.total }} / 100</span></div>
+          {% if d.sizes_all %}
+          <p class="allsizes"><span class="muted">Sizes:</span>
+            {% for label in d.sizes_all %}<span class="sz{% if label not in d.sizes_in_stock %} gone{% endif %}{% if label == c.size.label %} mine{% endif %}">{{ label }}</span>{% endfor %}
+          </p>
+          {% endif %}
+        </div>
+      </details>
+
+      {% if not demo and (c.gaps or d.manual or c.manual) %}
+      {# What the store page didn't give can be typed in here; it is kept across refreshes. #}
+      <details class="fill"{% if c.price <= 0 %} open{% endif %}>
+        <summary><u>{{ 'Edit details' if d.manual else 'Add details' }}</u>{% if c.gaps %} <span class="muted">— missing: {{ c.gaps|join(', ') }}</span>{% endif %}</summary>
+        <form class="form compact" method="post" action="{{ url_for('slot_details', slot_id=sid, sort=sort) }}">{{ csrf_field() }}
+          <input type="hidden" name="candidate" value="{{ c.id }}">
+          <label class="field"><span>Fabric, as on the product page</span>
+            <input type="text" name="composition" placeholder="80% Wolle, 20% Polyamid" value="{{ d.manual.composition_text if d.manual and d.manual.composition_text else '' }}"></label>
+          <div class="row">
+            <label class="field"><span>Sizes in stock</span>
+              <input type="text" name="sizes" placeholder="S, M, L" value="{{ d.manual.sizes_in_stock|join(', ') if d.manual and d.manual.sizes_in_stock else '' }}"></label>
+            <label class="field"><span>Price (€)</span>
+              <input type="text" name="price" inputmode="decimal" placeholder="{{ '%.2f'|format(c.price) if c.price > 0 else '' }}" value="{{ '%.2f'|format(d.manual.price) if d.manual and d.manual.price else '' }}"></label>
+          </div>
+          <div class="cand-actions">
+            <button class="btn small">Save details</button>
+            {% if d.manual %}<button class="link" name="clear" value="1">Clear what I typed</button>{% endif %}
+          </div>
+        </form>
+      </details>
+      {% endif %}
+
+      <div class="cand-actions">
+        {% if is_chosen %}
+          <span class="chosen-mark">{{ icon('check') }} {{ 'Chosen and locked' if s.state == 'locked' else 'Current pick' }}</span>
+        {% elif c.price > 0 %}
+          <form method="post" action="{{ url_for('slot_pick', **here) }}" hx-post="{{ url_for('slot_pick', **here) }}">{{ csrf_field() }}
+            <input type="hidden" name="candidate" value="{{ c.id }}">
+            <button class="btn small"{% if not c.available and c.size.known %} title="Not in stock in your size — you can still choose it"{% endif %}>Choose this</button>
+          </form>
+        {% endif %}
+        <a class="extlink" href="{{ d.url|weblink }}" target="_blank" rel="noopener noreferrer">{{ 'Store home (demo item)' if demo else 'View at ' ~ STORES.get(d.store, d.store) }} {{ icon('ext') }}</a>
+        {% if c.manual %}
+        <form method="post" action="{{ url_for('slot_remove', slot_id=sid) }}" data-confirm="Remove “{{ d.name }}” from this slot?">{{ csrf_field() }}
+          <input type="hidden" name="candidate" value="{{ c.id }}">
+          <button class="link danger">Remove</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+
+<section class="card add" id="add">
+  <h2>Add a product by link</h2>
+  {% if production %}
+  <p class="muted small">Paste product page addresses from COS, Weekday or Zara, one per line. The page itself is not opened: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
+  {% else %}
+  <p class="muted small">Paste product page addresses from COS, Weekday or Zara, one per line. Zara pages are read in full. COS and Weekday don't show product pages to automated browsers, so only what the link says is taken; add the rest under “Add details”.</p>
+  {% endif %}
+  <form class="form" method="post" action="{{ url_for('slot_import', slot_id=sid) }}">{{ csrf_field() }}
+    <label class="field"><span>Product links</span>
+      <textarea name="urls" rows="3" placeholder="https://www.zara.com/de/de/…-p01234567.html" autocapitalize="off" spellcheck="false"></textarea></label>
+    <button class="btn small">Add</button>
+  </form>
+</section>

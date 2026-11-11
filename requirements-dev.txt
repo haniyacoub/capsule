@@ -1,0 +1,7 @@
+# What the checks need on top of requirements.txt (see check.sh).
+#   pip install -r requirements.txt -r requirements-dev.txt
+mypy>=2.4          # types
+pyflakes>=4.1      # unused names, typos
+coverage>=7.17     # how much of the code the tests exercise
+bandit>=1.9        # risky patterns
+pip-audit>=2.10    # known vulnerabilities in the packages the app runs on

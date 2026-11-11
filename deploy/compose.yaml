@@ -1,0 +1,33 @@
+# Capsule on one server, reached through a Cloudflare Tunnel.
+#
+#   cp deploy/app.env.example deploy/app.env          and fill it in
+#   cp deploy/tunnel.env.example deploy/tunnel.env    and paste the tunnel's token
+#   docker compose -f deploy/compose.yaml up -d --build
+#
+# Nothing listens on the server's public address. The tunnel connects outwards to
+# Cloudflare, and Cloudflare serves the site on your domain over HTTPS. See deploy/README.md.
+#
+# Written without Docker to hand. The GitHub checks build the image and start the "app"
+# service on every push; the "tunnel" service has not been run by anyone yet.
+services:
+  app:
+    build: ..
+    restart: unless-stopped
+    env_file: app.env
+    environment:
+      TRUSTED_PROXY_HOPS: "1"       # the tunnel is the one proxy in front
+    volumes:
+      - capsule-data:/data          # the database, the AI pictures, customers' photos
+    expose:
+      - "8000"
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    env_file: tunnel.env            # TUNNEL_TOKEN, and nothing else: it never sees the app's secrets
+    depends_on:
+      - app
+
+volumes:
+  capsule-data:

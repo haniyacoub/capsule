@@ -1,0 +1,12 @@
+{% extends "_public.html" %}
+{% block title %}Choose a new password · Capsule{% endblock %}
+{% block main %}
+<section class="card auth">
+  <h1>Choose a new password</h1>
+  <form class="form" method="post" action="{{ url_for('auth.reset', token=token) }}">{{ csrf_field() }}
+    <label class="field"><span>New password <small>(at least 10 characters)</small></span>
+      <input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+    <button class="btn">Save password</button>
+  </form>
+</section>
+{% endblock %}

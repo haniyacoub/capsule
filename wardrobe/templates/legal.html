@@ -1,0 +1,33 @@
+{% extends "_public.html" %}
+{% block title %}{{ title }} · Capsule{% endblock %}
+{% block main %}
+<section class="card legal">
+  <h1>{{ title }}</h1>
+  {# These pages are deliberately empty. The text has to come from the business
+     that operates the site (and, for the policies, from a lawyer); invented
+     legal text would be worse than none. Replace the block for each page. #}
+  <p class="demo"><b>Not written yet.</b> This page must be completed by the operator of this site before it is opened to customers.</p>
+
+  {% if name == 'impressum' %}
+  <p class="muted">Required for a commercial website in Germany (§ 5 DDG). It needs, at least:</p>
+  <ul class="plain">
+    <li>the name and legal form of the operator, and who represents it</li>
+    <li>a postal address (not a P.O. box)</li>
+    <li>an email address and a second quick way to make contact</li>
+    <li>the commercial register and number, and the VAT ID, if there are any</li>
+  </ul>
+  {% elif name == 'privacy' %}
+  <p class="muted">Required under the GDPR (Art. 13). What this service actually does with personal data, as a starting point for the text:</p>
+  <ul class="plain">
+    <li><b>Stored per account:</b> email address, a hashed password, the profile you enter (sizes, height and weight, optional chest and waist, budget, colour preferences), your slots, choices and saved outfits, items you add by hand, the model you put together for the AI pictures and, if you upload one, your photo.</li>
+    <li><b>Cookies:</b> one strictly necessary session cookie that keeps you logged in. No tracking or advertising cookies.</li>
+    <li><b>Third parties:</b> product pictures load directly from the retailers' servers, which therefore see your IP address. Email is sent through the operator's mail provider.</li>
+    <li><b>AI pictures of outfits</b> (if the operator has switched them on): a written description of the outfit's pieces and of the model you chose (age range, height, build, skin, hair, beard) is sent to an AI image service, OpenAI or Google. No name, email address or size goes with it. If you upload a photo of yourself, that photo is stored with your account and sent to the same service each time a picture of you is drawn; you confirm this when uploading, and deleting the photo deletes the pictures made from it. The times you asked for a picture are kept for two days, for the daily limit. Pictures that show no real person are shared between customers who ask for the same outfit. The operator has to name the service, its location and the agreement with it.</li>
+    <li><b>Your rights:</b> a copy of your data and deletion of the account are available on the Account page.</li>
+    <li>Still to be named by the operator: the controller and contact, the legal bases, the hosting provider and where it stores data, retention periods, and the supervisory authority.</li>
+  </ul>
+  {% else %}
+  <p class="muted">The terms customers accept when they create an account: what the service is, that product information comes from third parties and may be out of date, what happens to an account, liability, and governing law.</p>
+  {% endif %}
+</section>
+{% endblock %}
