@@ -863,7 +863,8 @@ def create_app() -> Flask:
     @app.route("/profile", methods=["GET", "POST"])
     def profile_page():
         current = profile_mod.load()
-        if request.method == "GET":
+        # HEAD (link checkers, "curl -I") is answered like GET: never as a sent form, which would save an empty one.
+        if request.method in ("GET", "HEAD"):
             rules = looks.load_rules()
             chosen = looks.service()
             model = person.load()
