@@ -80,6 +80,7 @@ class WithPictures:
         for patch in (mock.patch.object(settings, "OPENAI_API_KEY", "test-key"),
                       mock.patch.object(looks, "STARTED", 0.0),      # this server has been running a long time
                       mock.patch.object(imagegen, "draw", stand_in),
+                      mock.patch.object(looks, "_TURNS", threading.BoundedSemaphore(2)),   # both turns free
                       mock.patch.object(looks, "_spawn", lambda job: job())):   # draw at once, not in the background
             patch.start()
             self.addCleanup(patch.stop)
@@ -728,12 +729,59 @@ class Pictures(WithPictures, AppCase):
             self.assertNotIn("test-key", kept)
 
     def in_line(self):
-        """Have drawings wait instead of being done at once. Returns the list they wait in."""
+        """Both drawing turns are taken by other pictures: new drawings wait in line instead of being done at
+        once. Returns the line; calling a drawing in it is its turn coming."""
+        class TurnsTaken:
+            def acquire(self, blocking=True):
+                return blocking         # free right now? No. Waiting for one? It has come.
+
+            def release(self):
+                pass
+
         waiting = []
-        patch = mock.patch.object(looks, "_spawn", waiting.append)
+        for patch in (mock.patch.object(looks, "_TURNS", TurnsTaken()), mock.patch.object(looks, "_spawn", waiting.append)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        return waiting
+
+    def being_drawn(self):
+        """Drawings take a free turn and keep it until the test finishes them. Returns them, in the order asked."""
+        drawing = []
+        patch = mock.patch.object(looks, "_spawn", drawing.append)
         patch.start()
         self.addCleanup(patch.stop)
-        return waiting
+        return drawing
+
+    def test_waiting_its_turn_is_said_only_when_both_turns_are_taken(self):
+        drawing = self.being_drawn()
+        first, second, third = some_outfits(3)
+
+        def state(outfit) -> str:
+            return self.client.get(f"/outfits/look/{look_key(outfit)}?outfit={outfit.key}").data.decode()
+
+        for outfit in (first, second):      # nothing else drawn, then one picture drawn and the other turn free
+            shown = self.post("/outfits/look", key=outfit.key).data.decode()
+            self.assertIn("Drawing this outfit on the model", shown)
+            self.assertNotIn("Waiting its turn", shown)
+            self.assertNotIn("Waiting its turn", state(outfit))
+            self.assertEqual(db.look_rows([look_key(outfit)])[look_key(outfit)]["status"], "working")
+        shown = self.post("/outfits/look", key=third.key).data.decode()     # both turns taken: this one waits
+        self.assertIn("Waiting its turn", shown)
+        self.assertEqual(len(drawing), 3)
+        drawing.pop(0)()                                            # the first is done: its turn is free …
+        self.assertIn("look-pic", state(first))
+        self.assertIn("Waiting its turn", state(third))             # … and is the third's once it is started
+        drawing.pop()()
+        self.assertIn("look-pic", state(third))
+        self.assertNotIn("Waiting its turn", state(second))
+        drawing.pop()()
+        self.assertIn("look-pic", state(second))
+        self.assertEqual(len(self.drawn), 3)
+        self.assertEqual(db.look_requests(0), 3)
+        for outfit in (first, second):                              # both turns were given back
+            again = self.post("/outfits/look", key=outfit.key, again="1").data.decode()
+            self.assertIn("Drawing this outfit on the model", again)
+            self.assertNotIn("Waiting its turn", again)
 
     def age(self, seconds):
         with closing(sqlite3.connect(paths.DB_PATH)) as con, con:

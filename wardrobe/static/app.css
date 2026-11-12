@@ -375,11 +375,14 @@ details.why summary::-webkit-details-marker { display: none; }
 
 /* ── Outfits: one at a time, side to side ────────────────────────────────── */
 /* The chips and Shuffle in one row. Where the chips do not fit (a narrow phone) they scroll sideways inside their
-   own row, which reaches 4px past them on every side and pads that back, so that their focus rings show whole. */
+   own row, which reaches 4px past them on every side and pads that back, so that their focus rings show whole.
+   A chip that gets keyboard focus while partly outside the row is scrolled in (app.js) until it is 4px clear of
+   the row's edge (scroll-padding): its whole ring shows. */
 .toolbar { display: flex; align-items: center; gap: var(--s-2); margin: 0 0 var(--s-2); }
 .toolbar .chips {
   flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
   margin: calc(-1 * var(--s-1)); padding: var(--s-1);
+  scroll-padding-inline: var(--s-1);
 }
 .toolbar .chips::-webkit-scrollbar { display: none; }
 .toolbar .chip-link { flex: none; white-space: nowrap; }
@@ -480,8 +483,10 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .band :focus-visible { outline-color: #fff; }
 .band .spin { border-color: rgba(255, 255, 255, .35); border-top-color: #fff; }
 /* The line under the box: one line, 40px tall in every state (empty until there is a picture), so that nothing under
-   it moves when the picture arrives. Where the box is narrower than the half sentence and the two links (a short
-   phone, under a message), the line reaches a little past the box on both sides. */
+   it moves when the picture arrives. It never wraps: at the browser's standard text size its words show whole (at a
+   larger one they end in '…'). Where the box is narrower than the half sentence and the two links (272px: on a
+   screen under about 760px tall, or under a message at the top), the line is 272px wide and reaches past the box
+   equally on both sides, by 61px each at most (the box is never under 150px), so it still fits a 320px phone. */
 .look-line {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
   width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);

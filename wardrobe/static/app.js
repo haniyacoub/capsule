@@ -43,6 +43,15 @@ window.addEventListener('pageshow', (e) => {
 
 // 6. Outfits: the arrows and the arrow keys move the reel one outfit at a time.
 //    (Swiping needs no code: the reel is a scrolling row that snaps, see app.css.)
+//    The chips above the outfits scroll sideways in their own row on a narrow phone. A browser
+//    gives keyboard focus to a chip that is only partly in that row without scrolling it in, so
+//    its focus ring would be cut off: bring it in, clear of the edge by the row's scroll-padding.
+const chipRow = document.querySelector('.toolbar .chips');
+if (chipRow) {
+  chipRow.addEventListener('focusin', (e) => {
+    e.target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
+}
 const reel = document.getElementById('reel');
 if (reel) {
   // `goal` is the outfit being scrolled to while the scroll is still under way, so that two

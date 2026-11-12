@@ -12,8 +12,9 @@ page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer o
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
 logs in again and lands on the outfits, puts a model together, uploads a photo, saves new colours
 (the plan is rebuilt, keeping the swapped piece), sees that a phone's first screen shows the outfit
-on the model with its price and the heart, tabs through three pages to see that nothing with
-keyboard focus is hidden under the budget bar or the tab bar, and deletes the account.
+on the model with its price and the heart (and every chip over it, whole, by keyboard), tabs
+through three pages to see that nothing with keyboard focus is hidden under the budget bar or the
+tab bar, and deletes the account.
 
 On the way a second customer, on a small product list published for that step alone, fills a
 piece the list has nothing for with one tap.
@@ -368,8 +369,9 @@ def run(base: str) -> None:
             assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
             page.wait_for_selector(f"{first} .look-bar.wait")              # asked for by itself, then waited for
             status = drawing_status(page)
-            assert status["words"] and re.match(r"(Drawing this outfit|Waiting its turn)", status["words"]) and status["inside"], \
-                f"while the picture is drawn, the status is not said inside the picture's box: {status}"
+            # Nothing else is being drawn, so it is drawn at once: it must not be said to be waiting its turn.
+            assert status["words"] and status["words"].startswith("Drawing this outfit") and status["inside"], \
+                f"while the only picture is drawn, the status is not 'Drawing this outfit…' inside the picture's box: {status}"
             page.wait_for_selector(f"{first} .look-pic img")
             shows(f"{first} .look-pic img", "the picture of the outfit")
             assert page.locator(f"{first} .collage").is_hidden(), "the product photos still show under the picture"
@@ -667,10 +669,11 @@ def run(base: str) -> None:
             # The model view is the heart of Capsule. On a phone (390 x 844) the first screen shows the AI picture and,
             # under it, the outfit's title, its price and the heart, above the tab bar; on a shorter one (Safari's
             # 390 x 664) at least the whole picture with its lowest dot, also under a message at the top of the page.
-            # The chips and Shuffle are one row (on a narrow phone the chips scroll sideways inside it), the chip that
-            # is on is marked, the line over the outfits says how to see the next one (swipe on a touch screen, the
-            # arrows with a mouse), each outfit's title is a heading that agrees with the chip, 'Buy this outfit' is the
-            # main button, and the outfit row does not cut off the focus ring of the heart or of 'Buy this outfit'.
+            # The chips and Shuffle are one row (on a narrow phone the chips scroll sideways inside it, and a chip reached
+            # by keyboard comes whole into it, ring and all), the chip that is on is marked, the line over the outfits
+            # says how to see the next one (swipe on a touch screen, the arrows with a mouse), each outfit's title is a
+            # heading that agrees with the chip, 'Buy this outfit' is the main button, and the outfit row does not cut
+            # off the focus ring of the heart or of 'Buy this outfit'.
             def opened(width: int, height: int, touch: bool, path: str = "/outfits"):
                 context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=touch, has_touch=touch)
                 other = context.new_page()
@@ -761,6 +764,26 @@ def run(base: str) -> None:
             }""")
             assert narrow["rows"] == 1 and narrow["last_in_reach"] and narrow["page"] <= 360, \
                 f"at 360px the chips do not scroll sideways in one row, or the page is wider than the screen: {narrow}"
+            # By keyboard too: with the row back at its start, Tab to the last chip (Saved, partly outside the row),
+            # then Shift+Tab back to the first: each comes whole into the row, its focus ring included.
+            other.evaluate("() => { document.querySelector('.toolbar .chips').scrollLeft = 0; document.activeElement.blur(); }")
+            for key, which in (("Tab", "lastElementChild"), ("Shift+Tab", "firstElementChild")):
+                for _ in range(40):
+                    other.keyboard.press(key)
+                    if other.evaluate(f"() => document.activeElement === document.querySelector('.toolbar .chips').{which}"):
+                        break
+                ring = other.evaluate("""() => {
+                    const el = document.activeElement, row = document.querySelector('.toolbar .chips');
+                    if (!row.contains(el)) return {chip: null};
+                    const style = getComputedStyle(el), r = el.getBoundingClientRect(), b = row.getBoundingClientRect();
+                    const reach = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+                    return {chip: el.textContent.trim(), shown: el.matches(':focus-visible') && style.outlineStyle !== 'none',
+                            cut: [['left', r.left - reach < b.left - 0.5], ['right', r.right + reach > b.right + 0.5],
+                                  ['top', r.top - reach < b.top - 0.5], ['bottom', r.bottom + reach > b.bottom + 0.5]]
+                                 .filter(side => side[1]).map(side => side[0])};
+                }""")
+                assert ring["chip"] and ring["shown"] and not ring["cut"], \
+                    f"at 360px, after {key}, the focus ring of the chip {ring['chip']!r} is cut off by the chip row: {ring}"
             context.close()
 
             context, other = opened(1280, 900, False)
