@@ -3,10 +3,12 @@
     parse("80 % Wolle, 20 % Polyamid")  ->  [("wool", 80.0), ("polyamide", 20.0)]
 
 Handles German and English names, either order ("Baumwolle 100%"), and
-multi-part labels — only the main fabric counts, not lining or soles.
+multi-part labels — only the main fabric counts, not lining or soles. The
+shares never add up to more than 100.
 """
 from __future__ import annotations
 
+import math
 import re
 
 # name fragment -> canonical fibre key (the keys used in config/scoring.toml)
@@ -47,10 +49,12 @@ _GERMAN = {
     "rubber": "Gummi", "other": "Sonstige Fasern",
 }
 
-# Sections of a label that are not the main fabric.
+# Sections of a label that are not the main fabric. A shoe's label starts with its upper
+# ("Schnitt: 100% Kuhleder") and lists the tongue ("Zunge", "Lasche") after it with a 100% of its
+# own, so the tongue ends the main fabric just as the lining does.
 _SECONDARY = re.compile(
     r"\b(innenfutter|futter|lining|sohle|laufsohle|innensohle|sole|füllung|filling|"
-    r"wattierung|padding|besatz|trim|rippe|rib|bündchen|taschenfutter)\b",
+    r"wattierung|padding|besatz|trim|rippe|rib|bündchen|taschenfutter|zunge|lasche|tongue)\b",
     re.IGNORECASE,
 )
 _PCT = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
@@ -84,7 +88,28 @@ def parse(text: str | None) -> list[tuple[str, float]]:
             name = name.split(":")[-1]
         key = _fibre_key(name)
         totals[key] = totals.get(key, 0.0) + pct
-    return sorted(totals.items(), key=lambda kv: -kv[1])
+    comp = sorted(totals.items(), key=lambda kv: -kv[1])
+    if math.fsum(pct for _, pct in comp) > 100:
+        comp = _scaled_to_100(comp)
+    return comp
+
+
+def _scaled_to_100(comp: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Shares that add up to more than 100, scaled back to exactly 100 in whole percents.
+
+    It happens when a label names two parts of a garment in a way this parser does not
+    recognise (each with its own 100%), or when a store rounds its figures up. Each share is
+    rounded down, and the percents still missing go to the shares that lost most in the
+    rounding, so together they make exactly 100: "51 % Baumwolle, 50 % Polyester" becomes
+    50 + 50, and "Vorderteil: 100 % Baumwolle; Rückenteil: 100 % Polyester" becomes 50 + 50.
+    """
+    total = math.fsum(pct for _, pct in comp)
+    exact = [pct * 100 / total for _, pct in comp]
+    whole = [math.floor(share) for share in exact]
+    lost_most = sorted(range(len(comp)), key=lambda i: whole[i] - exact[i])
+    for i in lost_most[: 100 - sum(whole)]:
+        whole[i] += 1
+    return sorted(((key, float(share)) for (key, _), share in zip(comp, whole)), key=lambda kv: -kv[1])
 
 
 def label(key: str) -> str:
