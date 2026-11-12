@@ -54,15 +54,37 @@ if (chipRow) {
 }
 const reel = document.getElementById('reel');
 if (reel) {
+  const slides = [...reel.querySelectorAll('[data-slide]')];
+  const shown = () => Math.round(reel.scrollLeft / reel.clientWidth);    // which outfit is on screen
+  // Your place: the outfit on screen is kept in the page's address (#outfit-<key>), in place of the address
+  // before it, never as a new step in the history (Back still leaves the page). So Back from 'Buy this outfit'
+  // or from a piece's page, and a reload, show it again. On Back the browser puts back where the page was
+  // scrolled to, but not the row, so the row is moved to that outfit here, at once (no slide).
+  // ('Show more outfits' leads to the same kind of address: the last outfit you saw.)
+  const keep = (index) => {
+    const slide = slides[index];
+    if (slide && slide.id && window.location.hash !== '#' + slide.id) {
+      window.history.replaceState(window.history.state, '', '#' + slide.id);
+    }
+  };
+  const kept = slides.findIndex((slide) => slide.id && '#' + slide.id === window.location.hash);
+  if (kept > 0) {
+    reel.style.scrollBehavior = 'auto';
+    reel.scrollLeft = kept * reel.clientWidth;
+    reel.style.scrollBehavior = '';
+  }
+  // With "reduce motion" asked for in the device's settings, the arrows and the arrow keys show the next outfit
+  // at once instead of sliding to it ('auto' follows app.css, which turns the sliding off then).
+  const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
   // `goal` is the outfit being scrolled to while the scroll is still under way, so that two
   // quick presses move two outfits instead of the second one being lost mid-scroll.
   let goal = null;
   let settled;
   const step = (direction) => {
-    const last = reel.querySelectorAll('[data-slide]').length - 1;
-    const from = goal === null ? Math.round(reel.scrollLeft / reel.clientWidth) : goal;
-    goal = Math.max(0, Math.min(last, from + direction));
-    reel.scrollTo({ left: goal * reel.clientWidth, behavior: 'smooth' });
+    const from = goal === null ? shown() : goal;
+    goal = Math.max(0, Math.min(slides.length - 1, from + direction));
+    reel.scrollTo({ left: goal * reel.clientWidth, behavior: motion.matches ? 'auto' : 'smooth' });
+    keep(goal);       // at once: 'Buy this outfit' may be pressed before the row has come to rest
   };
   const prev = document.querySelector('.reel-nav.prev');
   const next = document.querySelector('.reel-nav.next');
@@ -75,7 +97,10 @@ if (reel) {
   reel.addEventListener('scroll', () => {
     ends();
     clearTimeout(settled);
-    settled = setTimeout(() => { goal = null; }, 200);    // the scroll has come to rest
+    settled = setTimeout(() => {      // the scroll has come to rest (after a swipe too)
+      goal = null;
+      keep(shown());
+    }, 200);
   }, { passive: true });
   ends();
   document.addEventListener('keydown', (e) => {

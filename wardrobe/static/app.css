@@ -396,6 +396,7 @@ details.why summary::-webkit-details-marker { display: none; }
   .by-mouse { display: inline; }
 }
 .looks { position: relative; display: flow-root; }   /* flow-root: the row's reach above and below (see .reel) moves neither this section nor its arrows */
+.looks { container-type: inline-size; }   /* its width, 100cqw inside it, is the row's: the picture's width and the arrows' place are worked out from it */
 .reel {   /* a row of full-width slides; the browser snaps to one outfit at a time */
   position: relative;   /* what is placed inside a slide stays inside the row; else the page grows to all the outfits' width */
   display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
@@ -417,8 +418,10 @@ details.why summary::-webkit-details-marker { display: none; }
    heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
    the budget bar (--bar-h) and 302px: the header, the chips and the lead line above the picture (150px), the line
    under it (40px), the outfit line and the tab bar below. The picture is never under 240px wide; on a shorter
-   screen it then ends just above the tab bar, and the outfit line follows below. */
+   screen it then ends just above the tab bar, and the outfit line follows below. Its width is kept as --stage-w, so
+   that the arrows can be placed beside the picture (see .reel-nav). */
 .looks { --told: 0px; --least: 240px; --lead-more: 0px; }
+.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--lead-more) - var(--told)) * 2 / 3))); }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
    room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
@@ -429,7 +432,7 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 /* The stage is also the box the line under the picture measures itself against (see .look-line). */
 .stage {
   position: relative; margin: 0 auto; container-type: inline-size;
-  width: min(100%, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--lead-more) - var(--told)) * 2 / 3)));
+  width: var(--stage-w);
 }
 .collage, .look-pic { aspect-ratio: 2 / 3; border-radius: 0; overflow: hidden; background: var(--photo); }
 .collage { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 1px; }
@@ -561,13 +564,22 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 .about-actions { margin: var(--s-3) 0 0; }
 .about-actions .btn { width: 100%; }   /* "Buy this outfit": the main button, the whole width of the list */
 .more-slide { place-content: center; justify-items: center; min-height: 260px; text-align: center; }
+/* The arrows, for every mouse at every width (a touch screen swipes; the lead line says which). They sit beside the
+   outfit, 12px from the picture's left edge and from the list's right edge, centred on the picture's height. --pair
+   is the outfit's width: the picture alone where the list is under it, the picture, the 32px between and the list
+   (420px) from 760px. Where the outfit fills the row, they keep to the row's edges; in a window so narrow that they
+   reach the picture, they lie on its edge, over its band and dots (z-index). */
+.looks { --pair: var(--stage-w); }
 .reel-nav {
-  display: none; position: absolute; top: 32%; width: 44px; height: 44px; padding: 0; border-radius: 50%;
+  display: none; position: absolute; z-index: 3; top: calc(var(--stage-w) * 3 / 4 - 44px / 2); width: 44px; height: 44px; padding: 0; border-radius: 50%;
   align-items: center; justify-content: center; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
   box-shadow: 0 1px 6px rgba(0, 0, 0, .12); cursor: pointer;
 }
-.reel-nav.prev { left: 0; }
-.reel-nav.next { right: 0; }
+.reel-nav.prev { left: max(0px, 50% - var(--pair) / 2 - 44px - var(--s-3)); }
+.reel-nav.next { right: max(0px, 50% - var(--pair) / 2 - 44px - var(--s-3)); }
+@media (hover: hover) and (pointer: fine) {
+  .reel-nav { display: inline-flex; }
+}
 .reel-nav.next .ic { transform: rotate(180deg); }
 .reel-nav:disabled { opacity: .3; cursor: default; }
 .save { display: flex; }
@@ -805,11 +817,12 @@ details[open] > summary .edit { visibility: hidden; }
   .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: var(--s-6); padding: var(--s-4) 60px; }
   /* The picture beside the pieces, as tall as the screen allows below the budget bar (--bar-h), the header, the
      chips and the lead line, with the line under it (210px), less any message's room (see .looks). */
-  .stage { width: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--told)) * 2 / 3))); margin: 0; }
+  .looks { --stage-w: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--told)) * 2 / 3))); }
+  .looks { --pair: calc(var(--stage-w) + var(--s-6) + 420px); }   /* the picture, the gap and the list: the slide's columns */
+  .stage { margin: 0; }
   .collage, .look-pic { border-radius: var(--r-img); }
   .band { border-radius: var(--r-img) var(--r-img) 0 0; }
   .about { margin: 0; }
-  .reel-nav { display: inline-flex; }
   .sheet { margin: auto; padding: 22px; border-radius: var(--r-sheet); }
   .hero { padding-top: var(--s-7); }
   .hero-cta .btn { width: auto; }

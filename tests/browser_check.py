@@ -480,6 +480,75 @@ def run(base: str) -> None:
             page.locator(".reel-nav.prev").click()
             wait_for_outfit(1)
 
+        def arrows_for_every_mouse_and_your_place_kept():
+            # With a mouse the arrows show at every width (a touch screen swipes, see the phone's first screen), and on a
+            # computer they sit beside the outfit: within 48px of the picture's left edge and of the list's right edge,
+            # centred on the picture. With "reduce motion" asked for, Next shows the next outfit at once, without
+            # sliding. The outfit on screen is kept in the address without a new step in the history, so Back from
+            # 'Buy this outfit' and a reload come back to it.
+            def shown() -> int:
+                return page.evaluate("() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth); }")
+
+            def wait_for_outfit(index: int, after: str):
+                try:
+                    page.wait_for_function("i => { const r = document.getElementById('reel'); "
+                                           "return Math.round(r.scrollLeft / r.clientWidth) === i; }", arg=index, timeout=5000)
+                except Exception:  # noqa: BLE001
+                    raise AssertionError(f"{after}, outfit {index + 1} should be on screen; it is outfit {shown() + 1}") from None
+
+            try:
+                page.set_viewport_size({"width": 700, "height": 800})
+                page.goto(base + "/outfits", wait_until="networkidle")
+                both = page.evaluate("""() => [...document.querySelectorAll('.reel-nav')].map(b => { const r = b.getBoundingClientRect();
+                    return getComputedStyle(b).display !== 'none' && r.width >= 44 && r.left >= 0 && r.right <= innerWidth; })""")
+                assert both == [True, True], f"in a 700px window with a mouse the two arrows do not both show: {both}"
+                page.locator(".reel-nav.next").click()
+                wait_for_outfit(1, "in a 700px window, after Next")
+
+                page.set_viewport_size({"width": 1280, "height": 900})
+                page.goto(base + "/outfits", wait_until="networkidle")
+                near = page.evaluate("""() => {
+                    const box = s => document.querySelector(s).getBoundingClientRect(), middle = r => (r.top + r.bottom) / 2;
+                    const picture = box('#reel .slide .collage'), list = box('#reel .slide .about');
+                    const prev = box('.reel-nav.prev'), next = box('.reel-nav.next');
+                    return {prev: picture.left - prev.right, next: next.left - list.right,
+                            off_centre: Math.max(Math.abs(middle(prev) - middle(picture)), Math.abs(middle(next) - middle(picture)))};
+                }""")
+                assert 0 <= near["prev"] <= 48 and 0 <= near["next"] <= 48 and near["off_centre"] <= 2, \
+                    f"at 1280 x 900 the arrows are not beside the outfit (px from the picture, from the list, off its middle): {near}"
+
+                page.emulate_media(reduced_motion="reduce")
+                seen = page.evaluate("""() => new Promise(done => {
+                    const reel = document.getElementById('reel'), seen = [Math.round(reel.scrollLeft)];
+                    document.querySelector('.reel-nav.next').click();
+                    let n = 0;
+                    const every = setInterval(() => { seen.push(Math.round(reel.scrollLeft)); if (++n === 25) { clearInterval(every); done(seen); } }, 30);
+                })""")
+                width = page.evaluate("() => document.getElementById('reel').clientWidth")
+                assert sorted(set(seen)) == [0, width], \
+                    f"with reduced motion Next slides the row (positions every 30 ms: {sorted(set(seen))}), not one step to {width}"
+            finally:
+                page.emulate_media(reduced_motion="no-preference")
+                page.set_viewport_size({"width": 1280, "height": 860})
+
+            page.goto(base + "/outfits", wait_until="networkidle")
+            steps = page.evaluate("history.length")
+            for index in (1, 2):
+                page.locator(".reel-nav.next").click()
+                wait_for_outfit(index, "after Next")
+            third = page.locator("#reel [data-slide]").nth(2)
+            page.wait_for_function("id => location.hash === '#' + id", arg=third.get_attribute("id"))
+            assert page.evaluate("history.length") == steps, "moving between outfits added steps to the browser's history"
+            count = third.locator(".count").inner_text().strip()
+            assert count.startswith("3 / "), f"the third outfit counts itself {count!r}"
+            third.locator(".about-actions a").click()
+            page.wait_for_url("**/outfits/buy?**")
+            page.go_back(wait_until="networkidle")
+            wait_for_outfit(2, "back from 'Buy this outfit'")
+            assert page.locator("#reel [data-slide]").nth(2).locator(".count").inner_text().strip() == count, "Back shows another outfit"
+            page.reload(wait_until="networkidle")
+            wait_for_outfit(2, "after a reload")
+
         def save_and_buy():
             page.goto(base + "/outfits", wait_until="networkidle")
             page.locator(f"{first} .heart").click()
@@ -732,6 +801,8 @@ def run(base: str) -> None:
             assert row["group"] == "group" and len(row["current"]) == 1 and row["current"][0], f"the chip that is on is not marked: {row}"
             lead = other.locator(".lead").inner_text()
             assert "swipe" in lead and "arrow" not in lead and "←" not in lead, f"on a touch screen the line over the outfits reads {lead!r}"
+            assert not other.locator(".reel-nav").first.is_visible() and not other.locator(".reel-nav").last.is_visible(), \
+                "on a touch screen the arrows show over the outfits, which are swiped"
             buy, pieces = other.locator(f"{first} .about-actions a").bounding_box(), other.locator(f"{first} .pieces").bounding_box()
             assert buy["height"] >= 48 and abs(buy["width"] - pieces["width"]) < 1, \
                 f"at 390px 'Buy this outfit' is {buy['width']:.0f} x {buy['height']:.0f}px, the list {pieces['width']:.0f}px wide"
@@ -895,7 +966,9 @@ def run(base: str) -> None:
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
-                 ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),
+                 ("arrows and arrow keys", arrows_move),
+                 ("arrows for every mouse, your place kept on Back", arrows_for_every_mouse_and_your_place_kept),
+                 ("save an outfit and buy it", save_and_buy),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("the landing page says what Capsule is", the_landing_page),
