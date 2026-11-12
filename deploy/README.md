@@ -30,12 +30,11 @@ Both cost money and need your name on them, so they are yours to set up.
    Tunnels (the menus move around) and create one of the "cloudflared" kind.
    Copy its token. Add a public hostname: your domain, service type HTTP,
    address `app:8000`.
-2. **Put the code on the server.** The repository is private, so give the
-   server a read-only deploy key (GitHub: the repository's Settings, Deploy
-   keys), then:
+2. **Put the code on the server.** The repository is public, so no key is
+   needed:
 
    ```bash
-   git clone git@github.com:haniyacoub/capsule.git && cd capsule
+   git clone https://github.com/haniyacoub/capsule.git && cd capsule
    cp deploy/app.env.example deploy/app.env          # then edit: SECRET_KEY, SITE_URL, INVITE_CODE, email, AI key
    cp deploy/tunnel.env.example deploy/tunnel.env    # then paste the tunnel's token
    docker compose -f deploy/compose.yaml up -d --build
