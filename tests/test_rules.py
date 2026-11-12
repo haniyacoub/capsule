@@ -29,6 +29,49 @@ class Composition(unittest.TestCase):
         self.assertEqual(composition.parse(""), [])
         self.assertEqual(composition.parse(None), [])
 
+    def test_a_shoe_is_its_upper_not_its_tongue(self):
+        # Zara's shoe labels, word for word: the upper ("Schnitt"), then the tongue ("Zunge") with its own 100%.
+        self.assertEqual(composition.parse(ZARA_SHOE_LABELS["Leder-Turnie"]), [("leather", 100.0)])
+        self.assertEqual(composition.parse(ZARA_SHOE_LABELS["Sneaker aus Leder im Retro-Stil"]),
+                         [("leather", 82.0), ("polyurethane", 18.0)])
+        self.assertEqual(composition.parse(ZARA_SHOE_LABELS["Retro-Leder-Sneaker"]), [("leather", 100.0)],
+                         "the nylon tongue is not half the shoe")
+        self.assertEqual(composition.describe(composition.parse(ZARA_SHOE_LABELS["Lederschuh mit Track-Sohle"])),
+                         "100% leather", "never '200% leather'")
+        self.assertEqual(composition.parse("Upper: 100% leather; Tongue: 100% polyester"), [("leather", 100.0)])
+        self.assertEqual(composition.parse("Obermaterial: 100% Leder; Lasche: 100% Polyester"), [("leather", 100.0)])
+
+    def test_no_mix_is_ever_over_100_percent(self):
+        # Two parts of a garment the parser cannot tell apart, or a store's own rounding: scaled back to 100.
+        self.assertEqual(composition.parse("Vorderteil: 100 % Baumwolle; Rückenteil: 100 % Polyester"),
+                         [("cotton", 50.0), ("polyester", 50.0)])
+        self.assertEqual(composition.parse("Außen: 70 % Wolle, 30 % Polyamid; Ärmel: 100 % Wolle"),
+                         [("wool", 85.0), ("polyamide", 15.0)])
+        self.assertEqual(composition.parse("51 % Baumwolle, 50 % Polyester"), [("cotton", 50.0), ("polyester", 50.0)])
+        self.assertEqual(composition.parse("Oben: 60 % Wolle, 40 % Kaschmir; Unten: 55 % Wolle, 45 % Seide"),
+                         [("wool", 58.0), ("silk", 22.0), ("cashmere", 20.0)])
+        labels = [*ZARA_SHOE_LABELS.values(), "Vorderteil: 100 % Baumwolle; Rückenteil: 100 % Polyester",
+                  "100 % Baumwolle; 100 % Baumwolle; 100 % Polyester", "33,3 % Wolle, 33,3 % Kaschmir, 33,4 % Seide",
+                  "Polyester 64%, Viskose 34%, Elasthan 2%", "Obermaterial: 80% Wolle, 20% Polyamid; Futter: 100% Polyester"]
+        for text in labels:
+            self.assertLessEqual(sum(pct for _, pct in composition.parse(text)), 100, text)
+
+
+# Zara's shoe labels as collected on 11 Nov 2026, by product name.
+ZARA_SHOE_LABELS = {
+    "Leder-Turnie": "Schnitt: 100% kuhleder; Zunge: 100% kuhleder; Futter: 75% polyester, 25% polyurethan; "
+                    "Sohle: 100% polyurethan; Innensohle: 65% baumwolle, 35% polyester",
+    "Sneaker aus Leder im Retro-Stil": "Schnitt: 82% kuhleder, 18% polyurethan; Zunge: 65% polyurethan, 35% kuhleder; "
+                                       "Futter: 60% polyester, 40% polyurethan; Sohle: 100% sbs; Innensohle: 100% polyester",
+    "Retro-Leder-Sneaker": "Schnitt: 100% kuhleder; Zunge: 100% polyamid; Futter: 60% baumwolle, 32% polyester, "
+                           "8% polyurethan; Sohle: 100% sbs; Innensohle: 65% baumwolle, 35% polyester",
+    "Kombinierter Retro-Turnschuh": "Schnitt: 70% polyurethan, 30% polyester; Zunge: 100% polyurethan; "
+                                    "Futter: 86% polyamid, 14% elastan; Sohle: 100% kautschuk; "
+                                    "Innensohle: 86% polyamid, 14% elastan",
+    "Lederschuh mit Track-Sohle": "Schnitt: 100% kuhleder; Zunge: 100% kuhleder; Futter: 100% polyester; "
+                                  "Sohle: 100% sbs; Innensohle: 100% polyurethan",
+}
+
 
 class Scoring(unittest.TestCase):
     rules = scoring.load_rules()
@@ -75,6 +118,13 @@ class Scoring(unittest.TestCase):
     def test_missing_composition_is_neutral_not_a_crash(self):
         s = self.score("cos", 89, None, "knit")
         self.assertIn("No composition", s.parts[0].lines[0])
+
+    def test_a_shoe_is_scored_on_its_upper(self):
+        whole_label = self.score("zara", 69.95, ZARA_SHOE_LABELS["Retro-Leder-Sneaker"], "sneakers")
+        upper_only = self.score("zara", 69.95, "Schnitt: 100% kuhleder", "sneakers")
+        self.assertEqual(whole_label.total, upper_only.total, "its nylon tongue does not pull the score down")
+        self.assertEqual(whole_label.fabric_text, "100% leather")
+        self.assertEqual(whole_label.parts[0].lines, upper_only.parts[0].lines, "'Why this score' shows the upper only")
 
 
 class Sizes(unittest.TestCase):

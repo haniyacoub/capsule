@@ -4,10 +4,12 @@ The files in tests/fixtures are real store pages cut down to a handful of
 products (same HTML shape the parsers read). A fake browser session serves
 them, so everything from parsing to the saved catalogue is exercised.
 """
+import json
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from wardrobe import catalog, collect, composition, config, db, paths, scoring, selection
+from wardrobe import catalog, collect, composition, config, db, paths, scoring, selection, shared
 from wardrobe.app import create_app
 from wardrobe.collect import cos, manual, matching, pages, weekday, zara
 from wardrobe.collect.browser import Blocked, NotAllowed, block_reason
@@ -103,6 +105,36 @@ class Parsers(unittest.TestCase):
         self.assertEqual(pages.fit_from("Oversized-Pullover aus Alpaka-Mix"), "oversized")
         self.assertEqual(pages.fit_from("Schmaler Merinowollpullover"), "slim")
         self.assertEqual(pages.fit_from("Pullover aus Merinowolle"), "regular")
+
+    def test_a_straight_leg_is_neither_slim_nor_wide(self):
+        # Zara's two "Jeans Straight Fit", name and description word for word, as the collector reads them.
+        for sku, description in STRAIGHT_FIT_JEANS.items():
+            self.assertEqual(pages.fit_from(f"Jeans Straight Fit {description}"), "regular", sku)
+        self.assertEqual(pages.fit_from("Hose, nicht zu weit geschnitten"), "regular")
+        self.assertEqual(pages.fit_from("Keine schmale Passform"), "regular")
+        self.assertEqual(pages.fit_from("Neither slim nor wide"), "regular")
+        self.assertEqual(pages.fit_from("A shirt that is not slim"), "regular")
+
+    def test_only_the_denied_words_are_taken_back(self):
+        self.assertEqual(pages.fit_from("Straight-Barrel-Fit-Jeans Größe des Models: 187 cm Weiter Schnitt an Hüfte "
+                                        "und Oberschenkeln, der zum Knöchel hin zuläuft."), "relaxed")
+        self.assertEqual(pages.fit_from("Nicht dehnbar. Schmal geschnitten."), "slim")
+        self.assertEqual(pages.fit_from("Jeans, weder zu eng noch zu weit, mit schmalem Bein"), "slim")
+        self.assertEqual(pages.fit_from("Jeans Straight Bootcut Fit Gerades Bein von der Hüfte bis zum Knöchel, mit "
+                                        "einer Passform, die sich am Saum leicht weitet."), "relaxed")
+
+
+# The descriptions of Zara's two "Jeans Straight Fit" as collected on 11 Nov 2026. The first was
+# stored as slim ("schmaler"), the second as relaxed ("weiter"); both say the leg is straight.
+STRAIGHT_FIT_JEANS = {
+    "zara-00774360-400": "Gerades Bein von der Hüfte bis zum Knöchel mit einer Passform, die weder schmaler noch "
+                         "weiter wird. Mittelhoher Bund. Festes Gewebe. Jeans im Straight Fit aus Baumwoll-Denim. "
+                         "Fünf Taschen. Waschungseffekt. Vorderer Verschluss mit Knopfleiste.",
+    "zara-03991345-405": "Größe des Models: 184 cm Gerades Bein von der Hüfte bis zum Knöchel, mit einer Passform, "
+                         "die weder enger noch weiter wird. Mittelhoher Bund. Starrer Stoff. Jeans Straight Fit aus "
+                         "Baumwoll-Denim. Fünf Taschen. Waschungseffekt. Frontaler Verschluss mit Knopfleiste. "
+                         "Besondere Kollektion Origins.",
+}
 
 
 class Matching(unittest.TestCase):
@@ -308,6 +340,77 @@ class FabricFromTheName(unittest.TestCase):
         jeans = scoring.score({"store": "weekday", "price": 60, "name": "Jeans Straight"}, "jeans", self.rules)
         self.assertEqual(jeans.fabric_source, "assumed")
         self.assertIn("typical", jeans.parts[0].lines[0])
+
+
+class PublishedListReadAgain(unittest.TestCase):
+    """The store list all customers share is read with today's rules: a cut misread when the stores
+    were visited is corrected for every customer, without asking any store again."""
+
+    PUBLISHED = "2026-11-11T17:55:27.180518+01:00"
+
+    def setUp(self):
+        for path in (paths.DB_PATH, paths.CATALOG_PATH):
+            path.unlink(missing_ok=True)
+        catalog._cache = shared._cache = None
+        db.init()
+        db.replace_slots([slot("Indigo jeans", "jeans", "indigo"), slot("Grey wool trousers", "trousers", "grey")])
+        pool = {"published_at": self.PUBLISHED, "collected_at": "2026-11-11T17:00:18+01:00", "stores": {}, "products": [
+            self.product("zara-00774360-400", "slim", STRAIGHT_FIT_JEANS["zara-00774360-400"]),
+            self.product("zara-03991345-405", "relaxed", STRAIGHT_FIT_JEANS["zara-03991345-405"]),
+            # Its cut came from its web address ("relaxed-…"): there is no description to read again.
+            self.product("cos-1", "relaxed", "", store="cos", name="Hose aus Wolle", category="trousers",
+                         colour="Grey", slug="relaxed-wool-trousers-grey-1")]}
+        (paths.DATA_DIR / shared.POOL_NAME).write_text(json.dumps(pool, ensure_ascii=False), encoding="utf-8")
+
+    def tearDown(self):
+        (paths.DATA_DIR / shared.POOL_NAME).unlink(missing_ok=True)
+        catalog._cache = shared._cache = None
+
+    @staticmethod
+    def product(pid, fit, description, store="zara", name="Jeans Straight Fit", category="jeans", colour="Blau",
+                slug=""):
+        """A product as `python -m wardrobe publish` writes it, with the cut it was given on 11 Nov."""
+        return {"id": pid, "store": store, "name": name, "slug": slug, "price": 39.95, "price_before": None,
+                "currency": "EUR", "colour": colour, "colour_hex": None, "composition_text": "100% baumwolle",
+                "fit": fit, "description": description, "sizes_all": ["40", "42", "44"],
+                "sizes_in_stock": ["40", "42", "44"], "url": f"https://www.example.com/{pid}", "image_url": "",
+                "source": "collected", "collected_at": "2026-11-11T16:59:22+01:00", "category": category}
+
+    def test_the_cut_is_read_again_from_the_stores_own_words(self):
+        fits = {p["id"]: p["fit"] for p in shared.load()["products"]}
+        self.assertEqual(fits, {"zara-00774360-400": "regular", "zara-03991345-405": "regular", "cos-1": "relaxed"})
+        on_disk = json.loads((paths.DATA_DIR / shared.POOL_NAME).read_text(encoding="utf-8"))
+        self.assertEqual([p["fit"] for p in on_disk["products"]], ["slim", "relaxed", "relaxed"],
+                         "the published file itself is left as it is")
+
+    def test_every_customer_gets_the_corrected_cut_once(self):
+        # A customer whose products were built from this list before the correction: the jeans say "Slim cut".
+        jeans = {**self.product("zara-00774360-400", "slim", STRAIGHT_FIT_JEANS["zara-00774360-400"]),
+                 "slot_id": "indigo-jeans"}
+        catalog.save({"source": "collected", "collected_at": "2026-11-11T17:00:18+01:00", "stores": {},
+                      "pool": self.PUBLISHED, "candidates": [jeans]})
+        db.set_setting("pool", self.PUBLISHED)
+        before = selection.build().get("indigo-jeans").chosen
+        self.assertTrue(any(note.startswith("Slim cut") for note in before.check.notes), before.check.notes)
+
+        with mock.patch.object(shared, "build_catalog", wraps=shared.build_catalog) as rebuild:
+            shared.refresh_customer()
+            shared.refresh_customer()                   # the next page they open
+        self.assertEqual(rebuild.call_count, 1, "rebuilt once, not on every page")
+        self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#fit2")
+        after = selection.build().get("indigo-jeans")
+        self.assertEqual({c.id: c.data["fit"] for c in after.cands},
+                         {"zara-00774360-400": "regular", "zara-03991345-405": "regular"})
+        self.assertFalse([note for note in after.chosen.check.notes if "Slim" in note], after.chosen.check.notes)
+
+    def test_a_new_customer_starts_on_the_corrected_list(self):
+        built = shared.build_catalog(db.list_slots(), None)
+        self.assertEqual({c["id"]: c["fit"] for c in built["candidates"]},
+                         {"zara-00774360-400": "regular", "zara-03991345-405": "regular", "cos-1": "relaxed"})
+        db.set_setting("pool", built["pool"])           # what sign-up keeps (onboarding.ensure_setup)
+        with mock.patch.object(shared, "build_catalog", wraps=shared.build_catalog) as rebuild:
+            shared.refresh_customer()
+        self.assertEqual(rebuild.call_count, 0, "nothing to rebuild right after sign-up")
 
 
 class ByHand(unittest.TestCase):

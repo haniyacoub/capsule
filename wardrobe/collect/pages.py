@@ -62,9 +62,20 @@ def tidy_name(name: str) -> str:
     return " ".join(w if (i and w in _SMALL_WORDS) else _capitalise(w) for i, w in enumerate(words))
 
 
+# Phrases that deny a cut. Zara describes a straight leg as a "Passform, die weder schmaler noch
+# weiter wird" (neither narrower nor wider), which says nothing slim or wide about it. They are
+# taken out before the cut words are looked for: "weder X noch Y", "neither X nor Y", and
+# "nicht", "kein…" or "not" with the word after it ("nicht zu weit" with the "zu" as well).
+_NEGATED = re.compile(
+    r"\bweder\b[^.;]*?\bnoch\s+(?:zu\s+)?[\w-]+"
+    r"|\bneither\b[^.;]*?\bnor\s+(?:too\s+)?[\w-]+"
+    r"|\b(?:nicht|kein\w*|not)\s+(?:zu\s+|too\s+)?[\w-]+"
+)
+
+
 def fit_from(text: str) -> str:
     """The cut a name or description announces: oversized, slim, relaxed, or regular."""
-    t = (text or "").lower()
+    t = _NEGATED.sub(" ", (text or "").lower())
     if re.search(r"oversize|baggy|extra weit", t):
         return "oversized"
     if re.search(r"\bslim|schmal|skinny|tailliert|muscle fit|figurbetont", t):

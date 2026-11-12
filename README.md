@@ -12,23 +12,30 @@ drawn by an outside image service with your own key. The same code can also run
 as a public service with customer accounts; that is described in
 [PRODUCTION.md](PRODUCTION.md).
 
+Working on the code? Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Run it
 
+In the folder that holds the code:
+
 ```bash
-cd ~/Desktop/Clothes
 source .venv/bin/activate
 python -m wardrobe
 ```
 
 Open <http://127.0.0.1:8000>. Stop with `Ctrl+C`. If port 8000 is busy the app
-picks the next free one and prints it.
+picks the next free one and prints it; `python -m wardrobe serve --port 8123`
+chooses one.
 
-Setting up from scratch (a new machine, or a deleted `.venv`):
+Setting up from scratch (a new machine, or a deleted `.venv`). It needs Python
+3.13 or newer: check with `python3 --version` (a Mac's own Python is 3.9; get a
+newer one with `brew install python@3.14`, then use `python3.14` below).
 
 ```bash
+git clone https://github.com/haniyacoub/capsule.git && cd capsule
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m playwright install chromium     # fallback if Google Chrome is missing (untested with the stores)
+python -m playwright install chromium     # for ./check.sh browser, and if Google Chrome is missing; about 600 MB
 ```
 
 ### On your phone
