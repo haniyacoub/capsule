@@ -1,16 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Buy this outfit · Capsule{% endblock %}
+{# No budget bar on this page: the number that matters here is what this outfit costs. #}
+{% block summary %}{% endblock %}
 {% block main %}
 {% from "_macros.html" import icon %}
 <p class="crumb"><a href="{{ url_for('outfits_page', at=outfit.sig) }}">{{ icon('back') }} Back to the outfit</a></p>
 
-<section class="card">
-  <h1>Buy this outfit</h1>
-  <p class="muted">{{ outfit.label }} · {{ sl.pieces }} {{ 'piece' if sl.pieces == 1 else 'pieces' }} to buy · <b>{{ sl.total|eur }}</b>. Prices and stock as of {{ sl.collected }}.</p>
-  <p class="muted">Each store sells through its own basket and checkout, so the outfit cannot be paid for in one go. “Open all” brings up every product page of a store at once: choose the size shown here, add it to the basket, and check out once per store.</p>
-</section>
-
-{% if not sl.groups %}
+<h1 class="page-title">Buy this outfit</h1>
+{% if sl.groups %}
+<p class="buy-head"><b>{{ sl.total|eur }}</b>
+  <span>{{ outfit.label }} · {{ sl.pieces }} {{ 'piece' if sl.pieces == 1 else 'pieces' }} · prices and stock as of {{ sl.collected }}</span></p>
+{% include "_your_sizes.html" %}
+{% else %}
 <p class="empty">Nothing to buy: you own every piece of this outfit.</p>
 {% endif %}
 
@@ -18,9 +19,9 @@
 
 {% if sl.owned %}
 <section class="card">
-  <h2>Already yours</h2>
+  <h2>You already own</h2>
   <ul class="plain">{% for name in sl.owned %}<li>{{ name }}</li>{% endfor %}</ul>
 </section>
 {% endif %}
-<p class="foot">For everything your wardrobe selects, not just this outfit, see the <a href="{{ url_for('list_page') }}">List</a>.</p>
+<p class="foot">For everything your wardrobe selects, not just this outfit, see the <a href="{{ url_for('list_page') }}">Shopping list</a>.</p>
 {% endblock %}

@@ -1,7 +1,8 @@
 """The shopping list: what is selected right now, grouped by store.
 
 `build()` turns the wardrobe into plain rows; the page, the Markdown file and
-the CSV file are three ways of printing the same rows.
+the CSV file are three ways of printing the same rows. (The CSV columns never
+change: people keep spreadsheets built on them.)
 """
 from __future__ import annotations
 
@@ -26,6 +27,8 @@ class Line:
     unit_price: float
     url: str
     notes: list[str] = field(default_factory=list)
+    image_url: str = ""         # the store's photo of the product: on the pages, not in the files
+    hex: str = ""               # its colour, shown where there is no photo
 
     @property
     def total(self) -> float:
@@ -93,7 +96,8 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
         group.lines.append(Line(
             slot=s.slot["name"], product=c.data.get("name", ""), colour=c.data.get("colour", ""),
             size=c.size_to_order, qty=s.qty if only is None else 1, unit_price=c.price,
-            url=c.data.get("url", ""), notes=notes))
+            url=c.data.get("url", ""), notes=notes,
+            image_url=c.data.get("image_url") or "", hex=c.colour_hex))
     ordered = sorted(groups.values(), key=lambda g: STORE_ORDER.index(g.key) if g.key in STORE_ORDER else 99)
     total = w.total if only is None else round(sum(g.subtotal for g in ordered), 2)
     return ShoppingList(groups=ordered, owned=owned, missing=missing, total=total, budget=w.budget,
@@ -110,7 +114,8 @@ def to_markdown(sl: ShoppingList) -> str:
         out += ["> DEMO DATA: these items are invented. Run `python -m wardrobe refresh` for real ones.", ""]
     left = f"{_eur(sl.remaining)} left" if sl.remaining >= 0 else f"{_eur(-sl.remaining)} over budget"
     out += [f"**{_eur(sl.total)}** for {sl.pieces} pieces · budget {_eur(sl.budget)} · {left}",
-            f"Prices and stock as of {sl.collected}.", ""]
+            f"Prices and stock as of {sl.collected}.",
+            "Prices include VAT. Each store adds its own delivery costs at checkout.", ""]
     for g in sl.groups:
         out += [f"## {g.label} — {g.pieces} pieces, {_eur(g.subtotal)}", ""]
         for line in g.lines:
@@ -123,7 +128,7 @@ def to_markdown(sl: ShoppingList) -> str:
     if sl.missing:
         out += ["## Still missing", ""] + [f"- {slot} — {why}" for slot, why in sl.missing] + [""]
     if sl.owned:
-        out += ["## Already own", ""] + [f"- {name}" for name in sl.owned] + [""]
+        out += ["## You already own", ""] + [f"- {name}" for name in sl.owned] + [""]
     return "\n".join(out)
 
 

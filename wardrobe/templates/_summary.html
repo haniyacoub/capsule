@@ -1,17 +1,25 @@
-{# The sticky bar with the running total. Sent again with every button press
-   (hx-swap-oob replaces the one on the page), which is how it updates live. #}
+{# The bar with the running total, at the top of the wardrobe's pages. Sent again with every button press
+   (hx-swap-oob replaces the one on the page), which is how it updates live.
+   On a phone it is one line, "1,073.20 € of 1,500 € · 426.80 € left": the labels (Total, Budget, Left) are
+   hidden there but still read out, and the joining words (class "ph") show on phones only, never read out.
+   Computers show each figure under its label. The budget leads to its field on the Profile page.
+   Pieces with nothing to buy are counted by reason ("6 pieces not in the product list yet · 1 piece not in stock
+   in your size"). With more than one reason that is too long for one line on a phone, so a phone shows the total
+   instead ("7 pieces with nothing to buy yet"), and a screen reader still hears every reason. #}
 <section id="summary" class="summary{% if w.remaining < 0 %} over{% endif %}"{% if oob %} hx-swap-oob="true"{% endif %} aria-label="Budget">
   <div class="summary-in">
     <div class="nums">
       <div class="num"><span class="lbl">Total</span><b>{{ w.total|eur }}</b></div>
-      <div class="num"><span class="lbl">Budget</span><b>{{ w.budget|eur }}</b></div>
-      <div class="num left"><span class="lbl">{{ 'Over budget' if w.remaining < 0 else 'Left' }}</span><b>{{ w.remaining|abs|eur }}</b></div>
+      <div class="num"><span class="lbl">Budget</span><span class="ph" aria-hidden="true">of </span><a href="{{ url_for('profile_page') }}#budget" title="Change your budget"><b>{{ w.budget|eur }}</b></a></div>
+      <div class="num left"><span class="ph" aria-hidden="true">· {{ 'Over by ' if w.remaining < 0 else '' }}</span><span class="lbl">{{ 'Over budget' if w.remaining < 0 else 'Left' }}</span><b>{{ w.remaining|abs|eur }}</b>{% if w.remaining >= 0 %}<span class="ph" aria-hidden="true"> left</span>{% endif %}</div>
     </div>
     <div class="bar" role="presentation"><i style="width:{{ '%.1f'|format(w.spent_pct) }}%"></i></div>
     <p class="sub">
       {{ w.n_buy }} {{ 'piece' if w.n_buy == 1 else 'pieces' }} to buy
       {%- if w.n_owned %} · {{ w.n_owned }} already owned{% endif %}
-      {%- if w.n_unfilled %} · <span class="warn">{{ w.n_unfilled }} {{ 'slot' if w.n_unfilled == 1 else 'slots' }} unfilled</span>{% endif %}
+      {%- if w.unfilled_words %} · <span class="warn"><span class="why">{{ w.unfilled_words|join(' · ') }}</span>
+        {%- if w.unfilled_words|length > 1 %}<span class="ph" aria-hidden="true">{{ w.n_nothing_to_buy }} {{ 'piece' if w.n_nothing_to_buy == 1 else 'pieces' }} with nothing to buy yet</span>{% endif %}</span>
+      {%- endif %}
     </p>
   </div>
 </section>

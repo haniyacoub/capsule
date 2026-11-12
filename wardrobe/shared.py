@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from . import catalog, config, db, paths
+from . import catalog, colours, config, db, paths, settings
 from .collect import matching, pages
 
 POOL_NAME = "store_catalog.json"
 _cache: tuple[int, dict] | None = None
+_offers: tuple[dict, dict[str, dict[str, list[dict]]]] | None = None   # (the list, colours on offer per garment)
 
 # When the way a product's details are read improves, the published list is corrected as it is
 # read (see _corrected), without asking any store again. A new REVISION then makes every
@@ -65,9 +67,9 @@ def revision(pool: dict) -> str:
     return f"{pool.get('published_at')}#{REVISION}"
 
 
-def publish(target: Path) -> int:
-    """Write the locally collected products, tagged with their garment type, into `target`."""
-    cat = catalog.load()
+def _collected(cat: dict) -> dict[str, dict]:
+    """The products the last refresh collected for your pieces, each tagged with the garment type of
+    the piece it was collected for: the products of a published list, before they are published."""
     slots = {s["id"]: s for s in db.list_slots()}
     products: dict[str, dict] = {}
     for cand in cat.get("candidates", []):
@@ -77,6 +79,13 @@ def publish(target: Path) -> int:
         product = {k: v for k, v in cand.items() if k not in ("slot_id", "manual")}
         product["category"] = slot["category"]
         products.setdefault(product["id"], product)
+    return products
+
+
+def publish(target: Path) -> int:
+    """Write the locally collected products, tagged with their garment type, into `target`."""
+    cat = catalog.load()
+    products = _collected(cat)
     stamp = datetime.now().astimezone().isoformat(timespec="microseconds")   # tells two publishes apart
     pool = {"published_at": stamp, "collected_at": cat.get("collected_at"),
             "stores": cat.get("stores", {}), "products": list(products.values())}
@@ -106,6 +115,40 @@ def candidates_for(pool: dict, slot: dict, collector: dict) -> list[dict]:
         entries.sort(key=lambda entry: entry[0])
         out += [{**product, "slot_id": slot["id"]} for _, product in entries[:per_store]]
     return out
+
+
+def colours_on_offer(category: str) -> dict[str, list[dict]]:
+    """The colours Capsule has a garment in: for each colour, the products a piece of that garment in
+    that colour is offered. Each colour is tried with candidates_for, the matching that fills every
+    piece, so a colour listed here really fills one. The colours most of the products are named in
+    come first: where two colours reach the same products ('white' and 'ecru' both reach an ecru
+    cardigan), the one the stores call them leads.
+
+    Worked out once per published list. On your own machine there is no published list: there it is
+    the colours of what the last refresh collected for your pieces of that garment.
+    """
+    global _offers
+    pool = load() if settings.PRODUCTION else None
+    if pool is None:
+        return _on_offer({"products": list(_collected(catalog.load()).values())}, category)
+    if _offers is None or _offers[0] is not pool:      # a list published since: work it out again
+        _offers = (pool, {})
+    known = _offers[1]
+    if category not in known:
+        known[category] = _on_offer(pool, category)
+    return known[category]
+
+
+def _on_offer(pool: dict, category: str) -> dict[str, list[dict]]:
+    collector = config.load("stores.toml").get("collector", {})
+    named = Counter(colours.find(p.get("colour")) for p in pool.get("products", []) if p.get("category") == category)
+    found: dict[str, list[dict]] = {}
+    for key in colours.COLOURS:
+        probe = {"id": "", "category": category, "colour": key, "keywords": ""}
+        products = candidates_for(pool, probe, collector)
+        if products:
+            found[key] = products
+    return dict(sorted(found.items(), key=lambda item: -named[item[0]]))     # equal counts keep the table's order
 
 
 def build_catalog(slots: list[dict], previous: dict | None) -> dict | None:

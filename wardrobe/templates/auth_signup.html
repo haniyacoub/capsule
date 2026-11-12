@@ -6,6 +6,7 @@
   {% if invite %}
   <p class="muted">Capsule is open by invitation for now. You need the code you were given.</p>
   {% endif %}
+  <p class="muted">Free. No card. Delete your account and everything in it at any time.</p>
   <form class="form" method="post" action="{{ url_for('auth.signup') }}">{{ csrf_field() }}
     {% if invite %}
     <label class="field"><span>Invitation code</span>
@@ -17,6 +18,8 @@
       <input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
     <button class="btn">Create account</button>
   </form>
-  <p class="muted small">By creating an account you accept the <a href="{{ url_for('legal_page', name='terms') }}">terms of use</a> and the <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>. Already have one? <a href="{{ url_for('auth.login') }}">Log in</a></p>
+  {# The privacy policy is information, not terms: nobody "accepts" it. 18 or over: Google's terms for its AI models
+     rule out a service meant for, or likely to be used by, people under 18. #}
+  <p class="muted small">By creating an account you agree to the <a href="{{ url_for('legal_page', name='terms') }}">terms of use</a> and confirm you are 18 or over. How Capsule uses your data: <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>. Already have one? <a href="{{ url_for('auth.login') }}">Log in</a></p>
 </section>
 {% endblock %}

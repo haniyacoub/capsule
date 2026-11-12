@@ -10,6 +10,10 @@
 #  and the app is started again. `python -m wardrobe looks` says whether it is
 #  on; `python -m wardrobe looks --test` draws one sample picture.
 #
+#  For Google, use a key from a Google Cloud project with billing switched on:
+#  Google's image models have no free tier, and its terms forbid free keys for
+#  a service used by people in the EU.
+#
 #  Every picture is billed to that key by the service (a few cents each), so
 #  the limits below matter. Edits here apply on the next page load.
 # ══════════════════════════════════════════════════════════════════════════════

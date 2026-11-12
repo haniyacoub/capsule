@@ -22,12 +22,15 @@ from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
+from markupsafe import escape
+
 from wardrobe import catalog, config, db, imagegen, looks, outfits, paths, person, selection, settings, shared
 from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
 
 from .test_app import HX, AppCase
 from .test_production import PASSWORD, ProductionCase
+from .test_production import description, words
 
 PICTURE = b"\xff\xd8\xff\xe0" + b"\x01" * 4000          # what the "service" sends back: passes for a JPEG
 OTHER_PICTURE = b"\x89PNG\r\n\x1a\n" + b"\x02" * 4000   # … and for a PNG
@@ -281,6 +284,51 @@ class Viewer(AppCase):
         self.assertEqual(page.count("Buy this outfit"), 12)
         self.assertIn('<dialog class="sheet" id="piece"', page)
 
+    def test_one_line_over_the_outfits_says_how_many_the_day_of_the_prices_and_how_to_see_the_next(self):
+        page = self.client.get("/outfits").data.decode()
+        total = outfits.generate(selection.build(), limit=12)[1]
+        day = " ".join(selection.build().collected.split()[:2])        # "12 Nov" of "12 Nov 2026, 15:02"
+        lead = re.search(r'<p class="lead">(.*?)</p>', page, re.S).group(1)
+        self.assertEqual(" ".join(re.sub(r"<span class=\"by-mouse\">.*?</span>|<[^>]+>", "", lead).split()),
+                         f"12 of {total} outfits · prices of {day} · swipe for more")
+        # The ending is chosen by the device: swipe on a touch screen, the arrows with a mouse (app.css shows one).
+        self.assertIn('<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>', lead)
+        self.post("/outfits/save", key=some_outfits(1)[0].key)
+        saved = self.client.get("/outfits?occasion=saved").data.decode()
+        self.assertIn("Your saved outfits, as they were when you saved them. “Changed” marks a piece your wardrobe "
+                      "now fills with something else.", saved)
+        self.assertNotIn("by-touch", saved, "under Saved the line says what saved outfits are, in the words above only")
+
+    def test_the_chip_that_is_on_is_marked_and_the_others_are_one_group(self):
+        for occasion, name in (("all", "All"), ("office", "Office"), ("everyday", "Everyday"), ("saved", "Saved")):
+            page = self.client.get(f"/outfits?occasion={occasion}").data.decode()
+            self.assertIn('<div class="chips" role="group" aria-label="Which outfits">', page)
+            marked = re.findall(r'<a class="chip-link( on)?" href="[^"]*"( aria-current="page")?>(.*?)</a>', page, re.S)
+            self.assertEqual([re.sub(r"<[^>]+>", "", text).strip() for on, current, text in marked if current],
+                             [name], occasion)
+            self.assertTrue(all(bool(on) == bool(current) for on, current, text in marked), occasion)
+            self.assertEqual(page.count('class="btn ghost shuffle"'), 0 if occasion == "saved" else 1, occasion)
+
+    def test_each_outfit_has_a_heading_that_agrees_with_the_chip(self):
+        for occasion in ("all", "office", "everyday"):
+            page = self.client.get(f"/outfits?occasion={occasion}").data.decode()
+            self.assertEqual(re.findall(r"<h1[^>]*>([^<]*)</h1>", page), ["Outfits"], "one main heading")
+            shown = outfits.generate(selection.build(), occasion=occasion, limit=12)[0]
+            titles = re.findall(r'<header class="about-head">\s*<h2>([^<]*)<span class="sr">, outfit (\d+) of 12</span></h2>', page)
+            self.assertEqual([int(n) for _, n in titles], list(range(1, 13)), occasion)
+            wanted = [f"{occasion.title()}, smart casual" if o.label == "Smart casual" and occasion != "all" else o.label
+                      for o in shown]
+            self.assertEqual([title for title, _ in titles], wanted, occasion)
+            if occasion != "all":
+                self.assertNotIn("Smart casual", [title for title, _ in titles], f"under {occasion} a title says only 'Smart casual'")
+
+    def test_buy_this_outfit_is_the_main_button_and_product_names_are_marked_german(self):
+        page = self.client.get("/outfits").data.decode()
+        self.assertEqual(len(re.findall(r'<a class="btn" href="/outfits/buy\?at=[^"]+">Buy this outfit</a>', page)), 12)
+        for p in outfits.snapshot(some_outfits(1)[0]):
+            if not p["owned"]:
+                self.assertIn(f'<span lang="de">{escape(p["name"])}</span>', page, "the store's own words, in German")
+
     def test_tapping_a_piece_shows_it_and_what_could_replace_it(self):
         outfit = next(o for o in outfits.all_outfits(selection.build()) if o.pieces[0].layer == "outer")
         coat = outfit.pieces[0]
@@ -349,7 +397,7 @@ class Viewer(AppCase):
             if piece.owned:
                 continue
             self.assertIn(piece.view.chosen.data["url"].replace("&", "&amp;"), page)
-        self.assertIn("Already yours", page)
+        self.assertIn("You already own", page)
         self.assertIn("checkout", page)
         self.assertIn(f"{outfit.cost:,.2f}".rstrip("0").rstrip("."), page.replace("&nbsp;", " "))
         self.assertEqual(self.client.get("/outfits/buy", query_string={"at": "nope"}).status_code, 404)
@@ -514,6 +562,67 @@ class Pictures(WithPictures, AppCase):
         self.assertIn(address, page)
         self.assertEqual(page.count("See it worn"), 11)
         self.assertEqual(len(self.pictures_on_disk()), 1)
+
+    def test_what_is_going_on_is_said_on_the_picture_box_and_the_line_under_it_never_changes_height(self):
+        waiting = self.in_line()
+        drawing, done = some_outfits(2)
+
+        def state(outfit) -> str:
+            return self.client.get(f"/outfits/look/{look_key(outfit)}?outfit={outfit.key}").data.decode()
+
+        def said(html: str) -> str:
+            return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
+
+        page = self.client.get("/outfits").data.decode()             # nothing asked for yet: an offer, in a band
+        self.assertEqual(page.count('class="look-bar band ask"'), 12)
+        self.assertEqual(page.count('class="look-line"'), 12)       # and the empty line under each picture box
+
+        shown = self.post("/outfits/look", key=drawing.key).data.decode()
+        self.assertIn("Waiting its turn · two pictures are drawn at a time", said(shown))
+        self.assertTrue(db.touch_look(look_key(drawing)))           # its turn comes
+        shown = state(drawing)
+        band = re.search(r'<p class="look-bar band wait"[^>]*>', shown).group(0)
+        self.assertIn("Drawing this outfit on the model · about 20 seconds", said(shown))
+        self.assertIn("hx-get", band)                               # it asks again by itself …
+        self.assertNotIn("role=", band)                             # … without being read out each time
+        self.assertEqual(shown.count("look-line"), 1)
+
+        self.post("/outfits/look", key=done.key)
+        waiting.pop()()                                             # drawn
+        shown = state(done)
+        picture = re.search(r'<div class="look-pic">.*?</div>', shown, re.S).group(0)
+        self.assertIn('<span class="ai-chip">AI picture</span>', picture)    # the label is on the picture itself
+        self.assertIn("Look and fit will differ on the real pieces.", said(shown))
+        self.assertIn("Full size", shown)
+        self.assertIn("Draw again", shown)
+        self.assertEqual(shown.count("look-line"), 1)
+        for html in (page, shown, state(drawing)):
+            self.assertNotIn("image service", said(html))
+
+    def test_the_first_outfits_picture_is_fetched_first_and_the_others_lazily(self):
+        first, second = some_outfits(2)
+        arrived = self.post("/outfits/look", key=first.key).data.decode()
+        self.post("/outfits/look", key=second.key)
+        self.assertIn('loading="lazy"', arrived)                    # a picture that arrives by itself: as the browser likes
+        self.assertNotIn("fetchpriority", arrived)
+        page = self.client.get("/outfits").data.decode()
+        slides = page.split('<article class="slide"')[1:]
+        self.assertIn(f'id="outfit-{first.key}"', slides[0])
+        self.assertIn(f'id="outfit-{second.key}"', slides[1])
+        top, next_one = (re.search(r'<img src="/looks/[^>]*>', slide).group(0) for slide in slides[:2])
+        self.assertIn('fetchpriority="high"', top)
+        self.assertNotIn("loading=", top)
+        self.assertIn('loading="lazy"', next_one)
+        self.assertNotIn("fetchpriority", next_one)
+        for img in (top, next_one):                                 # its box is known before it arrives
+            self.assertIn('width="848" height="1264"', img)
+
+    def test_no_picture_message_a_customer_can_meet_says_the_image_service(self):
+        meets = [text for kind, text in looks.SAY.items() if kind not in looks.OPERATORS]
+        meets += [looks.IN_LINE, looks.CLOSED, *looks.USED_UP.values()]
+        for text in meets:
+            self.assertNotIn("image service", text)
+        self.assertEqual(looks.SAY["photo"], "The AI could not use your photo. Try a different one on the Profile page.")
 
     def test_the_service_is_told_about_the_pieces_and_nothing_about_you(self):
         outfit = next(o for o in outfits.all_outfits(selection.build()) if len(o.pieces) == 5)
@@ -929,7 +1038,9 @@ class TheModel(WithPictures, AppCase):
         self.assertIsNone(person.photo())
 
     def test_messages_of_other_pages_stay_at_the_top(self):
-        self.client.post("/profile", data={"budget": "1500"})
+        # Only the budget changes (the colours and uses are the example's own), so the page stays on Profile.
+        self.client.post("/profile", data={"budget": "1600", "liked": "navy, grey, white, olive", "use": "both",
+                                           "shoes": "on", "outerwear": "on"})
         top, model, photo = self.parts()
         self.assertIn("Profile saved", top)
         self.assertNotIn("Profile saved", model + photo)
@@ -1286,7 +1397,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
             answers = [self.ask(ada, key).data.decode() for _ in range(6)]
         self.assertEqual(len(self.drawn), 3)
         self.assertIn("declined to draw", answers[2])
-        self.assertIn("had today", answers[3])
+        self.assertIn("That&#39;s your 3 pictures for today. More tomorrow.", answers[3])     # the allowance, by number
 
     def test_a_photo_the_service_cannot_use_is_that_customers_problem(self):
         self.with_rules(per_customer_per_day=1, per_day=50)
@@ -1300,7 +1411,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertIn("could not use your photo", hers)
         self.refuse = None
         self.assertIn(b"look-pic", self.ask(bob, keys[0]).data, "nobody else is kept waiting because of it")
-        self.assertIn("had today", self.ask(ada, keys[1]).data.decode(), "and it counted as one of hers")
+        self.assertIn("your picture for today", self.ask(ada, keys[1]).data.decode(), "and it counted as one of hers")
 
     def test_deleting_an_account_does_not_hand_back_the_days_total(self):
         self.with_rules(per_customer_per_day=2, per_day=2)
@@ -1322,7 +1433,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         keys = self.outfit_keys(ada)
         self.assertIn(b"look-pic", self.ask(ada, keys[0]).data)
         refused = self.ask(ada, keys[1]).data.decode()
-        self.assertIn("had today", refused)
+        self.assertIn("That&#39;s your picture for today. More tomorrow.", refused)
         self.assertNotIn("config/", refused)
         self.assertIn(b"look-pic", self.ask(bob, keys[1]).data, "the allowance is per customer")
         self.assertEqual(len(self.drawn), 2)
@@ -1374,6 +1485,29 @@ class PicturesForCustomers(WithPictures, ProductionCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ?", (uid,)).fetchone()[0], 0)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM looks").fetchone()[0], 1)
 
+    def test_a_photo_stored_before_pictures_were_switched_off_can_still_be_seen_and_deleted(self):
+        # The Account page sends customers to Profile to see or delete their photo. With AI pictures switched off
+        # there is no model to pick and nothing to upload, but a photo stored earlier is still there, to delete.
+        ada = self.member("ada@example.com")
+        uid = self.user_id("ada@example.com")
+        ada.post("/profile/photo", content_type="multipart/form-data", data={
+            "photo": (io.BytesIO(PHOTO), "me.jpg"), "agree": "on", "csrf_token": self.token(ada)})
+        self.assertIsNotNone(person.photo_of(uid))
+        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
+            page = ada.get("/profile").get_data(as_text=True)
+            self.assertIn('id="photo"', page, "where the Account page's link leads")
+            self.assertIn("This photo of you is still stored", page)
+            self.assertIn("Delete my photo and the pictures made from it", page)
+            for trace in ("Your model", "data-photo-form", "be the model yourself", "switched off", "README"):
+                self.assertNotIn(trace, page)
+            with ada.get("/profile/photo") as shown:
+                self.assertEqual(shown.status_code, 200)
+            self.post(ada, "/profile/photo", remove="1")
+            self.assertIsNone(person.photo_of(uid))
+            self.assertIn("Your photo and the pictures made from it are deleted.",
+                          ada.get("/profile").get_data(as_text=True), "said where the page lands")
+            self.assertNotIn('id="photo"', ada.get("/profile").get_data(as_text=True), "nothing left to show")
+
     def test_a_failure_tells_customers_nothing_about_the_inside(self):
         ada = self.member("ada@example.com")
         key = self.outfit_keys(ada)[0]
@@ -1413,11 +1547,30 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertEqual(popup.count('name="csrf_token"'), popup.count("<form"))
 
     def test_the_public_page_mentions_the_pictures_only_when_they_are_on(self):
+        # The landing page and its description for search results promise a model only while pictures are
+        # drawn, and "you" as the model only while customers may upload a photo of themselves.
         visitor = self.app.test_client()
-        self.assertIn(b"drawn on a model", visitor.get("/").data)
-        self.assertIn(b"price level", visitor.get("/").data)
-        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
-            self.assertNotIn(b"drawn on a model", visitor.get("/").data)
+        page = visitor.get("/").get_data(as_text=True)
+        self.assertIn("every outfit they make, worn by a model — or by you.", words(page))
+        self.assertIn("See every outfit on a model", words(page))
+        self.assertIn("price level", words(page))
+        self.assertIn("every outfit shown on a model", description(page))
+        self.with_rules(photos=False)
+        page = visitor.get("/").get_data(as_text=True)
+        self.assertIn("every outfit they make, worn by a model.", words(page))
+        self.assertNotIn("by you", words(page))
+
+        def broken():
+            raise config.ConfigError("config/looks.toml has a syntax error")
+        for off in (mock.patch.object(settings, "OPENAI_API_KEY", ""),     # no key: no pictures
+                    mock.patch.object(looks, "load_rules", broken)):       # a typo must not take the website down
+            with off:
+                response = visitor.get("/")
+            page = response.get_data(as_text=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("every outfit they make.", words(page))
+            self.assertNotIn("model", words(page) + description(page))
+            self.assertNotIn("by you", words(page))
 
     def test_without_a_key_customers_see_no_trace_of_the_feature(self):
         with mock.patch.object(settings, "OPENAI_API_KEY", ""):

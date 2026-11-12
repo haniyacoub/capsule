@@ -1,30 +1,43 @@
 {# The AI picture of one outfit, in whichever state it is. HTMX swaps this in
-   place: the button asks for the picture, and the waiting state asks every few
+   place: the button asks for the picture, and the drawing state asks every few
    seconds whether it is done. `key` is the outfit's fingerprint, `look` its
    picture (or nothing yet). With `auto`, app.js presses "See it worn" by itself
-   once the outfit has been on screen for a moment. #}
+   once the outfit has been on screen for a moment. `first`: the first outfit on
+   the page, whose picture is fetched before anything else.
+
+   Nothing under the picture moves when the state changes: what is being done
+   (asked for, drawing, waiting its turn, failed) is said in a band across the top
+   of the picture box, over the pieces' photos; the finished picture lies over
+   them in the same box; and the line under the box has the same height in every
+   state (empty until there is a picture). #}
 {% if look and look.status == 'working' %}
-<p class="look-bar wait" role="status" hx-get="{{ url_for('outfits_look_state', look_key=look.key, outfit=key) }}" hx-trigger="load delay:3s">
+<p class="look-bar band wait" hx-get="{{ url_for('outfits_look_state', look_key=look.key, outfit=key) }}" hx-trigger="load delay:3s">
   <span class="spin" aria-hidden="true"></span>
-  <span>{{ look.message or 'Drawing this outfit on the model: up to a minute.' }}</span>
+  <span>{{ look.message or 'Drawing this outfit on the model · about 20 seconds' }}</span>
 </p>
+<span class="look-line" aria-hidden="true"></span>
 {% elif look and look.status == 'ready' %}
 <div class="look-pic">
-  <img src="{{ url_for('look_image', name=look.file) }}" alt="AI-generated picture of a model wearing this outfit" loading="lazy" decoding="async">
+  <img src="{{ url_for('look_image', name=look.file) }}" alt="AI-generated picture of a model wearing this outfit" width="848" height="1264"
+       {%- if first %} fetchpriority="high"{% else %} loading="lazy"{% endif %} decoding="async">
+  <span class="ai-chip">AI picture</span>
 </div>
-<form class="look-bar" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}">{{ csrf_field() }}
+<form class="look-bar look-line" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}">{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
   <input type="hidden" name="again" value="1">
-  <span><b>AI picture.</b> Look and fit will differ on the real pieces: check their photos and sizes.{% if look.message %} <span class="look-msg">{{ look.message }}</span>{% endif %}</span>
+  {# The whole sentence where the line is wide enough for it, else its first half (app.css). #}
+  <span class="look-note"><span class="whole">Look and fit will differ on the real pieces.</span><span class="half">Look and fit will differ.</span></span>
   <span class="look-links">
     <a class="link" href="{{ url_for('look_image', name=look.file) }}" target="_blank" rel="noopener">Full size</a>
     <button class="link">Draw again</button>
   </span>
 </form>
+{% if look.message %}<p class="look-msg">{{ look.message }}</p>{% endif %}
 {% else %}
-<form class="look-bar ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-trigger="submit, draw"{% if not look and auto %} data-auto-look{% endif %}>{{ csrf_field() }}
+<form class="look-bar band ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-trigger="submit, draw"{% if not look and auto %} data-auto-look{% endif %}>{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
-  {% if look %}<span class="look-msg" role="status">{{ look.message }}</span>{% else %}<span>See this outfit worn by the model, drawn by AI.</span>{% endif %}
+  {% if look %}<span class="look-msg" role="status">{{ look.message }}</span>{% else %}<span><span class="whole">See this outfit worn by the model, drawn by AI.</span><span class="half">On the model, drawn by AI.</span></span>{% endif %}
   {% if not look or look.status == 'failed' %}<button class="btn small">{{ 'Try again' if look else 'See it worn' }}</button>{% endif %}
 </form>
+<span class="look-line" aria-hidden="true"></span>
 {% endif %}

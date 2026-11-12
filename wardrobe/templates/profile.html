@@ -11,7 +11,7 @@
   {% endif %}
 
   <form class="form" method="post" action="{{ url_for('profile_page') }}">{{ csrf_field() }}
-    <h2 class="sec">Sizes</h2>
+    <h2 class="sec" id="sizes">Sizes</h2>
     <div class="row">
       <label class="field"><span>Tops</span>
         <select name="top_size">
@@ -42,7 +42,7 @@
 
     <h2 class="sec">Budget</h2>
     <label class="field"><span>For the whole wardrobe (EUR)</span>
-      <input type="number" name="budget" min="0" step="10" inputmode="numeric" value="{{ profile.budget }}"></label>
+      <input type="number" id="budget" name="budget" min="0" inputmode="numeric" value="{{ profile.budget }}"></label>
 
     <h2 class="sec">Colours</h2>
     <label class="field"><span>Colours I like <small>(most important first, comma-separated)</small></span>
@@ -70,12 +70,16 @@
 </section>
 
 {# Who wears the outfits in the AI pictures (person.py). Customers of a service
-   without AI pictures are not shown a menu that would do nothing. #}
-{% if looks_on or not production %}
+   without AI pictures are not shown a menu that would do nothing; a photo stored
+   before they were switched off is still shown, to see and delete (Account says so),
+   and so is what became of it. #}
+{% set model_menu = looks_on or not production %}
+{% if model_menu or has_photo or get_flashed_messages(category_filter=['photo']) %}
 <section class="card" id="model">
-  <h1>Your model</h1>
+  {% if model_menu %}
+  <h2>Your model</h2>
   {% for message in get_flashed_messages(category_filter=['model']) %}
-  <p class="flash" role="status">{{ message }}</p>
+  <p class="flash" role="status">{{ message }}{% if message.startswith('Model saved') %} <a href="{{ url_for('outfits_page') }}">See your outfits</a>{% endif %}</p>
   {% endfor %}
   <p class="muted">Who wears your outfits in the AI pictures. Pick what you like; whatever stays on “Any” is left to the image service.</p>
   {% if not looks_on %}
@@ -94,21 +98,24 @@
     <p class="muted small">Described to the image service as: “{{ model_words }}”. Each picture is drawn afresh, so the face differs a little from one outfit to the next; with your own photo it stays you.</p>
     <button class="btn">Save model</button>
   </form>
+  {% else %}
+  <h2>Your photo</h2>
+  {% endif %}
 
   {# What became of a photo that was just sent or deleted is said here, where the page lands. #}
   <div id="photo">
-    {% if photos or has_photo %}
+    {% if model_menu and (photos or has_photo) %}
     <h2 class="sec">Or be the model yourself</h2>
     {% endif %}
     {% for message in get_flashed_messages(category_filter=['photo']) %}
-    <p class="flash{% if message.startswith('Not saved') or message.startswith('No photo') %} bad{% endif %}" role="status">{{ message }}</p>
+    <p class="flash{% if message.startswith('Not saved') or message.startswith('No photo') %} bad{% endif %}" role="status">{{ message }}{% if message.startswith('Photo saved') %} <a href="{{ url_for('outfits_page') }}">See your outfits</a>{% endif %}</p>
     {% endfor %}
   </div>
   {% if has_photo %}
   <div class="me">
     <img src="{{ url_for('profile_photo_file') }}" alt="Your photo" width="96" height="128">
     <div>
-      {% if photos %}
+      {% if photos and model_menu %}
       <p>The pictures are drawn from this photo of you (added {{ photo_added }}). Height and build are still taken from the choices above.</p>
       {% else %}
       <p>This photo of you is still stored (added {{ photo_added }}). Pictures are no longer drawn from photos, so it is not used.</p>
@@ -120,7 +127,7 @@
     </div>
   </div>
   {% endif %}
-  {% if photos %}
+  {% if photos and model_menu %}
   <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
     <label class="field"><span>{{ 'Use a different photo' if has_photo else 'A clear, well-lit photo of you facing the camera' }}</span>
       <input type="file" name="photo" accept="image/*" required></label>

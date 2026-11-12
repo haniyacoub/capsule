@@ -7,16 +7,31 @@
   <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>{% block title %}Capsule{% endblock %}</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231b1b1a'/%3E%3Cpath d='M16 11a2.5 2.5 0 1 0-2.5-2.5M16 11v2.5l9 6.5H7l9-6.5' fill='none' stroke='%23f6f5f2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  {# A page's own lines for the head, such as the landing page's description for search results. #}
+  {% block head %}{% endblock %}
+  {# The icon: icon.svg where the browser can draw it; favicon.ico (48 px) for the others and for search
+     engines; a 180 px square for an iPhone's home screen. The PNGs were made once from icon.svg. #}
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
   <link rel="manifest" href="{{ url_for('static', filename='app.webmanifest') }}">
+  {# The text font, asked for at once rather than after the stylesheet has arrived. The address must match
+     the one in app.css's @font-face exactly, or the browser fetches it twice. #}
+  <link rel="preload" href="{{ url_for('static', filename='fonts/instrument-sans-latin-wght-normal.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ asset_v }}">
-  <script src="{{ url_for('static', filename='vendor/htmx.min.js') }}" defer></script>
+  {# Browsers keep the stylesheet and the scripts for a year without asking again, so their ?v= changes whenever
+     one of them does (app.py, _asset_version). htmx runs the buttons of a customer's pages; the public pages
+     have none, so _public.html leaves it out. #}
+  {% block htmx %}<script src="{{ url_for('static', filename='vendor/htmx.min.js') }}?v={{ asset_v }}" defer></script>{% endblock %}
   <script src="{{ url_for('static', filename='app.js') }}?v={{ asset_v }}" defer></script>
 </head>
-{# In production every HTMX request carries the CSRF token in a header. #}
-<body{% if production %} hx-headers='{"X-CSRF-Token": "{{ csrf_token() }}"}'{% endif %}>
+{# In production every HTMX request carries the CSRF token in a header. Only a logged-in customer's pages
+   have HTMX buttons, so only they ask for the token: a visitor reading the public pages gets no cookie.
+   (The forms on sign-up, log-in and forgotten password carry it in a hidden field, which sets the cookie.) #}
+<body{% if production and user %} hx-headers='{"X-CSRF-Token": "{{ csrf_token() }}"}'{% endif %}>
   <header class="top">
-    <a class="brand" href="{{ url_for('wardrobe') }}">Capsule</a>
+    {# The wordmark leads home: the outfits for a customer (and on your own machine), the website for a visitor. #}
+    <a class="brand" href="{{ url_for('outfits_page') if user or not production else url_for('wardrobe') }}">Capsule</a>
     {% block nav %}
     <nav class="tabs" aria-label="Sections">
       {% for key, label, endpoint in nav %}
@@ -24,7 +39,7 @@
       {% endfor %}
     </nav>
     {% if production and user %}
-    <a class="account-link{% if tab == 'account' %} on{% endif %}" href="{{ url_for('auth.account') }}">Account</a>
+    <a class="account-link{% if tab == 'account' %} on{% endif %}" href="{{ url_for('auth.account') }}"{% if tab == 'account' %} aria-current="page"{% endif %}>Account</a>
     {% endif %}
     {% endblock %}
   </header>

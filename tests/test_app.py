@@ -1,12 +1,18 @@
 """The app end to end, through its pages, on the demo data."""
+import html
+import re
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
-from wardrobe import catalog, config, db, outfits, paths, selection
+from markupsafe import escape
+
+from wardrobe import capsule, catalog, colours, config, db, export, outfits, paths, selection, shared
 from wardrobe import profile as profile_mod
-from wardrobe.app import create_app, weblink
+from wardrobe.app import create_app, eur, weblink
+
+from .test_production import ProductionCase
 
 HX = {"HX-Request": "true"}
 
@@ -195,11 +201,12 @@ class SlotsAndProfile(AppCase):
         r = self.client.post("/slots/add", data={"category": "cape", "colour": "navy"})
         self.assertEqual(r.status_code, 400)
 
-    def test_saving_the_profile_reproposes_the_capsule_until_you_customise_it(self):
+    def test_saving_the_profile_rebuilds_the_plan_and_keeps_your_choices(self):
         form = {"top_size": "L", "waist": "34", "length": "32", "shoe": "44", "height_cm": "185",
                 "weight_kg": "85", "budget": "900", "liked": "black, white, burgundy",
                 "refused": "navy", "use": "everyday", "shoes": "on"}
-        self.client.post("/profile", data=form)
+        saved = self.client.post("/profile", data=form)
+        self.assertEqual(saved.headers["Location"], "/outfits", "the new plan is shown on the model")
         prof = profile_mod.load()
         self.assertFalse(prof["example"])
         self.assertEqual((prof["top_size"], prof["budget"], prof["outerwear"]), ("L", 900, False))
@@ -210,12 +217,18 @@ class SlotsAndProfile(AppCase):
         self.assertFalse({s["category"] for s in db.list_slots()} & {"coat", "jacket"})
         self.assertEqual(selection.build().budget, 900)
 
-        # once something is locked, a profile change must not wipe the slot list
-        s = selection.build().slots[0]
-        self.post(f"/slot/{s.slot['id']}/lock")
-        before = [x["id"] for x in db.list_slots()]
-        self.client.post("/profile", data={**form, "liked": "navy, grey", "refused": ""})
-        self.assertEqual([x["id"] for x in db.list_slots()], before)
+        # A product chosen by hand no longer freezes the plan: the next change rebuilds it, and keeps
+        # the choice, because a white tee is in the new plan too.
+        tee = self.view("white-tee")
+        other = next(c for c in tee.cands if c.available and c.id != tee.chosen.id)
+        self.post("/slot/white-tee/pick", candidate=other.id)
+        self.client.post("/profile", data={**form, "liked": "grey, white", "refused": ""})
+        colours_used = {s["colour"] for s in db.list_slots()}
+        self.assertIn("grey", colours_used)
+        self.assertNotIn("burgundy", colours_used, "the plan follows the new answers")
+        after = self.view("white-tee")
+        self.assertEqual((after.state, after.chosen.id), ("locked", other.id), "the choice made by hand is kept")
+        self.assertIn("Kept your 1 hand-picked piece.", self.client.get("/outfits").data.decode())
 
     def test_budget_change_alone_keeps_everything(self):
         s = self.first("coat")
@@ -229,6 +242,418 @@ class SlotsAndProfile(AppCase):
         self.assertEqual([x["id"] for x in db.list_slots()], before)
         self.assertEqual(selection.build().budget, 2000)
         self.assertEqual(self.view(s.slot["id"]).chosen.id, s.chosen.id)
+
+    def test_a_budget_of_999_is_accepted_by_the_field_and_saved(self):
+        # The field had step="10": a browser refused 999 with a bubble of its own and never sent it.
+        page = self.client.get("/profile").data.decode()
+        field = dict(re.findall(r'([\w-]+)="([^"]*)"', re.search(r'<input [^>]*name="budget"[^>]*>', page).group(0)))
+        self.assertEqual(field.get("id"), "budget", "the budget in the bar at the top leads to this field")
+        self.assertIn(field.get("step", "1"), ("1", "any"), "a browser would refuse a budget that is not a multiple of the step")
+        self.assertLessEqual(int(field.get("min", "0")), 999)
+        current = profile_mod.load()
+        form = {"top_size": current["top_size"], "waist": current["waist"], "length": current["length"],
+                "shoe": current["shoe"], "height_cm": current["height_cm"], "weight_kg": current["weight_kg"],
+                "budget": "999", "liked": "navy, grey, white, olive", "refused": "", "use": "both",
+                "shoes": "on", "outerwear": "on", "owned": ""}
+        self.client.post("/profile", data=form)
+        self.assertEqual(selection.build().budget, 999)
+        self.assertIn(f"of {eur(999)}", BudgetBar.phone_line(self.client.get("/profile").data.decode()))
+
+
+class BudgetBar(AppCase):
+    """The bar at the top of the wardrobe's pages. A phone shows it as one line ("1,073.20 € of 1,500 € ·
+    426.80 € left"); the labels Total, Budget and Left are hidden there but stay in the page, for screen
+    readers and for the walk-through, which reads the figures by them."""
+
+    @staticmethod
+    def bar(page: str) -> str:
+        return re.search(r'<section id="summary".*?</section>', page, re.S).group(0)
+
+    @staticmethod
+    def phone_line(page: str) -> str:
+        """The bar's words as a phone shows them: without its labels."""
+        text = re.sub(r"<[^>]+>", " ", re.sub(r'<span class="lbl">.*?</span>', "", BudgetBar.bar(page)))
+        return html.unescape(re.sub(r"[ \t\r\n]+", " ", text)).strip()     # as a browser does: no-break spaces stay
+
+    def labels(self, page: str) -> list[str]:
+        return re.findall(r'<span class="lbl">(.*?)</span>', page)
+
+    def test_one_line_with_every_figure_labelled_and_the_budget_leading_to_its_field(self):
+        w = selection.build()
+        self.assertGreaterEqual(w.remaining, 0)
+        page = self.client.get("/").data.decode()
+        self.assertTrue(self.phone_line(page).startswith(f"{eur(w.total)} of {eur(w.budget)} · {eur(w.remaining)} left"),
+                        self.phone_line(page))
+        self.assertEqual(self.labels(page), ["Total", "Budget", "Left"])
+        first = re.search(r'<div class="num">(.*?)</div>', page).group(1)       # the walk-through reads the total here
+        self.assertEqual(first, f'<span class="lbl">Total</span><b>{eur(w.total)}</b>')
+        self.assertIn('<a href="/profile#budget"', page)
+        self.assertIn('id="budget"', self.client.get("/profile").data.decode())
+
+    def test_over_budget_says_by_how_much(self):
+        profile_mod.save({**profile_mod.load(), "budget": 500})
+        w = selection.build()
+        page = self.client.get("/list").data.decode()
+        self.assertIn('class="summary over"', page)
+        self.assertIn(f"of {eur(500)} · Over by {eur(-w.remaining)}", self.phone_line(page))
+        self.assertEqual(self.labels(page), ["Total", "Budget", "Over budget"])
+
+    def test_pieces_with_nothing_to_buy_are_counted_in_the_bar(self):
+        profile_mod.save({**profile_mod.load(), "shoe": "49"})   # no store makes a 49
+        w = selection.build()
+        self.assertGreaterEqual(w.n_unfilled, 1)
+        self.assertIn('<span class="warn">', self.bar(self.client.get("/").data.decode()),
+                      "phones show the line under the figures only when it has this count of missing pieces")
+        self.assertNotIn("with nothing to buy yet", self.bar(self.client.get("/").data.decode()),
+                         "with one reason, a phone says the reason itself")
+
+    def test_a_phone_says_the_total_when_pieces_have_nothing_to_buy_for_more_than_one_reason(self):
+        # "10 pieces not in the product list yet · 2 pieces not in stock in your size" wraps on a phone, and the bar
+        # would then grow past the room kept for it (--bar-h). A phone shows the total; a screen reader hears it all.
+        profile_mod.save({**profile_mod.load(), "shoe": "49", "refused": ["navy", "black", "grey"]})
+        db.replace_slots(capsule.propose(profile_mod.load())[0])
+        w = selection.build()
+        self.assertEqual(len(w.unfilled_words), 2, w.unfilled_words)
+        self.assertEqual(w.n_nothing_to_buy, w.n_missing + w.n_no_size)
+        bar = self.bar(self.client.get("/").data.decode())
+        self.assertIn(f'<span class="why">{" · ".join(w.unfilled_words)}</span>', bar)
+        self.assertIn(f'<span class="ph" aria-hidden="true">{w.n_nothing_to_buy} pieces with nothing to buy yet</span>', bar)
+
+
+class RebuildingThePlan(AppCase):
+    """Saving new colours, uses or owned things rebuilds the plan and keeps what was picked or marked as
+    owned by hand. Only a plan changed on the plan page itself is left as it is, until you start over."""
+
+    NEW = {"liked": "black, grey, white", "use": "office"}
+
+    def profile_form(self, **changes) -> dict:
+        """The Profile form as the page sends it: today's answers with these changes (None unticks a box)."""
+        p = profile_mod.load()
+
+        def names(keys):
+            return ", ".join(colours.get(k).label.lower() for k in keys)
+
+        form = {"top_size": p["top_size"], "waist": p["waist"], "length": p["length"], "shoe": p["shoe"],
+                "height_cm": p["height_cm"], "weight_kg": p["weight_kg"], "budget": p["budget"],
+                "liked": names(p["liked"]), "refused": names(p["refused"]), "use": p["use"], "owned": p["owned"],
+                "shoes": "on" if p["shoes"] else None, "outerwear": "on" if p["outerwear"] else None}
+        form.update(changes)
+        return {k: v for k, v in form.items() if v is not None}
+
+    def save_profile(self, **changes):
+        return self.client.post("/profile", data=self.profile_form(**changes))
+
+    def messages(self, url="/outfits") -> str:
+        """What the next page says at the top, as the customer reads it (links kept as tags)."""
+        page = self.client.get(url).data.decode()
+        return " | ".join(html.unescape(m) for m in re.findall(r'<p class="flash" role="status">(.*?)</p>', page, re.S))
+
+    def test_a_swap_in_an_outfit_no_longer_stops_the_profile_from_applying(self):
+        outfit = next(o for o in outfits.generate(selection.build(), limit=12)[0] if "white-tee" in o.slots)
+        tee = self.view("white-tee")
+        other = next(c for c in tee.cands if c.available and c.id != tee.chosen.id)
+        swapped = self.post("/slot/white-tee/pick", candidate=other.id, outfit=outfit.sig)
+        self.assertIn("/outfits?at=", swapped.headers["Location"], "swapped from inside the outfit")
+
+        saved = self.save_profile(**self.NEW)
+        self.assertEqual(saved.headers["Location"], "/outfits", "the new plan is shown on the model")
+        used = {s["colour"] for s in db.list_slots()}
+        self.assertTrue({"black", "grey", "white"} <= used, used)
+        self.assertFalse(used & {"navy", "olive", "indigo", "dark-brown"}, "the example's other colours are gone")
+        pieces = sum(s["qty"] for s in db.list_slots())
+        self.assertEqual(self.messages(), f"Your plan now has {pieces} pieces in your colours. Kept your 1 hand-picked piece.")
+        self.assertEqual(self.view("white-tee").chosen.id, other.id)
+
+    def test_a_kept_choice_keeps_its_product_and_lock_and_owned_pieces_stay_owned(self):
+        jumper = self.view("grey-merino-jumper")
+        self.post("/slot/grey-merino-jumper/lock")          # freeze what the price level picked
+        self.post("/slot/navy-tee/own")                      # "Own it" on the Wardrobe page
+        self.save_profile(**self.NEW)
+        after = self.view("grey-merino-jumper")
+        self.assertEqual((after.state, after.chosen.id), ("locked", jumper.chosen.id))
+        tees = [(s.slot["colour"], s.qty, s.state) for s in selection.build().slots if s.garment.key == "tee"]
+        self.assertEqual(tees, [("white", 1, "auto"), ("navy", 1, "owned")],
+                         "the navy tee you own takes the place of one of the two white tees, not both")
+        self.assertIn("Kept your 1 hand-picked piece and the 1 you own.", self.messages())
+
+    def test_a_choice_that_no_longer_fits_is_named(self):
+        for slot_id in ("navy-merino-jumper", "indigo-jeans"):
+            self.post(f"/slot/{slot_id}/lock")
+        self.save_profile(**self.NEW)
+        self.assertIn("Not kept: Navy merino jumper (not in your new colours), Indigo jeans (not in your new plan).",
+                      self.messages())
+        self.assertNotIn("Kept your", self.messages())
+        self.assertFalse(any(s["locked"] for s in db.list_slots()))
+
+    def test_a_kept_piece_keeps_its_id_so_its_product_is_still_on_offer(self):
+        trousers = self.view("charcoal-tailored-trousers")
+        other = next(c for c in trousers.cands if c.available and c.id != trousers.chosen.id)
+        self.post("/slot/charcoal-tailored-trousers/pick", candidate=other.id)
+        self.assertIn("charcoal-wool-trousers", [s["id"] for s in capsule.propose(
+            {**profile_mod.load(), "liked": ["navy", "charcoal"]})[0]], "a fresh proposal names it differently")
+        self.save_profile(liked="navy, charcoal")
+        self.assertNotIn("charcoal-wool-trousers", [s["id"] for s in db.list_slots()])
+        after = self.view("charcoal-tailored-trousers")
+        self.assertEqual((after.state, after.chosen.id), ("locked", other.id))
+
+    def test_a_kept_choice_that_left_the_catalogue_is_said_not_kept(self):
+        db.update_slot("white-tee", locked=True, pick="gone-from-the-store")
+        self.save_profile(**self.NEW)
+        self.assertIn("Not kept: White tee (no longer in Capsule's product list).", self.messages())
+        self.assertFalse(db.get_slot("white-tee")["locked"])
+
+    def test_owned_lines_follow_the_profile_and_owned_marks_stay(self):
+        self.save_profile(owned="white leather sneakers")
+        self.assertTrue(db.get_slot("white-leather-sneakers")["owned"])
+        self.post("/slot/stone-chinos/own")                  # marked by hand on the Wardrobe page
+        self.save_profile(owned="", liked="black, grey, white")
+        self.assertFalse(db.get_slot("white-leather-sneakers")["owned"], "a line deleted from the profile")
+        self.assertTrue(db.get_slot("stone-chinos")["owned"], "a piece marked as owned by hand")
+        self.assertIn("Kept the 1 piece you own.", self.messages())
+
+    def test_something_owned_never_takes_the_place_of_a_piece_picked_by_hand(self):
+        old, _ = capsule.propose(profile_mod.EXAMPLE)
+        next(s for s in old if s["id"] == "white-tee").update(locked=True, pick="my-white-tee")
+        plan = capsule.rebuild({**profile_mod.EXAMPLE, "use": "office", "owned": "black tee"}, old)
+        tees = [(s["name"], s["qty"], s["owned"], s.get("pick")) for s in plan.slots if s["category"] == "tee"]
+        self.assertEqual(tees, [("White tee", 2, False, "my-white-tee"), ("Black tee", 1, True, None)])
+        self.assertEqual([s["id"] for s in plan.picked], ["white-tee"])
+        # Without a choice made by hand, the black tee takes the place of one of the two white ones.
+        slots, _ = capsule.propose({**profile_mod.EXAMPLE, "use": "office", "owned": "black tee"})
+        self.assertEqual([(s["name"], s["qty"], s["owned"]) for s in slots if s["category"] == "tee"],
+                         [("White tee", 1, False), ("Black tee", 1, True)])
+
+    def test_a_plan_edited_on_the_plan_page_is_never_rebuilt_without_asking(self):
+        coat = db.get_slot("charcoal-wool-coat")
+        self.client.post("/slots/charcoal-wool-coat/save", data={"name": "My charcoal coat", "category": coat["category"],
+                                                                 "colour": coat["colour"], "qty": coat["qty"]})
+        before = db.list_slots()
+        saved = self.save_profile(**self.NEW)
+        self.assertTrue(saved.headers["Location"].endswith("/profile"), "it stays on the profile")
+        self.assertEqual(db.list_slots(), before, "the plan is exactly as it was edited")
+        self.assertIn('Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use '
+                      '“Start over from my profile” on <a href="/slots">the plan page</a>.', self.messages("/profile"))
+        self.assertIn("Start over from my profile</button>", self.client.get("/slots").data.decode(),
+                      "the button the message names")
+        self.client.post("/slots/repropose")                # Start over from my profile
+        self.assertEqual(self.save_profile(liked="navy, grey").headers["Location"], "/outfits",
+                         "after starting over, profile changes apply again")
+
+    def test_adding_recolouring_or_removing_a_piece_counts_as_editing_the_plan(self):
+        liked = iter(["black, grey, white", "navy, grey", "black, white", "grey, white"])
+
+        def plan_stays(what):
+            before = db.list_slots()
+            self.assertTrue(self.save_profile(liked=next(liked)).headers["Location"].endswith("/profile"), what)
+            self.assertEqual(db.list_slots(), before, what)
+            self.client.post("/slots/repropose")             # start over for the next one
+
+        self.client.post("/slots/add", data={"name": "", "category": "overshirt", "colour": "rust", "qty": "1"})
+        plan_stays("a piece added")
+        first = db.list_slots()[0]
+        self.client.post(f"/slots/{first['id']}/save", data={"name": first["name"], "category": first["category"],
+                                                             "colour": "rust", "qty": first["qty"]})
+        plan_stays("a piece recoloured")
+        self.client.post(f"/slots/{db.list_slots()[-1]['id']}/delete")
+        plan_stays("a piece removed")
+        same = db.list_slots()[0]
+        self.client.post(f"/slots/{same['id']}/save", data={k: same[k] for k in ("name", "category", "colour", "qty", "keywords")})
+        self.assertEqual(self.save_profile(liked=next(liked)).headers["Location"], "/outfits",
+                         "pressing Save on the plan page without changing anything is no edit")
+
+    def test_sizes_or_budget_alone_stay_on_the_profile(self):
+        self.post("/slot/white-oxford-shirt/lock")
+        before = db.list_slots()
+        saved = self.save_profile(budget="2000", top_size="L")
+        self.assertTrue(saved.headers["Location"].endswith("/profile"))
+        self.assertEqual(db.list_slots(), before, "every piece, choice and lock as it was")
+        self.assertEqual(self.messages("/profile"), 'Profile saved. <a href="/outfits">See your outfits</a>')
+
+    def test_an_older_account_that_only_picked_things_gets_its_profile_applied(self):
+        # Before plan_edited, one setting stood for every change made by hand, and new answers saved
+        # after a lock or a swap were never applied. Such a plan is still the example's: rebuilt now.
+        self.post("/slot/charcoal-wool-coat/lock")
+        db.set_setting("slots_customised", True)
+        profile_mod.save({**profile_mod.load(), "example": False, "liked": ["black", "white"]})   # saved, ignored
+        self.assertEqual(self.save_profile(**self.NEW).headers["Location"], "/outfits")
+        self.assertIn("black", {s["colour"] for s in db.list_slots()})
+        self.assertEqual(self.view("charcoal-wool-coat").state, "locked")
+        self.assertIs(db.get_setting("plan_edited"), False)
+
+    def test_an_older_account_with_a_plan_edited_by_hand_keeps_it(self):
+        db.update_slot("charcoal-wool-coat", name="My charcoal coat")       # edited before plan_edited existed
+        db.set_setting("slots_customised", True)
+        before = db.list_slots()
+        self.assertTrue(self.save_profile(**self.NEW).headers["Location"].endswith("/profile"))
+        self.assertEqual(db.list_slots(), before)
+        self.assertIs(db.get_setting("plan_edited"), True)
+
+
+class PiecesWithNothingToBuy(AppCase):
+    """A piece the product list has nothing for says so, and offers the colours Capsule has in one tap
+    (the published list is tested in test_production.py; this is your own machine)."""
+
+    @staticmethod
+    def collected(slot_id, sku, colour):
+        return {"id": f"zara-{sku}", "slot_id": slot_id, "store": "zara", "name": "Pullover", "slug": "pullover",
+                "price": 39.95, "colour": colour, "colour_hex": None, "sizes_all": ["M"], "sizes_in_stock": ["M"],
+                "url": "https://www.zara.com/de/", "image_url": "", "source": "collected"}
+
+    def test_on_your_own_machine_the_colours_on_offer_are_those_collected(self):
+        catalog.save({"source": "collected", "collected_at": "2026-11-11T17:00:00+01:00", "stores": {}, "candidates": [
+            self.collected("grey-merino-jumper", "1", "Grau"), self.collected("navy-merino-jumper", "2", "Marineblau"),
+            {**self.collected("navy-merino-jumper", "3", "Schwarz"), "source": "manual"}]})     # yours: not on offer
+        on_offer = shared.colours_on_offer("knit")
+        ids = {key: {product["id"] for product in products} for key, products in on_offer.items()}
+        self.assertEqual((ids["grey"], ids["navy"]), ({"zara-1"}, {"zara-2"}))
+        self.assertNotIn("black", on_offer)
+        self.assertEqual(shared.colours_on_offer("coat"), {})
+
+        # A black jumper added on the plan page could only copy one of the two: nothing is offered, and it says why,
+        # truly: Capsule's grey and navy knitwear is there, as the grey and the navy jumper.
+        self.client.post("/slots/add", data={"name": "", "category": "knit", "colour": "black", "qty": "1"})
+        jumper = selection.build().get("black-jumper")
+        self.assertEqual((jumper.note, jumper.offers), ("Not in Capsule's product list in black yet", []))
+        page = html.unescape(self.client.get("/slot/black-jumper").data.decode())
+        self.assertIn("Capsule's knitwear in other colours you wear is already in your plan, so this piece is left out "
+                      "of your outfits and your total.", page)
+        self.assertNotIn("Capsule has no knitwear", page)
+        self.assertIn("python -m wardrobe refresh --slot black-jumper", page)
+        self.assertIn("Capsule has no coats yet", html.unescape(self.client.get("/").data.decode()))
+        self.assertEqual(self.client.post("/slot/black-jumper/colour", data={"colour": "grey"}).status_code, 409)
+
+    def test_a_new_colour_renames_a_piece_named_after_its_colour(self):
+        from wardrobe.app import recoloured_name
+        self.assertEqual(recoloured_name("Black wool blazer", "black", "navy"), "Navy wool blazer")
+        self.assertEqual(recoloured_name("Light grey tee", "light-grey", "navy"), "Navy tee")
+        self.assertEqual(recoloured_name("Black tee", "black", "light-grey"), "Light grey tee")
+        self.assertEqual(recoloured_name("black tee", "black", "green"), "forest green tee")
+        self.assertEqual(recoloured_name("My lucky blazer", "black", "navy"), "My lucky blazer")
+        self.assertEqual(recoloured_name("Blackwatch shirt", "black", "navy"), "Blackwatch shirt")
+
+    def test_the_demo_has_something_for_every_piece(self):
+        w = selection.build()
+        self.assertEqual((w.n_missing, w.n_no_size, w.n_no_price, w.unfilled_words), (0, 0, 0, []))
+        self.assertFalse([s.slot["name"] for s in w.slots if s.offers or s.left_out])
+        self.assertNotIn("not in the product list", self.client.get("/").data.decode())
+
+
+class BuyingInYourSizes(AppCase):
+    """Buy this outfit and the shopping list: the sizes to order in, said first, and honestly while they are
+    the example's; the product's photo and the store's link on every line; and what the prices leave out."""
+
+    profile_form = RebuildingThePlan.profile_form       # the Profile form as the page sends it
+    EXAMPLE_SIZES = "Your sizes: Tops M · Trousers W32 L32 · Shoes 43 · Change"
+    WARNING = "These are our example sizes. Change them, or keep them if they're yours."
+
+    def outfit(self):
+        return outfits.generate(selection.build(), limit=1)[0][0]
+
+    def read(self, url, **query) -> str:
+        """A page as the customer reads it: tags dropped, spaces collapsed."""
+        page = self.client.get(url, query_string=query).data.decode()
+        return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", page)).split())
+
+    def both(self) -> dict:
+        return {"buy": self.read("/outfits/buy", at=self.outfit().sig), "list": self.read("/list")}
+
+    def test_a_new_account_is_told_its_sizes_are_the_examples(self):
+        self.assertTrue(profile_mod.sizes_unconfirmed(profile_mod.load()))
+        for name, page in self.both().items():
+            self.assertIn(self.EXAMPLE_SIZES, page, name)
+            self.assertIn(self.WARNING + " These are my sizes", page, name)
+        buy = self.client.get("/outfits/buy", query_string={"at": self.outfit().sig}).data.decode()
+        self.assertIn('<a href="/profile#sizes">Change', buy)
+        self.assertIn('<h2 class="sec" id="sizes">Sizes</h2>', self.client.get("/profile").data.decode(), "where Change leads")
+
+    def test_a_profile_saved_with_only_new_colours_still_has_the_example_sizes(self):
+        # Any save clears profile["example"], also this one, which left the sizes at M, W32 L32 and 43.
+        self.client.post("/profile", data=self.profile_form(liked="black, white"))
+        self.assertFalse(profile_mod.load()["example"])
+        for name, page in self.both().items():
+            self.assertIn(self.EXAMPLE_SIZES, page, name)
+            self.assertIn(self.WARNING, page, name)
+
+    def test_these_are_my_sizes_takes_the_warning_away(self):
+        back = self.client.post("/profile/sizes-ok", data={"at": self.outfit().sig})
+        self.assertTrue(back.headers["Location"].startswith("/outfits/buy?at="), "back to the Buy page it was pressed on")
+        self.assertIn("Sizes saved.", self.client.get(back.headers["Location"]).data.decode())
+        for name, page in self.both().items():
+            self.assertIn(self.EXAMPLE_SIZES, page, name)         # still said: they are his own now
+            self.assertNotIn("example sizes", page, name)
+            self.assertNotIn("These are my sizes", page, name)
+        self.assertEqual(self.client.post("/profile/sizes-ok").headers["Location"], "/list", "pressed on the list")
+
+    def test_other_sizes_saved_on_the_profile_take_the_warning_away(self):
+        self.client.post("/profile", data=self.profile_form(top_size="L", waist="34", length="30", shoe="44"))
+        for name, page in self.both().items():
+            self.assertIn("Your sizes: Tops L · Trousers W34 L30 · Shoes 44 · Change", page, name)
+            self.assertNotIn("example sizes", page, name)
+        # Typed in by the customer, even the example's own sizes are his: the warning does not come back.
+        self.client.post("/profile", data=self.profile_form(top_size="M", waist="32", length="32", shoe="43"))
+        self.assertIn(self.EXAMPLE_SIZES, self.both()["list"])
+        self.assertNotIn("example sizes", self.both()["list"])
+
+    def test_one_size_written_two_ways_is_the_same_size(self):
+        example = profile_mod.EXAMPLE
+        self.assertTrue(profile_mod.same_sizes({**example, "top_size": "m", "waist": "32", "shoe": "43.0"}, example))
+        self.assertTrue(profile_mod.same_sizes({**example, "shoe": "43,0"}, example))
+        self.assertFalse(profile_mod.same_sizes({**example, "shoe": "42.5"}, example))
+        self.assertFalse(profile_mod.same_sizes({**example, "length": 34}, example))
+
+    def test_every_line_shows_the_products_photo_or_colour_and_links_to_the_store(self):
+        w, outfit = selection.build(), self.outfit()
+        seen = []
+        for url, query, sl in (("/outfits/buy", {"at": outfit.sig}, export.build(w, only=outfit.slots)),
+                               ("/list", {}, export.build(w))):
+            page = self.client.get(url, query_string=query).data.decode()
+            shown = re.findall(r'<li class="buy">(.*?)</li>', page, re.S)
+            lines = [line for g in sl.groups for line in g.lines]
+            self.assertEqual(len(shown), len(lines), url)
+            self.assertGreaterEqual(len(lines), 2, url)
+            seen += lines
+            for html_line, line in zip(shown, lines):
+                # The swatch of the product's colour is always there: it shows where the photo is missing.
+                swatch = f'<span class="pic{"" if line.image_url else " noimg"}" style="--sw:{line.hex};'
+                self.assertIn(swatch, html_line)
+                if line.image_url:
+                    self.assertIn(f'<img src="{escape(line.image_url)}"', html_line)
+                self.assertIn(f'<a class="buy-product" href="{escape(weblink(line.url))}" target="_blank" '
+                              f'rel="noopener noreferrer"><span lang="de">{escape(line.product)}</span>', html_line)
+                self.assertIn(f'Colour: <span lang="de">{escape(line.colour)}</span> · Size: <b>{escape(line.size)}</b>',
+                              html_line)
+        # Both kinds were checked: the demo data has products with a photo and one without (the Zara chinos).
+        self.assertTrue(any(line.image_url for line in seen) and not all(line.image_url for line in seen))
+
+    def test_the_buy_page_leads_with_the_outfits_total_and_says_what_the_prices_leave_out(self):
+        outfit = self.outfit()
+        page = self.client.get("/outfits/buy", query_string={"at": outfit.sig}).data.decode()
+        self.assertNotIn('id="summary"', page, "no budget bar: the wardrobe's total is not this outfit's")
+        self.assertIn(f'<p class="buy-head"><b>{eur(outfit.cost)}</b>', page)
+        self.assertIn(f"{outfit.label} · {len(outfit.pieces)} pieces · prices and stock as of ", page)
+        self.assertIn('id="summary"', self.client.get("/list").data.decode(), "the list keeps it")
+        for name, words in self.both().items():
+            self.assertIn("Prices include VAT. Each store adds its own delivery costs at checkout.", words, name)
+            self.assertIn("You pay once per store, as each has its own basket and checkout.", words, name)
+        self.assertIn("Prices include VAT. Each store adds its own delivery costs at checkout.",
+                      self.client.get("/list.md").data.decode())
+
+    def test_what_you_own_is_named_the_same_way_everywhere(self):
+        outfit = self.outfit()
+        self.post(f"/slot/{outfit.slots[-1]}/own")
+        for page in (self.read("/outfits/buy", at=outfit.sig), self.read("/list"), self.read("/list.md")):
+            self.assertIn("You already own", page)
+            self.assertNotIn("Already yours", page)
+            self.assertNotIn("Already own", page)
+
+
+class YourSizesForEachCustomer(ProductionCase):
+    def test_keeping_the_example_sizes_needs_the_pages_token_and_is_for_that_customer_only(self):
+        ada, bob = self.member("ada@example.com"), self.member("bob@example.com")
+        self.assertEqual(ada.post("/profile/sizes-ok").status_code, 400, "no token")
+        self.assertEqual(self.post(ada, "/profile/sizes-ok").headers["Location"], "/list")
+        self.assertNotIn("These are our example sizes", html.unescape(ada.get("/list").data.decode()))
+        self.assertIn("These are our example sizes", html.unescape(bob.get("/list").data.decode()))
 
 
 class Outfits(AppCase):

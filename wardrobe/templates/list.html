@@ -1,18 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Shopping list · Capsule{% endblock %}
 {% block main %}
-{% from "_macros.html" import icon %}
-<div class="toolbar no-print">
+<h1 class="page-title">Shopping list</h1>
+{# Not the Outfits toolbar, which keeps its chips in one row that scrolls sideways: here the buttons wrap. #}
+<div class="list-tools">
   <p class="lead">What your wardrobe selects right now, grouped by store. Prices and stock as of {{ sl.collected }}.</p>
-  <div class="chips">
-    <a class="btn ghost small" href="{{ url_for('list_markdown') }}">Download .md</a>
-    <a class="btn ghost small" href="{{ url_for('list_csv') }}">Download .csv</a>
+  <div class="chips no-print">
+    <a class="btn ghost small" href="{{ url_for('list_csv') }}">Download for a spreadsheet (.csv)</a>
+    <a class="btn ghost small" href="{{ url_for('list_markdown') }}">Download as text (.md)</a>
     <button class="btn ghost small" type="button" data-print>Print</button>
   </div>
 </div>
 
-{% if not sl.groups %}
-<p class="empty">Nothing to buy yet: no slot has a selected item.</p>
+{% if sl.groups %}
+{% include "_your_sizes.html" %}
+{% else %}
+<p class="empty">Nothing to buy yet: no piece has a product chosen.</p>
 {% endif %}
 
 {% include "_buy_groups.html" %}
@@ -33,7 +36,7 @@
 {% endif %}
 {% if sl.owned %}
 <section class="card">
-  <h2>Already own</h2>
+  <h2>You already own</h2>
   <ul class="plain">{% for name in sl.owned %}<li>{{ name }}</li>{% endfor %}</ul>
 </section>
 {% endif %}

@@ -6,11 +6,13 @@ The idea behind the palette:
   * trousers and shoes stay neutral, so nearly every top works with every bottom
 
 The proposal is only a starting point: every slot can be edited, removed or
-added on the Slots page.
+added on the Slots page. When the profile changes, rebuild() proposes afresh
+and keeps what was picked or marked as owned by hand.
 """
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 
 from .colours import COLOURS, Colour, find as find_colour, get as get_colour
 
@@ -197,6 +199,13 @@ def new_slot(category: str, colour: str, name: str, keywords: str, qty: int, tak
 
 def propose(profile: dict) -> tuple[list[dict], list[str]]:
     """The proposed slot list, plus any 'already own' lines that couldn't be placed."""
+    slots, taken = _planned(profile)
+    unmatched = apply_owned(slots, profile.get("owned", ""), taken)
+    return slots, unmatched
+
+
+def _planned(profile: dict) -> tuple[list[dict], set[str]]:
+    """The slots these answers call for, before anything already owned is placed, and their ids."""
     palette = build_palette(profile.get("liked", []), profile.get("refused", []))
     use = profile.get("use", "both")
     wanted = {"everyday": "eE", "office": "oO", "both": "eo"}.get(use, "eo")
@@ -226,9 +235,77 @@ def propose(profile: dict) -> tuple[list[dict], list[str]]:
         if len(slots) >= MIN_SLOTS:
             break
         add(category, role, name, keywords, qty)
+    return slots, taken
 
-    unmatched = apply_owned(slots, profile.get("owned", ""), taken)
-    return slots, unmatched
+
+@dataclass
+class Rebuilt:
+    """A plan rebuilt from new answers (see rebuild), and what became of the choices made by hand."""
+    slots: list[dict]
+    unmatched: list[str] = field(default_factory=list)   # "already own" lines whose garment wasn't recognised
+    picked: list[dict] = field(default_factory=list)     # slots that kept the product picked by hand
+    owned: list[str] = field(default_factory=list)       # pieces marked as owned by hand: still owned
+    lost: list[tuple[str, str]] = field(default_factory=list)   # (piece, why) for picks that could not be kept
+
+
+def rebuild(profile: dict, old: list[dict], old_owned_text: str = "") -> Rebuilt:
+    """A fresh proposal from the profile that keeps what was decided by hand in the old plan.
+
+    * A slot whose product was chosen or locked by hand keeps that product and its lock when the
+      new plan has the same garment in the same colour. It keeps its id, name and keywords too,
+      so it is offered the same products. Otherwise it is listed in `lost`, with the reason.
+    * A slot marked as owned stays owned: it takes the place of a slot of that garment, the way
+      a line of "Things to build around" does (see own). Slots that are owned because of such a
+      line follow the lines instead (`old_owned_text` is the text the old plan was built with):
+      a line deleted from the profile is no longer owned.
+    """
+    slots, taken = _planned(profile)
+    done = Rebuilt(slots)
+    for before in old:
+        if before.get("owned") or not (before.get("locked") and before.get("pick")):
+            continue
+        same = [s for s in slots if (s["category"], s["colour"]) == (before["category"], before["colour"])
+                and not s.get("locked")]
+        if not same:
+            garment_stays = any(s["category"] == before["category"] for s in slots)
+            done.lost.append((before["name"], "not in your new colours" if garment_stays else "not in your new plan"))
+            continue
+        slot = next((s for s in same if s["id"] == before["id"]), same[0])
+        if slot["id"] != before["id"] and before["id"] not in {s["id"] for s in slots}:
+            taken.discard(slot["id"])
+            taken.add(before["id"])
+            slot["id"] = before["id"]       # the products on offer belong to the id
+        slot.update(name=before["name"], keywords=before.get("keywords", ""), locked=True, pick=before["pick"])
+        done.picked.append(slot)
+
+    done.unmatched = apply_owned(slots, profile.get("owned", ""), taken)
+    for before in _owned_by_hand(old, old_owned_text):
+        if not any(s["owned"] and (s["category"], s["colour"]) == (before["category"], before["colour"])
+                   for s in slots):
+            own(slots, before["category"], before["colour"], before["name"], taken, int(before.get("qty") or 1))
+        done.owned.append(before["name"])
+    done.picked = [s for s in done.picked if not s["owned"]]   # owned now: its product is no longer needed
+    return done
+
+
+def _owned_by_hand(old: list[dict], owned_text: str) -> list[dict]:
+    """The owned slots of a plan that were marked by hand, not placed by a line of `owned_text`."""
+    owned = [s for s in old if s.get("owned")]
+    for line in _lines(owned_text):
+        category, colour = detect_garment(line), find_colour(line)
+        placed = next((s for s in owned if s["category"] == category and colour in (None, s["colour"])), None)
+        if placed is not None:
+            owned.remove(placed)
+    return owned
+
+
+def same_plan(slots: list[dict], profile: dict) -> bool:
+    """Whether the slots are, one for one, what the profile proposes: nothing was added, renamed,
+    recoloured or removed by hand. Products chosen, locks and owned marks don't count."""
+    def shape(plan: list[dict]) -> list[tuple]:
+        return sorted((s["id"], s["name"], s["category"], s["colour"], int(s.get("qty") or 1), s.get("keywords", ""))
+                      for s in plan)
+    return shape(slots) == shape(propose(profile)[0])
 
 
 def detect_garment(text: str) -> str | None:
@@ -239,35 +316,49 @@ def detect_garment(text: str) -> str | None:
     return None
 
 
+def _lines(owned_text: str) -> list[str]:
+    """The lines of "Things to build around", without list marks and blank lines."""
+    return [line for line in (raw.strip(" \t-•*") for raw in (owned_text or "").splitlines()) if line]
+
+
 def apply_owned(slots: list[dict], owned_text: str, taken: set[str]) -> list[str]:
     """Build around what you already own.
 
     Each line ("white leather sneakers") is matched to a slot of the same
-    garment type: same colour if there is one, otherwise the first free slot of
-    that type takes the owned colour. With no slot of that type, one is added.
-    Lines whose garment type isn't recognised are returned.
+    garment type (see own). Lines whose garment type isn't recognised are returned.
     """
     unmatched: list[str] = []
-    for line in (owned_text or "").splitlines():
-        line = line.strip(" \t-•*")
-        if not line:
-            continue
+    for line in _lines(owned_text):
         category = detect_garment(line)
         if category is None:
             unmatched.append(line)
             continue
-        colour = find_colour(line)
-        title = line[:1].upper() + line[1:]
-        same_type = [s for s in slots if s["category"] == category and not s["owned"]]
-        exact = [s for s in same_type if s["colour"] == colour]
-        if exact:
-            exact[0]["owned"] = True
-        elif same_type and colour is None:
-            same_type[0]["owned"] = True
-        elif same_type:
-            same_type[0].update(colour=colour, owned=True, name=title)
-        else:
-            slot = new_slot(category, colour or "grey", title, "", 1, taken)
-            slot["owned"] = True
-            slots.append(slot)
+        own(slots, category, find_colour(line), line[:1].upper() + line[1:], taken)
     return unmatched
+
+
+def own(slots: list[dict], category: str, colour: str | None, title: str, taken: set[str], qty: int = 1) -> None:
+    """Put something you own into the plan.
+
+    A free slot of that garment in that colour becomes owned. Otherwise the first free slot of
+    that garment takes the owned colour and name (with no colour known, it keeps its own); a slot
+    planned more times than you own gives up only as many as you own, as a slot of their own.
+    A slot whose product was picked by hand is never recoloured. With no slot of that garment,
+    one is added.
+    """
+    free = sorted((s for s in slots if s["category"] == category and not s["owned"]),
+                  key=lambda s: bool(s.get("locked")))            # slots picked by hand come last
+    exact = [s for s in free if s["colour"] == colour]
+    spare = [s for s in free if not s.get("locked")]
+    if exact:
+        exact[0]["owned"] = True
+    elif free and colour is None:
+        free[0]["owned"] = True
+    elif spare and int(spare[0].get("qty") or 1) > qty:          # e.g. two white tees planned, a black one owned
+        spare[0]["qty"] = int(spare[0]["qty"]) - qty
+        slots.insert(slots.index(spare[0]) + 1, {**new_slot(category, colour or "grey", title, "", qty, taken),
+                                                 "owned": True})
+    elif spare:
+        spare[0].update(colour=colour, owned=True, name=title, qty=qty)
+    else:
+        slots.append({**new_slot(category, colour or "grey", title, "", qty, taken), "owned": True})

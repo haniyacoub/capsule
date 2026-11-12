@@ -20,8 +20,9 @@ import math
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
+from . import capsule
 from . import catalog as catalog_mod
-from . import colours, db, scoring, sizecheck, sizes
+from . import colours, db, scoring, shared, sizecheck, sizes
 from . import profile as profile_mod
 from .garments import GARMENTS, SECTIONS, Garment
 
@@ -112,6 +113,10 @@ class SlotView:
     state: str = "auto"          # auto | locked | owned
     note: str | None = None
     warn: bool = False
+    # A piece Capsule's product list has nothing for: colours it has the garment in, to switch to in one
+    # tap (see _offer), or, when there are none, why the piece stays out of the outfits and the total.
+    offers: list[colours.Colour] = field(default_factory=list)
+    left_out: str | None = None
 
     @property
     def qty(self) -> int:
@@ -183,6 +188,39 @@ class Wardrobe:
         return sum(1 for s in self.slots if s.state != "owned" and s.chosen is None)
 
     @property
+    def n_missing(self) -> int:
+        """Pieces Capsule's product list has nothing for yet. Counted like n_buy: a white tee ×2 is two."""
+        return sum(s.qty for s in self.slots if s.state != "owned" and not s.cands)
+
+    @property
+    def n_no_size(self) -> int:
+        """Pieces with options, none of them in stock in your size, so nothing is picked."""
+        return sum(s.qty for s in self.slots if s.state != "owned" and s.cands and s.chosen is None and not s.n_available)
+
+    @property
+    def n_nothing_to_buy(self) -> int:
+        """Every piece nothing is picked for, whatever the reason: all a phone's budget bar has room to say when
+        there is more than one reason."""
+        return self.n_missing + self.n_no_size + self.n_no_price
+
+    @property
+    def n_no_price(self) -> int:
+        """Pieces whose options in your size all lack a price, so nothing is picked: a product added by its
+        link has none until you type it in."""
+        return sum(s.qty for s in self.slots if s.state != "owned" and s.chosen is None and s.n_available)
+
+    @property
+    def unfilled_words(self) -> list[str]:
+        """The budget bar's count of pieces nothing is picked for, by why: '6 pieces not in the product list
+        yet', '1 piece not in stock in your size', '1 piece with no price yet'. Each count is true on its own."""
+        out = []
+        for n, why in ((self.n_missing, "not in the product list yet"), (self.n_no_size, "not in stock in your size"),
+                       (self.n_no_price, "with no price yet")):
+            if n:
+                out.append(f"{n} {'piece' if n == 1 else 'pieces'} {why}")
+        return out
+
+    @property
     def sections(self) -> list[tuple[str, list[SlotView]]]:
         out = []
         for section in SECTIONS:
@@ -224,13 +262,16 @@ def at_level(pool: list[Cand], mode: str) -> Cand:
     return max((c for c in ranked if c.price == price), key=lambda c: c.score.total)
 
 
-def choose(cands: list[Cand], mode: str, threshold: int) -> tuple[Cand | None, str | None, bool]:
-    """The automatic pick for a slot: (candidate, note, is_warning)."""
+def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tuple[Cand | None, str | None, bool]:
+    """The automatic pick for a slot: (candidate, note, is_warning). `colour` is the piece's colour, in
+    words ('black'), for the note on a piece the product list has nothing for."""
     if not cands:
-        return None, "Nothing found for this slot yet", True
+        return None, f"Not in Capsule's product list in {colour} yet" if colour else "Not in Capsule's product list yet", True
     # An item without a price has no place on the price ladder: it is never picked automatically.
     available = [c for c in cands if c.available and c.price > 0]
     if not available:
+        if any(c.available for c in cands):     # in your size, but no price: one added by its link has none yet
+            return None, "No price yet: add it under “Add details”", True
         return None, "Nothing in stock in your size", True
     good = [c for c in available if c.score.total >= threshold]
     if not good:
@@ -362,11 +403,14 @@ def build(profile: dict | None = None) -> Wardrobe:
                 if not picked.available:
                     view.note, view.warn = "Your locked choice is not in stock in your size", True
             else:
-                view.chosen, view.note, view.warn = choose(cands, mode, threshold)
-                if slot["locked"] and slot["pick"]:
+                view.chosen, view.note, view.warn = choose(cands, mode, threshold, view.colour.label.lower())
+                if slot["locked"] and slot["pick"] and cands:     # (with nothing on offer, choose said so)
                     view.note = "Your locked choice is no longer in the catalogue — showing the automatic pick"
                     view.warn = True
         views.append(view)
+    for view in views:
+        if view.state != "owned" and not view.cands:
+            _offer(view, views, profile, charts)
 
     wardrobe = Wardrobe(
         slots=views, mode=mode, threshold=threshold, budget=float(profile.get("budget") or 0),
@@ -384,6 +428,53 @@ def build(profile: dict | None = None) -> Wardrobe:
                              "budget, so these are the cheapest. Lower the minimum quality, mark what you own, "
                              "or raise the budget on the Profile page.")
     return wardrobe
+
+
+def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -> None:
+    """For a piece the product list has nothing for: up to three colours Capsule has its garment in, each
+    of which fills it in one tap (app.slot_colour). Liked colours come first and refused ones never. A
+    colour whose products another piece of that garment already has is skipped, and so is one that
+    reaches the same products as a colour already offered: the piece must not become a copy of another.
+    So is a colour with nothing in your size at a price: the tap would leave the piece as empty as before.
+    With nothing left to offer, `left_out` says why the piece stays empty, true to why each colour he
+    wears was passed over: its products are already another piece's, or not in his size.
+    """
+    category = view.slot["category"]
+    on_offer = shared.colours_on_offer(category)
+    refused = capsule.banned(profile.get("refused", []))      # refusing "green" refuses olive too
+    taken = {c.id for other in views if other is not view and other.slot["category"] == category
+             for c in other.cands}
+    liked = [key for key in profile.get("liked", []) if key in on_offer]
+    in_your_plan = not_in_your_size = False         # why a colour he wears was passed over
+    for key in liked + [key for key in on_offer if key not in liked]:
+        ids = {product["id"] for product in on_offer[key]}
+        if key in refused or key == view.slot["colour"]:
+            continue
+        if ids & taken:
+            in_your_plan = True
+            continue
+        if not any(usable_price(product.get("price")) and sizes.my_size(product, profile, category, charts).available
+                   for product in on_offer[key]):
+            not_in_your_size = True
+            continue
+        view.offers.append(colours.get(key))
+        taken |= ids
+        if len(view.offers) == 3:
+            break
+    if not view.offers:
+        kind = view.garment.plural
+        verb = "are" if kind.endswith("s") else "is"        # "T-shirts are", "knitwear is"
+        if not on_offer:
+            why = f"Capsule has no {kind} yet"
+        elif in_your_plan:      # say so: "Capsule has none" would be untrue beside the grey jumper that has them
+            why = f"Capsule's {kind} in other colours you wear {verb} already in your plan"
+            if not_in_your_size:
+                why += " or not in your size"
+        elif not_in_your_size:
+            why = f"Capsule has no {kind} in your size in other colours you wear yet"
+        else:                   # it has this garment only in colours he refused
+            why = f"Capsule has no {kind} in other colours you wear yet"
+        view.left_out = f"{why}, so this piece is left out of your outfits and your total."
 
 
 def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:

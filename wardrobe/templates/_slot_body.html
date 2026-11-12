@@ -5,7 +5,8 @@
 {% set demo = w.source == 'mock' %}
 
 <header class="slot-head">
-  <h1>{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</h1>
+  {# `focus`: the piece has just taken a new colour (app.slot_colour); the button pressed is gone, so focus comes here. #}
+  <h1{% if focus %} tabindex="-1" autofocus{% endif %}>{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</h1>
   <p class="state">
     {% if s.state == 'owned' %}
       You already own this, so it costs nothing and nothing is picked.
@@ -18,6 +19,12 @@
     {% endif %}
     {% if s.note and s.chosen and s.state != 'owned' %}<span class="note">{{ s.note }}.</span>{% endif %}
   </p>
+  {% if s.offers or s.left_out %}{% set offer_args = {'view': 'slot', 'sort': sort} %}{% include "_colour_offer.html" %}{% endif %}
+  {% if not cands and not demo and s.state != 'owned' %}
+  {# The other way to fill an empty piece: the form at the bottom of this page. #}
+  <p class="add-own">{% if production %}{{ 'Or add' if s.offers else 'Add' }} one you found yourself, by its link below.
+    {%- else %}Nothing was collected for this piece in {{ s.colour.label|lower }} at the last refresh, or the piece is new. Try <code>python -m wardrobe refresh --slot {{ sid }}</code>, or add a product by its link below.{% endif %}</p>
+  {% endif %}
   <div class="head-actions">
     {% if s.state == 'locked' %}
     <form method="post" action="{{ url_for('slot_lock', **here) }}" hx-post="{{ url_for('slot_lock', **here) }}">{{ csrf_field() }}
@@ -42,12 +49,8 @@
     <a class="chip-link{% if sort == 'score' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, sort='score') }}">By score</a>
   </span>
 </div>
-{% else %}
-<p class="empty">
-  {% if demo %}The demo data has nothing for this garment type.
-  {% elif production %}No store had this in {{ s.colour.label|lower }} when the catalogue was last updated. Give the slot another colour on the Slots page, or add a product by link below.
-  {% else %}No store had this in {{ s.colour.label|lower }} at the last refresh, or the slot is new. Try <code>python -m wardrobe refresh --slot {{ sid }}</code>, give the slot another colour on the Slots page, or add a product by link below.{% endif %}
-</p>
+{% elif demo %}
+<p class="empty">The demo data has nothing for this garment type.</p>
 {% endif %}
 
 <ul class="cands">

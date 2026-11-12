@@ -12,6 +12,7 @@ customer's rows.
 """
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import math
 import random
@@ -34,18 +35,20 @@ from .garments import GARMENTS
 from .paths import ROOT
 from .sizes import ALPHA
 
+# The tabs, in order. The outfits on the AI model are the heart of Capsule, so they come first.
+# The plan editor (/slots) has no tab: "Edit the plan" on the Wardrobe page leads to it.
 NAV = [
-    ("wardrobe", "Wardrobe", "wardrobe"),
     ("outfits", "Outfits", "outfits_page"),
-    ("list", "List", "list_page"),
-    ("slots", "Slots", "slots_page"),
+    ("wardrobe", "Wardrobe", "wardrobe"),
+    ("list", "Shopping", "list_page"),
     ("profile", "Profile", "profile_page"),
 ]
 
 
 # Pages anyone may open without an account (production mode).
 PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_image",
-          "auth.signup", "auth.login", "auth.forgot", "auth.reset"}
+          "auth.signup", "auth.login", "auth.forgot", "auth.reset",
+          "favicon"}
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
 
 
@@ -62,7 +65,9 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
     On demo data the invented candidates are rebuilt. On real data, candidates
     of deleted slots are dropped, and so are those collected for a slot whose
     garment or colour just changed (they no longer fit it). Items you added by
-    hand always stay. Returns True if real data now needs a refresh.
+    hand always stay. Returns True if real data now needs a refresh: only on your
+    own machine, where you can run one (REFRESH_HINT). A customer can't, so a
+    customer is never told to.
     """
     current = catalog.load()
     slots = db.list_slots()
@@ -86,10 +91,71 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
                                  if c.get("slot_id") != changed_slot or c.get("source") == "manual"]
     catalog.update(tidy)
     filled = set(catalog.by_slot(catalog.load()))
-    return any(s["id"] not in filled and not s["owned"] for s in slots)
+    return not conf.PRODUCTION and any(s["id"] not in filled and not s["owned"] for s in slots)
 
 
 REFRESH_HINT = "Slots without candidates fill up at the next “python -m wardrobe refresh”."
+
+
+def plan_edited(before: dict) -> bool:
+    """Whether the plan itself was changed on the plan page: a piece added, renamed, recoloured or
+    removed. Choosing a product, locking it or marking a piece as owned doesn't count: a rebuild
+    from the profile keeps those (capsule.rebuild). `before` is the profile the plan was built from.
+    """
+    edited = db.get_setting("plan_edited")
+    if edited is None:
+        # Older accounts have one setting, "slots_customised", for every change made by hand. It counts
+        # as an edit only if the plan is not what the profile (or the example values every account
+        # starts with) proposes; a choice, a lock or an owned mark alone doesn't.
+        edited = bool(db.get_setting("slots_customised")) and not any(
+            capsule.same_plan(db.list_slots(), answers) for answers in (before, profile_mod.EXAMPLE))
+        db.set_setting("plan_edited", edited)
+    return bool(edited)
+
+
+def rebuild_plan(profile: dict, before: dict) -> tuple[capsule.Rebuilt, bool]:
+    """Rebuild the plan from the profile, keeping what was picked or marked as owned by hand, and
+    bring the catalogue in step. Also returns whether real data now needs a refresh."""
+    plan = capsule.rebuild(profile, db.list_slots(), before.get("owned", ""))
+    db.replace_slots(plan.slots)
+    needs_refresh = sync_catalog()
+    # A kept piece has the same id, garment and colour, so its product is on offer again. Checked all
+    # the same: the message must not say it was kept if it is not shown.
+    offered = catalog.by_slot(catalog.load())
+    for slot in list(plan.picked):
+        if slot["pick"] not in {c.get("id") for c in offered.get(slot["id"], [])}:
+            db.update_slot(slot["id"], locked=False, pick=None)
+            plan.picked.remove(slot)
+            plan.lost.append((slot["name"], "no longer in Capsule's product list"))
+    return plan, needs_refresh
+
+
+def rebuilt_message(plan: capsule.Rebuilt) -> str:
+    """'Your plan now has 17 pieces in your colours. Kept your 2 hand-picked pieces.', and what was not kept."""
+    def pieces(n: int) -> str:
+        return "piece" if n == 1 else "pieces"
+
+    total, picked, owned = sum(int(s.get("qty") or 1) for s in plan.slots), len(plan.picked), len(plan.owned)
+    words = [f"Your plan now has {total} {pieces(total)} in your colours."]
+    if picked and owned:
+        words.append(f"Kept your {picked} hand-picked {pieces(picked)} and the {owned} you own.")
+    elif picked:
+        words.append(f"Kept your {picked} hand-picked {pieces(picked)}.")
+    elif owned:
+        words.append(f"Kept the {owned} {pieces(owned)} you own.")
+    if plan.lost:
+        words.append("Not kept: " + ", ".join(f"{name} ({why})" for name, why in plan.lost) + ".")
+    return " ".join(words)
+
+
+def recoloured_name(name: str, old: str, new: str) -> str:
+    """A piece's name once it takes a new colour: 'Black wool blazer' in navy is 'Navy wool blazer'.
+    Only a name that starts with the old colour's name changes; any other ('My lucky blazer') stays."""
+    before, after = colours.get(old).label, colours.get(new).label
+    rest = name[len(before):]
+    if not name.lower().startswith(before.lower()) or rest[:1].isalpha():   # 'Blackwatch shirt' is no black shirt
+        return name
+    return ((after if name[:1].isupper() else after.lower()) + rest)[:60]
 
 
 def eur(value) -> str:
@@ -104,9 +170,18 @@ def weblink(url) -> str:
     return url if url.startswith(("https://", "http://")) else "#"
 
 
-def _asset_version() -> int:
+def _asset_version() -> str:
+    """The ?v= at the end of the addresses of the stylesheet and the scripts (base.html, error.html).
+
+    Browsers keep those files for a year without asking again (static_files_kept, in create_app), so the
+    address must change whenever one of them does. It is made from the name, size and time of change of
+    every file under static/, htmx in static/vendor/ included: an edit, a new file or an older copy put
+    back all change it.
+    """
     static = ROOT / "wardrobe" / "static"
-    return max((int(p.stat().st_mtime) for p in static.glob("*.*")), default=0)
+    files = sorted((str(p.relative_to(static)), p.stat().st_size, p.stat().st_mtime_ns)
+                   for p in static.rglob("*") if p.is_file())
+    return hashlib.sha256(repr(files).encode()).hexdigest()[:12]
 
 
 def _this_computer(host: str) -> bool:
@@ -135,6 +210,14 @@ def _pictures_on() -> bool:
         return False
 
 
+def _photos_on() -> bool:
+    """Whether customers may upload a photo to be the model themselves: pictures on, and photos allowed."""
+    try:
+        return looks.service() is not None and looks.load_rules()["pictures"]["photos"]
+    except ConfigError:
+        return False
+
+
 def create_app() -> Flask:
     conf.check()
     app = Flask(__name__)
@@ -152,6 +235,7 @@ def create_app() -> Flask:
             from werkzeug.middleware.proxy_fix import ProxyFix
             hops = conf.TRUSTED_PROXY_HOPS
             app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)  # type: ignore[method-assign]
+        app.session_interface = auth.LoginCookie()      # the login cookie, never on Capsule's own files
         app.register_blueprint(auth.bp)
     else:
         app.secret_key = secrets.token_hex(16)   # only signs the one-off "saved" messages
@@ -196,6 +280,8 @@ def create_app() -> Flask:
 
         @app.before_request
         def accounts_and_csrf():
+            if request.endpoint in auth.FILES:      # a stylesheet, script, font or icon: no account, no form
+                return None
             auth.check_csrf()
             if g.user is None:
                 if request.endpoint in PUBLIC or request.endpoint is None:
@@ -225,9 +311,47 @@ def create_app() -> Flask:
                 resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return resp
 
+    @app.after_request
+    def static_files_kept(resp: Response) -> Response:
+        """How long browsers keep Capsule's own files (static/), so that moving between pages fetches only the page.
+
+        For a year, without asking again: the stylesheet and the scripts at their current ?v= (the address changes
+        whenever a file does, see _asset_version), and the fonts (a changed font gets a new file name, see app.css).
+        For a day: the manifest and the icons, whose addresses phones and browsers remember (like /favicon.ico).
+        Never without asking (Flask's "no-cache"): a ?v= that is no longer the current one, from a page made before
+        an update, so that an address is never kept with a file it did not name.
+        """
+        if request.endpoint != "static" or resp.status_code not in (200, 304):
+            return resp
+        version, name = request.args.get("v"), (request.view_args or {}).get("filename", "")
+        if version == _asset_version() or (version is None and name.startswith("fonts/")):
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif version is None:
+            resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
+
     @app.errorhandler(ConfigError)
     def config_error(err: ConfigError):
         return render_template("error.html", title="A config file needs fixing", message=str(err)), 500
+
+    # Each error page in Capsule's own words: a title and one line (error.html adds the way home). Werkzeug's
+    # own sentences ("The requested URL was not found on the server…") are written for developers and never
+    # shown; a message Capsule itself gives to abort() takes the place of the line.
+    error_words = {
+        400: ("That didn't go through", "Reload the page and try again."),
+        403: ("That didn't go through", "Reload the page and try again."),
+        404: ("We can't find that page", "The link may be old, or the page may have moved."),
+        405: ("We can't find that page", "The link may be old, or the page may have moved."),
+        409: ("That changed in the meantime", "Reload the page and try again."),
+        413: ("Too much data", "Go back and try again with less."),
+        429: ("Too many attempts", "Wait a few minutes and try again."),
+        500: ("Something went wrong on our side", "It's not you. Try again in a minute."),
+        501: ("Not available yet", "This part of Capsule isn't built yet."),
+    }
+
+    def error_page(code: int, own: str | None = None):
+        title, line = error_words.get(code) or error_words[400 if code < 500 else 500]
+        return render_template("error.html", title=title, message=own or line, plain=True), code
 
     @app.errorhandler(HTTPException)
     def http_error(err: HTTPException):
@@ -236,17 +360,14 @@ def create_app() -> Flask:
         if err.code == 413 and request.endpoint == "profile_photo":     # back to the form, not to a dead end
             flash(f"Not saved. {person.TOO_LARGE}", "photo")
             return redirect(url_for("profile_page") + "#photo")
-        titles = {400: "That didn't go through", 403: "Not allowed", 404: "Page not found",
-                  409: "That changed in the meantime", 413: "Too much data", 429: "Too many attempts",
-                  501: "Not available yet"}
-        return render_template("error.html", title=titles.get(err.code or 500, "Something went wrong"),
-                               message=err.description or "", plain=True), err.code or 500
+        # abort(409, "That outfit changed…") stores its words on the error itself; Werkzeug's sentence for
+        # each kind of error lives on the class.
+        return error_page(err.code or 500, vars(err).get("description"))
 
     @app.errorhandler(Exception)
     def unexpected_error(err: Exception):
         app.logger.exception("Unhandled error on %s %s", request.method, request.path)
-        return render_template("error.html", title="Something went wrong",
-                               message="The error was logged. Try again in a moment.", plain=True), 500
+        return error_page(500)
 
     @app.get("/healthz")
     def healthz():
@@ -259,6 +380,12 @@ def create_app() -> Flask:
     def robots_txt():
         body = "User-agent: *\nDisallow: /slot/\nDisallow: /account\nAllow: /\n"
         return Response(body, mimetype="text/plain")
+
+    @app.get("/favicon.ico")
+    def favicon():
+        """Browsers and search engines ask for this address by themselves. A 48 px icon, made once from
+        static/icon.svg. Its address never changes, so it is kept for a day, not for a year."""
+        return send_file(ROOT / "wardrobe" / "static" / "favicon.ico", mimetype="image/x-icon", max_age=86400)
 
     @app.get("/legal/<name>")
     def legal_page(name: str):
@@ -278,8 +405,8 @@ def create_app() -> Flask:
         return render_template(template, w=w, **ctx) + extra
 
     def after_slot_change(slot_id: str):
-        """Re-render whichever view the button was pressed in."""
-        db.set_setting("slots_customised", True)
+        """Re-render whichever view the button was pressed in. (A choice, a lock or an owned mark
+        doesn't stop the profile from rebuilding the plan: the rebuild keeps them.)"""
         w = selection.build()
         if not request.headers.get("HX-Request"):   # plain form post (no JavaScript)
             return redirect(url_for("slot_page", slot_id=slot_id) if request.args.get("view") == "slot"
@@ -305,7 +432,7 @@ def create_app() -> Flask:
     def wardrobe():
         if conf.PRODUCTION and g.user is None:
             return render_template("landing.html", looks_on=_pictures_on(),      # the public website
-                                   invite=bool(conf.INVITE_CODE))
+                                   photos=_photos_on(), invite=bool(conf.INVITE_CODE))
         return page("wardrobe.html", tab="wardrobe")
 
     @app.post("/settings")
@@ -345,7 +472,6 @@ def create_app() -> Flask:
         # Choosing by hand locks the choice, so the price level can't undo it.
         db.update_slot(slot_id, pick=cand_id, locked=True, owned=False)
         if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
-            db.set_setting("slots_customised", True)
             return redirect(url_for("outfits_page", at=request.form["outfit"][:400],
                                     occasion=request.form.get("occasion") or None))
         return after_slot_change(slot_id)
@@ -368,6 +494,32 @@ def create_app() -> Flask:
             abort(404)
         db.update_slot(slot_id, owned=not slot["owned"])
         return after_slot_change(slot_id)
+
+    @app.post("/slot/<slot_id>/colour")
+    def slot_colour(slot_id: str):
+        """'Use navy' on a piece the product list has nothing for: the piece takes one of the colours
+        offered with it (selection._offer), its name follows, and its products are matched again. Like
+        Choose or Lock it is a choice made on the Wardrobe, not an edit of the plan: a later profile
+        change still rebuilds the plan (see plan_edited)."""
+        view = selection.build().get(slot_id)
+        if view is None:
+            abort(404)
+        colour = request.form.get("colour", "")
+        if colour not in {c.key for c in view.offers}:     # never a refused colour, nor one that fills nothing
+            abort(409, "That colour is not offered for this piece any more. Reload the page.")
+        name = recoloured_name(view.slot["name"], view.slot["colour"], colour)
+        db.update_slot(slot_id, colour=colour, name=name, locked=False, pick=None)
+        sync_catalog(changed_slot=slot_id)
+        w = selection.build()
+        on_its_page = request.args.get("view") == "slot"
+        if not request.headers.get("HX-Request"):          # plain form post (no JavaScript)
+            return redirect(url_for("slot_page", slot_id=slot_id) if on_its_page
+                            else url_for("wardrobe") + f"#card-{slot_id}")
+        # The button that was pressed is gone from the new view, so keyboard focus moves to the piece itself.
+        if on_its_page:     # that page is named after the piece: HTMX takes the <title> into the tab
+            title = Markup("<title>%s · Capsule</title>") % name
+            return str(title) + fragment("_slot_body.html", w, focus=slot_id, **slot_context(w, slot_id))
+        return fragment("_wardrobe_body.html", w, focus=slot_id)
 
     # ── Adding and completing candidates by hand ──────────────────────────────
 
@@ -531,7 +683,8 @@ def create_app() -> Flask:
         outfit = outfits.find_by_sig(w, request.args.get("at", ""))
         if outfit is None:
             abort(404)
-        return page("buy.html", w=w, tab="outfits", outfit=outfit, sl=export.build(w, only=outfit.slots))
+        return page("buy.html", w=w, tab="outfits", outfit=outfit, sl=export.build(w, only=outfit.slots),
+                    **your_sizes())
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
 
@@ -592,10 +745,16 @@ def create_app() -> Flask:
 
     # ── Shopping list ─────────────────────────────────────────────────────────
 
+    def your_sizes() -> dict:
+        """For the 'Your sizes' line at the top of the shopping list and of Buy this outfit (_your_sizes.html):
+        the sizes every line there is ordered in, and whether they are still the example's."""
+        you = profile_mod.load()
+        return {"you": you, "example_sizes": profile_mod.sizes_unconfirmed(you)}
+
     @app.get("/list")
     def list_page():
         w = selection.build()
-        return page("list.html", w=w, tab="list", sl=export.build(w))
+        return page("list.html", w=w, tab="list", sl=export.build(w), **your_sizes())
 
     @app.get("/list.md")
     def list_markdown():
@@ -628,8 +787,8 @@ def create_app() -> Flask:
 
     @app.get("/slots")
     def slots_page():
-        prof = profile_mod.load()
-        return page("slots.html", tab="slots", palette=capsule.palette_summary(prof), profile=prof)
+        prof = profile_mod.load()     # the plan is part of the Wardrobe, so its tab stays lit
+        return page("slots.html", tab="wardrobe", palette=capsule.palette_summary(prof), profile=prof)
 
     def slot_fields() -> dict | None:
         form = request.form
@@ -655,7 +814,7 @@ def create_app() -> Flask:
         slot = capsule.new_slot(fields["category"], fields["colour"], fields["name"],
                                 fields["keywords"], fields["qty"], taken)
         db.add_slot(slot)
-        db.set_setting("slots_customised", True)
+        db.set_setting("plan_edited", True)     # a profile change no longer rebuilds the plan by itself
         needs_refresh = sync_catalog()
         flash(f"Added “{slot['name']}”." + (f" {REFRESH_HINT}" if needs_refresh else ""))
         return redirect(url_for("slots_page") + f"#slot-{slot['id']}")
@@ -668,10 +827,11 @@ def create_app() -> Flask:
         if fields is None:
             abort(400)
         changed = (fields["category"], fields["colour"]) != (slot["category"], slot["colour"])
+        if any(fields[k] != slot[k] for k in fields):
+            db.set_setting("plan_edited", True)     # (pressing Save without changing anything is no edit)
         if changed:
             fields.update(locked=False, pick=None)   # different garment or colour: old pick no longer applies
         db.update_slot(slot_id, **fields)
-        db.set_setting("slots_customised", True)
         needs_refresh = sync_catalog(changed_slot=slot_id if changed else None)
         flash(f"Saved “{fields['name']}”." + (f" {REFRESH_HINT}" if changed and needs_refresh else ""))
         return redirect(url_for("slots_page") + f"#slot-{slot_id}")
@@ -682,7 +842,7 @@ def create_app() -> Flask:
         if slot is None:
             abort(404)
         db.delete_slot(slot_id)
-        db.set_setting("slots_customised", True)
+        db.set_setting("plan_edited", True)
         sync_catalog()
         flash(f"Removed “{slot['name']}”.")
         return redirect(url_for("slots_page"))
@@ -691,7 +851,7 @@ def create_app() -> Flask:
     def slots_repropose():
         slots, unmatched = capsule.propose(profile_mod.load())
         db.replace_slots(slots)
-        db.set_setting("slots_customised", False)
+        db.set_setting("plan_edited", False)    # from scratch: profile changes rebuild it again
         needs_refresh = sync_catalog()
         flash(f"Capsule re-proposed from your profile: {len(slots)} slots." + (f" {REFRESH_HINT}" if needs_refresh else ""))
         for line in unmatched:
@@ -720,21 +880,32 @@ def create_app() -> Flask:
             flash(note)
 
         shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned")
-        if all(current[f] == new[f] for f in shapes_capsule):
-            flash("Profile saved.")
-        elif db.get_setting("slots_customised", False):
-            flash("Profile saved. Your slot list was left as it is, because you have already "
-                  "edited, locked or marked things — “Re-propose from profile” on the Slots "
-                  "page rebuilds it from scratch.")
-        else:
-            slots, unmatched = capsule.propose(new)
-            db.replace_slots(slots)
-            needs_refresh = sync_catalog()
-            flash(f"Profile saved and the capsule re-proposed from it: {len(slots)} slots. "
-                  "Review them under Slots." + (f" {REFRESH_HINT}" if needs_refresh else ""))
-            for line in unmatched:
-                flash(f"Couldn't tell what kind of garment “{line}” is — add it as a slot by hand.")
-        return redirect(url_for("profile_page"))
+        # The plan has no tab of its own, so a message that sends you to it carries the link.
+        # (Markup: the link is shown as a link; what the customer typed is still escaped.)
+        if all(current[f] == new[f] for f in shapes_capsule):      # sizes or budget: the plan stays as it is
+            flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
+            return redirect(url_for("profile_page"))
+        if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
+            flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
+                         "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
+            return redirect(url_for("profile_page"))
+
+        plan, needs_refresh = rebuild_plan(new, current)
+        flash(rebuilt_message(plan) + (f" {REFRESH_HINT}" if needs_refresh else ""))
+        edit_the_plan = Markup('<a href="%s">Edit the plan</a>') % url_for("slots_page")
+        for line in plan.unmatched:
+            flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
+                  % (line, edit_the_plan))
+        return redirect(url_for("outfits_page"))       # the new plan, where it shows best: on the model
+
+    @app.post("/profile/sizes-ok")
+    def profile_sizes_ok():
+        """'These are my sizes', under the example sizes on the shopping list and on Buy this outfit: they are
+        the customer's own, so the warning goes. Back to the page the button is on."""
+        profile_mod.confirm_sizes()
+        flash("Sizes saved.")
+        at = request.form.get("at", "")[:400]       # pressed on one outfit's Buy page
+        return redirect(url_for("outfits_buy", at=at) if at else url_for("list_page"))
 
     # ── The model in the AI pictures: a description, or your own photo (person.py) ──
 
@@ -743,7 +914,7 @@ def create_app() -> Flask:
         person.save({group: request.form.get(group, "") for group in person.GROUPS})
         # Said where the page lands (the "model" and "photo" kinds are shown inside that section,
         # not at the top of the page, which is off the screen by then).
-        flash("Model saved. Pictures drawn from now on show it; open Outfits to see.", "model")
+        flash("Model saved. Pictures drawn from now on show it.", "model")    # profile.html adds "See your outfits"
         return redirect(url_for("profile_page") + "#model")
 
     @app.post("/profile/photo")
@@ -766,7 +937,7 @@ def create_app() -> Flask:
             if problem is None:
                 looks.forget_pictures_of(db.uid())      # those showed the previous photo
             flash(f"Not saved. {problem}" if problem
-                  else "Photo saved. Pictures drawn from now on show you; open Outfits to see.", "photo")
+                  else "Photo saved. Pictures drawn from now on show you.", "photo")
         return back
 
     @app.get("/profile/photo")
