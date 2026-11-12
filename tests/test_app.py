@@ -8,7 +8,7 @@ from pathlib import Path
 
 from wardrobe import capsule, catalog, colours, config, db, outfits, paths, selection
 from wardrobe import profile as profile_mod
-from wardrobe.app import create_app, weblink
+from wardrobe.app import create_app, eur, weblink
 
 HX = {"HX-Request": "true"}
 
@@ -238,6 +238,68 @@ class SlotsAndProfile(AppCase):
         self.assertEqual([x["id"] for x in db.list_slots()], before)
         self.assertEqual(selection.build().budget, 2000)
         self.assertEqual(self.view(s.slot["id"]).chosen.id, s.chosen.id)
+
+    def test_a_budget_of_999_is_accepted_by_the_field_and_saved(self):
+        # The field had step="10": a browser refused 999 with a bubble of its own and never sent it.
+        page = self.client.get("/profile").data.decode()
+        field = dict(re.findall(r'([\w-]+)="([^"]*)"', re.search(r'<input [^>]*name="budget"[^>]*>', page).group(0)))
+        self.assertEqual(field.get("id"), "budget", "the budget in the bar at the top leads to this field")
+        self.assertIn(field.get("step", "1"), ("1", "any"), "a browser would refuse a budget that is not a multiple of the step")
+        self.assertLessEqual(int(field.get("min", "0")), 999)
+        current = profile_mod.load()
+        form = {"top_size": current["top_size"], "waist": current["waist"], "length": current["length"],
+                "shoe": current["shoe"], "height_cm": current["height_cm"], "weight_kg": current["weight_kg"],
+                "budget": "999", "liked": "navy, grey, white, olive", "refused": "", "use": "both",
+                "shoes": "on", "outerwear": "on", "owned": ""}
+        self.client.post("/profile", data=form)
+        self.assertEqual(selection.build().budget, 999)
+        self.assertIn(f"of {eur(999)}", BudgetBar.phone_line(self.client.get("/profile").data.decode()))
+
+
+class BudgetBar(AppCase):
+    """The bar at the top of the wardrobe's pages. A phone shows it as one line ("1,073.20 € of 1,500 € ·
+    426.80 € left"); the labels Total, Budget and Left are hidden there but stay in the page, for screen
+    readers and for the walk-through, which reads the figures by them."""
+
+    @staticmethod
+    def bar(page: str) -> str:
+        return re.search(r'<section id="summary".*?</section>', page, re.S).group(0)
+
+    @staticmethod
+    def phone_line(page: str) -> str:
+        """The bar's words as a phone shows them: without its labels."""
+        text = re.sub(r"<[^>]+>", " ", re.sub(r'<span class="lbl">.*?</span>', "", BudgetBar.bar(page)))
+        return html.unescape(re.sub(r"[ \t\r\n]+", " ", text)).strip()     # as a browser does: no-break spaces stay
+
+    def labels(self, page: str) -> list[str]:
+        return re.findall(r'<span class="lbl">(.*?)</span>', page)
+
+    def test_one_line_with_every_figure_labelled_and_the_budget_leading_to_its_field(self):
+        w = selection.build()
+        self.assertGreaterEqual(w.remaining, 0)
+        page = self.client.get("/").data.decode()
+        self.assertTrue(self.phone_line(page).startswith(f"{eur(w.total)} of {eur(w.budget)} · {eur(w.remaining)} left"),
+                        self.phone_line(page))
+        self.assertEqual(self.labels(page), ["Total", "Budget", "Left"])
+        first = re.search(r'<div class="num">(.*?)</div>', page).group(1)       # the walk-through reads the total here
+        self.assertEqual(first, f'<span class="lbl">Total</span><b>{eur(w.total)}</b>')
+        self.assertIn('<a href="/profile#budget"', page)
+        self.assertIn('id="budget"', self.client.get("/profile").data.decode())
+
+    def test_over_budget_says_by_how_much(self):
+        profile_mod.save({**profile_mod.load(), "budget": 500})
+        w = selection.build()
+        page = self.client.get("/list").data.decode()
+        self.assertIn('class="summary over"', page)
+        self.assertIn(f"of {eur(500)} · Over by {eur(-w.remaining)}", self.phone_line(page))
+        self.assertEqual(self.labels(page), ["Total", "Budget", "Over budget"])
+
+    def test_pieces_with_nothing_to_buy_are_counted_in_the_bar(self):
+        profile_mod.save({**profile_mod.load(), "shoe": "49"})   # no store makes a 49
+        w = selection.build()
+        self.assertGreaterEqual(w.n_unfilled, 1)
+        self.assertIn('<span class="warn">', self.bar(self.client.get("/").data.decode()),
+                      "phones show the line under the figures only when it has this count of missing pieces")
 
 
 class RebuildingThePlan(AppCase):

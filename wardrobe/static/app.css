@@ -107,7 +107,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
    ring is drawn just inside the edge instead (see .slot-main, .act, .piece-row), so that all
    four sides show; photo tiles and the dots on the AI picture have their own two-tone ring. */
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-main { max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--gutter) var(--s-6); }
+/* The page's sides: the gutter, or more where a phone held sideways has its notch or rounded corners. */
+:root { --side-l: max(var(--gutter), env(safe-area-inset-left)); --side-r: max(var(--gutter), env(safe-area-inset-right)); }
+main { max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--side-r) var(--s-6) var(--side-l); }
 .muted { color: var(--muted); }
 .small { font-size: var(--t-s); line-height: var(--lh-s); }
 .ic { flex: none; vertical-align: -3px; }
@@ -115,7 +117,7 @@ main { max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--gutter) var(
 /* ── Header and tabs ─────────────────────────────────────────────────────── */
 .top {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
-  max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--gutter) var(--s-2);
+  max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--side-r) var(--s-2) var(--side-l);
 }
 .brand { font: 400 var(--t-xl)/var(--lh-xl) var(--display); font-synthesis: none; text-decoration: none; }
 .tabs {
@@ -132,23 +134,52 @@ main { max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--gutter) var(
 .tabs a:focus-visible { outline-offset: -3px; }   /* phones: the tabs touch each other and the screen's edge */
 
 /* ── Summary bar (sticks to the top) ─────────────────────────────────────── */
+/* Phones: one line, "1,073.20 € of 1,500 € · 426.80 € left", over a 3px progress line; a second, short line
+   only when pieces have nothing to buy. The labels Total, Budget and Left are hidden on phones but still read
+   out; the words that join the figures (.ph) are for phones only. Computers: each figure under its label. */
+:root { --bar-h: 48px; }   /* the bar's height, its bottom edge included (see scroll-padding below) */
 .summary {
-  position: sticky; top: 0; z-index: 30;
+  display: flex; flex-direction: column; justify-content: center; min-height: var(--bar-h);
   background: var(--bg); border-bottom: 1px solid var(--line);
 }
-.summary-in { max-width: 1240px; margin: 0 auto; padding: var(--s-2) var(--gutter); }
-.nums { display: flex; gap: 22px; align-items: flex-end; }
-.num { display: flex; flex-direction: column; min-width: 0; }
-.num.left { margin-left: auto; text-align: right; }
-.num .lbl { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-.num b { font-size: var(--t-l); line-height: var(--lh-l); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.num.left b { color: var(--good); }
-.summary.over .num.left b { color: var(--poor); }
-.bar { height: 4px; border-radius: var(--r-pill); background: var(--line); overflow: hidden; margin-top: 7px; }
+.summary-in { width: 100%; max-width: 1240px; margin: 0 auto; padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l); }
+.nums { color: var(--muted); }
+.num { display: inline; white-space: nowrap; }   /* a very long line breaks between its three parts, never inside one */
+.num .lbl {   /* phones: hidden, but read out (as .sr) */
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+.num b { font-weight: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.num:first-child { font-size: var(--t-l); line-height: var(--lh-l); font-weight: 600; color: var(--ink); }   /* the total */
+.num.left { font-weight: 500; color: var(--good); }
+.summary.over .num.left { color: var(--poor); }
+.num a { position: relative; text-underline-offset: 3px; }
+.num a::after { content: ""; position: absolute; inset: calc(-1 * var(--s-3)) calc(-1 * var(--s-1)); }   /* a finger-sized target */
+.bar { height: 3px; border-radius: var(--r-pill); background: var(--line); overflow: hidden; margin-top: var(--s-1); }
 .bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--ink); }
 .summary.over .bar i { background: var(--poor); }
-.sub { font-size: var(--t-s); color: var(--muted); margin-top: 5px; }
+.sub { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); margin-top: var(--s-1); }
 .warn { color: var(--ok); font-weight: 500; }
+@media (max-width: 759.98px) {
+  :root:has(#summary .warn) { --bar-h: 70px; }   /* with the line about missing pieces */
+  /* Of the line under the figures, phones show only how many pieces have nothing to buy, and only when there are
+     some. The rest of it is words without a tag of their own, so they are shrunk to nothing (still read out). */
+  .sub { font-size: 0; }
+  .sub:not(:has(.warn)) { display: none; }
+  .sub .warn { font-size: var(--t-s); }
+}
+/* Sticky only where it helps: not over the outfits, which need the whole screen, and not on a screen under
+   520px tall (a phone held sideways), where it would take too much of it. */
+@media (min-height: 520px) {
+  body:not(:has(#reel)) .summary { position: sticky; top: 0; z-index: 30; }
+  /* Where it sticks, whatever the page scrolls into view (a link to a place on the page, the next field you
+     tab to) stops 12px below the bar instead of behind it. */
+  html:has(.summary):not(:has(#reel)) { scroll-padding-top: calc(var(--bar-h) + var(--s-3)); }
+}
+/* On phones, the same above the tab bar at the bottom: 56px, its edge, and 15px to spare. */
+html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+/* A field scrolled into view brings its label, just above it, along. */
+.field > :is(input, select, textarea) { scroll-margin-top: calc(var(--t-s) * var(--lh-m) + var(--s-1)); }
 
 /* ── Notices ─────────────────────────────────────────────────────────────── */
 .demo { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); background: var(--ok-bg); border-radius: var(--r-ui); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-3); }
@@ -572,7 +603,6 @@ details[open] > summary .edit { visibility: hidden; }
 .photo-ready[hidden] { display: none; }
 .photo-ready img { width: 54px; height: 72px; object-fit: cover; border-radius: var(--r-img); border: 1px solid var(--line); flex: none; }
 .photo-ready.bad, .flash.bad { color: var(--poor); background: var(--poor-bg); }
-:target { scroll-margin-top: 84px; }       /* a place the page jumps to must not land under the bar that sticks to the top */
 .check input { flex: none; }
 .check span { flex: 1; min-width: 0; }
 .open-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
@@ -603,15 +633,21 @@ details[open] > summary .edit { visibility: hidden; }
 /* ── Wider screens ───────────────────────────────────────────────────────── */
 @media (min-width: 760px) {
   body { padding-bottom: 0; }
-  main { padding: var(--s-4) var(--gutter) var(--s-7); }
-  .top { padding: var(--s-4) var(--gutter) var(--s-2); }
-  .summary-in { padding: var(--s-2) var(--gutter); }
+  main { padding: var(--s-4) var(--side-r) var(--s-7) var(--side-l); }
+  .top { padding: var(--s-4) var(--side-r) var(--s-2) var(--side-l); }
+  html { scroll-padding-bottom: 0; }            /* no tab bar at the bottom */
   .tabs { position: static; display: flex; gap: 4px; background: none; border: 0; padding: 0; }
   .tabs a { min-height: 36px; padding: 0 14px; border-radius: var(--r-pill); }
   .tabs a.on { background: var(--ink); color: var(--bg); box-shadow: none; }
   .tabs a:focus-visible { outline-offset: 2px; }
-  .nums { gap: 36px; }
-  .num.left { margin-left: 0; text-align: left; }
+  /* The budget bar: Total, Budget and Left, each figure under its label, then the progress line and the pieces to buy. */
+  :root { --bar-h: 90px; }
+  .nums { display: flex; gap: var(--s-6); align-items: flex-end; color: var(--ink); }
+  .num, .num.left { display: flex; flex-direction: column; min-width: 0; font-size: var(--t-l); line-height: var(--lh-l); font-weight: 600; }
+  .num .lbl { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .num a:focus-visible { outline-offset: 0; }   /* clear of the label just above */
+  .ph { display: none; }
+  .bar { margin-top: var(--s-2); }
   .btn { min-height: 44px; }                  /* .btn.small stays 40px */
   /* The six price levels in one row of equal cells, the minimum-quality slider on its own row below. */
   .controls { max-width: 860px; }

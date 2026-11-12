@@ -9,8 +9,9 @@ stand-in for the image service (nothing is sent anywhere and nothing is billed),
 what a new customer would: signs up, changes the price level, watches an outfit's picture
 arrive, opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
 saves and "buys" one, logs in again and lands on the outfits, puts a model together,
-uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece) and
-deletes the account.
+uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece), tabs
+through three pages to see that nothing with keyboard focus is hidden under the budget bar or
+the tab bar, and deletes the account.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
@@ -18,6 +19,7 @@ a page throws. The GitHub checks run it on every push (.github/workflows/checks.
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import shutil
 import struct
@@ -400,6 +402,93 @@ def run(base: str) -> None:
             else:
                 assert "Not kept: " in said, f"the swapped piece is gone and the message does not say so: {said!r}"
 
+        def budget_bar_never_hides_the_focus():
+            # On a phone the budget bar is one line, and it sticks to the top only where that helps: not over the
+            # outfits, and not on a screen under 520px tall. What has keyboard focus is never hidden under it or
+            # under the tab bar (WCAG 2.4.11): three pages are tabbed through forwards on a phone and backwards on a
+            # computer, so that each new focus comes in from below and from above, and at least one of five points
+            # of it must be on the screen with neither bar over it. The bar's budget leads to the field on Profile,
+            # which takes any whole number: with steps of 10 it refused 999 with a bubble of the browser's own.
+            def logged_in(width: int, height: int, phone: bool):
+                context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=phone, has_touch=phone)
+                other = context.new_page()
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_load_state("networkidle")
+                return context, other
+
+            def sticks(other, path: str) -> bool:
+                other.goto(base + path, wait_until="networkidle")
+                other.evaluate("() => window.scrollTo(0, 400)")
+                return other.evaluate("() => document.getElementById('summary').getBoundingClientRect().top") == 0
+
+            hidden: list[str] = []
+
+            def tab_through(other, path: str, key: str) -> None:
+                other.goto(base + path, wait_until="networkidle")
+                stops = 0
+                for _ in range(400):
+                    other.keyboard.press(key)
+                    focus = other.evaluate("""() => {
+                        const el = document.activeElement;
+                        if (!el || el === document.body) return null;          // out of the page, past its last stop
+                        if (el.dataset.walked) return 'again';                 // all the way round
+                        el.dataset.walked = '1';
+                        const bars = [document.getElementById('summary'), document.querySelector('nav.tabs')].filter(Boolean);
+                        const r = el.getBoundingClientRect();
+                        const points = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + 1, r.top + 1],
+                                        [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]];
+                        const seen = points.filter(([x, y]) => {
+                            if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false;
+                            const top = document.elementFromPoint(x, y);
+                            return top && !bars.some(bar => bar.contains(top) && !bar.contains(el));
+                        }).length;
+                        return {seen, name: (el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + ' '
+                                             + (el.innerText || el.value || el.name || '')).trim().slice(0, 50)};
+                    }""")
+                    if focus == "again" or (focus is None and stops):
+                        break
+                    if focus:
+                        stops += 1
+                        if not focus["seen"]:
+                            hidden.append(f"{path} {key}: {focus['name']}")
+                assert stops >= 10, f"tabbing through {path} met only {stops} things to focus"
+
+            context, other = logged_in(390, 844, True)
+            other.goto(base + "/", wait_until="networkidle")
+            bar = other.evaluate("""() => {
+                const line = document.querySelector('#summary .nums').cloneNode(true);
+                line.querySelectorAll('.lbl').forEach(label => label.remove());     // hidden on a phone, read out
+                return {height: document.getElementById('summary').getBoundingClientRect().height,
+                        line: line.textContent.replace(/[ \\n]+/g, ' ').trim().replace(/\\u00a0/g, ' ')};
+            }""")
+            assert bar["height"] <= 52, f"on a phone the budget bar is {bar['height']}px tall"
+            assert re.fullmatch(r"[\d,.]+ € of [\d,.]+ € · ([\d,.]+ € left|Over by [\d,.]+ €)", bar["line"]), \
+                f"on a phone the budget bar reads {bar['line']!r}"
+            assert sticks(other, "/") and sticks(other, "/list"), "the budget bar does not stay at the top of Wardrobe and Shopping"
+            assert not sticks(other, "/outfits"), "the budget bar stays over the outfits"
+            other.set_viewport_size({"width": 390, "height": 480})
+            assert not sticks(other, "/"), "the budget bar sticks on a screen 480px tall"
+            other.set_viewport_size({"width": 390, "height": 844})
+            for path in ("/", "/list", "/profile"):
+                tab_through(other, path, "Tab")
+            other.goto(base + "/", wait_until="networkidle")
+            other.locator("#summary a").click()
+            other.wait_for_url(base + "/profile#budget")
+            other.fill("#budget", "999")
+            assert other.eval_on_selector("#budget", "i => i.checkValidity()"), "the budget field refuses 999"
+            other.click("button:has-text('Save profile')")
+            other.wait_for_load_state("networkidle")
+            assert "of 999 €" in other.locator("#summary").inner_text().replace("\xa0", " "), "a budget of 999 € was not saved"
+            context.close()
+            context, other = logged_in(1280, 900, False)
+            for path in ("/", "/list", "/profile"):
+                tab_through(other, path, "Shift+Tab")
+            context.close()
+            assert not hidden, "hidden under the bars or off the screen while it had keyboard focus: " + "; ".join(hidden[:6])
+
         def delete_account():
             page.goto(base + "/account", wait_until="networkidle")
             page.locator("form[action$='/account/delete'] input[name=current]").fill(PASSWORD)
@@ -420,6 +509,7 @@ def run(base: str) -> None:
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
+                 ("the budget bar never hides what has focus", budget_bar_never_hides_the_focus),
                  ("delete the account", delete_account)]
         for name, step in steps:
             known = len(failures)

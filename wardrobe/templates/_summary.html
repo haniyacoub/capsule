@@ -1,11 +1,14 @@
-{# The sticky bar with the running total. Sent again with every button press
-   (hx-swap-oob replaces the one on the page), which is how it updates live. #}
+{# The bar with the running total, at the top of the wardrobe's pages. Sent again with every button press
+   (hx-swap-oob replaces the one on the page), which is how it updates live.
+   On a phone it is one line, "1,073.20 € of 1,500 € · 426.80 € left": the labels (Total, Budget, Left) are
+   hidden there but still read out, and the joining words (class "ph") show on phones only, never read out.
+   Computers show each figure under its label. The budget leads to its field on the Profile page. #}
 <section id="summary" class="summary{% if w.remaining < 0 %} over{% endif %}"{% if oob %} hx-swap-oob="true"{% endif %} aria-label="Budget">
   <div class="summary-in">
     <div class="nums">
       <div class="num"><span class="lbl">Total</span><b>{{ w.total|eur }}</b></div>
-      <div class="num"><span class="lbl">Budget</span><b>{{ w.budget|eur }}</b></div>
-      <div class="num left"><span class="lbl">{{ 'Over budget' if w.remaining < 0 else 'Left' }}</span><b>{{ w.remaining|abs|eur }}</b></div>
+      <div class="num"><span class="lbl">Budget</span><span class="ph" aria-hidden="true">of </span><a href="{{ url_for('profile_page') }}#budget" title="Change your budget"><b>{{ w.budget|eur }}</b></a></div>
+      <div class="num left"><span class="ph" aria-hidden="true">· {{ 'Over by ' if w.remaining < 0 else '' }}</span><span class="lbl">{{ 'Over budget' if w.remaining < 0 else 'Left' }}</span><b>{{ w.remaining|abs|eur }}</b>{% if w.remaining >= 0 %}<span class="ph" aria-hidden="true"> left</span>{% endif %}</div>
     </div>
     <div class="bar" role="presentation"><i style="width:{{ '%.1f'|format(w.spent_pct) }}%"></i></div>
     <p class="sub">
