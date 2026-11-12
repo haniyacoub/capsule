@@ -1127,13 +1127,16 @@ class SharedStoreCatalogue(ProductionCase):
                      sizes_in_stock=[]),
              product("zara", "j4", "Jeans Slim Fit", 35.95, "Indigoblau", slot_id="denim", sizes_all=[], sizes_in_stock=[])]
     DENIM_SLOT = {"id": "denim", "name": "Jeans", "category": "jeans", "colour": "indigo"}
+    # The profile form's answers, but for the colours.
+    ANSWERS = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "75",
+               "budget": "1500", "use": "both", "shoes": "on", "outerwear": "on", "owned": ""}
 
     def test_a_refused_colour_never_comes_back_through_denim(self):
         """With navy refused, "Dunkelblau" and "Dark Blue" jeans (navy, in Capsule's colour table) are never options:
-        not for the jeans the plan has, nor through a "Use …" offer on jeans the list has nothing for."""
+        not for the jeans the plan has, nor through a "Use …" offer on jeans the list has nothing for. A piece he keeps
+        or adds in navy himself is another matter: it keeps its navy options."""
         self.publish(extra=self.DENIM, slots=[self.DENIM_SLOT])
-        form = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "75",
-                "budget": "1500", "use": "both", "shoes": "on", "outerwear": "on", "owned": ""}
+        form = self.ANSWERS
 
         def jeans(email) -> dict:
             """Each jeans piece of the plan: its options' ids, and the products each colour offered for it reaches."""
@@ -1166,11 +1169,54 @@ class SharedStoreCatalogue(ProductionCase):
         self.assertNotIn("Dunkelblau", page)
         self.assertNotIn("Dark Blue", page)
 
+        # A navy piece added by hand with navy refused is his own choice: it has the navy jumper the list has.
+        added = self.post(ada, "/slots/add", name="", category="knit", colour="navy", qty="1")
+        self.assertEqual(self.knit("ada@example.com", added.headers["Location"].split("#slot-")[1]), ["zara-3"])
+
         # Navy refused later, on a plan edited by hand: the plan stays, its jeans lose their navy options all the same.
+        self.assertEqual(self.knit("bob@example.com", "navy-merino-jumper"), ["zara-3"], "the Marineblau jumper")
         self.post(bob, "/slots/add", name="", category="overshirt", colour="rust", qty="1")
         stays = self.post(bob, "/profile", **form, liked="grey, white", refused="navy")
         self.assertTrue(stays.headers["Location"].endswith("/profile"), "the edited plan is not rebuilt")
         self.assertEqual(jeans("bob@example.com"), {"indigo-jeans": ({"zara-j1", "zara-j4"}, {})})
+        # But the navy pieces he kept are navy by his own choice: they keep their navy options.
+        self.assertEqual(self.knit("bob@example.com", "navy-merino-jumper"), ["zara-3"])
+        jumper = html.unescape(bob.get("/slot/navy-merino-jumper").get_data(as_text=True))
+        self.assertIn("Pullover", jumper)
+        self.assertNotIn("Not in Capsule's product list in navy yet", jumper)
+
+    def test_a_product_chosen_by_hand_stays_when_its_colour_is_refused_later(self):
+        """"Dark Blue" jeans (navy, in Capsule's colour table) that he chose himself stay his choice when he refuses
+        navy afterwards, also when every customer's products are rebuilt from the list. Unlocked, they go."""
+        self.publish(extra=self.DENIM, slots=[self.DENIM_SLOT])
+        dan = self.member("dan@example.com")              # the example's colours: navy is liked
+        self.assertEqual(self.post(dan, "/slot/indigo-jeans/pick", candidate="cos-j2").status_code, 302)
+
+        def jeans() -> tuple:
+            with db.as_user(self.user_id("dan@example.com")):
+                view = selection.build().get("indigo-jeans")
+                return view.state, view.chosen.id, {c.id for c in view.cands}, view.note
+
+        rebuilt = self.post(dan, "/profile", **self.ANSWERS, liked="grey, white", refused="navy")
+        self.assertEqual(rebuilt.headers["Location"], "/outfits", "the plan is rebuilt from the new answers")
+        message = html.unescape(dan.get("/outfits").get_data(as_text=True))
+        self.assertIn("Kept your 1 hand-picked piece.", message)
+        self.assertNotIn("Not kept", message)
+        locked = ("locked", "cos-j2", {"zara-j1", "cos-j2", "zara-j4"})
+        self.assertEqual(jeans()[:3], locked)
+        # Every customer's products are rebuilt from the list (a newer list, or a new way of reading it): it stays.
+        with db.as_user(self.user_id("dan@example.com")):
+            db.set_setting("pool", "an older list")
+        page = html.unescape(dan.get("/slot/indigo-jeans").get_data(as_text=True))
+        self.assertEqual(jeans()[:3], locked)
+        self.assertNotIn("no longer in the catalogue", page)
+        self.assertNotIn("no longer in the catalogue", jeans()[3] or "")
+
+        # Unlocked, the piece is automatic again, and the automatic pick is never in a colour he refused.
+        self.post(dan, "/slot/indigo-jeans/lock")
+        state, chosen, options, _ = jeans()
+        self.assertEqual((state, options), ("auto", {"zara-j1", "zara-j4"}))
+        self.assertIn(chosen, options)
 
     def test_at_most_three_colours_and_the_liked_ones_first(self):
         tees = [product("weekday", f"t{n}", "T-Shirt", 15.0 + n, colour, slot_id="white-tee")

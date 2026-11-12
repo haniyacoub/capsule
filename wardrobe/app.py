@@ -483,6 +483,8 @@ def create_app() -> Flask:
             abort(404)
         if view.slot["locked"]:
             db.update_slot(slot_id, locked=False, pick=None)       # back to automatic
+            if conf.PRODUCTION and view.chosen and shared.kept_for_its_lock(view.slot, view.chosen.data):
+                sync_catalog()      # a product kept only for its lock, in a colour he refused since, goes with it
         elif view.chosen is not None:
             db.update_slot(slot_id, locked=True, pick=view.chosen.id)  # freeze what's showing
         return after_slot_change(slot_id)

@@ -33,7 +33,8 @@ _offers: tuple[dict, dict[tuple[str, frozenset[str]], dict[str, list[dict]]]] | 
 # read (see _corrected), without asking any store again. A new REVISION then makes every
 # customer's products be rebuilt from the corrected list once (see refresh_customer).
 #   fit2: "weder schmaler noch weiter" (a straight leg) is no longer read as a slim cut.
-#   refused: a product in a colour the customer refused is no longer among his options (see candidates_for).
+#   refused: a product in a colour the customer refused is no longer among his options, but for what he chose
+#            himself (see _for_piece).
 REVISION = "refused"
 
 
@@ -102,7 +103,8 @@ def publish(target: Path) -> int:
 def candidates_for(pool: dict, slot: dict, collector: dict, refused: frozenset[str] = frozenset()) -> list[dict]:
     """The products that fit one slot: per store, best colour match, keyword matches, then cheapest. A product
     whose own colour is one of `refused` (the customer's refused colours, see refused_colours) is left out, also
-    where it would match: "Dunkelblau" jeans are never blue jeans for a customer who refused navy."""
+    where it would match: "Dunkelblau" jeans are never blue jeans for a customer who refused navy. (Which of
+    his pieces this applies to, and what he chose himself that stays: _for_piece.)"""
     skip_words = collector.get("skip_words", [])
     vocabulary = collector.get("keyword_words", {})
     per_store = int(collector.get("max_candidates", 6))
@@ -164,8 +166,8 @@ def _on_offer(pool: dict, category: str, refused: frozenset[str]) -> dict[str, l
 
 
 def build_catalog(slots: list[dict], previous: dict | None) -> dict | None:
-    """One customer's candidates from the shared list, never in a colour they refused. Their own additions and
-    typed-in details are kept."""
+    """One customer's candidates from the shared list, never in a colour they refused (see _for_piece). Their own
+    additions, typed-in details and locked choices are kept."""
     pool = load()
     if pool is None:
         return None
@@ -177,7 +179,7 @@ def build_catalog(slots: list[dict], previous: dict | None) -> dict | None:
     candidates = [c for c in before if c.get("source") == "manual" and c.get("slot_id") in slot_ids]
     taken = {(c["slot_id"], c["id"]) for c in candidates}
     for slot in slots:
-        for cand in candidates_for(pool, slot, collector, refused):
+        for cand in _for_piece(pool, slot, collector, refused):
             if (cand["slot_id"], cand["id"]) in taken:
                 continue                               # you added this one yourself; yours wins
             if cand["id"] in typed_in:
@@ -185,6 +187,30 @@ def build_catalog(slots: list[dict], previous: dict | None) -> dict | None:
             candidates.append(cand)
     return {"source": "collected", "collected_at": pool.get("collected_at"), "stores": pool.get("stores", {}),
             "pool": revision(pool), "candidates": candidates}
+
+
+def _for_piece(pool: dict, slot: dict, collector: dict, refused: frozenset[str]) -> list[dict]:
+    """The products one of the customer's pieces is offered: candidates_for, leaving out the colours he refused.
+
+    Two things he decided himself win over his refused colours. A piece that is itself in a refused colour was
+    kept or added by hand (the plan never proposes one): it is matched as anyone's is, so a navy blazer he keeps
+    keeps its navy blazers. And the product a piece is locked to stays, whatever its colour: "Lock this choice"
+    or a product chosen by hand before he refused navy is still his choice, until he unlocks it.
+    """
+    if slot["colour"] in refused:
+        return candidates_for(pool, slot, collector)
+    found = candidates_for(pool, slot, collector, refused)
+    pick = slot.get("pick") if slot.get("locked") else None
+    if pick and all(c["id"] != pick for c in found):
+        found += [c for c in candidates_for(pool, slot, collector) if c["id"] == pick]
+    return found
+
+
+def kept_for_its_lock(slot: dict, product: dict) -> bool:
+    """Whether a piece's product is among its options only because the piece is locked to it (see _for_piece):
+    its colour is one the customer refused, and the piece's own colour is not."""
+    refused = refused_colours()
+    return slot["colour"] not in refused and matching.refused(product.get("colour"), refused)
 
 
 def refresh_customer() -> None:
