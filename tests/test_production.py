@@ -728,10 +728,16 @@ class SharedStoreCatalogue(ProductionCase):
         self.assertIn("Not in Capsule's product list in black yet.", page)
         self.assertIn('action="/slot/black-tee/colour?view=slot&sort=price"', page)    # answered with this page
         self.assertIn("Or add one you found yourself, by its link below.", page)
+        head = re.search(r'<header class="slot-head">.*?</header>', page, re.S).group(0)
+        self.assertRegex(head, r'(?s)Use navy.*<p class="add-own">Or add one you found yourself, by its link below\.</p>',
+                         "the other way to fill the piece sits right under its colour buttons")
         for gone in ("Slots page", "Nothing found", "Edit the plan</a> to give it another colour"):
             self.assertNotIn(gone, page)
         coat = html.unescape(ada.get("/slot/charcoal-wool-coat").data.decode())
         self.assertIn("Capsule has no coats yet, so this piece is left out of your outfits and your total.", coat)
+        self.assertIn('<p class="add-own">Add one you found yourself, by its link below.</p>',
+                      re.search(r'<header class="slot-head">.*?</header>', coat, re.S).group(0))
+        self.assertNotIn("Or add", coat, "no 'Or' where no colour is offered")
 
         swapped = self.post(ada, "/slot/black-tee/colour?view=slot&sort=price", headers=HX, colour="navy")
         body = html.unescape(swapped.data.decode())
@@ -754,6 +760,43 @@ class SharedStoreCatalogue(ProductionCase):
             self.assertEqual(w.n_no_size, 3, "the grey jumper and the two white tees")
         self.assertIn(f"{w.n_missing} pieces not in the product list yet", page)
         self.assertIn("3 pieces not in stock in your size", page)
+
+    def test_a_colour_is_offered_only_when_it_fills_the_piece_in_your_size(self):
+        xxl = product("weekday", "8", "Pullover aus Wolle", 39.0, "Navy", sizes_all=["XL", "XXL"], sizes_in_stock=["XXL"])
+        ada = self.black_and_white(top_size="XXL", extra=[xxl])     # the other jumpers and every tee are S, M or L
+        page = html.unescape(ada.get("/").data.decode())
+        self.assertEqual(self.offered(page, "black-merino-jumper"), ["navy"], "a navy jumper comes in XXL")
+        self.assertEqual(self.offered(page, "black-tee"), [], "the navy tee comes in S, M and L only")
+        self.assertIn("Capsule has no T-shirts in your size in other colours you wear yet, so this piece is left out "
+                      "of your outfits and your total.", page)
+        self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy")
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "weekday-8", "one tap filled it")
+
+    def test_a_piece_whose_options_in_your_size_have_no_price_says_so(self):
+        """A product added by its link has no price until it is typed in (a server never opens the store's page).
+        Such a piece is neither missing from the product list nor out of stock in your size."""
+        ada = self.black_and_white(refused="navy")
+        with db.as_user(self.user_id("ada@example.com")):
+            missing = selection.build().n_missing
+        self.post(ada, "/slot/black-merino-jumper/import", urls="https://www.zara.com/de/de/strickpullover-schwarz-p01234567.html")
+        page = html.unescape(ada.get("/").data.decode())
+        card = re.search(r'<article [^>]*id="card-black-merino-jumper">.*?</article>', page, re.S).group(0)
+        self.assertIn("No price yet: add it under “Add details”", card)
+        self.assertNotIn("Nothing in stock in your size", card)
+        self.assertIn(f"{missing - 1} pieces not in the product list yet · 1 piece with no price yet", page)
+        self.assertNotIn("not in stock in your size", page)
+        with db.as_user(self.user_id("ada@example.com")):
+            w = selection.build()
+            self.assertEqual((w.n_missing, w.n_no_size, w.n_no_price), (missing - 1, 0, 1))
+        piece = html.unescape(ada.get("/slot/black-merino-jumper").data.decode())
+        self.assertIn("No price yet: add it under “Add details”.", piece)
+        self.assertIn("missing: price", piece)
+        # Its price typed in under "Add details", it is picked and counted with the pieces to buy.
+        self.post(ada, "/slot/black-merino-jumper/details", candidate="zara-01234567", price="45")
+        self.assertNotIn("with no price yet", ada.get("/").data.decode())
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "zara-01234567")
 
     def test_publishing_is_done_from_your_own_machine(self):
         from wardrobe.__main__ import main

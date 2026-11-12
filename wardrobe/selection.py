@@ -194,8 +194,25 @@ class Wardrobe:
 
     @property
     def n_no_size(self) -> int:
-        """Pieces with options, none of which is in stock in your size (or priced), so nothing is picked."""
-        return sum(s.qty for s in self.slots if s.state != "owned" and s.cands and s.chosen is None)
+        """Pieces with options, none of them in stock in your size, so nothing is picked."""
+        return sum(s.qty for s in self.slots if s.state != "owned" and s.cands and s.chosen is None and not s.n_available)
+
+    @property
+    def n_no_price(self) -> int:
+        """Pieces whose options in your size all lack a price, so nothing is picked: a product added by its
+        link has none until you type it in."""
+        return sum(s.qty for s in self.slots if s.state != "owned" and s.chosen is None and s.n_available)
+
+    @property
+    def unfilled_words(self) -> list[str]:
+        """The budget bar's count of pieces nothing is picked for, by why: '6 pieces not in the product list
+        yet', '1 piece not in stock in your size', '1 piece with no price yet'. Each count is true on its own."""
+        out = []
+        for n, why in ((self.n_missing, "not in the product list yet"), (self.n_no_size, "not in stock in your size"),
+                       (self.n_no_price, "with no price yet")):
+            if n:
+                out.append(f"{n} {'piece' if n == 1 else 'pieces'} {why}")
+        return out
 
     @property
     def sections(self) -> list[tuple[str, list[SlotView]]]:
@@ -247,6 +264,8 @@ def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tu
     # An item without a price has no place on the price ladder: it is never picked automatically.
     available = [c for c in cands if c.available and c.price > 0]
     if not available:
+        if any(c.available for c in cands):     # in your size, but no price: one added by its link has none yet
+            return None, "No price yet: add it under “Add details”", True
         return None, "Nothing in stock in your size", True
     good = [c for c in available if c.score.total >= threshold]
     if not good:
@@ -385,7 +404,7 @@ def build(profile: dict | None = None) -> Wardrobe:
         views.append(view)
     for view in views:
         if view.state != "owned" and not view.cands:
-            _offer(view, views, profile)
+            _offer(view, views, profile, charts)
 
     wardrobe = Wardrobe(
         slots=views, mode=mode, threshold=threshold, budget=float(profile.get("budget") or 0),
@@ -405,11 +424,12 @@ def build(profile: dict | None = None) -> Wardrobe:
     return wardrobe
 
 
-def _offer(view: SlotView, views: list[SlotView], profile: dict) -> None:
+def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -> None:
     """For a piece the product list has nothing for: up to three colours Capsule has its garment in, each
     of which fills it in one tap (app.slot_colour). Liked colours come first and refused ones never. A
     colour whose products another piece of that garment already has is skipped, and so is one that
     reaches the same products as a colour already offered: the piece must not become a copy of another.
+    So is a colour with nothing in your size at a price: the tap would leave the piece as empty as before.
     With nothing left to offer, `left_out` says why the piece stays empty.
     """
     category = view.slot["category"]
@@ -418,16 +438,27 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict) -> None:
     taken = {c.id for other in views if other is not view and other.slot["category"] == category
              for c in other.cands}
     liked = [key for key in profile.get("liked", []) if key in on_offer]
+    not_in_your_size = False
     for key in liked + [key for key in on_offer if key not in liked]:
-        if key in refused or key == view.slot["colour"] or on_offer[key] & taken:
+        ids = {product["id"] for product in on_offer[key]}
+        if key in refused or key == view.slot["colour"] or ids & taken:
+            continue
+        if not any(usable_price(product.get("price")) and sizes.my_size(product, profile, category, charts).available
+                   for product in on_offer[key]):
+            not_in_your_size = True
             continue
         view.offers.append(colours.get(key))
-        taken |= on_offer[key]
+        taken |= ids
         if len(view.offers) == 3:
             break
     if not view.offers:
         kind = view.garment.plural
-        has = f"no {kind} in other colours you wear yet" if on_offer else f"no {kind} yet"
+        if not on_offer:
+            has = f"no {kind} yet"
+        elif not_in_your_size:
+            has = f"no {kind} in your size in other colours you wear yet"
+        else:
+            has = f"no {kind} in other colours you wear yet"
         view.left_out = f"Capsule has {has}, so this piece is left out of your outfits and your total."
 
 

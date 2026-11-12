@@ -424,7 +424,8 @@ class PiecesWithNothingToBuy(AppCase):
             self.collected("grey-merino-jumper", "1", "Grau"), self.collected("navy-merino-jumper", "2", "Marineblau"),
             {**self.collected("navy-merino-jumper", "3", "Schwarz"), "source": "manual"}]})     # yours: not on offer
         on_offer = shared.colours_on_offer("knit")
-        self.assertEqual((on_offer["grey"], on_offer["navy"]), ({"zara-1"}, {"zara-2"}))
+        ids = {key: {product["id"] for product in products} for key, products in on_offer.items()}
+        self.assertEqual((ids["grey"], ids["navy"]), ({"zara-1"}, {"zara-2"}))
         self.assertNotIn("black", on_offer)
         self.assertEqual(shared.colours_on_offer("coat"), {})
 
@@ -449,7 +450,7 @@ class PiecesWithNothingToBuy(AppCase):
 
     def test_the_demo_has_something_for_every_piece(self):
         w = selection.build()
-        self.assertEqual((w.n_missing, w.n_no_size), (0, 0))
+        self.assertEqual((w.n_missing, w.n_no_size, w.n_no_price, w.unfilled_words), (0, 0, 0, []))
         self.assertFalse([s.slot["name"] for s in w.slots if s.offers or s.left_out])
         self.assertNotIn("not in the product list", self.client.get("/").data.decode())
 

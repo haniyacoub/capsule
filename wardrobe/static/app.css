@@ -286,6 +286,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .state { font-size: var(--t-m); color: var(--muted); }
 .state .note { display: block; font-size: var(--t-s); margin-top: 2px; }
 .slot-head .left-out { font-size: var(--t-m); line-height: var(--lh-m); }   /* as large as the line it explains */
+.add-own { font-size: var(--t-m); line-height: var(--lh-m); color: var(--muted); }   /* an empty piece: or add your own find */
 .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .sortbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; font-size: var(--t-s); color: var(--muted); }
 .cands { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }

@@ -11,8 +11,7 @@
     <p class="sub">
       {{ w.n_buy }} {{ 'piece' if w.n_buy == 1 else 'pieces' }} to buy
       {%- if w.n_owned %} · {{ w.n_owned }} already owned{% endif %}
-      {%- if w.n_missing %} · <span class="warn">{{ w.n_missing }} {{ 'piece' if w.n_missing == 1 else 'pieces' }} not in the product list yet</span>{% endif %}
-      {%- if w.n_no_size %} · <span class="warn">{{ w.n_no_size }} {{ 'piece' if w.n_no_size == 1 else 'pieces' }} not in stock in your size</span>{% endif %}
+      {%- if w.unfilled_words %} · <span class="warn">{{ w.unfilled_words|join(' · ') }}</span>{% endif %}
     </p>
   </div>
 </section>

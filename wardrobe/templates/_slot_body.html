@@ -20,6 +20,11 @@
     {% if s.note and s.chosen and s.state != 'owned' %}<span class="note">{{ s.note }}.</span>{% endif %}
   </p>
   {% if s.offers or s.left_out %}{% set offer_args = {'view': 'slot', 'sort': sort} %}{% include "_colour_offer.html" %}{% endif %}
+  {% if not cands and not demo and s.state != 'owned' %}
+  {# The other way to fill an empty piece: the form at the bottom of this page. #}
+  <p class="add-own">{% if production %}{{ 'Or add' if s.offers else 'Add' }} one you found yourself, by its link below.
+    {%- else %}Nothing was collected for this piece in {{ s.colour.label|lower }} at the last refresh, or the piece is new. Try <code>python -m wardrobe refresh --slot {{ sid }}</code>, or add a product by its link below.{% endif %}</p>
+  {% endif %}
   <div class="head-actions">
     {% if s.state == 'locked' %}
     <form method="post" action="{{ url_for('slot_lock', **here) }}" hx-post="{{ url_for('slot_lock', **here) }}">{{ csrf_field() }}
@@ -46,11 +51,6 @@
 </div>
 {% elif demo %}
 <p class="empty">The demo data has nothing for this garment type.</p>
-{% elif s.state != 'owned' %}
-<p class="empty">
-  {% if production %}Or add one you found yourself, by its link below.
-  {% else %}Nothing was collected for this piece in {{ s.colour.label|lower }} at the last refresh, or the piece is new. Try <code>python -m wardrobe refresh --slot {{ sid }}</code>, or add a product by its link below.{% endif %}
-</p>
 {% endif %}
 
 <ul class="cands">

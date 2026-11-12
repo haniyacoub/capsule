@@ -25,7 +25,7 @@ from .collect import matching, pages
 
 POOL_NAME = "store_catalog.json"
 _cache: tuple[int, dict] | None = None
-_offers: tuple[dict, dict[str, dict[str, frozenset[str]]]] | None = None   # (the list, colours on offer per garment)
+_offers: tuple[dict, dict[str, dict[str, list[dict]]]] | None = None   # (the list, colours on offer per garment)
 
 # When the way a product's details are read improves, the published list is corrected as it is
 # read (see _corrected), without asking any store again. A new REVISION then makes every
@@ -117,10 +117,10 @@ def candidates_for(pool: dict, slot: dict, collector: dict) -> list[dict]:
     return out
 
 
-def colours_on_offer(category: str) -> dict[str, frozenset[str]]:
-    """The colours Capsule has a garment in: for each colour, the products (their ids) a piece of that
-    garment in that colour is offered. Each colour is tried with candidates_for, the matching that fills
-    every piece, so a colour listed here really fills one. The colours most of the products are named in
+def colours_on_offer(category: str) -> dict[str, list[dict]]:
+    """The colours Capsule has a garment in: for each colour, the products a piece of that garment in
+    that colour is offered. Each colour is tried with candidates_for, the matching that fills every
+    piece, so a colour listed here really fills one. The colours most of the products are named in
     come first: where two colours reach the same products ('white' and 'ecru' both reach an ecru
     cardigan), the one the stores call them leads.
 
@@ -139,15 +139,15 @@ def colours_on_offer(category: str) -> dict[str, frozenset[str]]:
     return known[category]
 
 
-def _on_offer(pool: dict, category: str) -> dict[str, frozenset[str]]:
+def _on_offer(pool: dict, category: str) -> dict[str, list[dict]]:
     collector = config.load("stores.toml").get("collector", {})
     named = Counter(colours.find(p.get("colour")) for p in pool.get("products", []) if p.get("category") == category)
-    found: dict[str, frozenset[str]] = {}
+    found: dict[str, list[dict]] = {}
     for key in colours.COLOURS:
         probe = {"id": "", "category": category, "colour": key, "keywords": ""}
-        ids = frozenset(c["id"] for c in candidates_for(pool, probe, collector))
-        if ids:
-            found[key] = ids
+        products = candidates_for(pool, probe, collector)
+        if products:
+            found[key] = products
     return dict(sorted(found.items(), key=lambda item: -named[item[0]]))     # equal counts keep the table's order
 
 
