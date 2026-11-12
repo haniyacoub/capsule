@@ -371,6 +371,96 @@ class Accounts(ProductionCase):
         self.assertEqual(self.post(ada, "/login", email="ada@example.com", password=PASSWORD).status_code, 401)
 
 
+class SaysWhatReallyHappens(ProductionCase):
+    """Sign-up, the Account page and the privacy outline say what Capsule really does with a customer's data."""
+
+    @staticmethod
+    def said(html: str) -> str:
+        """A page's words as they read: no tags, no character references, no space left before a full stop."""
+        return re.sub(r" ([.,:;)])", r"\1", unescape(words(html)))
+
+    def test_sign_up_asks_nobody_to_accept_the_privacy_policy_and_says_18(self):
+        # The privacy policy is information, not terms. Google's terms for its AI models rule out a service for people
+        # under 18. Above the form: what an account costs, and that leaving takes everything with it.
+        page = self.app.test_client().get("/signup").get_data(as_text=True)
+        text = self.said(page)
+        self.assertNotIn("accept", text.lower())
+        self.assertIn("Free. No card. Delete your account and everything in it at any time.", text)
+        self.assertIn("By creating an account you agree to the terms of use and confirm you are 18 or over. "
+                      "How Capsule uses your data: privacy policy.", text)
+        for link in ('<a href="/legal/terms">terms of use</a>', '<a href="/legal/privacy">privacy policy</a>',
+                     '<a href="/login">Log in</a>'):
+            self.assertIn(link, page)
+
+    def test_the_account_page_names_the_model_and_the_photo_in_what_is_kept_and_what_is_deleted(self):
+        ada = self.member("ada@example.com")
+        self.post(ada, "/profile/model", build="athletic")
+        page = ada.get("/account").get_data(as_text=True)
+        cards = {self.said(title): self.said(body)
+                 for title, body in re.findall(r"<h2>(.*?)</h2>(.*?)</section>", page, re.S)}
+        kept, deleted = cards["Your data"], cards["Delete account"]
+        for what in ("the model you built", "your photo"):
+            self.assertIn(what, kept)
+            self.assertIn(what, deleted)
+        self.assertIn("the pictures made from it", deleted)
+        self.assertIn('href="/profile#photo">Profile</a>', page, "where to see or delete the photo")
+        text = self.said(page)
+        self.assertIn("Logged in as ada@example.com.", text)
+        self.assertIn("Changing it logs you out on every other device.", text)
+        self.assertNotRegex(text.lower(), r"\bslots?\b|\bsign(ed|s)? (in|out)\b", "the planner's words, or 'sign in'")
+        copy = json.loads(ada.get("/account/export").data)      # what the page lists is in the copy
+        self.assertEqual(copy["settings"]["model"], {"build": "athletic"})
+        self.assertIn("ai_pictures_asked_for_at", copy)
+        self.assertIn("your_photo", copy)
+
+    def test_changing_the_password_says_you_were_logged_out_everywhere_else(self):
+        ada = self.member("ada@example.com")
+        self.post(ada, "/account/password", current=PASSWORD, password="another long password")
+        self.assertIn("Password changed. You've been logged out everywhere else.",
+                      self.said(ada.get("/account").get_data(as_text=True)))
+
+    def test_the_privacy_outline_gives_the_times_the_code_keeps_things(self):
+        # Facts for the operator's lawyer, each one checked against what the code does: the network addresses kept
+        # with a sign-up (1 hour) and with a wrong password (24 hours), the times pictures were asked for (48 hours),
+        # the log-in cookie (SESSION_DAYS), the right to object and the minimum age.
+        import time
+        from werkzeug.http import parse_date
+
+        text = self.said(self.app.test_client().get("/legal/privacy").get_data(as_text=True))
+        for fact in ("Network (IP) addresses: of each new account, kept for 1 hour",
+                     "of each wrong password, with the email address that was tried, kept for 24 hours",
+                     "The times you asked for a picture are kept for 48 hours",
+                     f"keep you logged in for {settings.SESSION_DAYS} days after your last visit",
+                     "Reading the other public pages (the home page, these legal pages) sets none",
+                     "to object to its use", "Minimum age: 18."):
+            self.assertIn(fact, text)
+        self.assertIn("Not written yet", text, "facts for a lawyer, not the policy itself")
+
+        now = time.time()
+        with closing(sqlite3.connect(paths.DB_PATH)) as con, con:     # one entry just past its time, one just inside
+            con.executemany("INSERT INTO signups (ip, at) VALUES (?, ?)",
+                            [("192.0.2.1", now - 3600 - 60), ("192.0.2.2", now - 3600 + 60)])
+            con.executemany("INSERT INTO login_attempts (email, ip, at) VALUES (?, ?, ?)",
+                            [("old@example.com", "192.0.2.1", now - 24 * 3600 - 60),
+                             ("young@example.com", "192.0.2.2", now - 24 * 3600 + 60)])
+            con.executemany("INSERT INTO look_requests (user_id, at) VALUES (NULL, ?)",
+                            [(now - 48 * 3600 - 60,), (now - 48 * 3600 + 60,)])
+        self.member("ada@example.com")                                                       # a new account
+        logging_in = self.app.test_client()
+        self.post(logging_in, "/login", email="ada@example.com", password="not the password")  # a wrong password
+        with db.as_user(self.user_id("ada@example.com")):
+            db.take_look_ticket(now - 24 * 3600, per_day=100, per_user=10)                       # a picture
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            self.assertEqual({r[0] for r in con.execute("SELECT ip FROM signups")}, {"192.0.2.2", "127.0.0.1"})
+            self.assertEqual({r[0] for r in con.execute("SELECT email FROM login_attempts")},
+                             {"young@example.com", "ada@example.com"})
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM look_requests WHERE at < ?", (now,)).fetchone()[0], 1)
+
+        cookie = self.post(logging_in, "/login", email="ada@example.com", password=PASSWORD).headers["Set-Cookie"]
+        lasts = parse_date(re.search(r"Expires=([^;]+)", cookie).group(1)).timestamp() - time.time()
+        self.assertAlmostEqual(lasts / 86400, settings.SESSION_DAYS, delta=0.01)
+
+
 class OutfitsIsHome(ProductionCase):
     """The outfits on the AI model are Capsule's home: the first tab, and where log-in and the wordmark lead.
     The plan has no tab: the Wardrobe page, and every message that sends you to it, link to it."""

@@ -254,7 +254,7 @@ def change_password():
         refreshed = db.get_user(g.user["id"])
         assert refreshed is not None
         start_session(refreshed)        # this device stays in; all others are signed out
-        flash("Password changed. Other devices have been signed out.")
+        flash("Password changed. You've been logged out everywhere else.")
     return redirect(url_for("auth.account"))
 
 
