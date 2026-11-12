@@ -144,6 +144,16 @@ def rebuilt_message(plan: capsule.Rebuilt) -> str:
     return " ".join(words)
 
 
+def recoloured_name(name: str, old: str, new: str) -> str:
+    """A piece's name once it takes a new colour: 'Black wool blazer' in navy is 'Navy wool blazer'.
+    Only a name that starts with the old colour's name changes; any other ('My lucky blazer') stays."""
+    before, after = colours.get(old).label, colours.get(new).label
+    rest = name[len(before):]
+    if not name.lower().startswith(before.lower()) or rest[:1].isalpha():   # 'Blackwatch shirt' is no black shirt
+        return name
+    return ((after if name[:1].isupper() else after.lower()) + rest)[:60]
+
+
 def eur(value) -> str:
     value = float(value or 0)
     text = f"{value:,.0f}" if abs(value - round(value)) < 0.005 else f"{value:,.2f}"
@@ -420,6 +430,32 @@ def create_app() -> Flask:
         db.update_slot(slot_id, owned=not slot["owned"])
         return after_slot_change(slot_id)
 
+    @app.post("/slot/<slot_id>/colour")
+    def slot_colour(slot_id: str):
+        """'Use navy' on a piece the product list has nothing for: the piece takes one of the colours
+        offered with it (selection._offer), its name follows, and its products are matched again. Like
+        Choose or Lock it is a choice made on the Wardrobe, not an edit of the plan: a later profile
+        change still rebuilds the plan (see plan_edited)."""
+        view = selection.build().get(slot_id)
+        if view is None:
+            abort(404)
+        colour = request.form.get("colour", "")
+        if colour not in {c.key for c in view.offers}:     # never a refused colour, nor one that fills nothing
+            abort(409, "That colour is not offered for this piece any more. Reload the page.")
+        name = recoloured_name(view.slot["name"], view.slot["colour"], colour)
+        db.update_slot(slot_id, colour=colour, name=name, locked=False, pick=None)
+        sync_catalog(changed_slot=slot_id)
+        w = selection.build()
+        on_its_page = request.args.get("view") == "slot"
+        if not request.headers.get("HX-Request"):          # plain form post (no JavaScript)
+            return redirect(url_for("slot_page", slot_id=slot_id) if on_its_page
+                            else url_for("wardrobe") + f"#card-{slot_id}")
+        # The button that was pressed is gone from the new view, so keyboard focus moves to the piece itself.
+        if on_its_page:     # that page is named after the piece: HTMX takes the <title> into the tab
+            title = Markup("<title>%s · Capsule</title>") % name
+            return str(title) + fragment("_slot_body.html", w, focus=slot_id, **slot_context(w, slot_id))
+        return fragment("_wardrobe_body.html", w, focus=slot_id)
+
     # ── Adding and completing candidates by hand ──────────────────────────────
 
     @app.post("/slot/<slot_id>/import")
@@ -582,7 +618,8 @@ def create_app() -> Flask:
         outfit = outfits.find_by_sig(w, request.args.get("at", ""))
         if outfit is None:
             abort(404)
-        return page("buy.html", w=w, tab="outfits", outfit=outfit, sl=export.build(w, only=outfit.slots))
+        return page("buy.html", w=w, tab="outfits", outfit=outfit, sl=export.build(w, only=outfit.slots),
+                    **your_sizes())
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
 
@@ -643,10 +680,16 @@ def create_app() -> Flask:
 
     # ── Shopping list ─────────────────────────────────────────────────────────
 
+    def your_sizes() -> dict:
+        """For the 'Your sizes' line at the top of the shopping list and of Buy this outfit (_your_sizes.html):
+        the sizes every line there is ordered in, and whether they are still the example's."""
+        you = profile_mod.load()
+        return {"you": you, "example_sizes": profile_mod.sizes_unconfirmed(you)}
+
     @app.get("/list")
     def list_page():
         w = selection.build()
-        return page("list.html", w=w, tab="list", sl=export.build(w))
+        return page("list.html", w=w, tab="list", sl=export.build(w), **your_sizes())
 
     @app.get("/list.md")
     def list_markdown():
@@ -788,6 +831,15 @@ def create_app() -> Flask:
             flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
                   % (line, edit_the_plan))
         return redirect(url_for("outfits_page"))       # the new plan, where it shows best: on the model
+
+    @app.post("/profile/sizes-ok")
+    def profile_sizes_ok():
+        """'These are my sizes', under the example sizes on the shopping list and on Buy this outfit: they are
+        the customer's own, so the warning goes. Back to the page the button is on."""
+        profile_mod.confirm_sizes()
+        flash("Sizes saved.")
+        at = request.form.get("at", "")[:400]       # pressed on one outfit's Buy page
+        return redirect(url_for("outfits_buy", at=at) if at else url_for("list_page"))
 
     # ── The model in the AI pictures: a description, or your own photo (person.py) ──
 

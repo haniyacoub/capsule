@@ -14,7 +14,7 @@
     <p class="sub">
       {{ w.n_buy }} {{ 'piece' if w.n_buy == 1 else 'pieces' }} to buy
       {%- if w.n_owned %} · {{ w.n_owned }} already owned{% endif %}
-      {%- if w.n_unfilled %} · <span class="warn">{{ w.n_unfilled }} {{ 'slot' if w.n_unfilled == 1 else 'slots' }} unfilled</span>{% endif %}
+      {%- if w.unfilled_words %} · <span class="warn">{{ w.unfilled_words|join(' · ') }}</span>{% endif %}
     </p>
   </div>
 </section>

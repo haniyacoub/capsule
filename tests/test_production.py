@@ -1,4 +1,5 @@
 """Production mode: customer accounts, isolation between customers, and the guards around them."""
+import html
 import json
 import os
 import re
@@ -11,8 +12,8 @@ from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
-from wardrobe import catalog, db, mail, paths, selection, settings, shared
-from wardrobe.app import create_app
+from wardrobe import catalog, config, db, mail, paths, selection, settings, shared
+from wardrobe.app import create_app, eur
 
 PASSWORD = "correct horse battery"
 HX = {"HX-Request": "true"}
@@ -623,14 +624,216 @@ class SharedStoreCatalogue(ProductionCase):
             cos = next(c for c in selection.build().get("grey-merino-jumper").cands if c.id == "cos-2")
             self.assertEqual(cos.score.fabric_source, "listed", "the fabric she typed in is still there")
 
-    def test_a_piece_nothing_was_found_for_links_to_the_plan(self):
-        self.publish()
-        ada = self.member("ada@example.com")
+    # ── A piece the list has nothing for: said plainly, with the colours Capsule has one tap away ──
+
+    def black_and_white(self, email="ada@example.com", extra=(), **answers):
+        """A customer who likes black and white. The list has jumpers in grey and navy and tees in white and
+        navy only, so the black jumper, the black and grey tees and every other garment have nothing."""
+        self.publish(extra=[product("weekday", "7", "T-Shirt aus Baumwolle", 15.0, "Navy", slot_id="white-tee"), *extra])
+        client = self.member(email)
+        form = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "75",
+                "budget": "1500", "liked": "black, white", "refused": "", "use": "both", "shoes": "on",
+                "outerwear": "on", "owned": "", **answers}
+        self.assertEqual(self.post(client, "/profile", **form).headers["Location"], "/outfits")
+        return client
+
+    @staticmethod
+    def offered(page: str, slot_id: str) -> list[str]:
+        """The colours the 'Use …' buttons of one piece offer, in the order shown."""
+        return re.findall(rf'<form method="post" action="/slot/{slot_id}/colour[^"]*" hx-post="[^"]*">'
+                          r'<input type="hidden" name="csrf_token" value="[^"]*">\s*'
+                          r'<input type="hidden" name="colour" value="([^"]*)">', page)
+
+    @staticmethod
+    def card(page: str, slot_id: str) -> str:
+        """One piece's card on the Wardrobe page."""
+        return re.search(rf'<article [^>]*id="card-{slot_id}">.*?</article>', page, re.S).group(0)
+
+    def test_a_piece_with_nothing_to_buy_says_so_and_offers_the_colours_capsule_has(self):
+        ada = self.black_and_white()
+        page = html.unescape(ada.get("/").data.decode())
+        self.assertNotIn("Nothing found", page)
+        self.assertNotIn("unfilled", page)
+        card = re.search(r'<article [^>]*id="card-black-merino-jumper">.*?</article>', page, re.S).group(0)
+        self.assertIn("Not in Capsule's product list in black yet", card)
+        # The card's link is named by its aria-label, which hides the note inside it: the note is pointed at instead.
+        self.assertIn('aria-label="Black merino jumper: see all options" aria-describedby="note-black-merino-jumper"', card)
+        self.assertIn('<span class="note" id="note-black-merino-jumper">Not in Capsule\'s product list in black yet</span>', card)
+        self.assertIn("Use navy<span class=\"sr\"> for Black merino jumper</span>", card)
+        self.assertEqual(self.offered(page, "black-merino-jumper"), ["navy"],
+                         "grey is on offer too, but the grey jumper already has those products")
+        self.assertEqual(self.offered(page, "black-tee"), ["navy"], "white: those are the white tee's")
+        self.assertIn("Capsule has no coats yet, so this piece is left out of your outfits and your total.", page)
+        self.assertNotIn("/colour", re.search(r'<article [^>]*id="card-charcoal-wool-coat">.*?</article>', page, re.S).group(0))
+
+        # Every colour offered exists: a piece of that garment in that colour gets products.
         with db.as_user(self.user_id("ada@example.com")):
-            empty = next(s.slot["id"] for s in selection.build().slots if not s.cands and s.state != "owned")
-        page = ada.get(f"/slot/{empty}").data.decode()
-        self.assertIn(f'<a href="/slots#slot-{empty}">Edit the plan</a> to give it another colour', page)
-        self.assertNotIn("Slots page", page)
+            w = selection.build()
+            collector = config.load("stores.toml")["collector"]
+            for view in w.slots:
+                for colour in view.offers:
+                    found = shared.candidates_for(shared.load(), {**view.slot, "colour": colour.key}, collector)
+                    self.assertTrue(found, f"{view.slot['name']}: {colour.key} is offered but fills nothing")
+            missing = w.n_missing
+        self.assertIn(f"{missing} pieces not in the product list yet", page)
+
+    def test_one_tap_fills_the_piece_renames_it_and_updates_the_bar(self):
+        ada = self.black_and_white()
+        with db.as_user(self.user_id("ada@example.com")):
+            missing = selection.build().n_missing
+        forged = ada.post("/slot/black-merino-jumper/colour", data={"colour": "navy"}, headers=HX)   # no page token
+        self.assertEqual(forged.status_code, 400)
+        answer = self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy")
+        self.assertEqual(answer.status_code, 200)
+        fragment = html.unescape(answer.data.decode())
+        card = re.search(r'<article [^>]*id="card-black-merino-jumper">.*?</article>', fragment, re.S).group(0)
+        self.assertIn("Navy merino jumper", card)
+        self.assertIn("Pullover", card, "the navy jumper on the list fills it")
+        self.assertIn(eur(29.95), card)
+        self.assertIn("autofocus", card, "the button pressed is gone: focus goes to the piece")
+        self.assertNotIn("/colour", card)
+        self.assertIn('id="summary"', fragment)                 # the bar comes along, out of band
+        self.assertIn(f"{missing - 1} pieces not in the product list yet", fragment)
+        with db.as_user(self.user_id("ada@example.com")):
+            slot = db.get_slot("black-merino-jumper")
+            self.assertEqual((slot["colour"], slot["name"], slot["locked"]), ("navy", "Navy merino jumper", False))
+            self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "zara-3")
+            self.assertFalse(db.get_setting("plan_edited"), "a colour taken on the Wardrobe is no edit of the plan")
+        # ... so new answers on the Profile page still rebuild the plan.
+        rebuilt = self.post(ada, "/profile", top_size="M", waist="32", length="32", shoe="43", height_cm="180",
+                            weight_kg="75", budget="1500", liked="navy, grey", refused="", use="both", shoes="on",
+                            outerwear="on", owned="")
+        self.assertEqual(rebuilt.headers["Location"], "/outfits")
+
+    def test_at_most_three_colours_and_the_liked_ones_first(self):
+        tees = [product("weekday", f"t{n}", "T-Shirt", 15.0 + n, colour, slot_id="white-tee")
+                for n, colour in enumerate(("Navy", "Navy", "Olivgrün", "Bordeaux", "Rostrot"))]
+        ada = self.black_and_white(extra=tees, liked="black, white, rust")
+        page = html.unescape(ada.get("/").data.decode())
+        # Rust because he likes it (white is the white tee's), then the colours most tees on the list are named in.
+        self.assertEqual(self.offered(page, "black-tee"), ["rust", "navy", "olive"])
+
+    def test_a_refused_colour_is_never_offered_nor_taken(self):
+        ada = self.black_and_white(refused="navy")
+        page = html.unescape(ada.get("/").data.decode())
+        self.assertNotIn('name="colour" value="navy"', page)
+        self.assertNotIn("Use navy", page)
+        # The list's other knitwear is grey, and white its other tees: the grey jumper's and the white tee's. The
+        # pieces left out say so; "Capsule has none" would be untrue beside the grey jumper on the same page.
+        self.assertIn("Capsule's knitwear in other colours you wear is already in your plan, so this piece is left out "
+                      "of your outfits and your total.", self.card(page, "black-merino-jumper"))
+        self.assertIn("Capsule's T-shirts in other colours you wear are already in your plan, so this piece is left out "
+                      "of your outfits and your total.", self.card(page, "black-tee"))
+        self.assertIn("Grey merino jumper", page)
+        self.assertNotIn("Capsule has no knitwear", page)
+        self.assertNotIn("Capsule has no T-shirts", page)
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertFalse([v.slot["name"] for v in selection.build().slots if "navy" in {c.key for c in v.offers}])
+        refused = self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy")
+        self.assertEqual(refused.status_code, 409)
+        made_up = self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="tartan")
+        self.assertEqual(made_up.status_code, 409)
+        self.assertEqual(self.post(ada, "/slot/no-such-piece/colour", headers=HX, colour="navy").status_code, 404)
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(db.get_slot("black-merino-jumper")["colour"], "black")
+
+    def test_the_pieces_own_page_offers_the_same_and_works_without_javascript(self):
+        ada = self.black_and_white()
+        page = html.unescape(ada.get("/slot/black-tee").data.decode())
+        self.assertIn("Not in Capsule's product list in black yet.", page)
+        self.assertIn('action="/slot/black-tee/colour?view=slot&sort=price"', page)    # answered with this page
+        self.assertIn("Or add one you found yourself, by its link below.", page)
+        head = re.search(r'<header class="slot-head">.*?</header>', page, re.S).group(0)
+        self.assertRegex(head, r'(?s)Use navy.*<p class="add-own">Or add one you found yourself, by its link below\.</p>',
+                         "the other way to fill the piece sits right under its colour buttons")
+        for gone in ("Slots page", "Nothing found", "Edit the plan</a> to give it another colour"):
+            self.assertNotIn(gone, page)
+        coat = html.unescape(ada.get("/slot/charcoal-wool-coat").data.decode())
+        self.assertIn("Capsule has no coats yet, so this piece is left out of your outfits and your total.", coat)
+        self.assertIn('<p class="add-own">Add one you found yourself, by its link below.</p>',
+                      re.search(r'<header class="slot-head">.*?</header>', coat, re.S).group(0))
+        self.assertNotIn("Or add", coat, "no 'Or' where no colour is offered")
+
+        swapped = self.post(ada, "/slot/black-tee/colour?view=slot&sort=price", headers=HX, colour="navy")
+        body = html.unescape(swapped.data.decode())
+        self.assertTrue(body.startswith("<title>Navy tee · Capsule</title>"), "the tab is named after the piece")
+        self.assertIn('<h1 tabindex="-1" autofocus>Navy tee</h1>', body)
+        self.assertIn("T-Shirt aus Baumwolle", body)
+        grey_tee = html.unescape(ada.get("/").data.decode())
+        self.assertEqual(self.offered(grey_tee, "grey-tee"), [], "the navy tee is the black tee's now: no copy of it")
+        # Without JavaScript the form posts and the page comes back, at the piece.
+        plain = self.post(ada, "/slot/black-merino-jumper/colour", colour="navy")
+        self.assertEqual((plain.status_code, plain.headers["Location"]), (302, "/#card-black-merino-jumper"))
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(db.get_slot("black-merino-jumper")["name"], "Navy merino jumper")
+
+    def test_the_bar_says_what_is_missing_and_what_is_not_in_your_size(self):
+        ada = self.black_and_white(top_size="XXL")      # every jumper and tee on the list is S, M or L
+        page = ada.get("/").data.decode()
+        with db.as_user(self.user_id("ada@example.com")):
+            w = selection.build()
+            self.assertEqual(w.n_no_size, 3, "the grey jumper and the two white tees")
+        self.assertIn(f"{w.n_missing} pieces not in the product list yet", page)
+        self.assertIn("3 pieces not in stock in your size", page)
+
+    def test_a_colour_is_offered_only_when_it_fills_the_piece_in_your_size(self):
+        xxl = product("weekday", "8", "Pullover aus Wolle", 39.0, "Navy", sizes_all=["XL", "XXL"], sizes_in_stock=["XXL"])
+        ada = self.black_and_white(top_size="XXL", extra=[xxl])     # the other jumpers and every tee are S, M or L
+        page = html.unescape(ada.get("/").data.decode())
+        self.assertEqual(self.offered(page, "black-merino-jumper"), ["navy"], "a navy jumper comes in XXL")
+        self.assertEqual(self.offered(page, "black-tee"), [], "the navy tee comes in S, M and L only")
+        # White tees are the white tee's: so not "Capsule has no T-shirts in your size", which is untrue of them.
+        self.assertIn("Capsule's T-shirts in other colours you wear are already in your plan or not in your size, so "
+                      "this piece is left out of your outfits and your total.", self.card(page, "black-tee"))
+        self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy")
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "weekday-8", "one tap filled it")
+
+    def test_a_piece_left_out_says_truly_why(self):
+        """Why a piece stays empty, true to what the customer sees beside it. The list's knitwear is grey or navy, all
+        of it in S, M and L. Each customer below has a black merino jumper with nothing to buy."""
+        def left_out(client) -> str:
+            card = self.card(html.unescape(client.get("/").data.decode()), "black-merino-jumper")
+            self.assertNotIn("/colour", card, "nothing is offered")
+            return re.search(r'<p class="left-out">(.*?)</p>', card).group(1)
+
+        # Both colours refused: Capsule has no knitwear in a colour he wears.
+        self.assertEqual(left_out(self.black_and_white("ada@example.com", refused="navy, grey")),
+                         "Capsule has no knitwear in other colours you wear yet, so this piece is left out of your "
+                         "outfits and your total.")
+        # Grey refused, and no navy jumper in XXL: none in his size.
+        self.assertEqual(left_out(self.black_and_white("bea@example.com", refused="grey", top_size="XXL")),
+                         "Capsule has no knitwear in your size in other colours you wear yet, so this piece is left out "
+                         "of your outfits and your total.")
+        # Grey is the grey jumper's (planned, though not in XXL either) and navy is not in XXL.
+        self.assertEqual(left_out(self.black_and_white("cyd@example.com", top_size="XXL")),
+                         "Capsule's knitwear in other colours you wear is already in your plan or not in your size, so "
+                         "this piece is left out of your outfits and your total.")
+
+    def test_a_piece_whose_options_in_your_size_have_no_price_says_so(self):
+        """A product added by its link has no price until it is typed in (a server never opens the store's page).
+        Such a piece is neither missing from the product list nor out of stock in your size."""
+        ada = self.black_and_white(refused="navy")
+        with db.as_user(self.user_id("ada@example.com")):
+            missing = selection.build().n_missing
+        self.post(ada, "/slot/black-merino-jumper/import", urls="https://www.zara.com/de/de/strickpullover-schwarz-p01234567.html")
+        page = html.unescape(ada.get("/").data.decode())
+        card = re.search(r'<article [^>]*id="card-black-merino-jumper">.*?</article>', page, re.S).group(0)
+        self.assertIn("No price yet: add it under “Add details”", card)
+        self.assertNotIn("Nothing in stock in your size", card)
+        self.assertIn(f"{missing - 1} pieces not in the product list yet · 1 piece with no price yet", page)
+        self.assertNotIn("not in stock in your size", page)
+        with db.as_user(self.user_id("ada@example.com")):
+            w = selection.build()
+            self.assertEqual((w.n_missing, w.n_no_size, w.n_no_price), (missing - 1, 0, 1))
+        piece = html.unescape(ada.get("/slot/black-merino-jumper").data.decode())
+        self.assertIn("No price yet: add it under “Add details”.", piece)
+        self.assertIn("missing: price", piece)
+        # Its price typed in under "Add details", it is picked and counted with the pieces to buy.
+        self.post(ada, "/slot/black-merino-jumper/details", candidate="zara-01234567", price="45")
+        self.assertNotIn("with no price yet", ada.get("/").data.decode())
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "zara-01234567")
 
     def test_publishing_is_done_from_your_own_machine(self):
         from wardrobe.__main__ import main

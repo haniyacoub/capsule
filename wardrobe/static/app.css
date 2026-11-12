@@ -72,7 +72,7 @@
   :root { --t-xl: 24px; --t-2xl: 36px; --t-3xl: 72px;   /* computers: the three serif sizes grow */
           --gutter: 24px; }
 }
-@media (prefers-color-scheme: dark) {
+@media screen and (prefers-color-scheme: dark) {   /* screens only: paper is white, so print keeps the light colours */
   :root {   /* ratios on the page / on a card; --danger and --photo stay as they are */
     --bg: #141413;
     --surface: #1e1e1c;
@@ -301,6 +301,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .slot-actions form + form .act { border-top: 1px solid var(--line); }
 .act.on { background: var(--soft); color: var(--ink); font-weight: 600; }
 .act:disabled { opacity: .35; cursor: default; }
+/* A piece the product list has nothing for: the colours Capsule has its garment in, one tap each, or why it
+   stays out (_colour_offer.html). On a card the row runs under the piece and its two buttons. */
+.offer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.offer form { display: flex; }
+.offer .dot { width: 14px; height: 14px; }
+.left-out { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.slot .offer { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
 
 /* ── One slot: its candidates ────────────────────────────────────────────── */
 .crumb { margin: 0 0 10px; font-size: var(--t-s); }
@@ -309,6 +316,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .slot-head h1 { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; }
 .state { font-size: var(--t-m); color: var(--muted); }
 .state .note { display: block; font-size: var(--t-s); margin-top: 2px; }
+.slot-head .left-out { font-size: var(--t-m); line-height: var(--lh-m); }   /* as large as the line it explains */
+.add-own { font-size: var(--t-m); line-height: var(--lh-m); color: var(--muted); }   /* an empty piece: or add your own find */
 .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .sortbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; font-size: var(--t-s); color: var(--muted); }
 .cands { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
@@ -594,21 +603,46 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 /* ── Shopping list ───────────────────────────────────────────────────────── */
 /* A page's title outside a card: the same serif and size as .card h1. */
 .page-title { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin: 0 0 8px; }
-.store-list { margin-bottom: 12px; padding: 0; }
+/* Buy this outfit: what the outfit costs is the page's headline number, with what it is for under it. */
+.buy-head { display: grid; gap: 2px; margin: 0 0 var(--s-4); }
+.buy-head b { font-size: var(--t-l); line-height: var(--lh-l); font-weight: 600; font-variant-numeric: tabular-nums; }
+.buy-head span { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+/* "Your sizes", the sizes every line is ordered in: a quiet line, or, while they are still the example's,
+   a caution with the button that keeps them. */
+.your-sizes { display: grid; gap: var(--s-1); margin: 0 0 var(--s-3); padding: 10px var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
+.your-sizes a { padding: 2px 0; color: var(--muted); text-underline-offset: 3px; }
+.your-sizes.example { color: var(--ok); background: var(--ok-bg); }
+.your-sizes.example a { color: inherit; }
+.your-sizes form { margin-top: var(--s-1); }
+.your-sizes .btn { border-color: var(--ok); }   /* the caution's colour: 5.1:1 on its ground, where --field is 3.1:1 */
+.card.store-list { margin-bottom: 12px; padding: 0; }   /* its header and lines run to its edges, with their own padding */
 .store-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
 .store-head h2 { margin: 0; font-size: var(--t-l); }
 .subtotal { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; }
 .buys { list-style: none; margin: 0; padding: 0; }
-.buy { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+/* One line: the product's photo (56 x 70; its colour where there is none), then the piece and its price, the
+   store's name for the product, its colour and size, and anything to check before ordering. */
+.buy { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: var(--s-3); align-items: start; padding: var(--s-3) 14px; border-bottom: 1px solid var(--line); }
 .buy:last-child { border-bottom: 0; }
+.buy .pic { width: 56px; aspect-ratio: 4 / 5; }
+.buy .pic .fb { display: none; }
 .buy-main { display: grid; gap: 2px; min-width: 0; }
-.buy-slot { font-weight: 500; }
-.buy-product { font-size: var(--t-s); color: var(--ink); text-underline-offset: 3px; }
+.buy-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
+.buy-slot { min-width: 0; font-weight: 500; }
+.buy-total { flex: none; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The whole of the store's name for the product is the link to it, with the external-link sign at its end. */
+.buy-product { justify-self: start; padding: 3px 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); text-decoration: none; }
+.buy-product:hover { text-decoration: underline; text-underline-offset: 3px; }
 .buy-product .ic { width: 13px; height: 13px; color: var(--muted); }
-.buy-meta { font-size: var(--t-s); color: var(--muted); }
+.buy-meta { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .buy-meta b { color: var(--ink); }
 .buy-note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
-.buy-total { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Under the stores: what the prices include and what each store adds at its checkout. */
+.costs { display: grid; gap: var(--s-1); margin: var(--s-4) 0 var(--s-5); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.costs p:first-child { color: var(--ink); font-weight: 500; }
+@media (min-width: 760px) {   /* the same inset as the other cards' content */
+  .store-head, .buy, .store-list .open-all { padding-left: 20px; padding-right: 20px; }
+}
 .grand { display: grid; gap: 6px; margin-bottom: 12px; }
 .grand-row { display: flex; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; }
 .grand-row.pos b { color: var(--good); }
@@ -620,8 +654,11 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
   .top, .summary, .demo, .no-print, .tabs { display: none !important; }
   body { background: #fff; padding: 0; font-size: var(--t-s); }
   main { padding: 0; max-width: none; }
-  .card { border: 0; border-top: 1px solid #999; border-radius: 0; break-inside: avoid; }
+  main .card { border: 0; border-top: 1px solid #999; border-radius: 0; break-inside: avoid; }   /* "main": .card's own rule comes later */
   .buy-product::after { content: " — " attr(href); font-size: var(--t-xs); color: #555; word-break: break-all; }
+  .buy { grid-template-columns: minmax(0, 1fr); }
+  .buy .pic { display: none; }      /* paper gets the words, not the photos */
+  .your-sizes, .your-sizes.example { padding: 0; background: none; }
 }
 
 /* ── Slots editor and profile form ───────────────────────────────────────── */
@@ -630,6 +667,7 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 .card h2 { font-size: var(--t-l); margin-bottom: 10px; }
 .card.add { margin-top: 22px; }
 .card .sec { margin: 8px 0 0; font-size: var(--t-xs); }   /* a section label stays small inside a card too */
+#sizes { scroll-margin-top: calc(var(--s-8) * 2); }   /* "Change" by Your sizes lands here: well clear of the bar that sticks to the top */
 .card .demo { margin: 6px 0 4px; }
 .palette { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 8px; }
 .swatch-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 5px; border: 1px solid var(--line); border-radius: var(--r-pill); font-size: var(--t-s); }

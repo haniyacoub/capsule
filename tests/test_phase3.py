@@ -206,7 +206,8 @@ class ShoppingList(AppCase):
     def test_pages_and_downloads(self):
         page = self.client.get("/list")
         self.assertEqual(page.status_code, 200)
-        self.assertIn(b"Download .csv", page.data)
+        self.assertIn(b'href="/list.csv">Download for a spreadsheet (.csv)', page.data)
+        self.assertIn(b'href="/list.md">Download as text (.md)', page.data)
         md = self.client.get("/list.md")
         self.assertIn("attachment", md.headers["Content-Disposition"])
         self.assertIn("# Shopping list", md.data.decode())

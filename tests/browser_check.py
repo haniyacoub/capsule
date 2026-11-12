@@ -9,17 +9,21 @@ stand-in for the image service (nothing is sent anywhere and nothing is billed),
 what a new customer would: signs up, changes the price level, watches an outfit's picture
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
 page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
-saves and "buys" one, logs in again and lands on the outfits, puts a model together,
-uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece), sees
-that a phone's first screen shows the outfit on the model with its price and the heart, tabs
-through three pages to see that nothing with keyboard focus is hidden under the budget bar or
-the tab bar, and deletes the account.
+saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
+logs in again and lands on the outfits, puts a model together, uploads a photo, saves new colours
+(the plan is rebuilt, keeping the swapped piece), sees that a phone's first screen shows the outfit
+on the model with its price and the heart, tabs through three pages to see that nothing with
+keyboard focus is hidden under the budget bar or the tab bar, and deletes the account.
+
+On the way a second customer, on a small product list published for that step alone, fills a
+piece the list has nothing for with one tap.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import secrets
@@ -47,10 +51,10 @@ for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "SMTP_URL"):
     os.environ.pop(name, None)
 sys.path.insert(0, str(ROOT))
 
-from playwright.sync_api import sync_playwright  # noqa: E402
+from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import imagegen  # noqa: E402
+from wardrobe import colours, imagegen  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
 
@@ -396,9 +400,37 @@ def run(base: str) -> None:
             page.locator(f"{first} .about-actions a").click()
             page.wait_for_load_state("networkidle")
             assert page.locator(".buy").count() >= 2, "the buy page lists nothing"
-            assert "checkout" in page.locator("main").inner_text(), "it does not say how buying works"
+            words = page.locator("main").inner_text()
+            assert "checkout" in words, "it does not say how buying works"
+            assert "VAT" in words and "delivery" in words, "it does not say what the prices include and leave out"
+            assert page.locator("#summary").count() == 0, "the wardrobe's budget bar is on the outfit's Buy page"
+            assert page.locator(".buy").count() == page.locator(".buy .pic").count(), "a line has no photo or swatch"
+            # A new customer's sizes are the example's: the page says so before he orders in them, and he can keep them.
+            sizes = page.locator(".your-sizes")
+            assert "Your sizes: Tops M" in sizes.inner_text() and "example sizes" in sizes.inner_text(), \
+                "the example sizes are not called example sizes"
+            buy_page = page.url
+            sizes.locator("button:has-text('These are my sizes')").click()
+            page.wait_for_load_state("networkidle")
+            assert page.url == buy_page, "keeping the sizes leaves the Buy page"
+            assert "Your sizes: Tops M" in page.locator(".your-sizes").inner_text(), "the sizes are no longer said"
+            assert "example sizes" not in page.locator("main").inner_text(), "the example warning stays after 'These are my sizes'"
             page.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
             assert page.locator("#reel .slide").count() == 1, "the saved outfit is not under Saved"
+
+        def list_prints_without_photos():
+            # On paper the shopping list is words and links: the photos would only use ink.
+            page.goto(base + "/list", wait_until="networkidle")
+            lines = page.locator(".buy")
+            assert lines.count() >= 2 and page.locator(".buy .pic").count() == lines.count(), "a line has no photo"
+            assert page.locator(".buy .pic").first.is_visible(), "the list shows no photos on the screen"
+            page.emulate_media(media="print")
+            try:
+                assert not any(pic.is_visible() for pic in page.locator(".buy .pic").all()), "photos are printed"
+                assert page.locator(".buy-product").first.is_visible(), "the product names are not printed"
+                assert not page.locator("#summary").is_visible(), "the budget bar is printed"
+            finally:
+                page.emulate_media(media="screen")
 
         def my_model():
             page.goto(base + "/profile", wait_until="networkidle")
@@ -451,6 +483,75 @@ def run(base: str) -> None:
             page.click("button:has-text('Delete my photo')")
             page.wait_for_load_state("networkidle")
             assert page.locator(".me img").count() == 0, "the photo is still shown after deleting it"
+
+        def one_tap_colour():
+            # A piece the store list has nothing for says so and offers, in one tap, a colour Capsule has. The demo
+            # data has something for every piece, so a small list is published first, the way the operator does:
+            # jumpers in grey and navy only. A second customer who likes black, grey and white then has a black
+            # jumper with nothing to buy. Every signed-in page picks up a list as soon as it is published, so it is
+            # taken away again at the end: the first customer's steps stay on the demo data, whatever their order.
+            jumper = {"category": "knit", "store": "zara", "currency": "EUR", "composition_text": "100% Wolle",
+                      "fit": "regular", "sizes_all": ["S", "M", "L"], "sizes_in_stock": ["S", "M", "L"],
+                      "image_url": "", "source": "collected"}
+            products = [{**jumper, "id": f"zara-9{n}", "name": f"Pullover aus Wolle {n}", "slug": f"pullover-{n}",
+                         "price": 39.95 + n, "colour": colour, "colour_hex": None, "url": f"https://www.zara.com/de/{n}"}
+                        for n, colour in enumerate(("Grau", "Marineblau"))]
+            listed = DATA / "store_catalog.json"
+            listed.write_text(json.dumps({"published_at": "2026-11-12T12:00:00+01:00",
+                                          "collected_at": "2026-11-11T17:00:00+01:00", "stores": {}, "products": products}))
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            try:
+                phone = context.new_page()
+                phone.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                         if r.status >= 400 and r.url.startswith(base) else None)
+                phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                phone.goto(base + "/signup", wait_until="networkidle")
+                phone.fill("input[name=email]", "colours-" + EMAIL)
+                phone.fill("input[name=password]", PASSWORD)
+                phone.click("button:has-text('Create account')")
+                phone.wait_for_url("**/profile")
+                phone.fill("input[name=liked]", "black, grey, white")
+                phone.click("button:has-text('Save profile')")
+                phone.wait_for_url(base + "/outfits")
+                phone.goto(base + "/", wait_until="networkidle")
+                seen = phone.evaluate("() => [innerWidth, document.documentElement.scrollWidth]")
+                assert seen[1] <= seen[0] + 1, f"with colours on offer the Wardrobe is {seen[1]}px wide on a {seen[0]}px phone"
+
+                def missing() -> int:
+                    said = re.search(r"(\d+) pieces? not in the product list yet", phone.locator("#summary").text_content() or "")
+                    return int(said.group(1)) if said else 0
+
+                offer = phone.locator("article.slot .offer button").first
+                assert offer.count(), "no piece with nothing to buy offers a colour Capsule has"
+                card = offer.evaluate("b => b.closest('article').id")
+                colour = colours.get(offer.evaluate("b => b.form.elements.colour.value"))
+                name = phone.locator(f"#{card} .slot-name").inner_text()
+                qty = phone.locator(f"#{card} .qty")
+                pieces = int(qty.inner_text().lstrip("×")) if qty.count() else 1
+                before = missing()
+                assert phone.locator(f"#{card} .note").inner_text().startswith("Not in Capsule's product list in "), \
+                    "the empty piece does not say what is missing"
+                # The card's link is named "<piece>: see all options"; a screen reader hears its note as well.
+                link = phone.locator(f"#{card} .slot-main")
+                expect(link, "a screen reader is not told why the piece is empty").to_have_accessible_description(
+                    re.compile(r"^Not in Capsule's product list in \w"))
+                phone.evaluate("() => { window.stayed = true; }")
+                offer.focus()
+                phone.keyboard.press("Enter")
+                phone.wait_for_function("id => !document.querySelector('#' + id + ' .offer')", arg=card)
+                phone.wait_for_load_state("networkidle")
+                assert phone.evaluate("() => window.stayed === true"), "the page was loaded again"
+                assert phone.locator(f"#{card} .slot-price").inner_text().strip() != "—", f"{name!r} is still empty"
+                renamed = phone.locator(f"#{card} .slot-name").inner_text()
+                assert renamed.startswith(colour.label), f"{name!r} took {colour.label.lower()} but is now called {renamed!r}"
+                assert missing() == before - pieces, f"the bar still counts {missing()} missing pieces, not {before - pieces}"
+                assert phone.evaluate("id => document.activeElement === document.querySelector('#' + id + ' .slot-main')", card), \
+                    "keyboard focus did not move to the piece once its button was gone"
+                expect(link, "the piece's link does not say what it leads to").to_have_accessible_name(
+                    re.compile(r"^" + re.escape(colour.label) + r" .*: see all options$"))
+            finally:
+                listed.unlink(missing_ok=True)
+                context.close()
 
         def new_colours_rebuild_the_plan():
             # New colours and a new use rebuild the plan, although a piece was swapped inside an outfit
@@ -687,9 +788,11 @@ def run(base: str) -> None:
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),
+                 ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
+                 ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
                  ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),
                  ("the budget bar never hides what has focus", budget_bar_never_hides_the_focus),
