@@ -115,6 +115,18 @@ def run(base: str) -> None:
             page.click("button:has-text('Create account')")
             page.wait_for_url("**/profile")
 
+        def own_typefaces():
+            # The text font and the serif for titles come from Capsule itself. They must really load, under the
+            # site's own security policy: a font that fails is replaced by another without any error to see.
+            page.goto(base + "/profile", wait_until="networkidle")
+            loaded = page.evaluate("() => document.fonts.ready.then(() => [...document.fonts]"
+                                   ".filter(f => f.status === 'loaded').map(f => f.family.replace(/\"/g, '')))")
+            assert "Instrument Sans" in loaded and "Instrument Serif" in loaded, f"Capsule's fonts did not load: {loaded}"
+            assert page.evaluate("() => getComputedStyle(document.body).fontFamily").startswith('"Instrument Sans"'), \
+                "the text is not set in Instrument Sans"
+            assert page.evaluate("() => getComputedStyle(document.querySelector('.brand')).fontFamily").startswith(
+                '"Instrument Serif"'), "the wordmark is not set in Instrument Serif"
+
         def nothing_scrolls_sideways():
             # A page wider than the screen makes a phone zoom out until everything on it is tiny, and lets
             # a computer scroll sideways into nothing. It happened to Outfits: hidden labels inside the row
@@ -289,7 +301,8 @@ def run(base: str) -> None:
             assert "deleted" in page.content(), "the account was not deleted"
             assert not any((DATA / "people").glob("*")) if (DATA / "people").exists() else True, "a photo was left behind"
 
-        steps = [("create an account", sign_up), ("price levels and best for budget", price_levels),
+        steps = [("create an account", sign_up), ("Capsule's own typefaces load", own_typefaces),
+                 ("price levels and best for budget", price_levels),
                  ("the picture of an outfit arrives by itself", picture_arrives),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),

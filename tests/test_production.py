@@ -68,6 +68,28 @@ class PublicSite(ProductionCase):
         self.assertEqual(visitor.get("/legal/nonsense").status_code, 404)
         self.assertEqual(visitor.get("/healthz").get_json(), {"status": "ok"})
 
+    def test_the_typefaces_come_from_this_site_with_their_licences(self):
+        # Fetching fonts from Google's servers is unlawful in Germany (LG München, 2022). Capsule serves its
+        # two typefaces itself, each with its open licence next to it, and its stylesheet asks no other site.
+        visitor = self.app.test_client()
+        for name in ("instrument-sans-latin-wght-normal.woff2", "instrument-serif-latin-400-normal.woff2"):
+            response = visitor.get(f"/static/fonts/{name}")
+            self.assertEqual(response.status_code, 200, name)
+            self.assertEqual(response.get_data()[:4], b"wOF2", f"{name} is not a web font")
+            response.close()
+        for name in ("OFL-InstrumentSans.txt", "OFL-InstrumentSerif.txt"):
+            response = visitor.get(f"/static/fonts/{name}")
+            self.assertIn(b"SIL Open Font License", response.get_data(), name)
+            response.close()
+        response = visitor.get("/static/app.css")
+        addresses = re.findall(r"url\(([^)]*)\)", response.get_data(as_text=True))
+        response.close()
+        self.assertIn('"fonts/instrument-sans-latin-wght-normal.woff2"', addresses)
+        self.assertEqual([a for a in addresses if "//" in a], [], "the stylesheet loads something from another site")
+        # The text font is asked for with the page, not only once the stylesheet has arrived.
+        self.assertIn('<link rel="preload" href="/static/fonts/instrument-sans-latin-wght-normal.woff2" as="font"',
+                      visitor.get("/").get_data(as_text=True))
+
     def test_the_app_needs_a_login(self):
         visitor = self.app.test_client()
         for url in ("/outfits", "/list", "/slots", "/profile", "/account", "/slot/white-tee", "/list.csv"):
