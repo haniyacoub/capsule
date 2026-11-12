@@ -1377,6 +1377,29 @@ class PicturesForCustomers(WithPictures, ProductionCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ?", (uid,)).fetchone()[0], 0)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM looks").fetchone()[0], 1)
 
+    def test_a_photo_stored_before_pictures_were_switched_off_can_still_be_seen_and_deleted(self):
+        # The Account page sends customers to Profile to see or delete their photo. With AI pictures switched off
+        # there is no model to pick and nothing to upload, but a photo stored earlier is still there, to delete.
+        ada = self.member("ada@example.com")
+        uid = self.user_id("ada@example.com")
+        ada.post("/profile/photo", content_type="multipart/form-data", data={
+            "photo": (io.BytesIO(PHOTO), "me.jpg"), "agree": "on", "csrf_token": self.token(ada)})
+        self.assertIsNotNone(person.photo_of(uid))
+        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
+            page = ada.get("/profile").get_data(as_text=True)
+            self.assertIn('id="photo"', page, "where the Account page's link leads")
+            self.assertIn("This photo of you is still stored", page)
+            self.assertIn("Delete my photo and the pictures made from it", page)
+            for trace in ("Your model", "data-photo-form", "be the model yourself", "switched off", "README"):
+                self.assertNotIn(trace, page)
+            with ada.get("/profile/photo") as shown:
+                self.assertEqual(shown.status_code, 200)
+            self.post(ada, "/profile/photo", remove="1")
+            self.assertIsNone(person.photo_of(uid))
+            self.assertIn("Your photo and the pictures made from it are deleted.",
+                          ada.get("/profile").get_data(as_text=True), "said where the page lands")
+            self.assertNotIn('id="photo"', ada.get("/profile").get_data(as_text=True), "nothing left to show")
+
     def test_a_failure_tells_customers_nothing_about_the_inside(self):
         ada = self.member("ada@example.com")
         key = self.outfit_keys(ada)[0]

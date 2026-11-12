@@ -421,16 +421,19 @@ class SaysWhatReallyHappens(ProductionCase):
 
     def test_the_privacy_outline_gives_the_times_the_code_keeps_things(self):
         # Facts for the operator's lawyer, each one checked against what the code does: the network addresses kept
-        # with a sign-up (1 hour) and with a wrong password (24 hours), the times pictures were asked for (48 hours),
-        # the log-in cookie (SESSION_DAYS), the right to object and the minimum age.
+        # with every attempt to sign up (1 hour) and with a wrong password (24 hours), the times pictures were asked
+        # for (48 hours), the log-in cookie (SESSION_DAYS) and the one that ends with the browser, the right to object
+        # and the minimum age.
         import time
         from werkzeug.http import parse_date
 
         text = self.said(self.app.test_client().get("/legal/privacy").get_data(as_text=True))
-        for fact in ("Network (IP) addresses: of each new account, kept for 1 hour",
+        for fact in ("Network (IP) addresses: of each attempt to create an account, whether or not it succeeds, "
+                     "kept for 1 hour",
                      "of each wrong password, with the email address that was tried, kept for 24 hours",
                      "The times you asked for a picture are kept for 48 hours",
                      f"keep you logged in for {settings.SESSION_DAYS} days after your last visit",
+                     "so do logging out, deleting the account and following an expired reset link",
                      "Reading the other public pages (the home page, these legal pages) sets none",
                      "to object to its use", "Minimum age: 18."):
             self.assertIn(fact, text)
@@ -456,9 +459,26 @@ class SaysWhatReallyHappens(ProductionCase):
                              {"young@example.com", "ada@example.com"})
             self.assertEqual(con.execute("SELECT COUNT(*) FROM look_requests WHERE at < ?", (now,)).fetchone()[0], 1)
 
+        # Every attempt is kept for the hour, not only the ones that make an account: here a second sign-up with
+        # the same address, which is refused.
+        refused = self.post(self.app.test_client(), "/signup", email="ada@example.com", password=PASSWORD)
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("already an account", refused.get_data(as_text=True))
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM signups WHERE ip = ?", ("127.0.0.1",)).fetchone()[0], 2)
+
         cookie = self.post(logging_in, "/login", email="ada@example.com", password=PASSWORD).headers["Set-Cookie"]
         lasts = parse_date(re.search(r"Expires=([^;]+)", cookie).group(1)).timestamp() - time.time()
         self.assertAlmostEqual(lasts / 86400, settings.SESSION_DAYS, delta=0.01)
+        # The cookie that ends when the browser closes, set to carry a message to the next page (the forms' own is
+        # checked in test_reading_the_website_sets_no_cookie).
+        bob = self.member("bob@example.com")
+        for said, answer in (("log out", self.post(logging_in, "/logout")),
+                             ("delete the account", self.post(bob, "/account/delete", current=PASSWORD)),
+                             ("an expired reset link", self.app.test_client().get("/reset/no-such-link"))):
+            cookie = answer.headers.get("Set-Cookie", "")
+            self.assertIn("session=", cookie, said)
+            self.assertNotIn("Expires=", cookie, said)
 
 
 class OutfitsIsHome(ProductionCase):
