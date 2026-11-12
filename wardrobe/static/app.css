@@ -322,6 +322,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .state { font-size: var(--t-m); color: var(--muted); }
 .state .note { display: block; font-size: var(--t-s); margin-top: 2px; }
 .slot-head .left-out { font-size: var(--t-m); line-height: var(--lh-m); }   /* as large as the line it explains */
+.slot-head .left-out a { padding: var(--s-1) 0; text-underline-offset: 3px; }   /* "Edit the plan", at the end of the reason: 24px or more to tap */
 .add-own { font-size: var(--t-m); line-height: var(--lh-m); color: var(--muted); }   /* an empty piece: or add your own find */
 .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .sortbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; font-size: var(--t-s); color: var(--muted); }
@@ -614,8 +615,8 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 .buy-head span { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 /* "Your sizes", the sizes every line is ordered in: a quiet line, or, while they are still the example's,
    a caution with the button that keeps them. */
-.your-sizes { display: grid; gap: var(--s-1); margin: 0 0 var(--s-3); padding: 10px var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
-.your-sizes a { padding: 2px 0; color: var(--muted); text-underline-offset: 3px; }
+.your-sizes { display: grid; gap: var(--s-1); margin: 0 0 var(--s-3); padding: var(--s-2) var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
+.your-sizes a { padding: var(--s-1) 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
 .your-sizes.example { color: var(--ok); background: var(--ok-bg); }
 .your-sizes.example a { color: inherit; }
 .your-sizes form { margin-top: var(--s-1); }

@@ -508,6 +508,9 @@ def create_app() -> Flask:
         if colour not in {c.key for c in view.offers}:     # never a refused colour, nor one that fills nothing
             abort(409, "That colour is not offered for this piece any more. Reload the page.")
         name = recoloured_name(view.slot["name"], view.slot["colour"], colour)
+        # An account from before plan_edited has its answer worked out by comparing the plan with the profile's
+        # own: worked out now, while they still match, as this piece's new colour would make them differ.
+        plan_edited(profile_mod.load())
         db.update_slot(slot_id, colour=colour, name=name, locked=False, pick=None)
         sync_catalog(changed_slot=slot_id)
         w = selection.build()
@@ -886,6 +889,8 @@ def create_app() -> Flask:
             flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
             return redirect(url_for("profile_page"))
         if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
+            if current["refused"] != new["refused"]:
+                sync_catalog()          # its pieces stay, but no longer with products in a colour now refused
             flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
                          "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
             return redirect(url_for("profile_page"))

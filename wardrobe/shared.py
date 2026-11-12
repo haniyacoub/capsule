@@ -20,18 +20,21 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from . import catalog, colours, config, db, paths, settings
+from . import capsule, catalog, colours, config, db, paths, settings
+from . import profile as profile_mod
 from .collect import matching, pages
 
 POOL_NAME = "store_catalog.json"
 _cache: tuple[int, dict] | None = None
-_offers: tuple[dict, dict[str, dict[str, list[dict]]]] | None = None   # (the list, colours on offer per garment)
+# (the list, the colours on offer per garment and set of refused colours)
+_offers: tuple[dict, dict[tuple[str, frozenset[str]], dict[str, list[dict]]]] | None = None
 
 # When the way a product's details are read improves, the published list is corrected as it is
 # read (see _corrected), without asking any store again. A new REVISION then makes every
 # customer's products be rebuilt from the corrected list once (see refresh_customer).
 #   fit2: "weder schmaler noch weiter" (a straight leg) is no longer read as a slim cut.
-REVISION = "fit2"
+#   refused: a product in a colour the customer refused is no longer among his options (see candidates_for).
+REVISION = "refused"
 
 
 def load() -> dict | None:
@@ -96,8 +99,10 @@ def publish(target: Path) -> int:
     return len(products)
 
 
-def candidates_for(pool: dict, slot: dict, collector: dict) -> list[dict]:
-    """The products that fit one slot: per store, best colour match, keyword matches, then cheapest."""
+def candidates_for(pool: dict, slot: dict, collector: dict, refused: frozenset[str] = frozenset()) -> list[dict]:
+    """The products that fit one slot: per store, best colour match, keyword matches, then cheapest. A product
+    whose own colour is one of `refused` (the customer's refused colours, see refused_colours) is left out, also
+    where it would match: "Dunkelblau" jeans are never blue jeans for a customer who refused navy."""
     skip_words = collector.get("skip_words", [])
     vocabulary = collector.get("keyword_words", {})
     per_store = int(collector.get("max_candidates", 6))
@@ -106,7 +111,7 @@ def candidates_for(pool: dict, slot: dict, collector: dict) -> list[dict]:
         if product.get("category") != slot["category"]:
             continue
         level = matching.colour_level(slot, product.get("colour"), product.get("colour_hex"), skip_words)
-        if not level:
+        if not level or matching.refused(product.get("colour"), refused):
             continue
         hits = matching.keyword_hits(slot.get("keywords", ""), matching.text_of(product), vocabulary)
         ranked.setdefault(product.get("store", ""), []).append(((-level, -hits, product.get("price", 0)), product))
@@ -117,53 +122,62 @@ def candidates_for(pool: dict, slot: dict, collector: dict) -> list[dict]:
     return out
 
 
-def colours_on_offer(category: str) -> dict[str, list[dict]]:
+def refused_colours() -> frozenset[str]:
+    """The colours the signed-in customer refused, as the plan reads them: refusing "green" refuses olive too."""
+    return frozenset(capsule.banned(profile_mod.load().get("refused", [])))
+
+
+def colours_on_offer(category: str, refused: frozenset[str] = frozenset()) -> dict[str, list[dict]]:
     """The colours Capsule has a garment in: for each colour, the products a piece of that garment in
     that colour is offered. Each colour is tried with candidates_for, the matching that fills every
     piece, so a colour listed here really fills one. The colours most of the products are named in
     come first: where two colours reach the same products ('white' and 'ecru' both reach an ecru
-    cardigan), the one the stores call them leads.
+    cardigan), the one the stores call them leads. Products in a `refused` colour are left out, as
+    candidates_for leaves them out of the piece the tap fills.
 
-    Worked out once per published list. On your own machine there is no published list: there it is
-    the colours of what the last refresh collected for your pieces of that garment.
+    Worked out once per published list (and set of refused colours). On your own machine there is no
+    published list: there it is the colours of what the last refresh collected for your pieces of that
+    garment.
     """
     global _offers
     pool = load() if settings.PRODUCTION else None
     if pool is None:
-        return _on_offer({"products": list(_collected(catalog.load()).values())}, category)
+        return _on_offer({"products": list(_collected(catalog.load()).values())}, category, refused)
     if _offers is None or _offers[0] is not pool:      # a list published since: work it out again
         _offers = (pool, {})
     known = _offers[1]
-    if category not in known:
-        known[category] = _on_offer(pool, category)
-    return known[category]
+    if (category, refused) not in known:
+        known[(category, refused)] = _on_offer(pool, category, refused)
+    return known[(category, refused)]
 
 
-def _on_offer(pool: dict, category: str) -> dict[str, list[dict]]:
+def _on_offer(pool: dict, category: str, refused: frozenset[str]) -> dict[str, list[dict]]:
     collector = config.load("stores.toml").get("collector", {})
     named = Counter(colours.find(p.get("colour")) for p in pool.get("products", []) if p.get("category") == category)
     found: dict[str, list[dict]] = {}
     for key in colours.COLOURS:
         probe = {"id": "", "category": category, "colour": key, "keywords": ""}
-        products = candidates_for(pool, probe, collector)
+        products = candidates_for(pool, probe, collector, refused)
         if products:
             found[key] = products
     return dict(sorted(found.items(), key=lambda item: -named[item[0]]))     # equal counts keep the table's order
 
 
 def build_catalog(slots: list[dict], previous: dict | None) -> dict | None:
-    """One customer's candidates from the shared list. Their own additions and typed-in details are kept."""
+    """One customer's candidates from the shared list, never in a colour they refused. Their own additions and
+    typed-in details are kept."""
     pool = load()
     if pool is None:
         return None
     collector = config.load("stores.toml").get("collector", {})
+    refused = refused_colours()
     before = (previous or {}).get("candidates", [])
     typed_in = {c["id"]: c["manual"] for c in before if c.get("manual")}
     slot_ids = {s["id"] for s in slots}
     candidates = [c for c in before if c.get("source") == "manual" and c.get("slot_id") in slot_ids]
     taken = {(c["slot_id"], c["id"]) for c in candidates}
     for slot in slots:
-        for cand in candidates_for(pool, slot, collector):
+        for cand in candidates_for(pool, slot, collector, refused):
             if (cand["slot_id"], cand["id"]) in taken:
                 continue                               # you added this one yourself; yours wins
             if cand["id"] in typed_in:

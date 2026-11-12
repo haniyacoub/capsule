@@ -494,6 +494,8 @@ def run(base: str) -> None:
             sizes = page.locator(".your-sizes")
             assert "Your sizes: Tops M" in sizes.inner_text() and "example sizes" in sizes.inner_text(), \
                 "the example sizes are not called example sizes"
+            change = sizes.locator("a[href$='#sizes']").bounding_box()
+            assert change["height"] >= 24, f"'Change' (your sizes) is {change['height']:.1f}px tall: under 24px to tap"
             buy_page = page.url
             sizes.locator("button:has-text('These are my sizes')").click()
             page.wait_for_load_state("networkidle")
