@@ -53,7 +53,7 @@ class LoginCookie(SecureCookieSessionInterface):
 def load_user() -> None:
     """Runs before every request: find the signed-in user and scope the database to them."""
     g.user = None
-    if request.endpoint in FILES:       # a file, the same for everyone: the login cookie is not even read
+    if request.endpoint in FILES:       # a file, the same for everyone: no account is looked up
         return
     user_id = session.get("uid")
     if user_id is not None:
