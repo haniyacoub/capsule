@@ -192,6 +192,29 @@ def run(base: str) -> None:
                 assert not seen["faded"], "the price levels' amounts are faded"
             page.set_viewport_size({"width": 1280, "height": 860})
 
+        def out_of_size_fades_only_the_photo():
+            # An option that is not in your size can still be chosen, so only its photo fades. Its words keep their
+            # full strength, and so does the colour swatch with the colour's name that shows where the store's photo
+            # is missing: faded with the photo, the name 'Dark Grey' read at 2.6:1, under the 4.5:1 small text needs.
+            # Which options are in your size depends on the day's stock, so the check makes one so itself.
+            page.goto(base + "/", wait_until="networkidle")
+            page.goto(base + page.locator("a[href^='/slot/']").first.get_attribute("href"), wait_until="networkidle")
+            seen = page.evaluate("""() => {
+                const strength = (el) => { let o = 1; for (; el; el = el.parentElement) o *= +getComputedStyle(el).opacity; return o; };
+                const option = document.querySelector('.cand .pic img').closest('.cand');
+                option.classList.add('out');                       // not in your size
+                const pic = option.querySelector('.pic'), name = pic.querySelector('.fb');
+                pic.classList.remove('noimg');                     // with the store's photo
+                const photo = strength(pic.querySelector('img')), words = strength(option.querySelector('.cand-body'));
+                pic.classList.add('noimg');                        // and where the photo did not load
+                return {photo, words, swatch: strength(pic), name: strength(name),
+                        name_shown: getComputedStyle(name).display !== 'none' && name.textContent.trim() !== ''};
+            }""")
+            assert seen["name_shown"], "a missing photo does not show the colour's name on its swatch"
+            assert seen["swatch"] == 1 and seen["name"] == 1, f"the swatch and colour name of an option not in your size are faded: {seen}"
+            assert seen["words"] == 1, f"the words of an option not in your size are faded: {seen}"
+            assert seen["photo"] < 1, "the photo of an option not in your size is not faded"
+
         def picture_arrives():
             page.goto(base + "/outfits", wait_until="networkidle")
             assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
@@ -326,6 +349,7 @@ def run(base: str) -> None:
         steps = [("create an account", sign_up), ("Capsule's own typefaces load", own_typefaces),
                  ("price levels and best for budget", price_levels),
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
+                 ("an option not in your size fades only its photo", out_of_size_fades_only_the_photo),
                  ("the picture of an outfit arrives by itself", picture_arrives),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),

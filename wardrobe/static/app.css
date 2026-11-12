@@ -286,7 +286,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 }
 .cand.chosen { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 .cand .pic { width: 104px; aspect-ratio: 3 / 4; }
-.cand.out .pic { opacity: .5; }   /* not in your size: only the photo fades; its words stay readable */
+/* Not in your size: only the photo fades, never words. Where the store's photo is missing, the colour swatch and
+   the colour's name show instead, at full strength (faded, a name read at 2.6:1). */
+.cand.out .pic:not(.noimg) { opacity: .5; }
 .cand-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .colour-name { font-size: var(--t-s); color: var(--muted); margin-left: 4px; }
 .price { font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -327,17 +329,21 @@ details.why summary::-webkit-details-marker { display: none; }
 
 /* ── Outfits: one at a time, side to side ────────────────────────────────── */
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 10px; }
-.looks { position: relative; }
+.looks { position: relative; display: flow-root; }   /* flow-root: the row's reach above and below (see .reel) moves neither this section nor its arrows */
 .reel {   /* a row of full-width slides; the browser snaps to one outfit at a time */
   position: relative;   /* what is placed inside a slide stays inside the row; else the page grows to all the outfits' width */
   display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
-  overscroll-behavior-x: contain; scrollbar-width: none; margin: 0 calc(-1 * var(--gutter));
+  overscroll-behavior-x: contain; scrollbar-width: none;
+  /* The row cuts off whatever reaches past it, focus rings too. So it reaches past its outfits, by the gutter at
+     the sides and 12px above and below, and each slide pads that back: nothing moves, and the ring around the
+     heart or 'Buy this outfit' at the row's edge shows whole. */
+  margin: calc(-1 * var(--s-3)) calc(-1 * var(--gutter));
 }
 .reel:focus-visible { outline-offset: -3px; }   /* it runs to the screen's edges on a phone */
 .reel::-webkit-scrollbar { display: none; }
 .slide {
   flex: 0 0 100%; min-width: 0; scroll-snap-align: center; scroll-snap-stop: always;
-  display: grid; gap: 14px; align-content: start; padding: 0 var(--gutter);
+  display: grid; gap: 14px; align-content: start; padding: var(--s-3) var(--gutter);
 }
 /* The stage: the outfit as a picture, 2 wide by 3 high, as tall as the screen allows.
    Square corners on a phone; on computers the photo radius (see "Wider screens"). */
@@ -462,7 +468,7 @@ details.why summary::-webkit-details-marker { display: none; }
 .sheet .sec { margin: 18px 0 8px; }
 .swap { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
 .swap li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
-.swap li.out .pic { opacity: .5; }   /* not in your size: the photo fades, the words say so in full */
+.swap li.out .pic:not(.noimg) { opacity: .5; }   /* not in your size: the photo fades (a swatch in its place does not), the words say so in full */
 .swap .pic { width: 48px; aspect-ratio: 4 / 5; }
 .swap .pic .fb { display: none; }
 .swap-text { display: grid; gap: 2px; min-width: 0; font-size: var(--t-s); color: var(--muted); }
@@ -613,8 +619,8 @@ details[open] > summary .edit { visibility: hidden; }
   .card { padding: 20px; }
   .card .form { max-width: 620px; }
   .steps { grid-template-columns: repeat(3, 1fr); }
-  .reel { margin: 0; }
-  .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: 32px; padding: 0 60px; }
+  .reel { margin: calc(-1 * var(--s-3)) 0; }   /* the 12px of room for focus rings stays (see .reel) */
+  .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: 32px; padding: var(--s-3) 60px; }
   .stage { width: max(260px, min(470px, calc((100svh - 300px) * .667))); margin: 0; }
   .collage, .look-pic { border-radius: var(--r-img); }
   .about { margin: 0; }
