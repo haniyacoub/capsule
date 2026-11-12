@@ -34,11 +34,12 @@ from .garments import GARMENTS
 from .paths import ROOT
 from .sizes import ALPHA
 
+# The tabs, in order. The outfits on the AI model are the heart of Capsule, so they come first.
+# The plan editor (/slots) has no tab: "Edit the plan" on the Wardrobe page leads to it.
 NAV = [
-    ("wardrobe", "Wardrobe", "wardrobe"),
     ("outfits", "Outfits", "outfits_page"),
-    ("list", "List", "list_page"),
-    ("slots", "Slots", "slots_page"),
+    ("wardrobe", "Wardrobe", "wardrobe"),
+    ("list", "Shopping", "list_page"),
     ("profile", "Profile", "profile_page"),
 ]
 
@@ -628,8 +629,8 @@ def create_app() -> Flask:
 
     @app.get("/slots")
     def slots_page():
-        prof = profile_mod.load()
-        return page("slots.html", tab="slots", palette=capsule.palette_summary(prof), profile=prof)
+        prof = profile_mod.load()     # the plan is part of the Wardrobe, so its tab stays lit
+        return page("slots.html", tab="wardrobe", palette=capsule.palette_summary(prof), profile=prof)
 
     def slot_fields() -> dict | None:
         form = request.form
@@ -719,20 +720,24 @@ def create_app() -> Flask:
             flash(note)
 
         shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned")
+        # The plan has no tab of its own, so a message that sends you to it carries the link.
+        # (Markup: the link is shown as a link; what the customer typed is still escaped.)
+        edit_the_plan = Markup('<a href="%s">Edit the plan</a>') % url_for("slots_page")
         if all(current[f] == new[f] for f in shapes_capsule):
             flash("Profile saved.")
         elif db.get_setting("slots_customised", False):
-            flash("Profile saved. Your slot list was left as it is, because you have already "
-                  "edited, locked or marked things — “Re-propose from profile” on the Slots "
-                  "page rebuilds it from scratch.")
+            flash(Markup("Profile saved. Your plan was left as it is, because you have already edited, locked or "
+                         "marked things. “Re-propose from profile” on the plan page rebuilds it from scratch. %s")
+                  % edit_the_plan)
         else:
             slots, unmatched = capsule.propose(new)
             db.replace_slots(slots)
             needs_refresh = sync_catalog()
-            flash(f"Profile saved and the capsule re-proposed from it: {len(slots)} slots. "
-                  "Review them under Slots." + (f" {REFRESH_HINT}" if needs_refresh else ""))
+            flash(Markup("Profile saved and your plan rebuilt from it: %s pieces.%s %s")
+                  % (sum(s["qty"] for s in slots), f" {REFRESH_HINT}" if needs_refresh else "", edit_the_plan))
             for line in unmatched:
-                flash(f"Couldn't tell what kind of garment “{line}” is — add it as a slot by hand.")
+                flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
+                      % (line, edit_the_plan))
         return redirect(url_for("profile_page"))
 
     # ── The model in the AI pictures: a description, or your own photo (person.py) ──
@@ -742,7 +747,7 @@ def create_app() -> Flask:
         person.save({group: request.form.get(group, "") for group in person.GROUPS})
         # Said where the page lands (the "model" and "photo" kinds are shown inside that section,
         # not at the top of the page, which is off the screen by then).
-        flash("Model saved. Pictures drawn from now on show it; open Outfits to see.", "model")
+        flash("Model saved. Pictures drawn from now on show it.", "model")    # profile.html adds "See your outfits"
         return redirect(url_for("profile_page") + "#model")
 
     @app.post("/profile/photo")
@@ -765,7 +770,7 @@ def create_app() -> Flask:
             if problem is None:
                 looks.forget_pictures_of(db.uid())      # those showed the previous photo
             flash(f"Not saved. {problem}" if problem
-                  else "Photo saved. Pictures drawn from now on show you; open Outfits to see.", "photo")
+                  else "Photo saved. Pictures drawn from now on show you.", "photo")
         return back
 
     @app.get("/profile/photo")

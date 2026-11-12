@@ -141,11 +141,27 @@ class Accounts(ProductionCase):
         unknown = self.post(ada, "/login", email="nobody@example.com", password=PASSWORD)
         self.assertEqual(unknown.status_code, 401)
         self.assertIn(b"Email or password is wrong", unknown.data)   # the same answer for both
-        back = self.post(ada, "/login", email="ada@example.com", password=PASSWORD, next="/outfits")
-        self.assertEqual((back.status_code, back.headers["Location"]), (302, "/outfits"))
+        back = self.post(ada, "/login", email="ada@example.com", password=PASSWORD, next="/list")
+        self.assertEqual((back.status_code, back.headers["Location"]), (302, "/list"))   # back to the page asked for
         elsewhere = self.post(self.app.test_client(), "/login", email="ada@example.com", password=PASSWORD,
                               next="https://evil.example/")
-        self.assertEqual(elsewhere.headers["Location"], "/")         # never redirects off the site
+        self.assertEqual(elsewhere.headers["Location"], "/outfits")  # never redirects off the site
+
+    def test_logging_in_opens_the_outfits_and_never_another_site(self):
+        self.member("ada@example.com")
+
+        def lands(**next_page) -> str:
+            client = self.app.test_client()
+            return self.post(client, "/login", email="ada@example.com", password=PASSWORD, **next_page).headers["Location"]
+
+        self.assertEqual(lands(), "/outfits", "the outfits on the model are Capsule's home")
+        self.assertEqual(lands(next="/slot/white-tee?sort=score"), "/slot/white-tee?sort=score")
+        # Browsers read "\" as "/" and drop tabs and line breaks from an address: each of these leaves the site.
+        for elsewhere in ("https://evil.example/", "//evil.example", "/\\evil.example", "\\\\evil.example",
+                          "/\t/evil.example", "/\n/evil.example", "javascript:alert(1)", ""):
+            self.assertEqual(lands(next=elsewhere), "/outfits", repr(elsewhere))
+        bob = self.member("bob@example.com")
+        self.assertEqual(bob.get("/login").headers["Location"], "/outfits", "already logged in: straight home")
 
     def test_guessing_a_password_is_slowed_down(self):
         self.member("ada@example.com")
@@ -202,6 +218,89 @@ class Accounts(ProductionCase):
                 self.assertEqual(rows, 0, table)
         self.assertEqual(ada.get("/outfits").status_code, 302)
         self.assertEqual(self.post(ada, "/login", email="ada@example.com", password=PASSWORD).status_code, 401)
+
+
+class OutfitsIsHome(ProductionCase):
+    """The outfits on the AI model are Capsule's home: the first tab, and where log-in and the wordmark lead.
+    The plan has no tab: the Wardrobe page, and every message that sends you to it, link to it."""
+
+    BRAND = re.compile(r'<a class="brand" href="([^"]*)">Capsule</a>')
+    GONE = ("Slots page", "under Slots", "open Outfits")     # pointers to tabs that no longer exist
+
+    @staticmethod
+    def tabs(html: str) -> list[tuple[str, str, bool]]:
+        """The tab bar, in order: (name, address, marked as the current page)."""
+        nav = re.search(r'<nav class="tabs"[^>]*>(.*?)</nav>', html, re.S).group(1)
+        return [(name, href, 'aria-current="page"' in more)
+                for href, more, name in re.findall(r'<a href="([^"]*)"([^>]*)>([^<]*)</a>', nav)]
+
+    def test_four_plain_tabs_with_the_outfits_first(self):
+        ada = self.member("ada@example.com")
+        tabs = [("Outfits", "/outfits"), ("Wardrobe", "/"), ("Shopping", "/list"), ("Profile", "/profile")]
+        # The plan and a piece's page belong to the Wardrobe, so its tab stays lit there.
+        for url, lit in (("/outfits", "Outfits"), ("/", "Wardrobe"), ("/slots", "Wardrobe"), ("/slot/white-tee", "Wardrobe"),
+                         ("/list", "Shopping"), ("/profile", "Profile")):
+            shown = self.tabs(ada.get(url).data.decode())
+            self.assertEqual([(name, href) for name, href, _ in shown], tabs, url)
+            self.assertEqual([name for name, _, on in shown if on], [lit], url)
+        account = ada.get("/account").data.decode()
+        self.assertEqual([name for name, _, on in self.tabs(account) if on], [], "no tab is lit on Account")
+        self.assertRegex(account, r'<a class="account-link on" [^>]*aria-current="page"[^>]*>Account</a>')
+
+    def test_the_wordmark_leads_home(self):
+        visitor = self.app.test_client()
+        for url in ("/", "/login", "/signup", "/legal/privacy"):
+            self.assertEqual(self.BRAND.search(visitor.get(url).data.decode()).group(1), "/", url)
+        ada = self.member("ada@example.com")
+        for url in ("/", "/outfits", "/list", "/slots", "/slot/white-tee", "/profile", "/account", "/legal/privacy"):
+            self.assertEqual(self.BRAND.search(ada.get(url).data.decode()).group(1), "/outfits", url)
+
+    def test_one_main_heading_on_every_main_page(self):
+        ada = self.member("ada@example.com")
+        for url, heading in (("/outfits", "Outfits"), ("/", "Your wardrobe"), ("/list", "Shopping list"),
+                             ("/slots", "Your plan"), ("/profile", "About you"), ("/account", "Your account")):
+            self.assertEqual(re.findall(r"<h1[^>]*>([^<]*)</h1>", ada.get(url).data.decode()), [heading], url)
+        plan = ada.get("/slots").data.decode()
+        self.assertIn("<title>Your plan · Capsule</title>", plan)
+        self.assertRegex(plan, re.compile(r'<p class="crumb"><a href="/">.*?Wardrobe</a></p>', re.S))
+
+    def test_edit_the_plan_is_one_tap_from_the_wardrobe(self):
+        ada = self.member("ada@example.com")
+        with db.as_user(self.user_id("ada@example.com")):
+            pieces = sum(s["qty"] for s in db.list_slots())     # a white tee ×2 is two pieces, as in the bar
+        self.assertIn(f'{pieces} pieces in your plan · <a href="/slots">Edit the plan</a>', ada.get("/").data.decode())
+        with db.as_user(self.user_id("ada@example.com")):
+            db.replace_slots([])
+        empty = ada.get("/").data.decode()
+        self.assertIn('No pieces in your plan yet. <a href="/slots">Edit the plan</a> to add some', empty)
+        self.assertNotIn("in your plan ·", empty)
+        for gone in self.GONE:
+            self.assertNotIn(gone, empty)
+
+    def test_messages_that_send_you_to_the_plan_carry_the_link(self):
+        ada = self.member("ada@example.com")
+        form = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "75",
+                "budget": "1500", "liked": "black, grey, white", "refused": "", "use": "both", "shoes": "on",
+                "outerwear": "on", "owned": "<b>lucky</b> charm"}
+        self.post(ada, "/profile", **form)
+        rebuilt = ada.get("/profile").data.decode()
+        with db.as_user(self.user_id("ada@example.com")):
+            pieces = sum(s["qty"] for s in db.list_slots())
+            first = db.list_slots()[0]["id"]
+        self.assertIn(f'Profile saved and your plan rebuilt from it: {pieces} pieces. <a href="/slots">Edit the plan</a>',
+                      rebuilt)
+        self.assertIn('“&lt;b&gt;lucky&lt;/b&gt; charm” is: add it to your plan by hand. <a href="/slots">Edit the plan</a>',
+                      rebuilt, "what the customer typed is shown as text, the link as a link")
+        self.assertNotIn("<b>lucky</b>", rebuilt)
+
+        self.post(ada, f"/slot/{first}/lock")            # a plan changed by hand is not rebuilt without asking
+        self.post(ada, "/profile", **{**form, "liked": "navy, grey", "owned": ""})
+        kept = ada.get("/profile").data.decode()
+        self.assertIn('“Re-propose from profile” on the plan page rebuilds it from scratch. '
+                      '<a href="/slots">Edit the plan</a>', kept)
+        for page in (rebuilt, kept):
+            for gone in self.GONE:
+                self.assertNotIn(gone, page)
 
 
 class Isolation(ProductionCase):
@@ -499,6 +598,15 @@ class SharedStoreCatalogue(ProductionCase):
             cos = next(c for c in selection.build().get("grey-merino-jumper").cands if c.id == "cos-2")
             self.assertEqual(cos.score.fabric_source, "listed", "the fabric she typed in is still there")
 
+    def test_a_piece_nothing_was_found_for_links_to_the_plan(self):
+        self.publish()
+        ada = self.member("ada@example.com")
+        with db.as_user(self.user_id("ada@example.com")):
+            empty = next(s.slot["id"] for s in selection.build().slots if not s.cands and s.state != "owned")
+        page = ada.get(f"/slot/{empty}").data.decode()
+        self.assertIn(f'<a href="/slots#slot-{empty}">Edit the plan</a> to give it another colour', page)
+        self.assertNotIn("Slots page", page)
+
     def test_publishing_is_done_from_your_own_machine(self):
         from wardrobe.__main__ import main
         with self.assertRaises(SystemExit) as stop:
@@ -556,6 +664,15 @@ class LocalModeStillWorks(unittest.TestCase):
         self.assertEqual(client.get("/login").status_code, 404)
         self.assertEqual(client.post("/settings", data={"mode": "cheapest", "threshold": "70"}).status_code, 302)
         self.assertNotIn(b"csrf_token", client.get("/slots").data)
+
+    def test_the_outfits_are_home_here_too(self):
+        client = create_app().test_client()
+        self.assertIn('<a class="brand" href="/outfits">Capsule</a>', client.get("/").data.decode())
+        self.assertIn('<a href="/outfits" class="on" aria-current="page">Outfits</a>', client.get("/outfits").data.decode())
+        client.post("/profile/model", data={"build": "athletic"})
+        profile = client.get("/profile").data.decode()
+        self.assertRegex(profile, r'Model saved\.[^<]* <a href="/outfits">See your outfits</a></p>')
+        self.assertEqual(re.findall(r"<h1[^>]*>([^<]*)</h1>", profile), ["About you"], "'Your model' is a section of it")
 
     def test_a_database_from_before_accounts_is_carried_over(self):
         paths.DATA_DIR.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,7 @@
 {% from "_macros.html" import icon, pic, pill, store %}
 {% if w.note %}<p class="demo" role="status">{{ w.note }}</p>{% endif %}
 {% if not w.slots %}
-<p class="empty">No slots yet. <a href="{{ url_for('slots_page') }}">Add some on the Slots page</a>, or re-propose the capsule from your profile there.</p>
+<p class="empty">No pieces in your plan yet. <a href="{{ url_for('slots_page') }}">Edit the plan</a> to add some, or to rebuild it from your profile.</p>
 {% endif %}
 {% for section, items in w.sections %}
 <h2 class="sec">{{ section }}</h2>

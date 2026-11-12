@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Wardrobe · Capsule{% endblock %}
 {% block main %}
+<h1 class="sr">Your wardrobe</h1>
+{# The plan (/slots) has no tab of its own: this line leads to it. Pieces count like the bar's: a white tee ×2 is two. #}
+{% set n_pieces = w.slots|sum(attribute='qty') %}
+{% if w.slots %}<p class="lead plan-line">{{ n_pieces }} {{ 'piece' if n_pieces == 1 else 'pieces' }} in your plan · <a href="{{ url_for('slots_page') }}">Edit the plan</a></p>{% endif %}
 {# The price level and the quality slider. Any change posts the form; the slot
    cards below are re-rendered and swapped in, and the summary bar and the
    level totals with them. hx-sync makes quick taps take turns, so the page

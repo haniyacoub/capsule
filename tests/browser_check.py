@@ -8,7 +8,8 @@ It starts the app in production mode on a spare port, with a throwaway data fold
 stand-in for the image service (nothing is sent anywhere and nothing is billed), then does
 what a new customer would: signs up, changes the price level, watches an outfit's picture
 arrive, opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
-saves and "buys" one, puts a model together, uploads a photo and deletes the account.
+saves and "buys" one, logs in again and lands on the outfits, puts a model together,
+uploads a photo and deletes the account.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
@@ -138,11 +139,39 @@ def run(base: str) -> None:
                 other.fill("input[name=password]", PASSWORD)
                 other.click("button:has-text('Log in')")
                 other.wait_for_load_state("networkidle")
+                other.goto(base + "/", wait_until="networkidle")      # log-in opens the outfits; the pieces are listed here
                 slot = other.locator("a[href^='/slot/']").first.get_attribute("href")
                 for path in ("/", "/slots", slot, "/outfits", "/outfits?occasion=saved", "/list", "/profile", "/account"):
                     measure(path)
                 context.close()
             assert not wide, "wider than the screen: " + "; ".join(wide)
+
+        def outfits_are_home():
+            # The outfits on the model are the heart of Capsule: logging in, the first tab and the wordmark
+            # lead to them. The plan has no tab of its own: it is one tap from the Wardrobe page.
+            for width, phone in ((390, True), (1280, False)):
+                context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
+                other = context.new_page()
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_load_state("networkidle")
+                assert other.url == base + "/outfits", f"logging in at {width}px opens {other.url}, not the outfits"
+                tabs = other.locator("nav.tabs a")
+                names = [name.strip() for name in tabs.all_inner_texts()]
+                lefts = [tabs.nth(i).bounding_box()["x"] for i in range(tabs.count())]
+                assert names == ["Outfits", "Wardrobe", "Shopping", "Profile"] and lefts == sorted(lefts), \
+                    f"the tabs at {width}px read {names}"
+                tabs.filter(has_text="Wardrobe").click()
+                other.wait_for_url(base + "/")
+                other.locator("main a", has_text="Edit the plan").click()
+                other.wait_for_url(base + "/slots")
+                lit = other.locator("nav.tabs a[aria-current=page]").all_inner_texts()
+                assert lit == ["Wardrobe"], f"on the plan the tab marked as current is {lit}, not Wardrobe"
+                other.locator(".brand").click()
+                other.wait_for_url(base + "/outfits")
+                context.close()
 
         def price_levels():
             page.goto(base + "/", wait_until="networkidle")
@@ -243,7 +272,9 @@ def run(base: str) -> None:
             assert "in his thirties" in words and "athletic build" in words, "the choices are not described back"
             in_view("#model .flash", "Model saved")
             before = len(asked)
-            page.goto(base + "/outfits", wait_until="networkidle")
+            page.locator("#model .flash a", has_text="See your outfits").click()    # one tap from the message
+            page.wait_for_url(base + "/outfits")
+            page.wait_for_load_state("networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             assert len(asked) > before and "in his thirties" in asked[-1]["prompt"], "the new model was not drawn"
 
@@ -272,7 +303,9 @@ def run(base: str) -> None:
             assert page.locator(".me img").count() == 1, "the photo is not shown back: " + " / ".join(page.locator(".flash").all_inner_texts())
             shows(".me img", "the photo")
             in_view("#photo .flash", "Photo saved")
-            page.goto(base + "/outfits", wait_until="networkidle")
+            page.locator("#photo .flash a", has_text="See your outfits").click()
+            page.wait_for_url(base + "/outfits")
+            page.wait_for_load_state("networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             assert asked[-1]["photo"], "the photo did not go with the request"
             assert asked[-1]["photo"][:3] == b"\xff\xd8\xff", "the page did not turn the photo into a small JPEG first"
@@ -294,6 +327,7 @@ def run(base: str) -> None:
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),
+                 ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("delete the account", delete_account)]

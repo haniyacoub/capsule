@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Slots · Capsule{% endblock %}
+{% block title %}Your plan · Capsule{% endblock %}
 {% block main %}
-{% from "_macros.html" import slot_fields %}
+{% from "_macros.html" import icon, slot_fields %}
+<p class="crumb"><a href="{{ url_for('wardrobe') }}">{{ icon('back') }} Wardrobe</a></p>
 {% set pieces = w.slots|sum(attribute='qty') %}
 <section class="card">
-  <h1>Your capsule</h1>
+  <h1>Your plan</h1>
   <p class="muted">{{ w.slots|length }} slots, {{ pieces }} pieces. Each slot is one thing to find in the stores, so shape this list before any data is collected: rename, recolour, remove or add.</p>
   <div class="palette">
     {% for role, c in palette %}
