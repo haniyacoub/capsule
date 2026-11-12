@@ -22,6 +22,8 @@ from contextlib import closing
 from pathlib import Path
 from unittest import mock
 
+from markupsafe import escape
+
 from wardrobe import catalog, config, db, imagegen, looks, outfits, paths, person, selection, settings, shared
 from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
@@ -280,6 +282,51 @@ class Viewer(AppCase):
             self.assertIn(p["slot_name"], page)
         self.assertEqual(page.count("Buy this outfit"), 12)
         self.assertIn('<dialog class="sheet" id="piece"', page)
+
+    def test_one_line_over_the_outfits_says_how_many_the_day_of_the_prices_and_how_to_see_the_next(self):
+        page = self.client.get("/outfits").data.decode()
+        total = outfits.generate(selection.build(), limit=12)[1]
+        day = " ".join(selection.build().collected.split()[:2])        # "12 Nov" of "12 Nov 2026, 15:02"
+        lead = re.search(r'<p class="lead">(.*?)</p>', page, re.S).group(1)
+        self.assertEqual(" ".join(re.sub(r"<span class=\"by-mouse\">.*?</span>|<[^>]+>", "", lead).split()),
+                         f"12 of {total} outfits · prices of {day} · swipe for more")
+        # The ending is chosen by the device: swipe on a touch screen, the arrows with a mouse (app.css shows one).
+        self.assertIn('<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>', lead)
+        self.post("/outfits/save", key=some_outfits(1)[0].key)
+        saved = self.client.get("/outfits?occasion=saved").data.decode()
+        self.assertIn("Your saved outfits, as they were when you saved them. “Changed” marks a piece your wardrobe "
+                      "now fills with something else.", saved)
+        self.assertNotIn("by-touch", saved, "under Saved the line says what saved outfits are, in the words above only")
+
+    def test_the_chip_that_is_on_is_marked_and_the_others_are_one_group(self):
+        for occasion, name in (("all", "All"), ("office", "Office"), ("everyday", "Everyday"), ("saved", "Saved")):
+            page = self.client.get(f"/outfits?occasion={occasion}").data.decode()
+            self.assertIn('<div class="chips" role="group" aria-label="Which outfits">', page)
+            marked = re.findall(r'<a class="chip-link( on)?" href="[^"]*"( aria-current="page")?>(.*?)</a>', page, re.S)
+            self.assertEqual([re.sub(r"<[^>]+>", "", text).strip() for on, current, text in marked if current],
+                             [name], occasion)
+            self.assertTrue(all(bool(on) == bool(current) for on, current, text in marked), occasion)
+            self.assertEqual(page.count('class="btn ghost shuffle"'), 0 if occasion == "saved" else 1, occasion)
+
+    def test_each_outfit_has_a_heading_that_agrees_with_the_chip(self):
+        for occasion in ("all", "office", "everyday"):
+            page = self.client.get(f"/outfits?occasion={occasion}").data.decode()
+            self.assertEqual(re.findall(r"<h1[^>]*>([^<]*)</h1>", page), ["Outfits"], "one main heading")
+            shown = outfits.generate(selection.build(), occasion=occasion, limit=12)[0]
+            titles = re.findall(r'<header class="about-head">\s*<h2>([^<]*)<span class="sr">, outfit (\d+) of 12</span></h2>', page)
+            self.assertEqual([int(n) for _, n in titles], list(range(1, 13)), occasion)
+            wanted = [f"{occasion.title()}, smart casual" if o.label == "Smart casual" and occasion != "all" else o.label
+                      for o in shown]
+            self.assertEqual([title for title, _ in titles], wanted, occasion)
+            if occasion != "all":
+                self.assertNotIn("Smart casual", [title for title, _ in titles], f"under {occasion} a title says only 'Smart casual'")
+
+    def test_buy_this_outfit_is_the_main_button_and_product_names_are_marked_german(self):
+        page = self.client.get("/outfits").data.decode()
+        self.assertEqual(len(re.findall(r'<a class="btn" href="/outfits/buy\?at=[^"]+">Buy this outfit</a>', page)), 12)
+        for p in outfits.snapshot(some_outfits(1)[0]):
+            if not p["owned"]:
+                self.assertIn(f'<span lang="de">{escape(p["name"])}</span>', page, "the store's own words, in German")
 
     def test_tapping_a_piece_shows_it_and_what_could_replace_it(self):
         outfit = next(o for o in outfits.all_outfits(selection.build()) if o.pieces[0].layer == "outer")

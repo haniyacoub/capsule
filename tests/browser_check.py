@@ -9,7 +9,8 @@ stand-in for the image service (nothing is sent anywhere and nothing is billed),
 what a new customer would: signs up, changes the price level, watches an outfit's picture
 arrive, opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
 saves and "buys" one, logs in again and lands on the outfits, puts a model together,
-uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece), tabs
+uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece), sees
+that a phone's first screen shows the outfit on the model with its price and the heart, tabs
 through three pages to see that nothing with keyboard focus is hidden under the budget bar or
 the tab bar, and deletes the account.
 
@@ -402,6 +403,112 @@ def run(base: str) -> None:
             else:
                 assert "Not kept: " in said, f"the swapped piece is gone and the message does not say so: {said!r}"
 
+        def the_outfit_on_a_phones_first_screen():
+            # The model view is the heart of Capsule. On a phone (390 x 844) the first screen shows the AI picture and,
+            # under it, the outfit's title, its price and the heart, above the tab bar; on a shorter one (Safari's
+            # 390 x 664) at least the whole picture with its lowest dot, also under a message at the top of the page.
+            # The chips and Shuffle are one row (on a narrow phone the chips scroll sideways inside it), the chip that
+            # is on is marked, the line over the outfits says how to see the next one (swipe on a touch screen, the
+            # arrows with a mouse), each outfit's title is a heading that agrees with the chip, 'Buy this outfit' is the
+            # main button, and the outfit row does not cut off the focus ring of the heart or of 'Buy this outfit'.
+            def opened(width: int, height: int, touch: bool, path: str = "/outfits"):
+                context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=touch, has_touch=touch)
+                other = context.new_page()
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_load_state("networkidle")
+                other.goto(base + path, wait_until="networkidle")
+                other.wait_for_selector(f"{first} .look-pic img")
+                # This check runs on invented products, so the page opens with the "Demo data" notice, which customers
+                # of the real catalogue never see: it is taken away to measure the page as they get it.
+                other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                return context, other
+
+            def screen(other) -> dict:
+                return other.evaluate("""() => {
+                    const slide = document.querySelector('#reel .slide:first-child'), box = el => el.getBoundingClientRect();
+                    const picture = box(slide.querySelector('.look-pic'));
+                    return {top: picture.top, bottom: Math.max(picture.bottom, ...[...slide.querySelectorAll('.spot')].map(d => box(d).bottom)),
+                            line: Math.max(...[...slide.querySelectorAll('.about-head h2, .count, .board-cost, .heart')].map(el => box(el).bottom)),
+                            tabs: box(document.querySelector('nav.tabs')).top};
+                }""")
+
+            def rings_whole(other, where: str) -> None:
+                for what in (".heart", ".about-actions a"):
+                    other.keyboard.press("Tab")             # a key was pressed: focus from here on shows its ring
+                    ring = other.evaluate("""s => {
+                        const el = document.querySelector(s);
+                        el.focus();
+                        el.scrollIntoView({block: 'center'});
+                        const style = getComputedStyle(el), r = el.getBoundingClientRect(), row = document.getElementById('reel').getBoundingClientRect();
+                        const reach = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+                        return {shown: el.matches(':focus-visible') && style.outlineStyle !== 'none',
+                                cut: [['left', r.left - reach < row.left], ['top', r.top - reach < row.top],
+                                      ['right', r.right + reach > row.right], ['bottom', r.bottom + reach > row.bottom]]
+                                     .filter(side => side[1]).map(side => side[0])};
+                    }""", f"{first} {what}")
+                    assert ring["shown"] and not ring["cut"], f"{where}: the focus ring of {what} is cut off at {ring['cut']}"
+
+            context, other = opened(390, 844, True)
+            seen = screen(other)
+            extra = other.locator("#summary").bounding_box()["height"] - 48     # the bar's second line, if pieces have nothing to buy
+            assert seen["top"] <= 210 + max(0, extra), f"at 390 x 844 the picture starts {seen['top']:.0f}px down"
+            assert seen["line"] <= seen["tabs"], \
+                f"at 390 x 844 the outfit's title, price and heart end at {seen['line']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
+            row = other.evaluate("""() => {
+                const chips = document.querySelector('.toolbar .chips'), items = [...chips.children, document.querySelector('.toolbar .shuffle')];
+                const boxes = items.map(el => el.getBoundingClientRect()), shuffle = boxes[boxes.length - 1];
+                return {rows: new Set(boxes.map(b => Math.round(b.top + b.height / 2))).size,
+                        inside: boxes.every(b => b.left >= 0 && b.right <= innerWidth) && boxes.slice(0, -1).every(b => b.right <= shuffle.left),
+                        group: chips.getAttribute('role'),
+                        current: [...chips.querySelectorAll('[aria-current=page]')].map(a => a.classList.contains('on') && a.textContent.trim())};
+            }""")
+            assert row["rows"] == 1 and row["inside"], f"at 390px the chips and Shuffle are not one row on the screen: {row}"
+            assert row["group"] == "group" and len(row["current"]) == 1 and row["current"][0], f"the chip that is on is not marked: {row}"
+            lead = other.locator(".lead").inner_text()
+            assert "swipe" in lead and "arrow" not in lead and "←" not in lead, f"on a touch screen the line over the outfits reads {lead!r}"
+            buy, pieces = other.locator(f"{first} .about-actions a").bounding_box(), other.locator(f"{first} .pieces").bounding_box()
+            assert buy["height"] >= 48 and abs(buy["width"] - pieces["width"]) < 1, \
+                f"at 390px 'Buy this outfit' is {buy['width']:.0f} x {buy['height']:.0f}px, the list {pieces['width']:.0f}px wide"
+            rings_whole(other, "390 x 844")
+            other.goto(base + "/outfits?occasion=office", wait_until="networkidle")
+            heads = other.evaluate("""() => ({h1: document.querySelectorAll('h1').length,
+                slides: document.querySelectorAll('#reel .slide:not(.more-slide)').length,
+                titles: [...document.querySelectorAll('#reel .slide:not(.more-slide) .about-head > h2')].map(h => h.firstChild.textContent.trim())})""")
+            assert heads["h1"] == 1 and len(heads["titles"]) == heads["slides"] > 0, f"one main heading and one per outfit: {heads}"
+            assert "Smart casual" not in heads["titles"], f"under Office an outfit is titled only 'Smart casual': {heads['titles']}"
+            context.close()
+
+            for path, where in (("/outfits", "390 x 664"), ("/outfits?at=no~such~outfit", "390 x 664 under a message")):
+                context, other = opened(390, 664, True, path)
+                seen = screen(other)
+                assert seen["bottom"] <= seen["tabs"], f"at {where} the picture ends at {seen['bottom']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
+                if "at=" in path:
+                    message = other.locator("main > .flash").first.bounding_box()
+                    assert message and 0 <= message["y"] and message["y"] + message["height"] <= seen["tabs"], \
+                        f"the message at the top of the outfits is not whole on the first screen: {message}"
+                context.close()
+
+            context, other = opened(360, 800, True)
+            narrow = other.evaluate("""() => {
+                const chips = document.querySelector('.toolbar .chips'), last = chips.lastElementChild;
+                const rows = new Set([...chips.children].map(c => Math.round(c.getBoundingClientRect().top))).size;
+                chips.scrollLeft = chips.scrollWidth;
+                const a = last.getBoundingClientRect(), b = chips.getBoundingClientRect();
+                return {rows, last_in_reach: a.left >= b.left && a.right <= b.right, page: document.documentElement.scrollWidth};
+            }""")
+            assert narrow["rows"] == 1 and narrow["last_in_reach"] and narrow["page"] <= 360, \
+                f"at 360px the chips do not scroll sideways in one row, or the page is wider than the screen: {narrow}"
+            context.close()
+
+            context, other = opened(1280, 900, False)
+            lead = other.locator(".lead").inner_text()
+            assert "arrows" in lead and "swipe" not in lead.lower(), f"with a mouse the line over the outfits reads {lead!r}"
+            rings_whole(other, "1280 x 900")
+            context.close()
+
         def budget_bar_never_hides_the_focus():
             # On a phone the budget bar is one line, and it sticks to the top only where that helps: not over the
             # outfits, and not on a screen under 520px tall. What has keyboard focus is never hidden under it or
@@ -509,6 +616,7 @@ def run(base: str) -> None:
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
+                 ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),
                  ("the budget bar never hides what has focus", budget_bar_never_hides_the_focus),
                  ("delete the account", delete_account)]
         for name, step in steps:

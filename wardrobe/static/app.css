@@ -360,27 +360,60 @@ details.why summary::-webkit-details-marker { display: none; }
 .extlink { display: inline-flex; align-items: center; gap: 4px; min-height: 38px; font-size: var(--t-s); color: var(--muted); }
 
 /* ── Outfits: one at a time, side to side ────────────────────────────────── */
-.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 2px 0 10px; }
+/* The chips and Shuffle in one row. Where the chips do not fit (a narrow phone) they scroll sideways inside their
+   own row, which reaches 4px past them on every side and pads that back, so that their focus rings show whole. */
+.toolbar { display: flex; align-items: center; gap: var(--s-2); margin: 0 0 var(--s-2); }
+.toolbar .chips {
+  flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+  margin: calc(-1 * var(--s-1)); padding: var(--s-1);
+}
+.toolbar .chips::-webkit-scrollbar { display: none; }
+.toolbar .chip-link { flex: none; white-space: nowrap; }
+/* Shuffle: a 44px icon on a phone, its name hidden but still read out (as .sr); with its name on a computer. */
+.shuffle { position: relative; flex: none; width: 44px; min-height: 44px; padding: 0; }
+.shuffle span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* The lead line ends "swipe for more" on a touch screen, "use the arrows or ← →" with a mouse. */
+.by-mouse { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .by-touch { display: none; }
+  .by-mouse { display: inline; }
+}
 .looks { position: relative; display: flow-root; }   /* flow-root: the row's reach above and below (see .reel) moves neither this section nor its arrows */
 .reel {   /* a row of full-width slides; the browser snaps to one outfit at a time */
   position: relative;   /* what is placed inside a slide stays inside the row; else the page grows to all the outfits' width */
   display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
   overscroll-behavior-x: contain; scrollbar-width: none;
   /* The row cuts off whatever reaches past it, focus rings too. So it reaches past its outfits, by the gutter at
-     the sides and 12px above and below, and each slide pads that back: nothing moves, and the ring around the
-     heart or 'Buy this outfit' at the row's edge shows whole. */
-  margin: calc(-1 * var(--s-3)) calc(-1 * var(--gutter));
+     the sides and 16px above and below, and each slide pads that back: nothing moves, and the ring around the
+     heart (44px, centred on the title's line, so its ring reaches 12.2px above it) or 'Buy this outfit' at the
+     row's edge shows whole. */
+  margin: calc(-1 * var(--s-4)) calc(-1 * var(--gutter));
 }
 .reel:focus-visible { outline-offset: -3px; }   /* it runs to the screen's edges on a phone */
 .reel::-webkit-scrollbar { display: none; }
 .slide {
   flex: 0 0 100%; min-width: 0; scroll-snap-align: center; scroll-snap-stop: always;
-  display: grid; gap: 14px; align-content: start; padding: var(--s-3) var(--gutter);
+  display: grid; gap: var(--s-3); align-content: start; padding: var(--s-4) var(--gutter);
 }
-/* The stage: the outfit as a picture, 2 wide by 3 high, as tall as the screen allows.
-   Square corners on a phone; on computers the photo radius (see "Wider screens"). */
-.stage { position: relative; width: min(100%, max(240px, calc((100svh - 400px) * .667))); margin: 0 auto; }
-.collage, .look-pic { aspect-ratio: 2 / 3; border-radius: 0; overflow: hidden; border: 1px solid var(--line); background: var(--photo); }
+/* The stage: the outfit as a picture, 2 wide by 3 high, without a border. Square corners on a phone; on computers
+   the photo radius (see "Wider screens"). On a phone the first screen shows the whole model, its price and the
+   heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
+   the budget bar (--bar-h) and 324px: the header, the chips and the lead line above the picture (150px), the note
+   under it (up to three lines of small text), the outfit line and the tab bar below. The picture is never under
+   240px wide; on a shorter screen it then ends just above the tab bar, and the outfit line follows below. */
+.looks { --told: 0px; --least: 240px; --lead-more: 0px; }
+.looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
+/* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
+   room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
+   than 240px, so that the whole model still shows on the first screen of a short phone (390 x 664) under a message
+   of up to three lines. */
+main:has(> .flash, > .demo) .looks { --told: calc(2 * var(--t-m) * var(--lh-m) + var(--s-6)); --least: 190px; }
+main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-m) * var(--lh-m) + 2 * var(--s-6)); --least: 150px; }
+.stage {
+  position: relative; margin: 0 auto;
+  width: min(100%, max(var(--least), calc((100svh - var(--bar-h) - 324px - var(--lead-more) - var(--told)) * 2 / 3)));
+}
+.collage, .look-pic { aspect-ratio: 2 / 3; border-radius: 0; overflow: hidden; background: var(--photo); }
 .collage { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 1px; }
 .collage.c2 { grid-template-columns: 1fr; }
 .collage.c3 .tile:first-child { grid-column: span 2; }   /* three pieces: the top across, trousers and shoes below */
@@ -409,6 +442,12 @@ details.why summary::-webkit-details-marker { display: none; }
 .look-bar.wait { justify-content: flex-start; }
 .look-bar .btn { flex: none; }
 .look-links { display: flex; gap: 12px; flex: none; }
+/* Under a finished picture the note runs on into its two links instead of being squeezed beside them: three lines at
+   most on a phone, however narrow the picture, so the outfit line under it stays on the first screen. The links keep
+   their finger-sized height without making their line taller. */
+.look-pic + .look-bar { display: block; }
+.look-pic + .look-bar > span:first-of-type::after { content: ""; margin-right: var(--s-2); }   /* the space before the links, none where they start a line */
+.look-pic + .look-bar .look-links { display: inline-flex; margin: calc(-1 * var(--s-1)) 0; }
 .look-links .link { padding: 4px 0; font-size: var(--t-s); }
 .look-msg { color: var(--ok); }
 .spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--ink); animation: spin .9s linear infinite; }
@@ -435,30 +474,34 @@ details.why summary::-webkit-details-marker { display: none; }
 .spot:hover .tip, .spot:focus-visible .tip { display: block; }
 /* Beside (or under) the stage: what the outfit is made of. */
 .about { width: min(100%, 460px); margin: 0 auto; }
-.about-head { display: flex; align-items: center; gap: 10px; padding: 0 2px 8px; }
-.about-head .tag {   /* the outfit's title ("Smart casual"): plain serif text, not a pill */
-  padding: 0; border-radius: 0; background: none; color: var(--ink);
-  font: 400 var(--t-xl)/var(--lh-xl) var(--display); font-synthesis: none;
+/* The outfit line: the title in the serif, then "1 / 12", the price and the heart, which go under the title together
+   when they do not fit beside it ("Everyday, smart casual" on a 375px phone). Under 360px the title always has a
+   line of its own. */
+.about-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) 10px; padding: 0 2px 8px; }
+.about-head h2 { flex: 0 1 auto; font: 400 var(--t-xl)/var(--lh-xl) var(--display); font-synthesis: none; }
+.about-meta { flex: 1 0 auto; display: flex; align-items: center; gap: 10px; }
+@media (max-width: 359.98px) {
+  .about-head h2 { flex-basis: 100%; }
 }
 .count { font-size: var(--t-s); color: var(--muted); font-variant-numeric: tabular-nums; }
 .board-cost { margin-left: auto; font-size: var(--t-l); font-weight: 600; font-variant-numeric: tabular-nums; }
 .pieces { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ui); overflow: hidden; }
 .pieces li + li { border-top: 1px solid var(--line); }
 .piece-row {
-  display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center;
   width: 100%; min-height: 60px; padding: 6px 12px 6px 8px; border: 0; background: none; text-align: left; text-decoration: none; cursor: pointer;
 }
 .piece-row:hover { background: var(--soft); }
 .piece-row:focus-visible { outline-offset: -3px; }   /* the list clips: ring inside */
-.piece-row .pic { width: 40px; aspect-ratio: 4 / 5; }
+.piece-row .pic { width: 48px; aspect-ratio: 4 / 5; }   /* 48 x 60 */
 .piece-row .pic .fb { display: none; }
 .piece-text { display: grid; min-width: 0; }
 .piece-text b { font-size: var(--t-m); font-weight: 500; }
 .piece-text span { font-size: var(--t-s); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .piece-price { text-align: right; font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .piece-price small { display: block; font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-.about-actions { margin: 12px 0 0; }
-.about-actions .btn { width: 100%; }
+.about-actions { margin: var(--s-3) 0 0; }
+.about-actions .btn { width: 100%; }   /* "Buy this outfit": the main button, the whole width of the list */
 .more-slide { place-content: center; justify-items: center; min-height: 260px; text-align: center; }
 .reel-nav {
   display: none; position: absolute; top: 32%; width: 44px; height: 44px; padding: 0; border-radius: 50%;
@@ -470,7 +513,8 @@ details.why summary::-webkit-details-marker { display: none; }
 .reel-nav.next .ic { transform: rotate(180deg); }
 .reel-nav:disabled { opacity: .3; cursor: default; }
 .save { display: flex; }
-.heart { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin: -6px -6px -6px 0; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 50%; }
+/* The heart: a 44px target that takes no more room in the line than its 24px; its icon lines up with the list's edge. */
+.heart { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -10px -10px -10px 0; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 50%; }
 .heart.on { color: var(--ink); }   /* saved: filled with ink */
 .saved-on { font-size: var(--t-s); color: var(--muted); padding: 8px 2px 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -658,9 +702,13 @@ details[open] > summary .edit { visibility: hidden; }
   .card { padding: 20px; }
   .card .form { max-width: 620px; }
   .steps { grid-template-columns: repeat(3, 1fr); }
-  .reel { margin: calc(-1 * var(--s-3)) 0; }   /* the 12px of room for focus rings stays (see .reel) */
-  .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: 32px; padding: var(--s-3) 60px; }
-  .stage { width: max(260px, min(470px, calc((100svh - 300px) * .667))); margin: 0; }
+  .shuffle { width: auto; padding: 0 var(--s-3); }
+  .shuffle span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+  .reel { margin: calc(-1 * var(--s-4)) 0; }   /* the 16px of room for focus rings stays (see .reel) */
+  .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: var(--s-6); padding: var(--s-4) 60px; }
+  /* The picture beside the pieces, as tall as the screen allows below the budget bar (--bar-h), the header, the
+     chips and the lead line, with the line under it (210px), less any message's room (see .looks). */
+  .stage { width: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--told)) * 2 / 3))); margin: 0; }
   .collage, .look-pic { border-radius: var(--r-img); }
   .about { margin: 0; }
   .reel-nav { display: inline-flex; }

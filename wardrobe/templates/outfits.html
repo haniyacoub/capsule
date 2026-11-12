@@ -17,25 +17,33 @@
 {% endif %}
 {% endmacro %}
 
+{# One row: on a narrow phone the chips scroll sideways inside their own row, and Shuffle stays beside them
+   (an icon on a phone, its name still read out; with its name on a computer). #}
 <div class="toolbar">
-  <div class="chips" aria-label="Which outfits">
+  <div class="chips" role="group" aria-label="Which outfits">
     {% for key, label in OCCASIONS.items() %}
-    <a class="chip-link{% if occasion == key %} on{% endif %}" href="{{ url_for('outfits_page', occasion=key) }}">{{ label }}</a>
+    <a class="chip-link{% if occasion == key %} on{% endif %}" href="{{ url_for('outfits_page', occasion=key) }}"{% if occasion == key %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
-    <a class="chip-link{% if occasion == 'saved' %} on{% endif %}" href="{{ url_for('outfits_page', occasion='saved') }}">{{ icon('heart') }} Saved{% if n_saved %} {{ n_saved }}{% endif %}</a>
+    <a class="chip-link{% if occasion == 'saved' %} on{% endif %}" href="{{ url_for('outfits_page', occasion='saved') }}"{% if occasion == 'saved' %} aria-current="page"{% endif %}>{{ icon('heart') }} Saved{% if n_saved %} {{ n_saved }}{% endif %}</a>
   </div>
   {% if occasion != 'saved' %}
-  <a class="btn ghost small" href="{{ url_for('outfits_page', occasion=occasion, n=n, seed=next_seed) }}">{{ icon('shuffle') }} Shuffle</a>
+  <a class="btn ghost shuffle" href="{{ url_for('outfits_page', occasion=occasion, n=n, seed=next_seed) }}">{{ icon('shuffle') }}<span>Shuffle</span></a>
   {% endif %}
 </div>
 
 {% if boards %}
+{# One line: how many outfits, the day their prices were collected ("11 Nov" of "11 Nov 2026, 15:02"), and how
+   to see the next one: swipe on a touch screen, the arrows or the arrow keys with a mouse (app.css shows one). #}
 <p class="lead">
-  {% if occasion == 'saved' %}Your saved outfits, as they were when you saved them. A piece marked “changed” is no longer what your wardrobe selects for that slot.
-  {% else %}{{ boards|length }} of {{ total }} outfits your pieces make. Swipe, or use the arrows, to move between them; tap a piece to see it, swap it or leave it off.{% endif %}
+  {% if occasion == 'saved' %}Your saved outfits, as they were when you saved them. “Changed” marks a piece your wardrobe now fills with something else.
+  {% else %}
+  {{ '%d of ' % boards|length if boards|length < total }}{{ total }} {{ 'outfit' if total == 1 else 'outfits' }}
+  {%- if w.collected != 'never' %} · prices of {{ w.collected.split(',')[0].rsplit(' ', 1)[0] }}{% endif %}
+  {%- if boards|length > 1 or boards|length < total %}<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>{% endif %}
+  {% endif %}
 </p>
 
-<section class="looks" aria-label="Outfits, one at a time">
+<section class="looks{% if occasion == 'saved' %} saved{% endif %}" aria-label="Outfits, one at a time">
   <div class="reel" id="reel" tabindex="0">
     {% for o in boards %}
     <article class="slide" id="outfit-{{ o.key }}" data-slide aria-label="Outfit {{ loop.index }} of {{ boards|length }}">
@@ -65,18 +73,23 @@
       </div>
 
       <div class="about">
+        {# The outfit line: its title, which agrees with the chip that is on (under Office a smart-casual outfit
+           is "Office, smart casual"), then where it is in the row, its price and the heart, which move together
+           under the title when they do not fit beside it. #}
         <header class="about-head">
-          <span class="tag">{{ o.label }}</span>
-          <span class="count">{{ loop.index }} / {{ boards|length }}</span>
-          <b class="board-cost" title="What the pieces in this outfit cost together">{{ o.cost|eur }}</b>
-          {% include "_save_button.html" %}
+          <h2>{{ OCCASIONS[occasion] ~ ', smart casual' if o.label == 'Smart casual' and occasion in ('everyday', 'office') else o.label }}<span class="sr">, outfit {{ loop.index }} of {{ boards|length }}</span></h2>
+          <div class="about-meta">
+            <span class="count" aria-hidden="true">{{ loop.index }} / {{ boards|length }}</span>
+            <b class="board-cost" title="What the pieces in this outfit cost together">{{ o.cost|eur }}</b>
+            {% include "_save_button.html" %}
+          </div>
         </header>
         <ul class="pieces">
           {% for p in o.pieces %}
           <li>
             {% call piece(o, p, 'piece-row', p.slot_name) %}
               {{ pic('' if p.owned else p.image_url, p.hex) }}
-              <span class="piece-text"><b>{{ p.slot_name }}</b><span>{% if p.owned %}You own this{% else %}{{ p.name }}{% endif %}</span></span>
+              <span class="piece-text"><b>{{ p.slot_name }}</b>{% if p.owned %}<span>You own this</span>{% else %}<span{% if p.store_name %} lang="de"{% endif %}>{{ p.name }}</span>{% endif %}</span>
               <span class="piece-price">{% if p.owned %}0 €{% else %}{{ p.price|eur }}<small>{{ STORES.get(p.store, p.store) }}{% if p.changed %} · changed{% endif %}</small>{% endif %}</span>
             {% endcall %}
           </li>
@@ -84,7 +97,7 @@
         </ul>
         {% if o.saved_at %}<p class="saved-on">Saved {{ o.saved_at }}</p>{% endif %}
         {% if o.sig %}
-        <p class="about-actions"><a class="btn small" href="{{ url_for('outfits_buy', at=o.sig) }}">Buy this outfit</a></p>
+        <p class="about-actions"><a class="btn" href="{{ url_for('outfits_buy', at=o.sig) }}">Buy this outfit</a></p>
         {% endif %}
         {% if tryon_available and o.sig %}
         {# Extension point: appears once a provider is set in wardrobe/tryon.py #}
