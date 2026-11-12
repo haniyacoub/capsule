@@ -1,23 +1,46 @@
 <!doctype html>
+{# The page for every error: a page that isn't there (404), a form that didn't go through (400, 403), a crash
+   (500) and, on your own machine, a config file that needs fixing. Its words come from app.py (error_page).
+   It stands on its own instead of extending base.html or _public.html: an error page must not depend on what
+   may have failed, and _public.html names the log-in page, which only exists in production. #}
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
   <title>{{ title }} · Capsule</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ asset_v }}">
 </head>
+{# Home, as from the wordmark on every page: the outfits for a customer (and on your own machine), the
+   website for a visitor. #}
+{% set at_home = user or not production %}
+{% set home = url_for('outfits_page') if at_home else url_for('wardrobe') %}
 <body>
+  <header class="top">
+    <a class="brand" href="{{ home }}">Capsule</a>
+  </header>
+
   <main>
-    <section class="card" style="margin-top:24px">
+    <section class="card oops">
       <h1>{{ title }}</h1>
       {% if plain %}
-      {% if message %}<p style="margin:10px 0">{{ message }}</p>{% endif %}
-      <p><a class="btn ghost small" href="{{ url_for('wardrobe') }}">Back to Capsule</a></p>
+      <p>{{ message }}</p>
+      <a class="btn" href="{{ home }}">{{ "Go to your outfits" if at_home else "Go to the home page" }}</a>
       {% else %}
-      <p style="margin:10px 0"><code>{{ message }}</code></p>
+      <p><code>{{ message }}</code></p>
       <p class="muted">Fix the file, save it, and reload this page — no restart needed.</p>
       {% endif %}
     </section>
   </main>
+
+  {% if production %}
+  <footer class="site-foot">
+    {% for name, label in legal_pages.items() %}<a href="{{ url_for('legal_page', name=name) }}">{{ label }}</a>{% endfor %}
+    <span>Not affiliated with any retailer.</span>
+  </footer>
+  {% endif %}
 </body>
 </html>

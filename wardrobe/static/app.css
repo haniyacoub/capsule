@@ -600,6 +600,11 @@ details[open] > summary .edit { visibility: hidden; }
 .auth h1 { margin-bottom: 12px; }
 .auth .form { margin-bottom: 12px; }
 .legal { max-width: 720px; margin: 16px auto 0; }
+/* An error page: a narrow card like log-in's, one line, and the way home as its one main button. */
+.oops { max-width: 440px; margin: var(--s-5) auto 0; }
+.oops h1 { text-wrap: balance; }
+.oops p { overflow-wrap: anywhere; text-wrap: pretty; }   /* a long file name in a config error must not widen the page */
+.oops .btn { width: 100%; margin-top: var(--s-4); }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .site-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; max-width: 1240px; margin: 0 auto; padding: 18px var(--gutter) 26px; font-size: var(--t-s); color: var(--muted); }
 .site-foot a { color: var(--muted); }

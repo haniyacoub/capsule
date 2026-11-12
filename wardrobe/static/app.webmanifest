@@ -2,11 +2,14 @@
   "name": "Capsule",
   "short_name": "Capsule",
   "description": "A small wardrobe where everything goes with everything.",
-  "start_url": "/",
+  "start_url": "/outfits",
   "display": "standalone",
   "background_color": "#f6f5f2",
-  "theme_color": "#1b1b1a",
+  "theme_color": "#f6f5f2",
   "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }

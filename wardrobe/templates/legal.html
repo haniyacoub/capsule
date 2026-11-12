@@ -1,5 +1,10 @@
 {% extends "_public.html" %}
 {% block title %}{{ title }} · Capsule{% endblock %}
+{# Search engines are asked not to list these pages while they say "Not written yet". Remove this
+   block together with that notice once the real text is in. #}
+{% block head %}
+  <meta name="robots" content="noindex">
+{% endblock %}
 {% block main %}
 <section class="card legal">
   <h1>{{ title }}</h1>

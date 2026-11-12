@@ -225,6 +225,36 @@ def run(base: str) -> None:
             page.locator(".public-nav a", has_text="Open my outfits").click()
             page.wait_for_url(base + "/outfits")
 
+        def public_pages_and_errors():
+            # A visitor who only reads the website is given no cookie (nothing to ask consent for); the log-in form
+            # sets the one its token needs. A page that isn't there says so in Capsule's words, with the wordmark, the
+            # way home and the legal links, on a phone and on a computer. Capsule's icon is there for browsers to find.
+            for width, phone in ((390, True), (1280, False)):
+                context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
+                visitor = context.new_page()
+                for path in ("/", "/legal/privacy", "/does-not-exist"):     # (the 404 at the end is expected)
+                    visitor.goto(base + path, wait_until="networkidle")
+                assert not context.cookies(), f"reading the website set a cookie: {[c['name'] for c in context.cookies()]}"
+                seen = visitor.evaluate("""() => ({
+                    title: document.querySelector('main h1').textContent.trim(),
+                    text: document.body.innerText,
+                    links: [...document.querySelectorAll('a')].map(a => [a.textContent.trim(), a.getAttribute('href')]),
+                    wide: document.documentElement.scrollWidth,
+                    cut: [...document.querySelectorAll('main h1, main p, main .btn')].filter(el => el.scrollWidth > el.clientWidth + 1).length})""")
+                assert seen["title"] == "We can't find that page", f"a missing page at {width}px says {seen['title']!r}"
+                assert "requested URL" not in seen["text"], "a missing page still shows Werkzeug's sentence"
+                assert seen["links"][:2] == [["Capsule", "/"], ["Go to the home page", "/"]], f"the way home: {seen['links']}"
+                assert ["Privacy policy", "/legal/privacy"] in seen["links"], "no legal links on a missing page"
+                assert seen["wide"] <= width + 1 and not seen["cut"], f"the missing page does not fit {width}px"
+                icon = context.request.get(base + "/favicon.ico")
+                assert icon.ok and icon.headers["content-type"].startswith("image/"), "no /favicon.ico"
+                visitor.goto(base + "/login", wait_until="networkidle")
+                assert [c["name"] for c in context.cookies()] == ["session"], "the log-in form has no cookie for its token"
+                context.close()
+            page.goto(base + "/does-not-exist", wait_until="networkidle")      # the customer is logged in here
+            page.locator("main a", has_text="Go to your outfits").click()
+            page.wait_for_url(base + "/outfits")
+
         def price_levels():
             page.goto(base + "/", wait_until="networkidle")
             assert page.locator(".levels small").count() == 6, "six choices, each with its total"
@@ -456,6 +486,7 @@ def run(base: str) -> None:
                  ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("the landing page says what Capsule is", the_landing_page),
+                 ("public pages: no cookie, errors in plain words", public_pages_and_errors),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),

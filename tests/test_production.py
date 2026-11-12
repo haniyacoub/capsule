@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import closing
+from html import unescape
 from pathlib import Path
 from unittest import mock
 
@@ -166,6 +167,97 @@ class PublicSite(ProductionCase):
         for url in ("/legal/impressum", "/legal/privacy", "/legal/terms"):
             nav = re.search(r'<nav class="public-nav"[^>]*>(.*?)</nav>', ada.get(url).get_data(as_text=True), re.S).group(1)
             self.assertEqual(re.findall(r'href="([^"]*)">([^<]*)</a>', nav), [("/outfits", "Open my outfits")], url)
+
+    def test_reading_the_website_sets_no_cookie(self):
+        # A visitor who only reads (the landing page, the legal pages, a page that isn't there, the icon) is given no
+        # cookie, so there is nothing to ask consent for. The forms that need one for their token (sign-up, log-in, a
+        # forgotten password) still set it through their hidden field, and a customer's buttons still carry the token.
+        for url in ("/", "/legal/impressum", "/legal/privacy", "/legal/terms", "/no-such-page", "/favicon.ico"):
+            visitor = self.app.test_client()
+            for ask in (visitor.get, visitor.head):
+                response = ask(url)
+                self.assertNotIn("Set-Cookie", response.headers, f"{ask.__name__.upper()} {url}")
+                response.close()
+            self.assertIsNone(visitor.get_cookie("session"), url)
+        for url in ("/signup", "/login", "/forgot"):
+            for ask in ("get", "head"):
+                response = getattr(self.app.test_client(), ask)(url)
+                self.assertEqual(response.status_code, 200, f"{ask.upper()} {url}")
+                self.assertIn("session=", response.headers.get("Set-Cookie", ""), f"{ask.upper()} {url}")
+        self.assertNotIn("hx-headers", self.app.test_client().get("/").get_data(as_text=True))
+        ada = self.member("ada@example.com")
+        self.assertIn("hx-headers", ada.get("/legal/privacy").get_data(as_text=True), "a customer's pages carry the token")
+
+    def test_asking_with_head_is_never_taken_for_a_sent_form(self):
+        # Link checkers and "curl -I" ask with HEAD. It gets the page, as GET does: it is not a failed log-in (enough of
+        # those lock the address out), it asks for no reset link and it doesn't use one up.
+        visitor = self.app.test_client()
+        for url in ("/login", "/signup", "/forgot"):
+            self.assertEqual(visitor.head(url).status_code, 200, url)
+        self.assertEqual(db.failed_logins("", "127.0.0.1", settings.LOGIN_WINDOW_SECONDS), (0, 0))
+        self.assertNotIn("reset link", visitor.get("/login").get_data(as_text=True), "HEAD /forgot sent the form")
+        self.member("ada@example.com")
+        self.post(visitor, "/forgot", email="ada@example.com")
+        reset = re.search(r"/reset/[\w-]+", mail.OUTBOX[-1]["body"]).group(0)
+        self.assertEqual(visitor.head(reset).status_code, 200)
+        self.assertEqual(visitor.get(reset).status_code, 200, "the link still works after a HEAD")
+
+    def test_capsule_has_its_own_icons(self):
+        # Browsers and search engines ask for /favicon.ico by themselves (Google wants a multiple of 48 px); an iPhone
+        # puts the 180 px square on its home screen; Android installs Capsule from the manifest's PNGs, opening the
+        # outfits, in the colour of the page. Every file is the size it says it is.
+        visitor = self.app.test_client()
+
+        def fetch(url):
+            response = visitor.get(url)
+            self.assertEqual(response.status_code, 200, url)
+            data, kind = response.get_data(), response.mimetype
+            response.close()
+            return data, kind
+
+        def png_size(data: bytes) -> str:
+            self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n", "not a PNG")
+            return f"{int.from_bytes(data[16:20], 'big')}x{int.from_bytes(data[20:24], 'big')}"
+
+        icon, kind = fetch("/favicon.ico")
+        self.assertEqual((kind, icon[:4]), ("image/x-icon", b"\x00\x00\x01\x00"), "an ICO file")
+        self.assertEqual(png_size(icon[22:]), "48x48")
+        touch, kind = fetch("/static/apple-touch-icon.png")
+        self.assertEqual((kind, png_size(touch)), ("image/png", "180x180"))
+
+        page = visitor.get("/").get_data(as_text=True)
+        for link in ('<link rel="icon" href="/favicon.ico" sizes="48x48">',
+                     '<link rel="icon" href="/static/icon.svg" type="image/svg+xml">',
+                     '<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">'):
+            self.assertIn(link, page)
+        self.assertNotIn('rel="icon" href="data:', page)
+        manifest = json.loads(fetch("/static/app.webmanifest")[0])
+        self.assertEqual(manifest["start_url"], "/outfits", "the installed app opens on the outfits, Capsule's home")
+        light = re.search(r'<meta name="theme-color" content="([^"]+)" media="\(prefers-color-scheme: light\)">', page)
+        self.assertEqual(manifest["theme_color"], light.group(1))
+        pngs = {(i["sizes"], i["purpose"]): i["src"] for i in manifest["icons"] if i["type"] == "image/png"}
+        self.assertEqual(set(pngs), {("192x192", "any"), ("512x512", "any"), ("512x512", "maskable")})
+        for (sizes, _), src in pngs.items():
+            data, kind = fetch(src)
+            self.assertEqual((kind, png_size(data)), ("image/png", sizes), src)
+
+    def test_unfinished_pages_and_log_in_stay_out_of_search_results(self):
+        # The legal pages say 'Not written yet', and log-in, a forgotten password and a reset link are nothing to find
+        # in a search engine. The landing page and sign-up are.
+        noindex = '<meta name="robots" content="noindex">'
+        visitor = self.app.test_client()
+        for url in ("/legal/impressum", "/legal/privacy", "/legal/terms"):
+            page = visitor.get(url).get_data(as_text=True)
+            self.assertIn(noindex, page, url)
+            self.assertIn("Not written yet", page, "the tag goes with the placeholder")
+        for url in ("/login", "/forgot"):
+            self.assertIn(noindex, visitor.get(url).get_data(as_text=True), url)
+        for url in ("/", "/signup"):
+            self.assertNotIn(noindex, visitor.get(url).get_data(as_text=True), url)
+        self.member("ada@example.com")
+        self.post(visitor, "/forgot", email="ada@example.com")
+        reset = re.search(r"/reset/[\w-]+", mail.OUTBOX[-1]["body"]).group(0)
+        self.assertIn(noindex, visitor.get(reset).get_data(as_text=True))
 
 
 class Accounts(ProductionCase):
@@ -450,8 +542,10 @@ class Guards(ProductionCase):
         with mock.patch("wardrobe.selection.build", side_effect=ValueError("secret internals")):
             response = ada.get("/outfits")
         self.assertEqual(response.status_code, 500)
-        self.assertIn(b"Something went wrong", response.data)
+        text = unescape(words(response.get_data(as_text=True)))
+        self.assertIn("Something went wrong on our side It's not you. Try again in a minute. Go to your outfits", text)
         self.assertNotIn(b"secret internals", response.data)
+        self.assertNotIn(b"Traceback", response.data)
         self.assertEqual(ada.get("/no-such-page").status_code, 404)
 
     def test_new_accounts_per_connection_are_limited(self):
@@ -461,6 +555,55 @@ class Guards(ProductionCase):
             third = self.post(self.app.test_client(), "/signup", email="three@example.com", password=PASSWORD)
         self.assertEqual(third.status_code, 400)
         self.assertIsNone(db.get_user_by_email("three@example.com"))
+
+
+class ErrorPages(ProductionCase):
+    """An error page says what happened in Capsule's words, never in Werkzeug's sentences for developers, with the
+    wordmark, the way home and the legal links."""
+
+    LEGAL = [("/legal/impressum", "Impressum"), ("/legal/privacy", "Privacy policy"), ("/legal/terms", "Terms of use")]
+
+    @staticmethod
+    def links(html: str) -> list[tuple[str, str]]:
+        return [(href, unescape(name)) for href, name in re.findall(r'<a [^>]*href="([^"]*)"[^>]*>([^<]*)</a>', html)]
+
+    def test_a_page_that_is_not_there_says_so_in_capsules_words(self):
+        missing = self.app.test_client().get("/no-such-page")
+        self.assertEqual(missing.status_code, 404)
+        page = missing.get_data(as_text=True)
+        text = unescape(words(page))
+        self.assertIn("We can't find that page The link may be old, or the page may have moved.", text)
+        self.assertIn("<title>We can&#39;t find that page · Capsule</title>", page)
+        for werkzeug in ("requested URL", "on the server", "check your spelling"):
+            self.assertNotIn(werkzeug, text)
+        self.assertEqual(self.links(page), [("/", "Capsule"), ("/", "Go to the home page"), *self.LEGAL])
+        self.assertRegex(page, r'<a class="brand" href="/">Capsule</a>', "the wordmark, as on every page")
+
+        ada = self.member("ada@example.com")
+        mine = ada.get("/no-such-page").get_data(as_text=True)
+        self.assertEqual(self.links(mine), [("/outfits", "Capsule"), ("/outfits", "Go to your outfits"), *self.LEGAL])
+        # An address that only takes a form, opened as a page, is one that isn't there for the customer.
+        self.assertIn("We can't find that page", unescape(words(ada.get("/logout").get_data(as_text=True))))
+
+    def test_a_form_that_did_not_go_through_says_so_in_capsules_words(self):
+        ada = self.member("ada@example.com")
+        # Sent without the page's token (a page kept open too long): Capsule's own message is shown.
+        stale = ada.post("/settings", data={"mode": "cheapest"})
+        self.assertEqual(stale.status_code, 400)
+        self.assertIn("That didn't go through This page was open for too long or was not sent from Capsule. "
+                      "Reload it and try again. Go to your outfits", unescape(words(stale.get_data(as_text=True))))
+        # A form from another website: Capsule's line in place of Werkzeug's "You don't have the permission to…".
+        foreign = ada.post("/settings", data={"mode": "cheapest", "csrf_token": self.token(ada)},
+                           headers={"Origin": "https://evil.example"})
+        self.assertEqual(foreign.status_code, 403)
+        text = unescape(words(foreign.get_data(as_text=True)))
+        self.assertIn("That didn't go through Reload the page and try again.", text)
+        self.assertNotIn("permission", text)
+        # Capsule's own words given to abort() take the place of the line.
+        gone = self.post(ada, "/outfits/save", key="no-such-outfit")
+        self.assertEqual(gone.status_code, 409)
+        self.assertIn("That changed in the meantime That outfit no longer exists — reload the page.",
+                      unescape(words(gone.get_data(as_text=True))))
 
 
 CODE = "by-invitation-2026"
@@ -668,6 +811,17 @@ class SharedStoreCatalogue(ProductionCase):
         page = ada.get(f"/slot/{empty}").data.decode()
         self.assertIn(f'<a href="/slots#slot-{empty}">Edit the plan</a> to give it another colour', page)
         self.assertNotIn("Slots page", page)
+
+    def test_customers_are_never_told_to_run_a_command(self):
+        # On your own machine a new piece that nothing was collected for says to run "python -m wardrobe refresh".
+        # A customer can't, so a customer never reads it, even when the shared store list can't be read just then.
+        self.publish()
+        ada = self.member("ada@example.com")
+        with mock.patch.object(shared, "build_catalog", return_value=None):
+            added = self.post(ada, "/slots/add", name="A burgundy cardigan", category="cardigan", colour="burgundy", qty="1")
+        page = ada.get(added.headers["Location"].split("#")[0]).get_data(as_text=True)
+        self.assertIn("A burgundy cardigan", page)
+        self.assertNotIn("python -m wardrobe", page)
 
     def test_publishing_is_done_from_your_own_machine(self):
         from wardrobe.__main__ import main

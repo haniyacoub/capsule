@@ -46,7 +46,8 @@ NAV = [
 
 # Pages anyone may open without an account (production mode).
 PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_image",
-          "auth.signup", "auth.login", "auth.forgot", "auth.reset"}
+          "auth.signup", "auth.login", "auth.forgot", "auth.reset",
+          "favicon"}
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
 
 
@@ -63,7 +64,9 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
     On demo data the invented candidates are rebuilt. On real data, candidates
     of deleted slots are dropped, and so are those collected for a slot whose
     garment or colour just changed (they no longer fit it). Items you added by
-    hand always stay. Returns True if real data now needs a refresh.
+    hand always stay. Returns True if real data now needs a refresh: only on your
+    own machine, where you can run one (REFRESH_HINT). A customer can't, so a
+    customer is never told to.
     """
     current = catalog.load()
     slots = db.list_slots()
@@ -87,7 +90,7 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
                                  if c.get("slot_id") != changed_slot or c.get("source") == "manual"]
     catalog.update(tidy)
     filled = set(catalog.by_slot(catalog.load()))
-    return any(s["id"] not in filled and not s["owned"] for s in slots)
+    return not conf.PRODUCTION and any(s["id"] not in filled and not s["owned"] for s in slots)
 
 
 REFRESH_HINT = "Slots without candidates fill up at the next “python -m wardrobe refresh”."
@@ -289,6 +292,25 @@ def create_app() -> Flask:
     def config_error(err: ConfigError):
         return render_template("error.html", title="A config file needs fixing", message=str(err)), 500
 
+    # Each error page in Capsule's own words: a title and one line (error.html adds the way home). Werkzeug's
+    # own sentences ("The requested URL was not found on the server…") are written for developers and never
+    # shown; a message Capsule itself gives to abort() takes the place of the line.
+    error_words = {
+        400: ("That didn't go through", "Reload the page and try again."),
+        403: ("That didn't go through", "Reload the page and try again."),
+        404: ("We can't find that page", "The link may be old, or the page may have moved."),
+        405: ("We can't find that page", "The link may be old, or the page may have moved."),
+        409: ("That changed in the meantime", "Reload the page and try again."),
+        413: ("Too much data", "Go back and try again with less."),
+        429: ("Too many attempts", "Wait a few minutes and try again."),
+        500: ("Something went wrong on our side", "It's not you. Try again in a minute."),
+        501: ("Not available yet", "This part of Capsule isn't built yet."),
+    }
+
+    def error_page(code: int, own: str | None = None):
+        title, line = error_words.get(code) or error_words[400 if code < 500 else 500]
+        return render_template("error.html", title=title, message=own or line, plain=True), code
+
     @app.errorhandler(HTTPException)
     def http_error(err: HTTPException):
         if request.headers.get("HX-Request") or err.code in (301, 302, 303, 307, 308):
@@ -296,17 +318,14 @@ def create_app() -> Flask:
         if err.code == 413 and request.endpoint == "profile_photo":     # back to the form, not to a dead end
             flash(f"Not saved. {person.TOO_LARGE}", "photo")
             return redirect(url_for("profile_page") + "#photo")
-        titles = {400: "That didn't go through", 403: "Not allowed", 404: "Page not found",
-                  409: "That changed in the meantime", 413: "Too much data", 429: "Too many attempts",
-                  501: "Not available yet"}
-        return render_template("error.html", title=titles.get(err.code or 500, "Something went wrong"),
-                               message=err.description or "", plain=True), err.code or 500
+        # abort(409, "That outfit changed…") stores its words on the error itself; Werkzeug's sentence for
+        # each kind of error lives on the class.
+        return error_page(err.code or 500, vars(err).get("description"))
 
     @app.errorhandler(Exception)
     def unexpected_error(err: Exception):
         app.logger.exception("Unhandled error on %s %s", request.method, request.path)
-        return render_template("error.html", title="Something went wrong",
-                               message="The error was logged. Try again in a moment.", plain=True), 500
+        return error_page(500)
 
     @app.get("/healthz")
     def healthz():
@@ -319,6 +338,12 @@ def create_app() -> Flask:
     def robots_txt():
         body = "User-agent: *\nDisallow: /slot/\nDisallow: /account\nAllow: /\n"
         return Response(body, mimetype="text/plain")
+
+    @app.get("/favicon.ico")
+    def favicon():
+        """Browsers and search engines ask for this address by themselves. A 48 px icon, made once from
+        static/icon.svg. Its address never changes, so it is kept for a day, not for a year."""
+        return send_file(ROOT / "wardrobe" / "static" / "favicon.ico", mimetype="image/x-icon", max_age=86400)
 
     @app.get("/legal/<name>")
     def legal_page(name: str):

@@ -116,7 +116,8 @@ def signup():
     if g.user:
         return redirect(url_for("wardrobe"))
     invite = bool(settings.INVITE_CODE)         # by invitation: the form also asks for the code
-    if request.method == "GET":
+    # HEAD (link checkers, "curl -I") is answered like GET here and below, never as a form that was sent.
+    if request.method in ("GET", "HEAD"):
         return render_template("auth_signup.html", invite=invite, code=request.args.get("code", "")[:200])
     email, password = _email(request.form.get("email")), request.form.get("password", "")
     code = request.form.get("code", "").strip()[:200]
@@ -147,7 +148,7 @@ def signup():
 def login():
     if g.user:
         return redirect(_next_page())
-    if request.method == "GET":
+    if request.method in ("GET", "HEAD"):
         return render_template("auth_login.html", next=request.args.get("next", ""))
     email = _email(request.form.get("email")) or ""
     password = request.form.get("password", "")
@@ -176,7 +177,7 @@ def logout():
 
 @bp.route("/forgot", methods=["GET", "POST"])
 def forgot():
-    if request.method == "GET":
+    if request.method in ("GET", "HEAD"):
         return render_template("auth_forgot.html")
     email = _email(request.form.get("email"))
     user = db.get_user_by_email(email) if email else None
@@ -199,7 +200,7 @@ def reset(token: str):
     if user_id is None:
         flash("That reset link has expired or was already used. Ask for a new one.")
         return redirect(url_for("auth.forgot"))
-    if request.method == "GET":
+    if request.method in ("GET", "HEAD"):
         return render_template("auth_reset.html", token=token)
     user = db.get_user(user_id)
     password = request.form.get("password", "")
