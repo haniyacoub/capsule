@@ -430,7 +430,8 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
     colour whose products another piece of that garment already has is skipped, and so is one that
     reaches the same products as a colour already offered: the piece must not become a copy of another.
     So is a colour with nothing in your size at a price: the tap would leave the piece as empty as before.
-    With nothing left to offer, `left_out` says why the piece stays empty.
+    With nothing left to offer, `left_out` says why the piece stays empty, true to why each colour he
+    wears was passed over: its products are already another piece's, or not in his size.
     """
     category = view.slot["category"]
     on_offer = shared.colours_on_offer(category)
@@ -438,10 +439,13 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
     taken = {c.id for other in views if other is not view and other.slot["category"] == category
              for c in other.cands}
     liked = [key for key in profile.get("liked", []) if key in on_offer]
-    not_in_your_size = False
+    in_your_plan = not_in_your_size = False         # why a colour he wears was passed over
     for key in liked + [key for key in on_offer if key not in liked]:
         ids = {product["id"] for product in on_offer[key]}
-        if key in refused or key == view.slot["colour"] or ids & taken:
+        if key in refused or key == view.slot["colour"]:
+            continue
+        if ids & taken:
+            in_your_plan = True
             continue
         if not any(usable_price(product.get("price")) and sizes.my_size(product, profile, category, charts).available
                    for product in on_offer[key]):
@@ -453,13 +457,18 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
             break
     if not view.offers:
         kind = view.garment.plural
+        verb = "are" if kind.endswith("s") else "is"        # "T-shirts are", "knitwear is"
         if not on_offer:
-            has = f"no {kind} yet"
+            why = f"Capsule has no {kind} yet"
+        elif in_your_plan:      # say so: "Capsule has none" would be untrue beside the grey jumper that has them
+            why = f"Capsule's {kind} in other colours you wear {verb} already in your plan"
+            if not_in_your_size:
+                why += " or not in your size"
         elif not_in_your_size:
-            has = f"no {kind} in your size in other colours you wear yet"
-        else:
-            has = f"no {kind} in other colours you wear yet"
-        view.left_out = f"Capsule has {has}, so this piece is left out of your outfits and your total."
+            why = f"Capsule has no {kind} in your size in other colours you wear yet"
+        else:                   # it has this garment only in colours he refused
+            why = f"Capsule has no {kind} in other colours you wear yet"
+        view.left_out = f"{why}, so this piece is left out of your outfits and your total."
 
 
 def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:

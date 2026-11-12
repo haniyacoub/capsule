@@ -644,6 +644,11 @@ class SharedStoreCatalogue(ProductionCase):
                           r'<input type="hidden" name="csrf_token" value="[^"]*">\s*'
                           r'<input type="hidden" name="colour" value="([^"]*)">', page)
 
+    @staticmethod
+    def card(page: str, slot_id: str) -> str:
+        """One piece's card on the Wardrobe page."""
+        return re.search(rf'<article [^>]*id="card-{slot_id}">.*?</article>', page, re.S).group(0)
+
     def test_a_piece_with_nothing_to_buy_says_so_and_offers_the_colours_capsule_has(self):
         ada = self.black_and_white()
         page = html.unescape(ada.get("/").data.decode())
@@ -651,6 +656,9 @@ class SharedStoreCatalogue(ProductionCase):
         self.assertNotIn("unfilled", page)
         card = re.search(r'<article [^>]*id="card-black-merino-jumper">.*?</article>', page, re.S).group(0)
         self.assertIn("Not in Capsule's product list in black yet", card)
+        # The card's link is named by its aria-label, which hides the note inside it: the note is pointed at instead.
+        self.assertIn('aria-label="Black merino jumper: see all options" aria-describedby="note-black-merino-jumper"', card)
+        self.assertIn('<span class="note" id="note-black-merino-jumper">Not in Capsule\'s product list in black yet</span>', card)
         self.assertIn("Use navy<span class=\"sr\"> for Black merino jumper</span>", card)
         self.assertEqual(self.offered(page, "black-merino-jumper"), ["navy"],
                          "grey is on offer too, but the grey jumper already has those products")
@@ -710,8 +718,15 @@ class SharedStoreCatalogue(ProductionCase):
         page = html.unescape(ada.get("/").data.decode())
         self.assertNotIn('name="colour" value="navy"', page)
         self.assertNotIn("Use navy", page)
-        self.assertIn("Capsule has no knitwear in other colours you wear yet, so this piece is left out of your "
-                      "outfits and your total.", page)
+        # The list's other knitwear is grey, and white its other tees: the grey jumper's and the white tee's. The
+        # pieces left out say so; "Capsule has none" would be untrue beside the grey jumper on the same page.
+        self.assertIn("Capsule's knitwear in other colours you wear is already in your plan, so this piece is left out "
+                      "of your outfits and your total.", self.card(page, "black-merino-jumper"))
+        self.assertIn("Capsule's T-shirts in other colours you wear are already in your plan, so this piece is left out "
+                      "of your outfits and your total.", self.card(page, "black-tee"))
+        self.assertIn("Grey merino jumper", page)
+        self.assertNotIn("Capsule has no knitwear", page)
+        self.assertNotIn("Capsule has no T-shirts", page)
         with db.as_user(self.user_id("ada@example.com")):
             self.assertFalse([v.slot["name"] for v in selection.build().slots if "navy" in {c.key for c in v.offers}])
         refused = self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy")
@@ -767,11 +782,33 @@ class SharedStoreCatalogue(ProductionCase):
         page = html.unescape(ada.get("/").data.decode())
         self.assertEqual(self.offered(page, "black-merino-jumper"), ["navy"], "a navy jumper comes in XXL")
         self.assertEqual(self.offered(page, "black-tee"), [], "the navy tee comes in S, M and L only")
-        self.assertIn("Capsule has no T-shirts in your size in other colours you wear yet, so this piece is left out "
-                      "of your outfits and your total.", page)
+        # White tees are the white tee's: so not "Capsule has no T-shirts in your size", which is untrue of them.
+        self.assertIn("Capsule's T-shirts in other colours you wear are already in your plan or not in your size, so "
+                      "this piece is left out of your outfits and your total.", self.card(page, "black-tee"))
         self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy")
         with db.as_user(self.user_id("ada@example.com")):
             self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "weekday-8", "one tap filled it")
+
+    def test_a_piece_left_out_says_truly_why(self):
+        """Why a piece stays empty, true to what the customer sees beside it. The list's knitwear is grey or navy, all
+        of it in S, M and L. Each customer below has a black merino jumper with nothing to buy."""
+        def left_out(client) -> str:
+            card = self.card(html.unescape(client.get("/").data.decode()), "black-merino-jumper")
+            self.assertNotIn("/colour", card, "nothing is offered")
+            return re.search(r'<p class="left-out">(.*?)</p>', card).group(1)
+
+        # Both colours refused: Capsule has no knitwear in a colour he wears.
+        self.assertEqual(left_out(self.black_and_white("ada@example.com", refused="navy, grey")),
+                         "Capsule has no knitwear in other colours you wear yet, so this piece is left out of your "
+                         "outfits and your total.")
+        # Grey refused, and no navy jumper in XXL: none in his size.
+        self.assertEqual(left_out(self.black_and_white("bea@example.com", refused="grey", top_size="XXL")),
+                         "Capsule has no knitwear in your size in other colours you wear yet, so this piece is left out "
+                         "of your outfits and your total.")
+        # Grey is the grey jumper's (planned, though not in XXL either) and navy is not in XXL.
+        self.assertEqual(left_out(self.black_and_white("cyd@example.com", top_size="XXL")),
+                         "Capsule's knitwear in other colours you wear is already in your plan or not in your size, so "
+                         "this piece is left out of your outfits and your total.")
 
     def test_a_piece_whose_options_in_your_size_have_no_price_says_so(self):
         """A product added by its link has no price until it is typed in (a server never opens the store's page).

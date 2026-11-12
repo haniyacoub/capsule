@@ -8,7 +8,7 @@ from pathlib import Path
 
 from wardrobe import capsule, catalog, colours, config, db, outfits, paths, selection, shared
 from wardrobe import profile as profile_mod
-from wardrobe.app import create_app, recoloured_name, weblink
+from wardrobe.app import create_app, weblink
 
 HX = {"HX-Request": "true"}
 
@@ -429,18 +429,21 @@ class PiecesWithNothingToBuy(AppCase):
         self.assertNotIn("black", on_offer)
         self.assertEqual(shared.colours_on_offer("coat"), {})
 
-        # A black jumper added on the plan page could only copy one of the two: nothing is offered, and it says why.
+        # A black jumper added on the plan page could only copy one of the two: nothing is offered, and it says why,
+        # truly: Capsule's grey and navy knitwear is there, as the grey and the navy jumper.
         self.client.post("/slots/add", data={"name": "", "category": "knit", "colour": "black", "qty": "1"})
         jumper = selection.build().get("black-jumper")
         self.assertEqual((jumper.note, jumper.offers), ("Not in Capsule's product list in black yet", []))
         page = html.unescape(self.client.get("/slot/black-jumper").data.decode())
-        self.assertIn("Capsule has no knitwear in other colours you wear yet, so this piece is left out of your "
-                      "outfits and your total.", page)
+        self.assertIn("Capsule's knitwear in other colours you wear is already in your plan, so this piece is left out "
+                      "of your outfits and your total.", page)
+        self.assertNotIn("Capsule has no knitwear", page)
         self.assertIn("python -m wardrobe refresh --slot black-jumper", page)
         self.assertIn("Capsule has no coats yet", html.unescape(self.client.get("/").data.decode()))
         self.assertEqual(self.client.post("/slot/black-jumper/colour", data={"colour": "grey"}).status_code, 409)
 
     def test_a_new_colour_renames_a_piece_named_after_its_colour(self):
+        from wardrobe.app import recoloured_name
         self.assertEqual(recoloured_name("Black wool blazer", "black", "navy"), "Navy wool blazer")
         self.assertEqual(recoloured_name("Light grey tee", "light-grey", "navy"), "Navy tee")
         self.assertEqual(recoloured_name("Black tee", "black", "light-grey"), "Light grey tee")
