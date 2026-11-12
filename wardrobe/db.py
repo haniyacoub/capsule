@@ -410,16 +410,18 @@ def get_slot(slot_id: str) -> dict | None:
 
 
 def replace_slots(slots: list[dict]) -> None:
-    """Swap in a whole new slot list (used when the capsule is re-proposed)."""
+    """Swap in a whole new slot list: a fresh proposal, or one rebuilt from the profile that keeps
+    the products picked by hand (their pick and lock are written too)."""
     user_id = uid()
     with connect() as con:
         con.execute("DELETE FROM slots WHERE user_id = ?", (user_id,))
         for i, s in enumerate(slots):
+            locked = bool(s.get("locked") and s.get("pick"))
             con.execute(
-                "INSERT INTO slots (user_id, id, position, name, category, colour, keywords, qty, owned) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO slots (user_id, id, position, name, category, colour, keywords, qty, owned, locked, pick) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (user_id, s["id"], i, s["name"], s["category"], s["colour"], s.get("keywords", ""),
-                 int(s.get("qty", 1)), int(bool(s.get("owned")))),
+                 int(s.get("qty", 1)), int(bool(s.get("owned"))), int(locked), s["pick"] if locked else None),
             )
 
 

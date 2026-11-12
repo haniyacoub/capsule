@@ -230,6 +230,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .levels span { padding: 7px 2px 6px; font-size: var(--t-s); line-height: 1.25; white-space: normal; }
 .levels small { display: block; font-size: var(--t-s); font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
 .thr small { font-weight: 400; }
+.plan-line a { padding: 10px 0; }    /* "Edit the plan": a finger-sized target that does not move the line */
 
 .sec { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 20px 2px 8px; }
 .grid { display: grid; gap: 10px; }
@@ -476,6 +477,8 @@ details.why summary::-webkit-details-marker { display: none; }
 .swap-text span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* ── Shopping list ───────────────────────────────────────────────────────── */
+/* A page's title outside a card: the same serif and size as .card h1. */
+.page-title { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin: 0 0 8px; }
 .store-list { margin-bottom: 12px; padding: 0; }
 .store-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
 .store-head h2 { margin: 0; font-size: var(--t-l); }

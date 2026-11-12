@@ -45,8 +45,8 @@
 {% else %}
 <p class="empty">
   {% if demo %}The demo data has nothing for this garment type.
-  {% elif production %}No store had this in {{ s.colour.label|lower }} when the catalogue was last updated. Give the slot another colour on the Slots page, or add a product by link below.
-  {% else %}No store had this in {{ s.colour.label|lower }} at the last refresh, or the slot is new. Try <code>python -m wardrobe refresh --slot {{ sid }}</code>, give the slot another colour on the Slots page, or add a product by link below.{% endif %}
+  {% elif production %}No store had this in {{ s.colour.label|lower }} when the catalogue was last updated. <a href="{{ url_for('slots_page') }}#slot-{{ sid }}">Edit the plan</a> to give it another colour, or add a product by link below.
+  {% else %}No store had this in {{ s.colour.label|lower }} at the last refresh, or the slot is new. Try <code>python -m wardrobe refresh --slot {{ sid }}</code> or add a product by link below. <a href="{{ url_for('slots_page') }}#slot-{{ sid }}">Edit the plan</a> to give the slot another colour.{% endif %}
 </p>
 {% endif %}
 

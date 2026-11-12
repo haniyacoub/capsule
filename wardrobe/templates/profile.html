@@ -73,9 +73,9 @@
    without AI pictures are not shown a menu that would do nothing. #}
 {% if looks_on or not production %}
 <section class="card" id="model">
-  <h1>Your model</h1>
+  <h2>Your model</h2>
   {% for message in get_flashed_messages(category_filter=['model']) %}
-  <p class="flash" role="status">{{ message }}</p>
+  <p class="flash" role="status">{{ message }}{% if message.startswith('Model saved') %} <a href="{{ url_for('outfits_page') }}">See your outfits</a>{% endif %}</p>
   {% endfor %}
   <p class="muted">Who wears your outfits in the AI pictures. Pick what you like; whatever stays on “Any” is left to the image service.</p>
   {% if not looks_on %}
@@ -101,7 +101,7 @@
     <h2 class="sec">Or be the model yourself</h2>
     {% endif %}
     {% for message in get_flashed_messages(category_filter=['photo']) %}
-    <p class="flash{% if message.startswith('Not saved') or message.startswith('No photo') %} bad{% endif %}" role="status">{{ message }}</p>
+    <p class="flash{% if message.startswith('Not saved') or message.startswith('No photo') %} bad{% endif %}" role="status">{{ message }}{% if message.startswith('Photo saved') %} <a href="{{ url_for('outfits_page') }}">See your outfits</a>{% endif %}</p>
     {% endfor %}
   </div>
   {% if has_photo %}

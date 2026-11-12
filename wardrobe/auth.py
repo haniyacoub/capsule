@@ -95,8 +95,13 @@ def password_problem(password: str, email: str = "") -> str | None:
 
 
 def _next_page() -> str:
+    """Where logging in leads: back to the page that was asked for, or else the outfits, Capsule's home."""
     target = request.values.get("next", "")
-    return target if target.startswith("/") and not target.startswith("//") else url_for("wardrobe")
+    # Only a plain path on this site. Browsers drop tabs and line breaks from an address and read "\" as
+    # "/", so "/<tab>/evil.example" and "/\evil.example" would both lead to another website.
+    if target.startswith("/") and not target.startswith("//") and not re.search(r"[\\\s\x00-\x1f\x7f]", target):
+        return target
+    return url_for("outfits_page")
 
 
 def _throttled(email: str) -> bool:

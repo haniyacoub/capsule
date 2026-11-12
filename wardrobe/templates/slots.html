@@ -1,10 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Slots · Capsule{% endblock %}
+{% block title %}Your plan · Capsule{% endblock %}
 {% block main %}
-{% from "_macros.html" import slot_fields %}
+{% from "_macros.html" import icon, slot_fields %}
+<p class="crumb"><a href="{{ url_for('wardrobe') }}">{{ icon('back') }} Wardrobe</a></p>
 {% set pieces = w.slots|sum(attribute='qty') %}
 <section class="card">
-  <h1>Your capsule</h1>
+  <h1>Your plan</h1>
   <p class="muted">{{ w.slots|length }} slots, {{ pieces }} pieces. Each slot is one thing to find in the stores, so shape this list before any data is collected: rename, recolour, remove or add.</p>
   <div class="palette">
     {% for role, c in palette %}
@@ -13,7 +14,7 @@
   </div>
   <p class="muted small">Proposed from your profile ({{ USES[profile.use]|lower }} use). Trousers and shoes stay neutral so nearly every top works with every pair of trousers; the accent colour appears on a top layer or two.</p>
   <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Replace the whole slot list with a fresh proposal from your profile? Your edits, locks and “already own” marks will be lost.">{{ csrf_field() }}
-    <button class="btn ghost small">Re-propose from profile</button>
+    <button class="btn ghost small">Start over from my profile</button>
   </form>
 </section>
 
