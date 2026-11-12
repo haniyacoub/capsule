@@ -5,7 +5,11 @@
 <section class="card">
   <h1>About you</h1>
   {% if profile.example %}
-  <p class="demo"><b>These are example values.</b> Replace them with your own and save — the capsule is then re-proposed around your colours and what the wardrobe is for.</p>
+  {# The one note about the example values every account starts with. It agrees with "These are my sizes" (Buy this
+     outfit, the shopping list) and with a plan edited on the plan page, which a save leaves as it is. #}
+  <p class="demo" id="example-note"><b>{{ 'You said these sizes are yours; the rest are example values.' if sizes_kept else 'These are example values.' }}</b>
+    {% if plan_kept %}Change them to yours and save. Your plan stays as you edited it: to rebuild it from your answers, use “Start over from my profile” on <a href="{{ url_for('slots_page') }}">the plan page</a>.
+    {%- else %}Change them to yours and save: your plan is rebuilt around them, then you see the outfits.{% endif %}</p>
   {% else %}
   <p class="muted">Sizes decide what counts as “in stock”, colours and use shape the capsule, the budget drives the bar at the top.</p>
   {% endif %}

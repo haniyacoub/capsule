@@ -158,6 +158,19 @@ def recoloured_name(name: str, old: str, new: str) -> str:
     return ((after if name[:1].isupper() else after.lower()) + rest)[:60]
 
 
+def starter_line() -> str:
+    """Whose the starter outfits are, at the top of Outfits until the customer saves his profile: 'Starter outfits for
+    a man of 180 cm, size M, who likes navy, grey, white and olive.' Said from the example values every account
+    starts with (profile.EXAMPLE), so it changes with them."""
+    example = profile_mod.EXAMPLE
+    keys = example["liked"]
+    liked = [colours.get(key).label.lower() for key in keys] if isinstance(keys, list) else []
+    likes = ", ".join(liked[:-1]) + " and " + liked[-1] if len(liked) > 1 else "".join(liked)
+    nbsp = "\u00a0"         # "180 cm" and "size M" are never split over two lines
+    return (f"Starter outfits for a man of {example['height_cm']}{nbsp}cm, size{nbsp}{example['top_size']}"
+            + (f", who likes {likes}." if likes else "."))
+
+
 def eur(value) -> str:
     value = float(value or 0)
     text = f"{value:,.0f}" if abs(value - round(value)) < 0.005 else f"{value:,.2f}"
@@ -672,6 +685,9 @@ def create_app() -> Flask:
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved),
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
                     looks_on=looks_on,
+                    # Until the profile is saved, the starter banner stands where the budget bar would: a budget
+                    # the customer never set says nothing yet. Saving the profile brings the bar back.
+                    starter=starter_line() if prof["example"] else "",
                     auto=looks_on and looks.load_rules()["pictures"]["auto"] and not looks.held_off())
 
     @app.get("/outfits/piece")
@@ -889,7 +905,11 @@ def create_app() -> Flask:
                         model_words=person.describe(model)[0] or rules["text"]["model"],
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the image service",
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
-                        photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}))
+                        photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
+                        # The one note while the answers are still the example's: the sizes may already be his
+                        # ("These are my sizes"), and a plan edited on the plan page is not rebuilt by a save.
+                        sizes_kept=current["example"] and not profile_mod.sizes_unconfirmed(current),
+                        plan_kept=current["example"] and plan_edited(current))
 
         new, notes = profile_mod.from_form(request.form, current)
         profile_mod.save(new)
@@ -899,13 +919,19 @@ def create_app() -> Flask:
         shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned")
         # The plan has no tab of its own, so a message that sends you to it carries the link.
         # (Markup: the link is shown as a link; what the customer typed is still escaped.)
-        if all(current[f] == new[f] for f in shapes_capsule):      # sizes or budget: the plan stays as it is
+        same_plan = all(current[f] == new[f] for f in shapes_capsule)
+        if same_plan and not current["example"]:        # sizes or budget: the plan stays as it is
             flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
             return redirect(url_for("profile_page"))
         if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
             flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
                          "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
             return redirect(url_for("profile_page"))
+        if same_plan:
+            # The first save, with the example's colours and use kept: the plan is built from them already. As the
+            # note on Profile says, the outfits follow, now under the budget bar instead of the starter banner.
+            flash("Profile saved.")
+            return redirect(url_for("outfits_page"))
 
         plan, needs_refresh = rebuild_plan(new, current)
         flash(rebuilt_message(plan) + (f" {REFRESH_HINT}" if needs_refresh else ""))

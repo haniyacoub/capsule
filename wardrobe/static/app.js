@@ -183,3 +183,13 @@ document.addEventListener('change', async (e) => {
 document.body.addEventListener('htmx:responseError', (e) => {
   if (e.detail.xhr.status === 409) window.location.reload();
 });
+
+// 12. The starter banner on Outfits (a new customer's, until he saves his profile) stands where the budget bar would.
+//     The picture on a phone is sized from that bar's height (--bar-h, see app.css), so here it is the banner's
+//     real height, whatever its words wrap to on this screen.
+const starter = document.querySelector('.starter');
+if (starter && 'ResizeObserver' in window) {
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--bar-h', `${starter.getBoundingClientRect().height}px`);
+  }).observe(starter);
+}

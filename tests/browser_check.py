@@ -6,17 +6,19 @@ Needs the packages in requirements.txt and, once, `python -m playwright install 
 
 It starts the app in production mode on a spare port, with a throwaway data folder and a
 stand-in for the image service (nothing is sent anywhere and nothing is billed), then does
-what a new customer would: signs up, changes the price level, watches an outfit's picture
+what a new customer would: signs up and lands on the starter outfits (a banner where the budget bar would be,
+the whole picture above the tab bar on three phones), changes the price level, watches an outfit's picture
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
 page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
 logs in again and lands on the outfits, puts a model together, uploads a photo, saves new colours
-(the plan is rebuilt, keeping the swapped piece), sees that a phone's first screen shows the outfit
-on the model with its price and the heart, tabs through three pages to see that nothing with
-keyboard focus is hidden under the budget bar or the tab bar, and deletes the account.
+(the plan is rebuilt, keeping the swapped piece, and the budget bar takes the banner's place), sees
+that a phone's first screen shows the outfit on the model with its price and the heart, tabs through
+three pages to see that nothing with keyboard focus is hidden under the budget bar or the tab bar,
+and deletes the account.
 
-On the way a second customer, on a small product list published for that step alone, fills a
-piece the list has nothing for with one tap.
+On the way a second customer, on a small product list published for that step alone, goes from the
+starter outfits to his profile with "Make them mine" and fills a piece the list has nothing for with one tap.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
@@ -55,6 +57,7 @@ from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
 from wardrobe import colours, imagegen  # noqa: E402
+from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
 
@@ -120,12 +123,69 @@ def run(base: str) -> None:
             }""")
             assert where == "in view", f"the message {words!r} is {where} after the page has jumped to it"
 
+        def starter(where_page) -> dict:
+            """The starter banner over a new customer's outfits, and the budget bar it stands in for."""
+            return where_page.evaluate("""() => {
+                const banner = document.querySelector('.starter'), link = banner && banner.querySelector('a');
+                return {words: banner ? banner.querySelector('p').textContent.replace(/\\s+/g, ' ').trim() : null,
+                        link: link ? [link.textContent.trim(), link.getAttribute('href')] : null,
+                        height: banner ? banner.getBoundingClientRect().height : null,
+                        bar: !!document.getElementById('summary'),
+                        flashes: [...document.querySelectorAll('main > .flash')].map(f => f.textContent.trim())};
+            }""")
+
+        def example_notes(where_page) -> list[str]:
+            """Every line on the Profile page that speaks of example values."""
+            return where_page.evaluate("""() => [...document.querySelectorAll('main p')]
+                .map(p => p.textContent.replace(/\\s+/g, ' ').trim()).filter(t => /example/i.test(t))""")
+
+        # Said from the example values every account starts with (wardrobe/profile.py), never typed.
+        liked = [colours.get(key).label.lower() for key in profile_mod.EXAMPLE["liked"]]
+        starter_words = (f"Starter outfits for a man of {profile_mod.EXAMPLE['height_cm']} cm, size "
+                         f"{profile_mod.EXAMPLE['top_size']}, who likes {', '.join(liked[:-1])} and {liked[-1]}.")
+
         def sign_up():
+            # A new customer sees the starter outfits on the model first, not a form of someone else's values: no
+            # message to read, and in the budget bar's place a banner that says whose outfits these are, with one way
+            # to make them his.
             page.goto(base + "/signup", wait_until="networkidle")
             page.fill("input[name=email]", EMAIL)
             page.fill("input[name=password]", PASSWORD)
             page.click("button:has-text('Create account')")
-            page.wait_for_url("**/profile")
+            page.wait_for_url(base + "/outfits")
+            page.wait_for_load_state("networkidle")
+            seen = starter(page)
+            assert seen["words"] == starter_words, f"the starter banner reads {seen['words']!r}"
+            assert seen["link"] == ["Make them mine", "/profile"], f"the banner's way to the profile: {seen['link']}"
+            assert not seen["bar"], "the budget bar is over a new customer's outfits, for a budget he never set"
+            assert not seen["flashes"], f"a message to read before the outfits: {seen['flashes']}"
+            assert page.locator(f"{first} .collage .tile").count() >= 2, "no outfit under the banner"
+
+        def starter_outfits_fit_a_phone():
+            # On three phones, the starter banner is at most 96px tall, and the picture is sized from its real height:
+            # the whole picture, its lowest dot included, still ends above the tab bar.
+            for width, height in ((390, 844), (375, 667), (360, 740)):
+                context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=True, has_touch=True)
+                other = context.new_page()
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_url(base + "/outfits")
+                other.wait_for_selector(f"{first} .look-pic img")
+                # Invented products here, so the page opens with the "Demo data" notice that customers never see.
+                other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                seen = {**starter(other), **other.evaluate("""s => {
+                    const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
+                    return {bottom: Math.max(box(slide.querySelector('.look-pic')).bottom,
+                                             ...[...slide.querySelectorAll('.spot')].map(d => box(d).bottom)),
+                            tabs: box(document.querySelector('nav.tabs')).top};
+                }""", first)}
+                context.close()
+                assert seen["words"] and not seen["bar"], f"at {width} x {height} no starter banner in the bar's place: {seen}"
+                assert seen["height"] <= 96, f"at {width} x {height} the starter banner is {seen['height']:.0f}px tall"
+                assert seen["bottom"] <= seen["tabs"], \
+                    f"at {width} x {height} the picture ends at {seen['bottom']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
 
         def own_typefaces():
             # The text font and the serif for titles come from Capsule itself. They must really load, under the
@@ -594,10 +654,19 @@ def run(base: str) -> None:
                 phone.fill("input[name=email]", "colours-" + EMAIL)
                 phone.fill("input[name=password]", PASSWORD)
                 phone.click("button:has-text('Create account')")
-                phone.wait_for_url("**/profile")
+                phone.wait_for_url(base + "/outfits")
+                assert starter(phone)["words"] == starter_words, "the second customer's outfits have no starter banner"
+                phone.locator(".starter a", has_text="Make them mine").click()
+                phone.wait_for_url(base + "/profile")
+                notes = example_notes(phone)
+                assert notes == ["These are example values. Change them to yours and save: your plan is rebuilt around them, "
+                                 "then you see the outfits."], f"a new account's Profile says of its example values: {notes}"
                 phone.fill("input[name=liked]", "black, grey, white")
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/outfits")
+                phone.wait_for_load_state("networkidle")
+                seen = starter(phone)
+                assert seen["words"] is None and seen["bar"], f"after the first save the banner stays or the bar is not back: {seen}"
                 phone.goto(base + "/", wait_until="networkidle")
                 seen = phone.evaluate("() => [innerWidth, document.documentElement.scrollWidth]")
                 assert seen[1] <= seen[0] + 1, f"with colours on offer the Wardrobe is {seen[1]}px wide on a {seen[0]}px phone"
@@ -642,11 +711,17 @@ def run(base: str) -> None:
             # New colours and a new use rebuild the plan, although a piece was swapped inside an outfit
             # earlier: that swap is kept when the new plan has the same garment in the same colour.
             page.goto(base + "/profile", wait_until="networkidle")
+            # He kept the example sizes as his on the Buy page: the one note about example values no longer calls them so.
+            notes = example_notes(page)
+            assert len(notes) == 1 and notes[0].startswith("You said these sizes are yours; the rest are example values."), \
+                f"after 'These are my sizes' the Profile says of its example values: {notes}"
             page.fill("input[name=liked]", "black, grey, white")
             page.locator("input[name=use][value=office]").check(force=True)
             page.click("button:has-text('Save profile')")
             page.wait_for_url(base + "/outfits")
             in_view("main > .flash", "Your plan now has")
+            seen = starter(page)
+            assert seen["words"] is None and seen["bar"], f"after the first save the banner stays or the bar is not back: {seen}"
             said = page.locator("main > .flash").first.inner_text()
             page.goto(base + "/slots", wait_until="networkidle")
             names = [name.strip() for name in page.locator(".slot-list .nm").all_inner_texts()]
@@ -869,6 +944,7 @@ def run(base: str) -> None:
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
                  ("an option not in your size fades only its photo", out_of_size_fades_only_the_photo),
                  ("the picture of an outfit arrives by itself", picture_arrives),
+                 ("the starter outfits fit three phones", starter_outfits_fit_a_phone),
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),

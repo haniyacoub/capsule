@@ -479,12 +479,26 @@ class RebuildingThePlan(AppCase):
                          "pressing Save on the plan page without changing anything is no edit")
 
     def test_sizes_or_budget_alone_stay_on_the_profile(self):
+        self.save_profile()                                  # the customer's own answers, saved once before
+        self.messages()                                      # (what that save said, read on the outfits)
         self.post("/slot/white-oxford-shirt/lock")
         before = db.list_slots()
         saved = self.save_profile(budget="2000", top_size="L")
         self.assertTrue(saved.headers["Location"].endswith("/profile"))
         self.assertEqual(db.list_slots(), before, "every piece, choice and lock as it was")
         self.assertEqual(self.messages("/profile"), 'Profile saved. <a href="/outfits">See your outfits</a>')
+
+    def test_the_first_save_shows_the_outfits_even_when_only_sizes_or_budget_changed(self):
+        # The note on a new customer's Profile says: change the example values to yours and save, then you see the
+        # outfits. With the example's colours and use kept, the plan is already built from them: it stays as it is.
+        self.assertIn("then you see the outfits.", self.client.get("/profile").data.decode())
+        self.post("/slot/white-oxford-shirt/lock")
+        before = db.list_slots()
+        saved = self.save_profile(budget="2000", top_size="L")
+        self.assertEqual(saved.headers["Location"], "/outfits")
+        self.assertEqual(db.list_slots(), before, "every piece, choice and lock as it was")
+        self.assertEqual(self.messages(), "Profile saved.")
+        self.assertFalse(profile_mod.load()["example"])
 
     def test_an_older_account_that_only_picked_things_gets_its_profile_applied(self):
         # Before plan_edited, one setting stood for every change made by hand, and new answers saved

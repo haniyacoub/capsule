@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from wardrobe import catalog, config, db, mail, paths, selection, settings, shared
+from wardrobe import profile as profile_mod
 from wardrobe.app import create_app, eur
 
 PASSWORD = "correct horse battery"
@@ -574,6 +575,86 @@ class OutfitsIsHome(ProductionCase):
         for page in (rebuilt, kept):
             for gone in self.GONE:
                 self.assertNotIn(gone, page)
+
+
+class StartsOnTheOutfits(ProductionCase):
+    """A new customer is shown the starter outfits on the model first, not a long form of someone else's values.
+    A banner over them says whose they are and leads to the Profile page, which has one note about the example
+    values; the first save there brings the budget bar back."""
+
+    STARTER = re.compile(r'<section class="starter"[^>]*>(.*?)</section>', re.S)
+    EXAMPLE_FORM = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
+                    "budget": "1500", "liked": "navy, grey, white, olive", "refused": "", "use": "both", "shoes": "on",
+                    "outerwear": "on", "owned": ""}
+
+    @staticmethod
+    def example_notes(page: str) -> list[str]:
+        """Every paragraph on the page that speaks of example values, as the customer reads it."""
+        main = page.split("<main>", 1)[1].split("</main>", 1)[0]
+        return [text for text in (words(p) for p in re.findall(r"<p[^>]*>.*?</p>", main, re.S)) if "example" in text.lower()]
+
+    def test_signing_up_opens_the_starter_outfits_with_one_way_to_make_them_yours(self):
+        ada = self.app.test_client()
+        signed_up = self.post(ada, "/signup", email="ada@example.com", password=PASSWORD)
+        self.assertEqual((signed_up.status_code, signed_up.headers["Location"]), (302, "/outfits"))
+        with ada.session_transaction() as session:
+            self.assertNotIn("_flashes", session, "no welcome message to read before the outfits")
+        page = ada.get("/outfits").data.decode()
+        starter = self.STARTER.search(page)
+        self.assertIsNotNone(starter, "no starter banner over a new customer's outfits")
+        self.assertEqual(words(starter.group(1)),
+                         "Starter outfits for a man of 180 cm, size M, who likes navy, grey, white and olive. Make them mine")
+        self.assertIn("180\xa0cm, size\xa0M,", starter.group(1), "'180 cm' and 'size M' split over two lines")
+        self.assertIn('<a class="btn ghost small" href="/profile">Make them mine</a>', starter.group(1))
+        self.assertLess(page.index('class="starter"'), page.index('class="toolbar"'), "the banner is above the outfits")
+        self.assertNotIn('id="summary"', page, "no budget bar for a budget the customer never set")
+        self.assertNotIn('class="flash"', page)
+        for url in ("/", "/list", "/profile"):          # only the outfits trade the bar for the banner
+            self.assertIn('id="summary"', ada.get(url).data.decode(), url)
+            self.assertNotIn('class="starter"', ada.get(url).data.decode(), url)
+        again = ada.get("/signup")
+        self.assertEqual((again.status_code, again.headers["Location"]), (302, "/outfits"), "already has an account")
+
+    def test_the_banner_is_said_from_the_example_values_never_typed(self):
+        ada = self.member("ada@example.com")
+        with mock.patch.dict(profile_mod.EXAMPLE, {"height_cm": 176, "top_size": "L", "liked": ["black", "stone"]}):
+            banner = words(self.STARTER.search(ada.get("/outfits").data.decode()).group(1))
+        self.assertTrue(banner.startswith("Starter outfits for a man of 176 cm, size L, who likes black and stone."), banner)
+
+    def test_the_first_profile_save_shows_the_outfits_with_the_budget_bar_back(self):
+        ada = self.member("ada@example.com")
+        saved = self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "budget": "900"})     # the budget alone, changed
+        self.assertEqual(saved.headers["Location"], "/outfits", "the note promised the outfits after saving")
+        page = ada.get("/outfits").data.decode()
+        self.assertNotIn('class="starter"', page, "the banner stays after the profile was saved")
+        self.assertIn('id="summary"', page)
+        self.assertIn(f"of </span><a href=\"/profile#budget\" title=\"Change your budget\"><b>{eur(900)}</b>", page)
+        self.assertIn('<p class="flash" role="status">Profile saved.</p>', page)
+        self.assertEqual(self.example_notes(ada.get("/profile").data.decode()), [], "no note about example values left")
+
+    def test_a_new_accounts_profile_has_one_note_about_the_example_values(self):
+        ada = self.member("ada@example.com")
+        self.assertEqual(self.example_notes(ada.get("/profile").data.decode()),
+                         ["These are example values. Change them to yours and save: your plan is rebuilt around them, "
+                          "then you see the outfits."])
+        # "These are my sizes" on Buy this outfit or the shopping list: the note no longer calls the sizes examples.
+        self.post(ada, "/profile/sizes-ok")
+        notes = self.example_notes(ada.get("/profile").data.decode())
+        self.assertEqual(len(notes), 1, notes)
+        self.assertTrue(notes[0].startswith("You said these sizes are yours; the rest are example values."), notes)
+        # A plan edited on the plan page is not rebuilt by a save: the note doesn't promise it, and leads to the plan.
+        with db.as_user(self.user_id("ada@example.com")):
+            first = db.list_slots()[0]
+        self.post(ada, f"/slots/{first['id']}/save", name="My own name", category=first["category"],
+                  colour=first["colour"], qty=str(first["qty"]))
+        page = ada.get("/profile").data.decode()
+        notes = self.example_notes(page)
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("Your plan stays as you edited it", notes[0])
+        self.assertNotIn("rebuilt around them", notes[0])
+        self.assertIn('on <a href="/slots">the plan page</a>.</p>', page)
+        saved = self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "liked": "black, grey"})
+        self.assertEqual(saved.headers["Location"], "/profile", "the edited plan stays, as the note said")
 
 
 class Isolation(ProductionCase):
