@@ -608,6 +608,10 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 /* ── Shopping list ───────────────────────────────────────────────────────── */
 /* A page's title outside a card: the same serif and size as .card h1. */
 .page-title { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin: 0 0 8px; }
+/* The list's lead line, then its download and print buttons: beside each other where they fit, the buttons on
+   their own line on a phone, wrapping onto a second one if they must (never cut off at the screen's edge). */
+.list-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2) var(--s-4); margin: 0 0 var(--s-3); }
+.list-tools .lead { flex: 1 1 20em; margin: 0; }
 /* Buy this outfit: what the outfit costs is the page's headline number, with what it is for under it. */
 .buy-head { display: grid; gap: 2px; margin: 0 0 var(--s-4); }
 .buy-head b { font-size: var(--t-l); line-height: var(--lh-l); font-weight: 600; font-variant-numeric: tabular-nums; }

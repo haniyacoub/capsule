@@ -509,6 +509,15 @@ def run(base: str) -> None:
             lines = page.locator(".buy")
             assert lines.count() >= 2 and page.locator(".buy .pic").count() == lines.count(), "a line has no photo"
             assert page.locator(".buy .pic").first.is_visible(), "the list shows no photos on the screen"
+            # On a phone every download and print button shows whole: none is squeezed beside the lead line or
+            # cut off at the screen's edge (the Outfits toolbar's sideways-scrolling row once did that here).
+            for width in (320, 390):
+                page.set_viewport_size({"width": width, "height": 860})
+                for button in page.locator(".list-tools .btn").all():
+                    box = button.bounding_box()
+                    assert box and box["x"] >= 0 and box["x"] + box["width"] <= width, \
+                        f"{button.inner_text()!r} is cut off on a {width}px phone: {box}"
+            page.set_viewport_size({"width": 1280, "height": 860})
             page.emulate_media(media="print")
             try:
                 assert not any(pic.is_visible() for pic in page.locator(".buy .pic").all()), "photos are printed"
