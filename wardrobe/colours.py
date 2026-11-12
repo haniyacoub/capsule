@@ -181,6 +181,21 @@ def nearest(hex_: str | None) -> tuple[str | None, float]:
     return best.key, distance(hex_, best.hex)
 
 
+def contrast(hex_a: str, hex_b: str) -> float:
+    """How well text in one colour reads on the other: the WCAG contrast ratio, from 1 (the
+    same colour) to 21 (black on white). Small text needs at least 4.5 (WCAG 2.2 AA)."""
+    def luminance(hex_: str) -> float:
+        r, g, b = (v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+                   for v in (ch / 255 for ch in _rgb(hex_)))
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    high, low = sorted((luminance(hex_a), luminance(hex_b)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
 def ink_on(hex_: str) -> str:
-    """Readable text colour on top of a swatch."""
-    return "#1b1b1a" if lightness(hex_) > 55 else "#ffffff"
+    """Readable text colour on top of a swatch (the colour's name, when a product photo is
+    missing): Capsule's ink or white, whichever reads better. On a few middle greys and browns
+    neither reaches 4.5:1, and pure black always does there."""
+    best = max(("#1b1b1a", "#ffffff"), key=lambda ink: contrast(hex_, ink))
+    return best if contrast(hex_, best) >= 4.5 else "#000000"

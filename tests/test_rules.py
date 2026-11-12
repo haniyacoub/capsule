@@ -144,6 +144,20 @@ class Colours(unittest.TestCase):
         self.assertEqual(keys, ["navy", "grey", "white"])
         self.assertEqual(unknown, ["glitter"])
 
+    def test_the_name_on_a_swatch_is_readable(self):
+        # When a product photo is missing, its colour swatch shows with the colour's name written on it.
+        # The name must read at 4.5:1 (WCAG AA) on every swatch: Capsule's own colours, the middle greys
+        # and browns of real products (white on '#7c8286' was 3.9:1), and every colour in between.
+        self.assertAlmostEqual(colours.contrast("#000000", "#ffffff"), 21.0)
+        self.assertAlmostEqual(colours.contrast("#ffffff", "#ffffff"), 1.0)
+        steps = range(0, 256, 15)
+        swatches = [c.hex for c in colours.COLOURS.values()] + ["#7c8286", "#8b7560", "#767676", "#777777"]
+        swatches += ["#{:02x}{:02x}{:02x}".format(r, g, b) for r in steps for g in steps for b in steps]
+        for hex_ in swatches:
+            self.assertGreaterEqual(colours.contrast(hex_, colours.ink_on(hex_)), 4.5, hex_)
+        self.assertEqual(colours.ink_on("#f5f4f0"), "#1b1b1a")     # white tee: Capsule's ink
+        self.assertEqual(colours.ink_on("#1f2a44"), "#ffffff")     # navy: white
+
 
 class Capsule(unittest.TestCase):
     def propose(self, **changes):

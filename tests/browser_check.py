@@ -170,6 +170,28 @@ def run(base: str) -> None:
             page.locator(".levels label", has_text="Cheapest").first.click()
             page.wait_for_function("t => document.querySelector('#summary .num b').textContent === t", arg=cheapest)
 
+        def levels_fit_every_screen():
+            # The six price levels with what the wardrobe costs at each: three by two on the smallest phones, one
+            # row of six on a computer, the quality slider below them, every name and amount inside its cell, and
+            # the amounts in full colour (faded, they read at 2.9:1, under the 4.5:1 that small text needs).
+            page.goto(base + "/", wait_until="networkidle")
+            for width, shape in ((320, [3, 2]), (1280, [6, 1])):
+                page.set_viewport_size({"width": width, "height": 860})
+                seen = page.evaluate("""() => {
+                    const cells = [...document.querySelectorAll('.levels label')].map(l => l.getBoundingClientRect());
+                    const words = [...document.querySelectorAll('.levels span, .levels small')];
+                    return {shape: [new Set(cells.map(c => Math.round(c.left))).size, new Set(cells.map(c => Math.round(c.top))).size],
+                            below: document.querySelector('.thr').getBoundingClientRect().top >=
+                                   document.querySelector('.levels').getBoundingClientRect().bottom,
+                            spills: words.filter(w => w.scrollWidth > w.clientWidth + 1).map(w => w.textContent.trim()),
+                            faded: [...document.querySelectorAll('.levels small')].filter(s => getComputedStyle(s).opacity !== '1').length};
+                }""")
+                assert seen["shape"] == shape, f"at {width}px the price levels are {seen['shape']} (columns, rows), not {shape}"
+                assert seen["below"], f"at {width}px the quality slider is not below the price levels"
+                assert not seen["spills"], f"at {width}px a price level does not fit its cell: {seen['spills']}"
+                assert not seen["faded"], "the price levels' amounts are faded"
+            page.set_viewport_size({"width": 1280, "height": 860})
+
         def picture_arrives():
             page.goto(base + "/outfits", wait_until="networkidle")
             assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
@@ -303,6 +325,7 @@ def run(base: str) -> None:
 
         steps = [("create an account", sign_up), ("Capsule's own typefaces load", own_typefaces),
                  ("price levels and best for budget", price_levels),
+                 ("price levels fit a phone and a computer", levels_fit_every_screen),
                  ("the picture of an outfit arrives by itself", picture_arrives),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
