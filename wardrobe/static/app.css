@@ -7,6 +7,8 @@
    their open licences (SIL OFL 1.1) next to them: nothing is loaded from another
    site. The two "Fallback" faces are Arial and Georgia resized to the same
    measurements, so the text does not jump when the real font arrives. */
+/* Browsers keep the font files for a year without asking again (app.py, static_files_kept). A changed
+   font needs a new file name, here and in base.html's preload: under the old name, visitors keep the old one. */
 @font-face {
   font-family: "Instrument Sans";
   src: url("fonts/instrument-sans-latin-wght-normal.woff2") format("woff2");
@@ -51,7 +53,7 @@
   --r-track: 8px;         /* the track around segmented cells: their 6px plus its 2px padding */
   --r-sheet: 14px;        /* the pop-up's top corners */
   --r-pill: 999px;        /* chips and the quality number */
-  /* The serif is used for four things only: the wordmark, the landing headline, page
+  /* The serif is used for four things only: the wordmark, the landing page's headline and step numbers, page
      titles and each outfit's title. To switch it off, change the second line to
      --display: var(--font); */
   --font: "Instrument Sans", "Instrument Sans Fallback", ui-sans-serif, system-ui, sans-serif;
@@ -737,20 +739,29 @@ details[open] > summary .edit { visibility: hidden; }
 .account-link { font-size: var(--t-s); font-weight: 500; color: var(--muted); text-decoration: none; padding: 8px 2px; }
 .account-link.on { color: var(--ink); }
 .public-nav { display: flex; gap: 8px; }
-.hero { padding: 26px 0 8px; text-align: center; }
+/* The landing page: words only, until one approved AI picture joins them. */
+.hero { padding: var(--s-5) 0 0; text-align: center; }
 .hero h1 { font: 400 var(--t-3xl)/var(--lh-3xl) var(--display); font-synthesis: none; max-width: 16em; margin: 0 auto; text-wrap: balance; }
-.hero-lead { color: var(--muted); font-size: var(--t-l); line-height: var(--lh-l); max-width: 34em; margin: 20px auto 0; text-wrap: pretty; }
-.hero-cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 22px 0 0; }
-.hero-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 520px; margin: 30px auto 0; }
-.hero-board img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: var(--r-img); border: 1px solid var(--line); display: block; }
-.steps { display: grid; gap: 12px; margin-top: 28px; }
-.steps .card + .card { margin-top: 0; }
-.steps h2 { font-size: var(--t-l); }
-.steps p { color: var(--muted); }
+.hero-lead { font-size: var(--t-l); line-height: var(--lh-l); max-width: 34em; margin: var(--s-5) auto 0; text-wrap: pretty; }
+.hero-lead span { white-space: nowrap; }            /* "best-value", "high-street": never split at the hyphen */
+.hero-cta { margin: var(--s-5) 0 0; }
+.hero-cta .btn { width: 100%; max-width: 440px; }   /* the page's one main action: full width on phones */
+.hero-note { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); max-width: 44em; margin: var(--s-3) auto 0; text-wrap: pretty; }
+/* How it works, in three steps: no boxes, a hairline above each and a large serif numeral. */
+.steps { list-style: none; margin: var(--s-7) 0 0; padding: 0; display: grid; gap: var(--s-5); }
+.steps li { border-top: 1px solid var(--line); padding-top: var(--s-4); }
+.steps h2 { font-size: var(--t-l); line-height: var(--lh-l); }
+.step-n { display: block; font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin-bottom: var(--s-2); }
+.steps p { color: var(--muted); margin-top: var(--s-1); max-width: 34em; text-wrap: pretty; }
 .auth { max-width: 440px; margin: 24px auto 0; }
 .auth h1 { margin-bottom: 12px; }
 .auth .form { margin-bottom: 12px; }
 .legal { max-width: 720px; margin: 16px auto 0; }
+/* An error page: a narrow card like log-in's, one line, and the way home as its one main button. */
+.oops { max-width: 440px; margin: var(--s-5) auto 0; }
+.oops h1 { text-wrap: balance; }
+.oops p { overflow-wrap: anywhere; text-wrap: pretty; }   /* a long file name in a config error must not widen the page */
+.oops .btn { width: 100%; margin-top: var(--s-4); }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .site-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; max-width: 1240px; margin: 0 auto; padding: 18px var(--gutter) 26px; font-size: var(--t-s); color: var(--muted); }
 .site-foot a { color: var(--muted); }
@@ -782,7 +793,7 @@ details[open] > summary .edit { visibility: hidden; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .card { padding: 20px; }
   .card .form { max-width: 620px; }
-  .steps { grid-template-columns: repeat(3, 1fr); }
+  .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); margin-top: var(--s-8); }
   .shuffle { width: auto; padding: 0 var(--s-3); }
   .shuffle span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
   .reel { margin: calc(-1 * var(--s-4)) 0; }   /* the 16px of room for focus rings stays (see .reel) */
@@ -795,8 +806,8 @@ details[open] > summary .edit { visibility: hidden; }
   .about { margin: 0; }
   .reel-nav { display: inline-flex; }
   .sheet { margin: auto; padding: 22px; border-radius: var(--r-sheet); }
-  .hero { padding-top: 48px; }
-  .hero-board { grid-template-columns: repeat(6, 1fr); max-width: 880px; }
+  .hero { padding-top: var(--s-7); }
+  .hero-cta .btn { width: auto; }
 }
 @media (min-width: 900px) {
   .cands, .slot-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }

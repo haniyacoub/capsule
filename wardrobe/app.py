@@ -12,6 +12,7 @@ customer's rows.
 """
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import math
 import random
@@ -46,7 +47,8 @@ NAV = [
 
 # Pages anyone may open without an account (production mode).
 PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_image",
-          "auth.signup", "auth.login", "auth.forgot", "auth.reset"}
+          "auth.signup", "auth.login", "auth.forgot", "auth.reset",
+          "favicon"}
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
 
 
@@ -63,7 +65,9 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
     On demo data the invented candidates are rebuilt. On real data, candidates
     of deleted slots are dropped, and so are those collected for a slot whose
     garment or colour just changed (they no longer fit it). Items you added by
-    hand always stay. Returns True if real data now needs a refresh.
+    hand always stay. Returns True if real data now needs a refresh: only on your
+    own machine, where you can run one (REFRESH_HINT). A customer can't, so a
+    customer is never told to.
     """
     current = catalog.load()
     slots = db.list_slots()
@@ -87,7 +91,7 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
                                  if c.get("slot_id") != changed_slot or c.get("source") == "manual"]
     catalog.update(tidy)
     filled = set(catalog.by_slot(catalog.load()))
-    return any(s["id"] not in filled and not s["owned"] for s in slots)
+    return not conf.PRODUCTION and any(s["id"] not in filled and not s["owned"] for s in slots)
 
 
 REFRESH_HINT = "Slots without candidates fill up at the next “python -m wardrobe refresh”."
@@ -166,9 +170,18 @@ def weblink(url) -> str:
     return url if url.startswith(("https://", "http://")) else "#"
 
 
-def _asset_version() -> int:
+def _asset_version() -> str:
+    """The ?v= at the end of the addresses of the stylesheet and the scripts (base.html, error.html).
+
+    Browsers keep those files for a year without asking again (static_files_kept, in create_app), so the
+    address must change whenever one of them does. It is made from the name, size and time of change of
+    every file under static/, htmx in static/vendor/ included: an edit, a new file or an older copy put
+    back all change it.
+    """
     static = ROOT / "wardrobe" / "static"
-    return max((int(p.stat().st_mtime) for p in static.glob("*.*")), default=0)
+    files = sorted((str(p.relative_to(static)), p.stat().st_size, p.stat().st_mtime_ns)
+                   for p in static.rglob("*") if p.is_file())
+    return hashlib.sha256(repr(files).encode()).hexdigest()[:12]
 
 
 def _this_computer(host: str) -> bool:
@@ -197,6 +210,14 @@ def _pictures_on() -> bool:
         return False
 
 
+def _photos_on() -> bool:
+    """Whether customers may upload a photo to be the model themselves: pictures on, and photos allowed."""
+    try:
+        return looks.service() is not None and looks.load_rules()["pictures"]["photos"]
+    except ConfigError:
+        return False
+
+
 def create_app() -> Flask:
     conf.check()
     app = Flask(__name__)
@@ -214,6 +235,7 @@ def create_app() -> Flask:
             from werkzeug.middleware.proxy_fix import ProxyFix
             hops = conf.TRUSTED_PROXY_HOPS
             app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)  # type: ignore[method-assign]
+        app.session_interface = auth.LoginCookie()      # the login cookie, never on Capsule's own files
         app.register_blueprint(auth.bp)
     else:
         app.secret_key = secrets.token_hex(16)   # only signs the one-off "saved" messages
@@ -258,6 +280,8 @@ def create_app() -> Flask:
 
         @app.before_request
         def accounts_and_csrf():
+            if request.endpoint in auth.FILES:      # a stylesheet, script, font or icon: no account, no form
+                return None
             auth.check_csrf()
             if g.user is None:
                 if request.endpoint in PUBLIC or request.endpoint is None:
@@ -287,9 +311,47 @@ def create_app() -> Flask:
                 resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return resp
 
+    @app.after_request
+    def static_files_kept(resp: Response) -> Response:
+        """How long browsers keep Capsule's own files (static/), so that moving between pages fetches only the page.
+
+        For a year, without asking again: the stylesheet and the scripts at their current ?v= (the address changes
+        whenever a file does, see _asset_version), and the fonts (a changed font gets a new file name, see app.css).
+        For a day: the manifest and the icons, whose addresses phones and browsers remember (like /favicon.ico).
+        Never without asking (Flask's "no-cache"): a ?v= that is no longer the current one, from a page made before
+        an update, so that an address is never kept with a file it did not name.
+        """
+        if request.endpoint != "static" or resp.status_code not in (200, 304):
+            return resp
+        version, name = request.args.get("v"), (request.view_args or {}).get("filename", "")
+        if version == _asset_version() or (version is None and name.startswith("fonts/")):
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif version is None:
+            resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
+
     @app.errorhandler(ConfigError)
     def config_error(err: ConfigError):
         return render_template("error.html", title="A config file needs fixing", message=str(err)), 500
+
+    # Each error page in Capsule's own words: a title and one line (error.html adds the way home). Werkzeug's
+    # own sentences ("The requested URL was not found on the server…") are written for developers and never
+    # shown; a message Capsule itself gives to abort() takes the place of the line.
+    error_words = {
+        400: ("That didn't go through", "Reload the page and try again."),
+        403: ("That didn't go through", "Reload the page and try again."),
+        404: ("We can't find that page", "The link may be old, or the page may have moved."),
+        405: ("We can't find that page", "The link may be old, or the page may have moved."),
+        409: ("That changed in the meantime", "Reload the page and try again."),
+        413: ("Too much data", "Go back and try again with less."),
+        429: ("Too many attempts", "Wait a few minutes and try again."),
+        500: ("Something went wrong on our side", "It's not you. Try again in a minute."),
+        501: ("Not available yet", "This part of Capsule isn't built yet."),
+    }
+
+    def error_page(code: int, own: str | None = None):
+        title, line = error_words.get(code) or error_words[400 if code < 500 else 500]
+        return render_template("error.html", title=title, message=own or line, plain=True), code
 
     @app.errorhandler(HTTPException)
     def http_error(err: HTTPException):
@@ -298,17 +360,14 @@ def create_app() -> Flask:
         if err.code == 413 and request.endpoint == "profile_photo":     # back to the form, not to a dead end
             flash(f"Not saved. {person.TOO_LARGE}", "photo")
             return redirect(url_for("profile_page") + "#photo")
-        titles = {400: "That didn't go through", 403: "Not allowed", 404: "Page not found",
-                  409: "That changed in the meantime", 413: "Too much data", 429: "Too many attempts",
-                  501: "Not available yet"}
-        return render_template("error.html", title=titles.get(err.code or 500, "Something went wrong"),
-                               message=err.description or "", plain=True), err.code or 500
+        # abort(409, "That outfit changed…") stores its words on the error itself; Werkzeug's sentence for
+        # each kind of error lives on the class.
+        return error_page(err.code or 500, vars(err).get("description"))
 
     @app.errorhandler(Exception)
     def unexpected_error(err: Exception):
         app.logger.exception("Unhandled error on %s %s", request.method, request.path)
-        return render_template("error.html", title="Something went wrong",
-                               message="The error was logged. Try again in a moment.", plain=True), 500
+        return error_page(500)
 
     @app.get("/healthz")
     def healthz():
@@ -321,6 +380,12 @@ def create_app() -> Flask:
     def robots_txt():
         body = "User-agent: *\nDisallow: /slot/\nDisallow: /account\nAllow: /\n"
         return Response(body, mimetype="text/plain")
+
+    @app.get("/favicon.ico")
+    def favicon():
+        """Browsers and search engines ask for this address by themselves. A 48 px icon, made once from
+        static/icon.svg. Its address never changes, so it is kept for a day, not for a year."""
+        return send_file(ROOT / "wardrobe" / "static" / "favicon.ico", mimetype="image/x-icon", max_age=86400)
 
     @app.get("/legal/<name>")
     def legal_page(name: str):
@@ -367,7 +432,7 @@ def create_app() -> Flask:
     def wardrobe():
         if conf.PRODUCTION and g.user is None:
             return render_template("landing.html", looks_on=_pictures_on(),      # the public website
-                                   invite=bool(conf.INVITE_CODE))
+                                   photos=_photos_on(), invite=bool(conf.INVITE_CODE))
         return page("wardrobe.html", tab="wardrobe")
 
     @app.post("/settings")

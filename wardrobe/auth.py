@@ -16,8 +16,9 @@ import json
 import re
 import secrets
 
-from flask import (Blueprint, Response, abort, flash, g, redirect, render_template, request,
+from flask import (Blueprint, Flask, Response, abort, flash, g, redirect, render_template, request,
                    session, url_for)
+from flask.sessions import SecureCookieSessionInterface, SessionMixin
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import db, looks, mail, person, settings
@@ -32,9 +33,28 @@ _DUMMY_HASH = generate_password_hash("not a real password")
 
 # ── who is signed in ──────────────────────────────────────────────────────────
 
+# Capsule's own files: the stylesheet, scripts, fonts and icons (static/) and /favicon.ico. They are the same for
+# everyone, so no account is looked up for them and they never carry the login cookie: browsers keep them (see
+# static_files_kept in app.py), and so can a shared cache such as Cloudflare's, which keeps no file that sets a cookie.
+FILES = {"static", "favicon"}
+
+
+class LoginCookie(SecureCookieSessionInterface):
+    """Flask's signed login cookie, except on Capsule's own files: those never set it, nor "Vary: Cookie".
+    (Flask renews a lasting login cookie with every response, a stylesheet or a font included. Every page
+    still renews it.)"""
+
+    def save_session(self, app: Flask, session: SessionMixin, response: Response) -> None:
+        if request.endpoint in FILES:
+            return
+        super().save_session(app, session, response)
+
+
 def load_user() -> None:
     """Runs before every request: find the signed-in user and scope the database to them."""
     g.user = None
+    if request.endpoint in FILES:       # a file, the same for everyone: no account is looked up
+        return
     user_id = session.get("uid")
     if user_id is not None:
         user = db.get_user(user_id)
@@ -116,7 +136,8 @@ def signup():
     if g.user:
         return redirect(url_for("wardrobe"))
     invite = bool(settings.INVITE_CODE)         # by invitation: the form also asks for the code
-    if request.method == "GET":
+    # HEAD (link checkers, "curl -I") is answered like GET here and below, never as a form that was sent.
+    if request.method in ("GET", "HEAD"):
         return render_template("auth_signup.html", invite=invite, code=request.args.get("code", "")[:200])
     email, password = _email(request.form.get("email")), request.form.get("password", "")
     code = request.form.get("code", "").strip()[:200]
@@ -147,7 +168,7 @@ def signup():
 def login():
     if g.user:
         return redirect(_next_page())
-    if request.method == "GET":
+    if request.method in ("GET", "HEAD"):
         return render_template("auth_login.html", next=request.args.get("next", ""))
     email = _email(request.form.get("email")) or ""
     password = request.form.get("password", "")
@@ -176,7 +197,7 @@ def logout():
 
 @bp.route("/forgot", methods=["GET", "POST"])
 def forgot():
-    if request.method == "GET":
+    if request.method in ("GET", "HEAD"):
         return render_template("auth_forgot.html")
     email = _email(request.form.get("email"))
     user = db.get_user_by_email(email) if email else None
@@ -199,7 +220,7 @@ def reset(token: str):
     if user_id is None:
         flash("That reset link has expired or was already used. Ask for a new one.")
         return redirect(url_for("auth.forgot"))
-    if request.method == "GET":
+    if request.method in ("GET", "HEAD"):
         return render_template("auth_reset.html", token=token)
     user = db.get_user(user_id)
     password = request.form.get("password", "")
@@ -233,7 +254,7 @@ def change_password():
         refreshed = db.get_user(g.user["id"])
         assert refreshed is not None
         start_session(refreshed)        # this device stays in; all others are signed out
-        flash("Password changed. Other devices have been signed out.")
+        flash("Password changed. You've been logged out everywhere else.")
     return redirect(url_for("auth.account"))
 
 

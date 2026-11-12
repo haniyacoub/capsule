@@ -30,6 +30,7 @@ from wardrobe.__main__ import main
 
 from .test_app import HX, AppCase
 from .test_production import PASSWORD, ProductionCase
+from .test_production import description, words
 
 PICTURE = b"\xff\xd8\xff\xe0" + b"\x01" * 4000          # what the "service" sends back: passes for a JPEG
 OTHER_PICTURE = b"\x89PNG\r\n\x1a\n" + b"\x02" * 4000   # … and for a PNG
@@ -1484,6 +1485,29 @@ class PicturesForCustomers(WithPictures, ProductionCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ?", (uid,)).fetchone()[0], 0)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM looks").fetchone()[0], 1)
 
+    def test_a_photo_stored_before_pictures_were_switched_off_can_still_be_seen_and_deleted(self):
+        # The Account page sends customers to Profile to see or delete their photo. With AI pictures switched off
+        # there is no model to pick and nothing to upload, but a photo stored earlier is still there, to delete.
+        ada = self.member("ada@example.com")
+        uid = self.user_id("ada@example.com")
+        ada.post("/profile/photo", content_type="multipart/form-data", data={
+            "photo": (io.BytesIO(PHOTO), "me.jpg"), "agree": "on", "csrf_token": self.token(ada)})
+        self.assertIsNotNone(person.photo_of(uid))
+        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
+            page = ada.get("/profile").get_data(as_text=True)
+            self.assertIn('id="photo"', page, "where the Account page's link leads")
+            self.assertIn("This photo of you is still stored", page)
+            self.assertIn("Delete my photo and the pictures made from it", page)
+            for trace in ("Your model", "data-photo-form", "be the model yourself", "switched off", "README"):
+                self.assertNotIn(trace, page)
+            with ada.get("/profile/photo") as shown:
+                self.assertEqual(shown.status_code, 200)
+            self.post(ada, "/profile/photo", remove="1")
+            self.assertIsNone(person.photo_of(uid))
+            self.assertIn("Your photo and the pictures made from it are deleted.",
+                          ada.get("/profile").get_data(as_text=True), "said where the page lands")
+            self.assertNotIn('id="photo"', ada.get("/profile").get_data(as_text=True), "nothing left to show")
+
     def test_a_failure_tells_customers_nothing_about_the_inside(self):
         ada = self.member("ada@example.com")
         key = self.outfit_keys(ada)[0]
@@ -1523,11 +1547,30 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertEqual(popup.count('name="csrf_token"'), popup.count("<form"))
 
     def test_the_public_page_mentions_the_pictures_only_when_they_are_on(self):
+        # The landing page and its description for search results promise a model only while pictures are
+        # drawn, and "you" as the model only while customers may upload a photo of themselves.
         visitor = self.app.test_client()
-        self.assertIn(b"drawn on a model", visitor.get("/").data)
-        self.assertIn(b"price level", visitor.get("/").data)
-        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
-            self.assertNotIn(b"drawn on a model", visitor.get("/").data)
+        page = visitor.get("/").get_data(as_text=True)
+        self.assertIn("every outfit they make, worn by a model — or by you.", words(page))
+        self.assertIn("See every outfit on a model", words(page))
+        self.assertIn("price level", words(page))
+        self.assertIn("every outfit shown on a model", description(page))
+        self.with_rules(photos=False)
+        page = visitor.get("/").get_data(as_text=True)
+        self.assertIn("every outfit they make, worn by a model.", words(page))
+        self.assertNotIn("by you", words(page))
+
+        def broken():
+            raise config.ConfigError("config/looks.toml has a syntax error")
+        for off in (mock.patch.object(settings, "OPENAI_API_KEY", ""),     # no key: no pictures
+                    mock.patch.object(looks, "load_rules", broken)):       # a typo must not take the website down
+            with off:
+                response = visitor.get("/")
+            page = response.get_data(as_text=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("every outfit they make.", words(page))
+            self.assertNotIn("model", words(page) + description(page))
+            self.assertNotIn("by you", words(page))
 
     def test_without_a_key_customers_see_no_trace_of_the_feature(self):
         with mock.patch.object(settings, "OPENAI_API_KEY", ""):

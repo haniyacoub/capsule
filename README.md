@@ -194,6 +194,10 @@ export GEMINI_API_KEY="…"           # from aistudio.google.com
 python -m wardrobe
 ```
 
+For Google, use a key from a Google Cloud project with billing switched on:
+Google's image models have no free tier, and its terms forbid free keys for a
+service used by people in the EU.
+
 The key lives in the terminal you typed it into. To have it in every new
 terminal, add the `export` line to the file `~/.zshrc`. Never put it in a file
 inside this folder.

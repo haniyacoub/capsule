@@ -83,6 +83,7 @@ imagegen.draw = stand_in
 
 failures: list[str] = []
 swapped: dict[str, str] = {}    # the piece swapped inside an outfit: its slot and the product chosen
+heard: list[str] = []           # every address the server was asked for, in order (see main)
 PASSWORD = "only for this check 123"
 EMAIL = f"check-{secrets.token_hex(4)}@example.com"
 
@@ -194,6 +195,90 @@ def run(base: str) -> None:
                 other.locator(".brand").click()
                 other.wait_for_url(base + "/outfits")
                 context.close()
+
+        def the_landing_page():
+            # A stranger gives the page a few seconds. It says what Capsule is and who it is for, in plain words,
+            # with the way in on a phone's first screen and one 'Log in' there (the header's), the headline in
+            # Capsule's serif, no text cut off, nothing drawn from the demo data, and a description for search
+            # results. A customer back on the public pages is one tap from the outfits.
+            for width, phone in ((390, True), (1280, False)):
+                context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
+                visitor = context.new_page()
+                fetched: list[str] = []
+                visitor.on("request", lambda r: fetched.append(r.url))
+                visitor.goto(base + "/", wait_until="networkidle")
+                seen = visitor.evaluate("""() => document.fonts.ready.then(() => {
+                    const shown = el => { const b = el.getBoundingClientRect(); return b.width > 0 && b.bottom > 0 && b.top < innerHeight; };
+                    const join = [...document.querySelectorAll('main a')].find(a => a.textContent.trim() === 'Create a free account');
+                    return {text: document.querySelector('main').innerText.toLowerCase(),
+                            log_in: [...document.querySelectorAll('a, button')].filter(el => el.textContent.trim() === 'Log in' && shown(el)).length,
+                            join: !!join && shown(join) && join.getBoundingClientRect().bottom <= innerHeight,
+                            serif: getComputedStyle(document.querySelector('main h1')).fontFamily,
+                            loaded: [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family.replace(/"/g, '')),
+                            description: (document.querySelector('meta[name=description]') || {}).content || '',
+                            cut: [...document.querySelectorAll('main h1, main h2, main p, main .btn')]
+                                 .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent.trim().slice(0, 30))};
+                })""")
+                context.close()
+                assert "men's" in seen["text"].split(), f"at {width}px the page does not say who Capsule is for"
+                planner = [word for word in ("slot", "candidate", "score") if word in seen["text"]]
+                assert not planner, f"the planner's words on the landing page: {planner}"
+                assert seen["log_in"] == 1, f"'Log in' is on the first screen {seen['log_in']} times at {width}px"
+                assert seen["join"], f"'Create a free account' is not on the first screen at {width}px"
+                assert seen["serif"].startswith('"Instrument Serif"') and "Instrument Serif" in seen["loaded"], \
+                    f"the headline is not set in Instrument Serif at {width}px"
+                assert not seen["cut"], f"text cut off at {width}px: {seen['cut']}"
+                assert seen["description"], "no description for search results and shared links"
+                assert not [url for url in fetched if "/mock/img/" in url], "the landing page still loads the demo drawings"
+                assert not [url for url in fetched if "htmx" in url], f"the landing page loads htmx at {width}px"
+            page.goto(base + "/legal/privacy", wait_until="networkidle")    # the customer is logged in here
+            page.locator(".public-nav a", has_text="Open my outfits").click()
+            page.wait_for_url(base + "/outfits")
+
+        def public_pages_and_errors():
+            # A visitor who only reads the website is given no cookie (nothing to ask consent for); the log-in form
+            # sets the one its token needs. A page that isn't there says so in Capsule's words, with the wordmark, the
+            # way home and the legal links, on a phone and on a computer. Capsule's icon is there for browsers to find.
+            for width, phone in ((390, True), (1280, False)):
+                context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
+                visitor = context.new_page()
+                for path in ("/", "/legal/privacy", "/does-not-exist"):     # (the 404 at the end is expected)
+                    visitor.goto(base + path, wait_until="networkidle")
+                assert not context.cookies(), f"reading the website set a cookie: {[c['name'] for c in context.cookies()]}"
+                seen = visitor.evaluate("""() => ({
+                    title: document.querySelector('main h1').textContent.trim(),
+                    text: document.body.innerText,
+                    links: [...document.querySelectorAll('a')].map(a => [a.textContent.trim(), a.getAttribute('href')]),
+                    wide: document.documentElement.scrollWidth,
+                    cut: [...document.querySelectorAll('main h1, main p, main .btn')].filter(el => el.scrollWidth > el.clientWidth + 1).length})""")
+                assert seen["title"] == "We can't find that page", f"a missing page at {width}px says {seen['title']!r}"
+                assert "requested URL" not in seen["text"], "a missing page still shows Werkzeug's sentence"
+                assert seen["links"][:2] == [["Capsule", "/"], ["Go to the home page", "/"]], f"the way home: {seen['links']}"
+                assert ["Privacy policy", "/legal/privacy"] in seen["links"], "no legal links on a missing page"
+                assert seen["wide"] <= width + 1 and not seen["cut"], f"the missing page does not fit {width}px"
+                icon = context.request.get(base + "/favicon.ico")
+                assert icon.ok and icon.headers["content-type"].startswith("image/"), "no /favicon.ico"
+                visitor.goto(base + "/login", wait_until="networkidle")
+                assert [c["name"] for c in context.cookies()] == ["session"], "the log-in form has no cookie for its token"
+                context.close()
+            page.goto(base + "/does-not-exist", wait_until="networkidle")      # the customer is logged in here
+            page.locator("main a", has_text="Go to your outfits").click()
+            page.wait_for_url(base + "/outfits")
+
+        def tabs_fetch_only_the_page():
+            # The browser keeps the stylesheet, the scripts and the fonts for a year (their addresses change when they do),
+            # so moving between tabs asks the server for the page alone: on a slow phone connection, a round trip less
+            # before anything shows. Counted where the server hears it: Playwright also reports the files the browser
+            # took from its own cache.
+            page.goto(base + "/outfits", wait_until="networkidle")
+            heard.clear()
+            for name in ("Wardrobe", "Shopping", "Profile", "Outfits"):
+                page.locator("nav.tabs a", has_text=name).click()
+                page.wait_for_load_state("networkidle")
+            kept = ("/static/app.css", "/static/app.js", "/static/vendor/", "/static/fonts/")
+            again = sorted({path for path in heard if path.startswith(kept)})
+            assert "/list" in heard and "/profile" in heard, f"the tabs were not followed: {heard}"
+            assert not again, f"moving between tabs asked the server again for {again}"
 
         def price_levels():
             page.goto(base + "/", wait_until="networkidle")
@@ -790,6 +875,9 @@ def run(base: str) -> None:
                  ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
+                 ("the landing page says what Capsule is", the_landing_page),
+                 ("public pages: no cookie, errors in plain words", public_pages_and_errors),
+                 ("moving between tabs fetches only the page", tabs_fetch_only_the_page),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
@@ -811,6 +899,13 @@ def run(base: str) -> None:
 
 def main() -> int:
     app = create_app()
+    answer = app.wsgi_app
+
+    def listening(environ, start_response):     # what reaches the server; what the browser keeps never does
+        heard.append(environ.get("PATH_INFO", ""))
+        return answer(environ, start_response)
+
+    app.wsgi_app = listening  # type: ignore[method-assign]
     server = make_server("127.0.0.1", 0, app, threaded=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:

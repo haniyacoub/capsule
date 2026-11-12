@@ -5,7 +5,7 @@
 {% block main %}
 <section class="card">
   <h1>Your account</h1>
-  <p class="muted">Signed in as <b>{{ user.email }}</b>.</p>
+  <p class="muted">Logged in as <b>{{ user.email }}</b>.</p>
   <form method="post" action="{{ url_for('auth.logout') }}">{{ csrf_field() }}
     <button class="btn ghost small">Log out</button>
   </form>
@@ -20,19 +20,20 @@
       <input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
     <button class="btn small">Change password</button>
   </form>
-  <p class="muted small">Changing it signs you out on every other device.</p>
+  <p class="muted small">Changing it logs you out on every other device.</p>
 </section>
 
 <section class="card">
   <h2>Your data</h2>
-  <p class="muted">Everything Capsule stores about you: your profile, your slots and choices, your saved outfits and anything you added by hand.</p>
+  {# What the download holds (db.export_user and auth.export_data). Keep the two in step. #}
+  <p class="muted">Everything Capsule keeps about you: your email, profile and sizes, your plan and choices, saved outfits, items you added, the model you built, the times you asked for AI pictures and, if you uploaded one, your photo (see or delete it on <a href="{{ url_for('profile_page') }}#photo">Profile</a>).</p>
   <p><a class="btn ghost small" href="{{ url_for('auth.export_data') }}">Download a copy (.json)</a></p>
 </section>
 
 <section class="card">
   <h2>Delete account</h2>
-  <p class="muted">This removes your account and all of the above at once. It cannot be undone.</p>
-  <form class="form" method="post" action="{{ url_for('auth.delete_account') }}" data-confirm="Delete your account and all your data? This cannot be undone.">{{ csrf_field() }}
+  <p class="muted">This deletes your account and everything in it straight away, including the model you built and your photo with the pictures made from it. You can't undo this.</p>
+  <form class="form" method="post" action="{{ url_for('auth.delete_account') }}" data-confirm="Delete your account and everything in it? You can't undo this.">{{ csrf_field() }}
     <label class="field"><span>Your password, to confirm</span>
       <input type="password" name="current" autocomplete="current-password" required></label>
     <button class="btn small danger">Delete my account</button>
