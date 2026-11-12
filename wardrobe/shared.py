@@ -20,10 +20,16 @@ from datetime import datetime
 from pathlib import Path
 
 from . import catalog, config, db, paths
-from .collect import matching
+from .collect import matching, pages
 
 POOL_NAME = "store_catalog.json"
 _cache: tuple[int, dict] | None = None
+
+# When the way a product's details are read improves, the published list is corrected as it is
+# read (see _corrected), without asking any store again. A new REVISION then makes every
+# customer's products be rebuilt from the corrected list once (see refresh_customer).
+#   fit2: "weder schmaler noch weiter" (a straight leg) is no longer read as a slim cut.
+REVISION = "fit2"
 
 
 def load() -> dict | None:
@@ -37,9 +43,26 @@ def load() -> dict | None:
     if _cache and _cache[0] == mtime:
         return _cache[1]
     with path.open(encoding="utf-8") as f:
-        pool = json.load(f)
+        pool = _corrected(json.load(f))
     _cache = (mtime, pool)
     return pool
+
+
+def _corrected(pool: dict) -> dict:
+    """The list as published, with each product's cut read again from its own name and description.
+
+    Only products with a description: the cut of the others was read from the name and web
+    address, and that reading has not changed. The file itself is left as it is.
+    """
+    for product in pool.get("products", []):
+        if product.get("description"):
+            product["fit"] = pages.fit_from(f"{product.get('name', '')} {product['description']}")
+    return pool
+
+
+def revision(pool: dict) -> str:
+    """Which publication of the list, read with which corrections, a customer's products come from."""
+    return f"{pool.get('published_at')}#{REVISION}"
 
 
 def publish(target: Path) -> int:
@@ -104,15 +127,16 @@ def build_catalog(slots: list[dict], previous: dict | None) -> dict | None:
                 cand["manual"] = typed_in[cand["id"]]
             candidates.append(cand)
     return {"source": "collected", "collected_at": pool.get("collected_at"), "stores": pool.get("stores", {}),
-            "pool": pool.get("published_at"), "candidates": candidates}
+            "pool": revision(pool), "candidates": candidates}
 
 
 def refresh_customer() -> None:
-    """Rebuild the signed-in customer's candidates if the shared list changed since they last got it."""
+    """Rebuild the signed-in customer's candidates if the shared list changed since they last got it,
+    or is now read with a correction they have not had yet (a new REVISION)."""
     pool = load()
-    if pool is None or db.get_setting("pool") == pool.get("published_at"):
+    if pool is None or db.get_setting("pool") == revision(pool):
         return
     built = build_catalog(db.list_slots(), catalog.load())
     if built:
         catalog.save(built)
-        db.set_setting("pool", pool.get("published_at"))
+        db.set_setting("pool", revision(pool))
