@@ -26,7 +26,7 @@
 <section class="card">
   <h2>Your data</h2>
   {# What the download holds (db.export_user and auth.export_data). Keep the two in step. #}
-  <p class="muted">Everything Capsule keeps about you: your email, profile and sizes, your plan and choices, saved outfits, items you added, the model you built, the times you asked for AI pictures and, if you uploaded one, your photo (see or delete it on <a href="{{ url_for('profile_page') }}#photo">Profile</a>).</p>
+  <p class="muted">Everything Capsule keeps about you: your email, profile and sizes, your plan and choices, saved outfits, items you added, the model you built, the times you asked for AI pictures and, if you uploaded one, your photo and the pictures made from it (see or delete them on <a href="{{ url_for('profile_page') }}#photo">Profile</a>).</p>
   <p><a class="btn ghost small" href="{{ url_for('auth.export_data') }}">Download a copy (.json)</a></p>
 </section>
 

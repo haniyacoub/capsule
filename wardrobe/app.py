@@ -176,7 +176,8 @@ def _asset_version() -> str:
     Browsers keep those files for a year without asking again (static_files_kept, in create_app), so the
     address must change whenever one of them does. It is made from the name, size and time of change of
     every file under static/, htmx in static/vendor/ included: an edit, a new file or an older copy put
-    back all change it.
+    back all change it. Looking at every file takes about half a millisecond, so in production it is done
+    once per start (asset_version, in create_app), not for every page.
     """
     static = ROOT / "wardrobe" / "static"
     files = sorted((str(p.relative_to(static)), p.stat().st_size, p.stat().st_mtime_ns)
@@ -250,6 +251,14 @@ def create_app() -> Flask:
     )
     bootstrap()
 
+    # In production the files under static/ don't change while Capsule runs (an update restarts it, see
+    # PRODUCTION.md), so their version is worked out once, here. On your own machine it is worked out for every
+    # page, so an edit to the stylesheet shows at the next reload.
+    version_at_start = _asset_version() if conf.PRODUCTION else None
+
+    def asset_version() -> str:
+        return version_at_start or _asset_version()
+
     def csrf_field() -> Markup:
         """The hidden input every form carries in production (nothing on your own machine)."""
         if not conf.PRODUCTION:
@@ -258,10 +267,14 @@ def create_app() -> Flask:
 
     @app.context_processor
     def per_request_values():
-        return {"asset_v": _asset_version(), "tryon_available": tryon.available(),
+        return {"asset_v": asset_version(), "tryon_available": tryon.available(),
                 "production": conf.PRODUCTION, "user": g.get("user"), "csrf_field": csrf_field,
                 "csrf_token": auth.csrf_token if conf.PRODUCTION else (lambda: ""),
                 "legal_pages": LEGAL_PAGES, "site_name": conf.SITE_NAME}
+
+    if conf.PRODUCTION:     # first: a page that refuses a request still knows who asked (its way home, error.html)
+        app.before_request(auth.load_user)
+        app.teardown_request(auth.unload_user)
 
     @app.before_request
     def same_origin_only():
@@ -275,9 +288,6 @@ def create_app() -> Flask:
             request.max_content_length = person.MAX_PHOTO + 64 * 1024
 
     if conf.PRODUCTION:
-        app.before_request(auth.load_user)
-        app.teardown_request(auth.unload_user)
-
         @app.before_request
         def accounts_and_csrf():
             if request.endpoint in auth.FILES:      # a stylesheet, script, font or icon: no account, no form
@@ -316,7 +326,8 @@ def create_app() -> Flask:
         """How long browsers keep Capsule's own files (static/), so that moving between pages fetches only the page.
 
         For a year, without asking again: the stylesheet and the scripts at their current ?v= (the address changes
-        whenever a file does, see _asset_version), and the fonts (a changed font gets a new file name, see app.css).
+        with every update of the files, see _asset_version), and the fonts (a changed font gets a new file name, see
+        app.css).
         For a day: the manifest and the icons, whose addresses phones and browsers remember (like /favicon.ico).
         Never without asking (Flask's "no-cache"): a ?v= that is no longer the current one, from a page made before
         an update, so that an address is never kept with a file it did not name.
@@ -324,15 +335,11 @@ def create_app() -> Flask:
         if request.endpoint != "static" or resp.status_code not in (200, 304):
             return resp
         version, name = request.args.get("v"), (request.view_args or {}).get("filename", "")
-        if version == _asset_version() or (version is None and name.startswith("fonts/")):
+        if version == asset_version() or (version is None and name.startswith("fonts/")):
             resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         elif version is None:
             resp.headers["Cache-Control"] = "public, max-age=86400"
         return resp
-
-    @app.errorhandler(ConfigError)
-    def config_error(err: ConfigError):
-        return render_template("error.html", title="A config file needs fixing", message=str(err)), 500
 
     # Each error page in Capsule's own words: a title and one line (error.html adds the way home). Werkzeug's
     # own sentences ("The requested URL was not found on the server…") are written for developers and never
@@ -352,6 +359,16 @@ def create_app() -> Flask:
     def error_page(code: int, own: str | None = None):
         title, line = error_words.get(code) or error_words[400 if code < 500 else 500]
         return render_template("error.html", title=title, message=own or line, plain=True), code
+
+    @app.errorhandler(ConfigError)
+    def config_error(err: ConfigError):
+        """A config file with a typo. On your own machine the page names the file and the line to fix. In production
+        visitors and customers see Capsule's own 500 page: the file, its line and the TOML text are for the operator,
+        and are in the log."""
+        if conf.PRODUCTION:
+            app.logger.error("A config file needs fixing (%s %s): %s", request.method, request.path, err)
+            return error_page(500)
+        return render_template("error.html", title="A config file needs fixing", message=str(err)), 500
 
     @app.errorhandler(HTTPException)
     def http_error(err: HTTPException):
@@ -468,7 +485,7 @@ def create_app() -> Flask:
         if wanted is None:
             abort(404)
         if wanted.price <= 0:           # an item without a price would silently make the wardrobe cheaper
-            abort(409, "That item has no price yet. Add its price on the slot's page first.")
+            abort(409, "That item has no price yet. Add its price on the piece's page first.")
         # Choosing by hand locks the choice, so the price level can't undo it.
         db.update_slot(slot_id, pick=cand_id, locked=True, owned=False)
         if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
@@ -772,7 +789,7 @@ def create_app() -> Flask:
     def outfits_tryon():
         """Hook for the future virtual try-on — see tryon.py. Not built."""
         if not tryon.available():
-            abort(501, "Virtual try-on is not built yet — see wardrobe/tryon.py.")
+            abort(501, "Trying outfits on yourself isn't built yet.")
         w = selection.build()
         outfit = outfits.find(w, request.form.get("key", ""))
         if outfit is None:

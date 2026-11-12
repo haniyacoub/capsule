@@ -65,6 +65,23 @@ class Pages(AppCase):
         r = self.client.post("/settings", data={"mode": "cheapest"}, headers={"Origin": "http://evil.example"})
         self.assertEqual(r.status_code, 403)
 
+    def test_an_edit_to_the_stylesheet_shows_at_the_next_reload(self):
+        # On your own machine the version in the stylesheet's address (?v=) is worked out for every page, so the
+        # browser fetches an edited file at once. (In production it is worked out once per start: test_production.py.)
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as folder, mock.patch("wardrobe.app.ROOT", Path(folder)):
+            css = Path(folder) / "wardrobe" / "static" / "app.css"
+            css.parent.mkdir(parents=True)
+            css.write_text("body {}")
+            client = create_app().test_client()
+
+            def version() -> str:
+                return re.search(r"/static/app\.css\?v=(\w+)", client.get("/outfits").get_data(as_text=True)).group(1)
+
+            before = version()
+            css.write_text("body { color: red }")
+            self.assertNotEqual(version(), before)
+
 
 class Selection(AppCase):
     def test_cheapest_takes_the_lowest_price_in_stock(self):
@@ -738,6 +755,9 @@ class EditingTheRules(AppCase):
         r = self.client.get("/")
         self.assertEqual(r.status_code, 500)
         self.assertIn(b"config/scoring.toml has a syntax error", r.data)
+        # On your own machine the page is for the one who edits the files (production shows Capsule's own 500 page).
+        self.assertIn(b"A config file needs fixing", r.data)
+        self.assertIn(b"Fix the file, save it, and reload this page", r.data)
 
     def test_a_nonsense_value_is_named(self):
         self.edit("polyester      = 25", 'polyester      = "low"')
@@ -760,7 +780,10 @@ class Safety(AppCase):
 
     def test_try_on_is_an_extension_point_not_a_feature(self):
         self.assertNotIn(b"Try on", self.client.get("/outfits").data)
-        self.assertEqual(self.client.post("/outfits/tryon").status_code, 501)
+        refused = self.client.post("/outfits/tryon")
+        self.assertEqual(refused.status_code, 501)
+        self.assertIn("Trying outfits on yourself isn&#39;t built yet.", refused.get_data(as_text=True))
+        self.assertNotIn("tryon.py", refused.get_data(as_text=True), "a file name, on a page customers can see")
 
     def test_unpriced_items_are_never_picked_automatically(self):
         s = self.first("coat")
@@ -773,6 +796,11 @@ class Safety(AppCase):
         after = self.view(s.slot["id"])
         self.assertNotEqual(after.chosen.id, s.chosen.id)
         self.assertGreater(after.chosen.price, 0)
+        # Nor by hand: the page says where to add the price, in the customer's words ("piece", not "slot").
+        refused = self.client.post(f"/slot/{s.slot['id']}/pick", data={"candidate": s.chosen.id})
+        self.assertEqual(refused.status_code, 409)
+        self.assertIn("That item has no price yet. Add its price on the piece&#39;s page first.",
+                      refused.get_data(as_text=True))
 
 
 class DemoData(AppCase):
