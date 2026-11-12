@@ -198,6 +198,12 @@ class Wardrobe:
         return sum(s.qty for s in self.slots if s.state != "owned" and s.cands and s.chosen is None and not s.n_available)
 
     @property
+    def n_nothing_to_buy(self) -> int:
+        """Every piece nothing is picked for, whatever the reason: all a phone's budget bar has room to say when
+        there is more than one reason."""
+        return self.n_missing + self.n_no_size + self.n_no_price
+
+    @property
     def n_no_price(self) -> int:
         """Pieces whose options in your size all lack a price, so nothing is picked: a product added by its
         link has none until you type it in."""

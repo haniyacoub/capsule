@@ -167,6 +167,9 @@ main { max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--side-r) var(
   .sub { font-size: 0; }
   .sub:not(:has(.warn)) { display: none; }
   .sub .warn { font-size: var(--t-s); }
+  /* With more than one reason a piece has nothing to buy, the line by reason would wrap (and the bar outgrow
+     --bar-h), so phones show the total (.ph) and keep the reasons for screen readers (as .sr). */
+  .sub .warn:has(.ph) .why { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
 /* Sticky only where it helps: not over the outfits, which need the whole screen, and not on a screen under
    520px tall (a phone held sideways), where it would take too much of it. */

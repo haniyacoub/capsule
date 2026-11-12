@@ -304,6 +304,20 @@ class BudgetBar(AppCase):
         self.assertGreaterEqual(w.n_unfilled, 1)
         self.assertIn('<span class="warn">', self.bar(self.client.get("/").data.decode()),
                       "phones show the line under the figures only when it has this count of missing pieces")
+        self.assertNotIn("with nothing to buy yet", self.bar(self.client.get("/").data.decode()),
+                         "with one reason, a phone says the reason itself")
+
+    def test_a_phone_says_the_total_when_pieces_have_nothing_to_buy_for_more_than_one_reason(self):
+        # "10 pieces not in the product list yet · 2 pieces not in stock in your size" wraps on a phone, and the bar
+        # would then grow past the room kept for it (--bar-h). A phone shows the total; a screen reader hears it all.
+        profile_mod.save({**profile_mod.load(), "shoe": "49", "refused": ["navy", "black", "grey"]})
+        db.replace_slots(capsule.propose(profile_mod.load())[0])
+        w = selection.build()
+        self.assertEqual(len(w.unfilled_words), 2, w.unfilled_words)
+        self.assertEqual(w.n_nothing_to_buy, w.n_missing + w.n_no_size)
+        bar = self.bar(self.client.get("/").data.decode())
+        self.assertIn(f'<span class="why">{" · ".join(w.unfilled_words)}</span>', bar)
+        self.assertIn(f'<span class="ph" aria-hidden="true">{w.n_nothing_to_buy} pieces with nothing to buy yet</span>', bar)
 
 
 class RebuildingThePlan(AppCase):
