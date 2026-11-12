@@ -6,9 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from wardrobe import capsule, catalog, colours, config, db, outfits, paths, selection, shared
+from markupsafe import escape
+
+from wardrobe import capsule, catalog, colours, config, db, export, outfits, paths, selection, shared
 from wardrobe import profile as profile_mod
-from wardrobe.app import create_app, weblink
+from wardrobe.app import create_app, eur, weblink
+
+from .test_production import ProductionCase
 
 HX = {"HX-Request": "true"}
 
@@ -456,6 +460,124 @@ class PiecesWithNothingToBuy(AppCase):
         self.assertEqual((w.n_missing, w.n_no_size, w.n_no_price, w.unfilled_words), (0, 0, 0, []))
         self.assertFalse([s.slot["name"] for s in w.slots if s.offers or s.left_out])
         self.assertNotIn("not in the product list", self.client.get("/").data.decode())
+
+
+class BuyingInYourSizes(AppCase):
+    """Buy this outfit and the shopping list: the sizes to order in, said first, and honestly while they are
+    the example's; the product's photo and the store's link on every line; and what the prices leave out."""
+
+    profile_form = RebuildingThePlan.profile_form       # the Profile form as the page sends it
+    EXAMPLE_SIZES = "Your sizes: Tops M · Trousers W32 L32 · Shoes 43 · Change"
+    WARNING = "These are our example sizes. Change them, or keep them if they're yours."
+
+    def outfit(self):
+        return outfits.generate(selection.build(), limit=1)[0][0]
+
+    def read(self, url, **query) -> str:
+        """A page as the customer reads it: tags dropped, spaces collapsed."""
+        page = self.client.get(url, query_string=query).data.decode()
+        return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", page)).split())
+
+    def both(self) -> dict:
+        return {"buy": self.read("/outfits/buy", at=self.outfit().sig), "list": self.read("/list")}
+
+    def test_a_new_account_is_told_its_sizes_are_the_examples(self):
+        self.assertTrue(profile_mod.sizes_unconfirmed(profile_mod.load()))
+        for name, page in self.both().items():
+            self.assertIn(self.EXAMPLE_SIZES, page, name)
+            self.assertIn(self.WARNING + " These are my sizes", page, name)
+        buy = self.client.get("/outfits/buy", query_string={"at": self.outfit().sig}).data.decode()
+        self.assertIn('<a href="/profile#sizes">Change', buy)
+        self.assertIn('<h2 class="sec" id="sizes">Sizes</h2>', self.client.get("/profile").data.decode(), "where Change leads")
+
+    def test_a_profile_saved_with_only_new_colours_still_has_the_example_sizes(self):
+        # Any save clears profile["example"], also this one, which left the sizes at M, W32 L32 and 43.
+        self.client.post("/profile", data=self.profile_form(liked="black, white"))
+        self.assertFalse(profile_mod.load()["example"])
+        for name, page in self.both().items():
+            self.assertIn(self.EXAMPLE_SIZES, page, name)
+            self.assertIn(self.WARNING, page, name)
+
+    def test_these_are_my_sizes_takes_the_warning_away(self):
+        back = self.client.post("/profile/sizes-ok", data={"at": self.outfit().sig})
+        self.assertTrue(back.headers["Location"].startswith("/outfits/buy?at="), "back to the Buy page it was pressed on")
+        self.assertIn("Sizes saved.", self.client.get(back.headers["Location"]).data.decode())
+        for name, page in self.both().items():
+            self.assertIn(self.EXAMPLE_SIZES, page, name)         # still said: they are his own now
+            self.assertNotIn("example sizes", page, name)
+            self.assertNotIn("These are my sizes", page, name)
+        self.assertEqual(self.client.post("/profile/sizes-ok").headers["Location"], "/list", "pressed on the list")
+
+    def test_other_sizes_saved_on_the_profile_take_the_warning_away(self):
+        self.client.post("/profile", data=self.profile_form(top_size="L", waist="34", length="30", shoe="44"))
+        for name, page in self.both().items():
+            self.assertIn("Your sizes: Tops L · Trousers W34 L30 · Shoes 44 · Change", page, name)
+            self.assertNotIn("example sizes", page, name)
+        # Typed in by the customer, even the example's own sizes are his: the warning does not come back.
+        self.client.post("/profile", data=self.profile_form(top_size="M", waist="32", length="32", shoe="43"))
+        self.assertIn(self.EXAMPLE_SIZES, self.both()["list"])
+        self.assertNotIn("example sizes", self.both()["list"])
+
+    def test_one_size_written_two_ways_is_the_same_size(self):
+        example = profile_mod.EXAMPLE
+        self.assertTrue(profile_mod.same_sizes({**example, "top_size": "m", "waist": "32", "shoe": "43.0"}, example))
+        self.assertTrue(profile_mod.same_sizes({**example, "shoe": "43,0"}, example))
+        self.assertFalse(profile_mod.same_sizes({**example, "shoe": "42.5"}, example))
+        self.assertFalse(profile_mod.same_sizes({**example, "length": 34}, example))
+
+    def test_every_line_shows_the_products_photo_or_colour_and_links_to_the_store(self):
+        w, outfit = selection.build(), self.outfit()
+        seen = []
+        for url, query, sl in (("/outfits/buy", {"at": outfit.sig}, export.build(w, only=outfit.slots)),
+                               ("/list", {}, export.build(w))):
+            page = self.client.get(url, query_string=query).data.decode()
+            shown = re.findall(r'<li class="buy">(.*?)</li>', page, re.S)
+            lines = [line for g in sl.groups for line in g.lines]
+            self.assertEqual(len(shown), len(lines), url)
+            self.assertGreaterEqual(len(lines), 2, url)
+            seen += lines
+            for html_line, line in zip(shown, lines):
+                # The swatch of the product's colour is always there: it shows where the photo is missing.
+                swatch = f'<span class="pic{"" if line.image_url else " noimg"}" style="--sw:{line.hex};'
+                self.assertIn(swatch, html_line)
+                if line.image_url:
+                    self.assertIn(f'<img src="{escape(line.image_url)}"', html_line)
+                self.assertIn(f'<a class="buy-product" href="{escape(weblink(line.url))}" target="_blank" '
+                              f'rel="noopener noreferrer"><span lang="de">{escape(line.product)}</span>', html_line)
+                self.assertIn(f'Colour: <span lang="de">{escape(line.colour)}</span> · Size: <b>{escape(line.size)}</b>',
+                              html_line)
+        # Both kinds were checked: the demo data has products with a photo and one without (the Zara chinos).
+        self.assertTrue(any(line.image_url for line in seen) and not all(line.image_url for line in seen))
+
+    def test_the_buy_page_leads_with_the_outfits_total_and_says_what_the_prices_leave_out(self):
+        outfit = self.outfit()
+        page = self.client.get("/outfits/buy", query_string={"at": outfit.sig}).data.decode()
+        self.assertNotIn('id="summary"', page, "no budget bar: the wardrobe's total is not this outfit's")
+        self.assertIn(f'<p class="buy-head"><b>{eur(outfit.cost)}</b>', page)
+        self.assertIn(f"{outfit.label} · {len(outfit.pieces)} pieces · prices and stock as of ", page)
+        self.assertIn('id="summary"', self.client.get("/list").data.decode(), "the list keeps it")
+        for name, words in self.both().items():
+            self.assertIn("Prices include VAT. Each store adds its own delivery costs at checkout.", words, name)
+            self.assertIn("You pay once per store, as each has its own basket and checkout.", words, name)
+        self.assertIn("Prices include VAT. Each store adds its own delivery costs at checkout.",
+                      self.client.get("/list.md").data.decode())
+
+    def test_what_you_own_is_named_the_same_way_everywhere(self):
+        outfit = self.outfit()
+        self.post(f"/slot/{outfit.slots[-1]}/own")
+        for page in (self.read("/outfits/buy", at=outfit.sig), self.read("/list"), self.read("/list.md")):
+            self.assertIn("You already own", page)
+            self.assertNotIn("Already yours", page)
+            self.assertNotIn("Already own", page)
+
+
+class YourSizesForEachCustomer(ProductionCase):
+    def test_keeping_the_example_sizes_needs_the_pages_token_and_is_for_that_customer_only(self):
+        ada, bob = self.member("ada@example.com"), self.member("bob@example.com")
+        self.assertEqual(ada.post("/profile/sizes-ok").status_code, 400, "no token")
+        self.assertEqual(self.post(ada, "/profile/sizes-ok").headers["Location"], "/list")
+        self.assertNotIn("These are our example sizes", html.unescape(ada.get("/list").data.decode()))
+        self.assertIn("These are our example sizes", html.unescape(bob.get("/list").data.decode()))
 
 
 class Outfits(AppCase):

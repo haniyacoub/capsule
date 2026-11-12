@@ -11,7 +11,7 @@
   {% endif %}
 
   <form class="form" method="post" action="{{ url_for('profile_page') }}">{{ csrf_field() }}
-    <h2 class="sec">Sizes</h2>
+    <h2 class="sec" id="sizes">Sizes</h2>
     <div class="row">
       <label class="field"><span>Tops</span>
         <select name="top_size">

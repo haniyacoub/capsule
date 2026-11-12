@@ -349,7 +349,7 @@ class Viewer(AppCase):
             if piece.owned:
                 continue
             self.assertIn(piece.view.chosen.data["url"].replace("&", "&amp;"), page)
-        self.assertIn("Already yours", page)
+        self.assertIn("You already own", page)
         self.assertIn("checkout", page)
         self.assertIn(f"{outfit.cost:,.2f}".rstrip("0").rstrip("."), page.replace("&nbsp;", " "))
         self.assertEqual(self.client.get("/outfits/buy", query_string={"at": "nope"}).status_code, 404)

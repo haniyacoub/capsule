@@ -27,13 +27,47 @@ EXAMPLE = {
 }
 
 
+# The four sizes a customer orders in. Until he says they are his, they may still be the example's.
+SIZES = ("top_size", "waist", "length", "shoe")
+
+
 def load() -> dict:
     stored = db.get_setting("profile") or {}
     return {**EXAMPLE, **stored}
 
 
 def save(profile: dict) -> None:
+    """Store the profile. Sizes changed on the Profile page were typed in by the customer, so they are
+    his own: the warning about the example sizes stays away, even if he later types in the example's."""
+    if not same_sizes(load(), profile):
+        confirm_sizes()
     db.set_setting("profile", profile)
+
+
+def same_sizes(a: dict, b: dict) -> bool:
+    """Whether two profiles order in the same sizes. 'm' and 'M', 32 and '32', '43' and '43.0' are the same."""
+    def size(value) -> str:
+        text = str(value).strip().replace(",", ".").upper()
+        try:
+            return f"{float(text):g}"
+        except ValueError:
+            return text
+    return all(size(a.get(key)) == size(b.get(key)) for key in SIZES)
+
+
+def confirm_sizes() -> None:
+    """'These are my sizes': the customer says his sizes are his own, also where they are the example's."""
+    db.set_setting("sizes_confirmed", True)
+
+
+def sizes_unconfirmed(profile: dict) -> bool:
+    """Whether the sizes are still the example's (Tops M, Trousers W32 L32, Shoes 43) and the customer
+    hasn't said they are his. Then a page that says which size to order says that first: Buy this outfit,
+    the shopping list, the piece pop-up.
+
+    Not profile["example"]: any Profile save clears that, also one that changed only the colours and left
+    the example's sizes as they were."""
+    return same_sizes(profile, EXAMPLE) and not db.get_setting("sizes_confirmed")
 
 
 def _int(value, default: int, lo: int, hi: int) -> int:

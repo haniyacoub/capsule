@@ -8,7 +8,8 @@ It starts the app in production mode on a spare port, with a throwaway data fold
 stand-in for the image service (nothing is sent anywhere and nothing is billed), then does
 what a new customer would: signs up, changes the price level, watches an outfit's picture
 arrive, opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
-saves and "buys" one, logs in again and lands on the outfits, puts a model together,
+saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
+logs in again and lands on the outfits, puts a model together,
 uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece) and
 deletes the account.
 
@@ -324,9 +325,37 @@ def run(base: str) -> None:
             page.locator(f"{first} .about-actions a").click()
             page.wait_for_load_state("networkidle")
             assert page.locator(".buy").count() >= 2, "the buy page lists nothing"
-            assert "checkout" in page.locator("main").inner_text(), "it does not say how buying works"
+            words = page.locator("main").inner_text()
+            assert "checkout" in words, "it does not say how buying works"
+            assert "VAT" in words and "delivery" in words, "it does not say what the prices include and leave out"
+            assert page.locator("#summary").count() == 0, "the wardrobe's budget bar is on the outfit's Buy page"
+            assert page.locator(".buy").count() == page.locator(".buy .pic").count(), "a line has no photo or swatch"
+            # A new customer's sizes are the example's: the page says so before he orders in them, and he can keep them.
+            sizes = page.locator(".your-sizes")
+            assert "Your sizes: Tops M" in sizes.inner_text() and "example sizes" in sizes.inner_text(), \
+                "the example sizes are not called example sizes"
+            buy_page = page.url
+            sizes.locator("button:has-text('These are my sizes')").click()
+            page.wait_for_load_state("networkidle")
+            assert page.url == buy_page, "keeping the sizes leaves the Buy page"
+            assert "Your sizes: Tops M" in page.locator(".your-sizes").inner_text(), "the sizes are no longer said"
+            assert "example sizes" not in page.locator("main").inner_text(), "the example warning stays after 'These are my sizes'"
             page.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
             assert page.locator("#reel .slide").count() == 1, "the saved outfit is not under Saved"
+
+        def list_prints_without_photos():
+            # On paper the shopping list is words and links: the photos would only use ink.
+            page.goto(base + "/list", wait_until="networkidle")
+            lines = page.locator(".buy")
+            assert lines.count() >= 2 and page.locator(".buy .pic").count() == lines.count(), "a line has no photo"
+            assert page.locator(".buy .pic").first.is_visible(), "the list shows no photos on the screen"
+            page.emulate_media(media="print")
+            try:
+                assert not any(pic.is_visible() for pic in page.locator(".buy .pic").all()), "photos are printed"
+                assert page.locator(".buy-product").first.is_visible(), "the product names are not printed"
+                assert not page.locator("#summary").is_visible(), "the budget bar is printed"
+            finally:
+                page.emulate_media(media="screen")
 
         def my_model():
             page.goto(base + "/profile", wait_until="networkidle")
@@ -490,6 +519,7 @@ def run(base: str) -> None:
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),
+                 ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),

@@ -1,0 +1,13 @@
+{# "Your sizes", at the top of the shopping list and of Buy this outfit: the sizes every line below is ordered in,
+   one tap from changing them. While they are still the example's (profile.sizes_unconfirmed), it says so, as a
+   caution to act on, with a button to keep them; the button leads back to the page it is on. #}
+<div class="your-sizes{% if example_sizes %} example{% endif %}">
+  <p>Your sizes: Tops {{ you.top_size }} · Trousers W{{ you.waist }} L{{ you.length }} · Shoes {{ you.shoe }} · <a href="{{ url_for('profile_page') }}#sizes">Change<span class="sr"> your sizes</span></a></p>
+  {% if example_sizes %}
+  <p>These are our example sizes. Change them, or keep them if they're yours.</p>
+  <form class="no-print" method="post" action="{{ url_for('profile_sizes_ok') }}">{{ csrf_field() }}
+    {% if outfit is defined %}<input type="hidden" name="at" value="{{ outfit.sig }}">{% endif %}
+    <button class="btn ghost small">These are my sizes</button>
+  </form>
+  {% endif %}
+</div>
