@@ -398,9 +398,9 @@ details.why summary::-webkit-details-marker { display: none; }
 /* The stage: the outfit as a picture, 2 wide by 3 high, without a border. Square corners on a phone; on computers
    the photo radius (see "Wider screens"). On a phone the first screen shows the whole model, its price and the
    heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
-   the budget bar (--bar-h) and 324px: the header, the chips and the lead line above the picture (150px), the note
-   under it (up to three lines of small text), the outfit line and the tab bar below. The picture is never under
-   240px wide; on a shorter screen it then ends just above the tab bar, and the outfit line follows below. */
+   the budget bar (--bar-h) and 302px: the header, the chips and the lead line above the picture (150px), the line
+   under it (40px), the outfit line and the tab bar below. The picture is never under 240px wide; on a shorter
+   screen it then ends just above the tab bar, and the outfit line follows below. */
 .looks { --told: 0px; --least: 240px; --lead-more: 0px; }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
@@ -409,16 +409,17 @@ details.why summary::-webkit-details-marker { display: none; }
    of up to three lines. */
 main:has(> .flash, > .demo) .looks { --told: calc(2 * var(--t-m) * var(--lh-m) + var(--s-6)); --least: 190px; }
 main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-m) * var(--lh-m) + 2 * var(--s-6)); --least: 150px; }
+/* The stage is also the box the line under the picture measures itself against (see .look-line). */
 .stage {
-  position: relative; margin: 0 auto;
-  width: min(100%, max(var(--least), calc((100svh - var(--bar-h) - 324px - var(--lead-more) - var(--told)) * 2 / 3)));
+  position: relative; margin: 0 auto; container-type: inline-size;
+  width: min(100%, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--lead-more) - var(--told)) * 2 / 3)));
 }
 .collage, .look-pic { aspect-ratio: 2 / 3; border-radius: 0; overflow: hidden; background: var(--photo); }
 .collage { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 1px; }
 .collage.c2 { grid-template-columns: 1fr; }
 .collage.c3 .tile:first-child { grid-column: span 2; }   /* three pieces: the top across, trousers and shoes below */
 .collage.c5 .tile:first-child { grid-row: span 2; }      /* five: the coat gets a tall tile */
-.stage:has(.look-pic) .collage { display: none; }        /* the AI picture takes the collage's place */
+.stage:has(.look-pic) .collage { visibility: hidden; }   /* under the AI picture: it keeps its room, so nothing moves */
 .tile { position: relative; display: block; min-height: 0; padding: 0; border: 0; background: var(--photo); cursor: pointer; text-decoration: none; }
 /* Focus on a tile: a dark ring with a white one inside it, drawn over the photo (the collage clips
    anything outside). Fixed colours, not the theme's: the tiles are light in dark mode too. */
@@ -437,19 +438,57 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
   padding: 2px 6px; border-radius: var(--r-ui); background: rgba(255, 255, 255, .88); color: #1b1b1a;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* The AI picture lies over the pieces' photos, in the same 2:3 box, and fades in when it arrives (htmx-added is on
+   new content for a moment). Inside it, at the bottom left, the label 'AI picture': white on a dark veil (7.7:1 on
+   the studio grey), in fixed colours because the picture is light in dark mode too. Only the dots go on it besides. */
+.look-pic { position: absolute; top: 0; left: 0; width: 100%; transition: opacity .2s ease-out; }
+.look-pic.htmx-added { opacity: 0; }
 .look-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.look-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
-.look-bar.wait { justify-content: flex-start; }
-.look-bar .btn { flex: none; }
-.look-links { display: flex; gap: 12px; flex: none; }
-/* Under a finished picture the note runs on into its two links instead of being squeezed beside them: three lines at
-   most on a phone, however narrow the picture, so the outfit line under it stays on the first screen. The links keep
-   their finger-sized height without making their line taller. */
-.look-pic + .look-bar { display: block; }
-.look-pic + .look-bar > span:first-of-type::after { content: ""; margin-right: var(--s-2); }   /* the space before the links, none where they start a line */
-.look-pic + .look-bar .look-links { display: inline-flex; margin: calc(-1 * var(--s-1)) 0; }
-.look-links .link { padding: 4px 0; font-size: var(--t-s); }
+.ai-chip {
+  position: absolute; left: var(--s-2); bottom: var(--s-2); padding: var(--s-1) var(--s-2); border-radius: var(--r-pill);
+  background: rgba(27, 27, 26, .72); color: #fff; pointer-events: none;
+  font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
+}
+/* What is being done about the picture (asked for, drawing, waiting its turn, failed) is said in a band across the top
+   of the box, over the pieces' photos: their prices at the bottom of each photo stay readable, and nothing outside
+   the box moves when the band comes, changes or goes. The same dark veil and white as the label, blurring what is
+   under it so that no words show through. */
+.band {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 2; margin: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); padding: var(--s-2) var(--s-3);
+  background: rgba(27, 27, 26, .72); color: #fff; font-size: var(--t-s); line-height: var(--lh-s);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.band > span:not(.spin) { flex: 1 1 6em; min-width: 0; }   /* the words; a button that does not fit beside them goes under */
+.band.wait { flex-wrap: nowrap; }
+.band .look-msg { color: inherit; }
+.band .btn { flex: none; background: #fff; border-color: #fff; color: #1b1b1a; }
+.band :focus-visible { outline-color: #fff; }
+.band .spin { border-color: rgba(255, 255, 255, .35); border-top-color: #fff; }
+/* The line under the box: one line, 40px tall in every state (empty until there is a picture), so that nothing under
+   it moves when the picture arrives. Where the box is narrower than the half sentence and the two links (a short
+   phone, under a message), the line reaches a little past the box on both sides. */
+.look-line {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
+  width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
+  font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); white-space: nowrap;
+}
+.look-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Shorter words (.half) in place of the whole sentence (.whole) where the box is too narrow for it: under the picture
+   'Look and fit will differ.', in the band 'On the model, drawn by AI.' beside its button. */
+.look-note .whole, .band .whole { display: none; }
+@container (min-width: 300px) {
+  .band .whole { display: inline; }
+  .band .half { display: none; }
+}
+@container (min-width: 380px) {
+  .look-note .whole { display: inline; }
+  .look-note .half { display: none; }
+}
+.look-links { display: flex; gap: var(--s-3); flex: none; align-self: stretch; }
+.look-links .link { display: inline-flex; align-items: center; padding: 0; font-size: var(--t-s); }   /* each the line's 40px tall */
 .look-msg { color: var(--ok); }
+p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--s-1); }   /* why a new version was not drawn */
 .spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--ink); animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* The dots on the AI picture: one per piece, placed by config/looks.toml. */
@@ -524,6 +563,7 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 @media (prefers-reduced-motion: reduce) {
   .reel { scroll-behavior: auto; }
   .spin { animation: none; }
+  .look-pic { transition: none; }
 }
 
 /* ── The pop-up for one piece (a sheet from the bottom on a phone) ───────── */
@@ -710,6 +750,7 @@ details[open] > summary .edit { visibility: hidden; }
      chips and the lead line, with the line under it (210px), less any message's room (see .looks). */
   .stage { width: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--told)) * 2 / 3))); margin: 0; }
   .collage, .look-pic { border-radius: var(--r-img); }
+  .band { border-radius: var(--r-img) var(--r-img) 0 0; }
   .about { margin: 0; }
   .reel-nav { display: inline-flex; }
   .sheet { margin: auto; padding: 22px; border-radius: var(--r-sheet); }

@@ -7,7 +7,8 @@ Needs the packages in requirements.txt and, once, `python -m playwright install 
 It starts the app in production mode on a spare port, with a throwaway data folder and a
 stand-in for the image service (nothing is sent anywhere and nothing is billed), then does
 what a new customer would: signs up, changes the price level, watches an outfit's picture
-arrive, opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
+arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
+page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
 saves and "buys" one, logs in again and lands on the outfits, puts a model together,
 uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece), sees
 that a phone's first screen shows the outfit on the model with its price and the heart, tabs
@@ -249,15 +250,88 @@ def run(base: str) -> None:
             assert seen["words"] == 1, f"the words of an option not in your size are faded: {seen}"
             assert seen["photo"] < 1, "the photo of an option not in your size is not faded"
 
+        def drawing_status(where_page) -> dict:
+            """What the first outfit says while its picture is drawn, and whether that is inside the picture's box."""
+            return where_page.evaluate("""s => {
+                const band = document.querySelector(s + ' .look-bar.wait'), box = el => el.getBoundingClientRect();
+                if (!band) return {words: null};
+                const b = box(band), p = box(document.querySelector(s + ' .collage'));
+                return {words: band.textContent.replace(/\\s+/g, ' ').trim(), top: b.top, bottom: b.bottom,
+                        inside: b.left >= p.left - 0.5 && b.right <= p.right + 0.5 && b.top >= p.top - 0.5 && b.bottom <= p.bottom + 0.5};
+            }""", first)
+
+        def labelled(where_page, where: str) -> dict:
+            """The picture carries the words 'AI picture', on the picture itself."""
+            label = where_page.evaluate("""s => {
+                const chip = document.querySelector(s + ' .look-pic .ai-chip'), box = el => el.getBoundingClientRect();
+                if (!chip) return null;
+                const c = box(chip), p = box(chip.closest('.look-pic')), style = getComputedStyle(chip);
+                return {words: chip.textContent.trim(), bottom: c.bottom,
+                        shown: style.visibility === 'visible' && style.display !== 'none' && c.width > 0 && c.height > 0,
+                        on: c.left >= p.left && c.right <= p.right && c.top >= p.top && c.bottom <= p.bottom};
+            }""", first)
+            assert label and label["words"] == "AI picture" and label["shown"] and label["on"], \
+                f"{where}: the picture does not carry the words 'AI picture' on itself: {label}"
+            return label
+
         def picture_arrives():
             page.goto(base + "/outfits", wait_until="networkidle")
             assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
             page.wait_for_selector(f"{first} .look-bar.wait")              # asked for by itself, then waited for
+            status = drawing_status(page)
+            assert status["words"] and re.match(r"(Drawing this outfit|Waiting its turn)", status["words"]) and status["inside"], \
+                f"while the picture is drawn, the status is not said inside the picture's box: {status}"
             page.wait_for_selector(f"{first} .look-pic img")
             shows(f"{first} .look-pic img", "the picture of the outfit")
             assert page.locator(f"{first} .collage").is_hidden(), "the product photos still show under the picture"
             assert page.locator(f"{first} .spot").count() == page.locator(f"{first} .piece-row").count(), "a dot per piece"
-            assert "AI picture" in page.locator(f"{first} .look-bar").inner_text(), "the picture is not labelled"
+            labelled(page, "1280 x 860")
+
+        def a_picture_arrives_on_a_phone_without_a_jump():
+            # On a phone (390 x 844), an outfit whose picture is not drawn yet. While it is drawn, what is going on is
+            # said on the first screen, inside the picture's box; when it arrives it carries the words 'AI picture' on
+            # itself, on the first screen too, and nothing on the page jumps: the layout shift browsers measure
+            # (CLS) stays at most 0.05. The first outfit's picture is then fetched before anything else on the page.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            other = context.new_page()
+            other.goto(base + "/login", wait_until="networkidle")
+            other.fill("input[name=email]", EMAIL)
+            other.fill("input[name=password]", PASSWORD)
+            other.click("button:has-text('Log in')")
+            other.wait_for_load_state("networkidle")
+            for seed in range(101, 141):                # a shuffle whose first outfit has no picture yet
+                other.goto(base + f"/outfits?seed={seed}", wait_until="domcontentloaded")
+                if not other.locator(f"{first} .look-pic").count():
+                    break
+            else:
+                raise AssertionError("the first outfit of every shuffle tried already has its picture")
+            other.wait_for_load_state("load")
+            other.evaluate("() => document.fonts.ready")
+            # Invented products here, so the page opens with the "Demo data" notice that customers never see.
+            other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+            other.evaluate("""() => { window.jumps = 0; new PerformanceObserver(list => list.getEntries()
+                .forEach(e => { if (!e.hadRecentInput) window.jumps += e.value; })).observe({type: 'layout-shift'}); }""")
+            other.wait_for_selector(f"{first} .look-bar.wait")
+            tabs = other.evaluate("() => document.querySelector('nav.tabs').getBoundingClientRect().top")
+            status = drawing_status(other)
+            assert status["words"] and status["inside"] and 0 <= status["top"] and status["bottom"] <= tabs, \
+                f"at 390 x 844 the drawing status is not on the first screen inside the picture's box: {status}"
+            other.wait_for_selector(f"{first} .look-pic img")
+            other.wait_for_function("s => document.querySelector(s).complete", arg=f"{first} .look-pic img")
+            other.wait_for_timeout(500)                 # the picture fades in
+            label = labelled(other, "390 x 844")
+            assert label["bottom"] <= tabs, f"at 390 x 844 the label 'AI picture' ends at {label['bottom']:.0f}px, under the tab bar"
+            jumps = other.evaluate("() => window.jumps")
+            assert jumps <= 0.05, f"the page jumped when the picture arrived: a layout shift of {jumps:.3f}"
+            other.reload(wait_until="domcontentloaded")
+            fetched = other.evaluate("""() => [...document.querySelectorAll('#reel .slide .look-pic img')].map(img => ({
+                first: img.closest('.slide') === document.querySelector('#reel .slide'), priority: img.getAttribute('fetchpriority'),
+                lazy: img.getAttribute('loading') === 'lazy', sized: !!(img.getAttribute('width') && img.getAttribute('height'))}))""")
+            top = [img for img in fetched if img["first"]]
+            assert top and top[0]["priority"] == "high" and not top[0]["lazy"] and top[0]["sized"], \
+                f"the first outfit's picture is not fetched first, or has no size: {top}"
+            assert all(img["lazy"] for img in fetched if not img["first"]), f"another outfit's picture is not fetched lazily: {fetched}"
+            context.close()
 
         def dot_opens_the_piece():
             spot = page.locator(f"{first} .spot").nth(0)
@@ -609,6 +683,7 @@ def run(base: str) -> None:
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
                  ("an option not in your size fades only its photo", out_of_size_fades_only_the_photo),
                  ("the picture of an outfit arrives by itself", picture_arrives),
+                 ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),

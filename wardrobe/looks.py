@@ -36,17 +36,19 @@ QUEUE_SECONDS = 30 * 60                        # … and one still waiting its t
 FORGET_FAILURE_SECONDS = 3600                  # after this, or once the app was restarted, a failure is tried afresh
 STARTED = time.time()                          # when this server process started
 _TURNS = threading.BoundedSemaphore(2)         # pictures being drawn at once, per server process
-IN_LINE = "Waiting its turn: pictures are drawn two at a time."
+IN_LINE = "Waiting its turn · two pictures are drawn at a time"
 
+# What went wrong, in words. The lines a customer can meet say "the AI". The four operator lines (OPERATORS) name
+# the image service: customers of a public service only ever see CLOSED in their place (see _say).
 SAY = {
-    "photo": "The image service could not use your photo. Try a different one on the Profile page.",
+    "photo": "The AI could not use your photo. Try a different one on the Profile page.",
     "key": "The image service did not accept the key.",
     "account": "The image service account cannot draw right now: no credit, a spending limit, or it still needs verifying.",
     "model": "The image service does not know the model named in config/looks.toml.",
     "request": "The image service did not accept the request.",
-    "refused": "The image service declined to draw this outfit.",
-    "busy": "The image service is busy or did not answer in time. Try again in a minute.",
-    "empty": "The image service answered without a picture. Try again.",
+    "refused": "The AI declined to draw this outfit.",
+    "busy": "The AI is busy or did not answer in time. Try again in a minute.",
+    "empty": "The AI answered without a picture. Try again.",
     "stalled": "That took too long and was stopped. Try again.",
     "unknown": "Something went wrong while drawing. Try again.",
 }
@@ -322,7 +324,7 @@ def attach(boards: list[dict]) -> bool:
 # ── asking for a picture ──────────────────────────────────────────────────────
 
 USED_UP = {
-    "mine": "You have had today's pictures. There are more tomorrow.",
+    "mine": "That's your {pictures} for today. More tomorrow.",     # "10 pictures": per_customer_per_day in config/looks.toml
     "all": "Today's pictures are used up.",
 }
 
@@ -358,7 +360,9 @@ def request(pieces: list[dict], again: bool = False) -> Look | None:
                                           limits["per_customer_per_day"] if settings.PRODUCTION else None)
     if not ticket:
         hint = "" if settings.PRODUCTION or used_up == "mine" else " The limit is per_day in config/looks.toml."
-        return refused(USED_UP[used_up] + hint, "limit")
+        allowance = limits["per_customer_per_day"]
+        said = USED_UP[used_up].format(pictures="picture" if allowance == 1 else f"{allowance} pictures")
+        return refused(said + hint, "limit")
     lost = row is not None and row["status"] == "ready" and look is None    # its file was deleted by hand
     owner = db.uid() if who.photo else None
     if db.start_look(key, chosen.tag, now - STALE_SECONDS, now - QUEUE_SECONDS, again=again or lost, owner=owner):

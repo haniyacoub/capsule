@@ -562,6 +562,67 @@ class Pictures(WithPictures, AppCase):
         self.assertEqual(page.count("See it worn"), 11)
         self.assertEqual(len(self.pictures_on_disk()), 1)
 
+    def test_what_is_going_on_is_said_on_the_picture_box_and_the_line_under_it_never_changes_height(self):
+        waiting = self.in_line()
+        drawing, done = some_outfits(2)
+
+        def state(outfit) -> str:
+            return self.client.get(f"/outfits/look/{look_key(outfit)}?outfit={outfit.key}").data.decode()
+
+        def said(html: str) -> str:
+            return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
+
+        page = self.client.get("/outfits").data.decode()             # nothing asked for yet: an offer, in a band
+        self.assertEqual(page.count('class="look-bar band ask"'), 12)
+        self.assertEqual(page.count('class="look-line"'), 12)       # and the empty line under each picture box
+
+        shown = self.post("/outfits/look", key=drawing.key).data.decode()
+        self.assertIn("Waiting its turn · two pictures are drawn at a time", said(shown))
+        self.assertTrue(db.touch_look(look_key(drawing)))           # its turn comes
+        shown = state(drawing)
+        band = re.search(r'<p class="look-bar band wait"[^>]*>', shown).group(0)
+        self.assertIn("Drawing this outfit on the model · about 20 seconds", said(shown))
+        self.assertIn("hx-get", band)                               # it asks again by itself …
+        self.assertNotIn("role=", band)                             # … without being read out each time
+        self.assertEqual(shown.count("look-line"), 1)
+
+        self.post("/outfits/look", key=done.key)
+        waiting.pop()()                                             # drawn
+        shown = state(done)
+        picture = re.search(r'<div class="look-pic">.*?</div>', shown, re.S).group(0)
+        self.assertIn('<span class="ai-chip">AI picture</span>', picture)    # the label is on the picture itself
+        self.assertIn("Look and fit will differ on the real pieces.", said(shown))
+        self.assertIn("Full size", shown)
+        self.assertIn("Draw again", shown)
+        self.assertEqual(shown.count("look-line"), 1)
+        for html in (page, shown, state(drawing)):
+            self.assertNotIn("image service", said(html))
+
+    def test_the_first_outfits_picture_is_fetched_first_and_the_others_lazily(self):
+        first, second = some_outfits(2)
+        arrived = self.post("/outfits/look", key=first.key).data.decode()
+        self.post("/outfits/look", key=second.key)
+        self.assertIn('loading="lazy"', arrived)                    # a picture that arrives by itself: as the browser likes
+        self.assertNotIn("fetchpriority", arrived)
+        page = self.client.get("/outfits").data.decode()
+        slides = page.split('<article class="slide"')[1:]
+        self.assertIn(f'id="outfit-{first.key}"', slides[0])
+        self.assertIn(f'id="outfit-{second.key}"', slides[1])
+        top, next_one = (re.search(r'<img src="/looks/[^>]*>', slide).group(0) for slide in slides[:2])
+        self.assertIn('fetchpriority="high"', top)
+        self.assertNotIn("loading=", top)
+        self.assertIn('loading="lazy"', next_one)
+        self.assertNotIn("fetchpriority", next_one)
+        for img in (top, next_one):                                 # its box is known before it arrives
+            self.assertIn('width="848" height="1264"', img)
+
+    def test_no_picture_message_a_customer_can_meet_says_the_image_service(self):
+        meets = [text for kind, text in looks.SAY.items() if kind not in looks.OPERATORS]
+        meets += [looks.IN_LINE, looks.CLOSED, *looks.USED_UP.values()]
+        for text in meets:
+            self.assertNotIn("image service", text)
+        self.assertEqual(looks.SAY["photo"], "The AI could not use your photo. Try a different one on the Profile page.")
+
     def test_the_service_is_told_about_the_pieces_and_nothing_about_you(self):
         outfit = next(o for o in outfits.all_outfits(selection.build()) if len(o.pieces) == 5)
         self.post("/outfits/look", key=outfit.key)
@@ -1335,7 +1396,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
             answers = [self.ask(ada, key).data.decode() for _ in range(6)]
         self.assertEqual(len(self.drawn), 3)
         self.assertIn("declined to draw", answers[2])
-        self.assertIn("had today", answers[3])
+        self.assertIn("That&#39;s your 3 pictures for today. More tomorrow.", answers[3])     # the allowance, by number
 
     def test_a_photo_the_service_cannot_use_is_that_customers_problem(self):
         self.with_rules(per_customer_per_day=1, per_day=50)
@@ -1349,7 +1410,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertIn("could not use your photo", hers)
         self.refuse = None
         self.assertIn(b"look-pic", self.ask(bob, keys[0]).data, "nobody else is kept waiting because of it")
-        self.assertIn("had today", self.ask(ada, keys[1]).data.decode(), "and it counted as one of hers")
+        self.assertIn("your picture for today", self.ask(ada, keys[1]).data.decode(), "and it counted as one of hers")
 
     def test_deleting_an_account_does_not_hand_back_the_days_total(self):
         self.with_rules(per_customer_per_day=2, per_day=2)
@@ -1371,7 +1432,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         keys = self.outfit_keys(ada)
         self.assertIn(b"look-pic", self.ask(ada, keys[0]).data)
         refused = self.ask(ada, keys[1]).data.decode()
-        self.assertIn("had today", refused)
+        self.assertIn("That&#39;s your picture for today. More tomorrow.", refused)
         self.assertNotIn("config/", refused)
         self.assertIn(b"look-pic", self.ask(bob, keys[1]).data, "the allowance is per customer")
         self.assertEqual(len(self.drawn), 2)

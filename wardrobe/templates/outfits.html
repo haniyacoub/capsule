@@ -48,7 +48,7 @@
     {% for o in boards %}
     <article class="slide" id="outfit-{{ o.key }}" data-slide aria-label="Outfit {{ loop.index }} of {{ boards|length }}">
       <div class="stage">
-        {# The pieces as pictures. Shown until there is an AI picture of the outfit. #}
+        {# The pieces as pictures, until the AI picture of the outfit lies over them in the same box. #}
         <div class="collage c{{ o.pieces|length }}">
           {% for p in o.pieces %}
           {% call piece(o, p, 'tile', p.slot_name ~ (' — you own this' if p.owned else ': ' ~ p.name)) %}
@@ -59,7 +59,7 @@
         </div>
         {% if looks_on %}
         <div class="look" id="look-{{ o.key }}" hx-target="this" hx-swap="innerHTML">
-          {% with key = o.key, look = o.look %}{% include "_look.html" %}{% endwith %}
+          {% with key = o.key, look = o.look, first = loop.first %}{% include "_look.html" %}{% endwith %}
         </div>
         {# A dot on each piece of the AI picture (only shown once there is one). #}
         <div class="spots">
