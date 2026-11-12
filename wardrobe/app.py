@@ -12,6 +12,7 @@ customer's rows.
 """
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import math
 import random
@@ -159,9 +160,18 @@ def weblink(url) -> str:
     return url if url.startswith(("https://", "http://")) else "#"
 
 
-def _asset_version() -> int:
+def _asset_version() -> str:
+    """The ?v= at the end of the addresses of the stylesheet and the scripts (base.html, error.html).
+
+    Browsers keep those files for a year without asking again (static_files_kept, in create_app), so the
+    address must change whenever one of them does. It is made from the name, size and time of change of
+    every file under static/, htmx in static/vendor/ included: an edit, a new file or an older copy put
+    back all change it.
+    """
     static = ROOT / "wardrobe" / "static"
-    return max((int(p.stat().st_mtime) for p in static.glob("*.*")), default=0)
+    files = sorted((str(p.relative_to(static)), p.stat().st_size, p.stat().st_mtime_ns)
+                   for p in static.rglob("*") if p.is_file())
+    return hashlib.sha256(repr(files).encode()).hexdigest()[:12]
 
 
 def _this_computer(host: str) -> bool:
@@ -215,6 +225,7 @@ def create_app() -> Flask:
             from werkzeug.middleware.proxy_fix import ProxyFix
             hops = conf.TRUSTED_PROXY_HOPS
             app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)  # type: ignore[method-assign]
+        app.session_interface = auth.LoginCookie()      # the login cookie, never on Capsule's own files
         app.register_blueprint(auth.bp)
     else:
         app.secret_key = secrets.token_hex(16)   # only signs the one-off "saved" messages
@@ -259,6 +270,8 @@ def create_app() -> Flask:
 
         @app.before_request
         def accounts_and_csrf():
+            if request.endpoint in auth.FILES:      # a stylesheet, script, font or icon: no account, no form
+                return None
             auth.check_csrf()
             if g.user is None:
                 if request.endpoint in PUBLIC or request.endpoint is None:
@@ -286,6 +299,25 @@ def create_app() -> Flask:
             resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
             if request.is_secure:
                 resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return resp
+
+    @app.after_request
+    def static_files_kept(resp: Response) -> Response:
+        """How long browsers keep Capsule's own files (static/), so that moving between pages fetches only the page.
+
+        For a year, without asking again: the stylesheet and the scripts at their current ?v= (the address changes
+        whenever a file does, see _asset_version), and the fonts (a changed font gets a new file name, see app.css).
+        For a day: the manifest and the icons, whose addresses phones and browsers remember (like /favicon.ico).
+        Never without asking (Flask's "no-cache"): a ?v= that is no longer the current one, from a page made before
+        an update, so that an address is never kept with a file it did not name.
+        """
+        if request.endpoint != "static" or resp.status_code not in (200, 304):
+            return resp
+        version, name = request.args.get("v"), (request.view_args or {}).get("filename", "")
+        if version == _asset_version() or (version is None and name.startswith("fonts/")):
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif version is None:
+            resp.headers["Cache-Control"] = "public, max-age=86400"
         return resp
 
     @app.errorhandler(ConfigError)

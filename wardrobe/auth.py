@@ -16,8 +16,9 @@ import json
 import re
 import secrets
 
-from flask import (Blueprint, Response, abort, flash, g, redirect, render_template, request,
+from flask import (Blueprint, Flask, Response, abort, flash, g, redirect, render_template, request,
                    session, url_for)
+from flask.sessions import SecureCookieSessionInterface, SessionMixin
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import db, looks, mail, person, settings
@@ -32,9 +33,28 @@ _DUMMY_HASH = generate_password_hash("not a real password")
 
 # ── who is signed in ──────────────────────────────────────────────────────────
 
+# Capsule's own files: the stylesheet, scripts, fonts and icons (static/) and /favicon.ico. They are the same for
+# everyone, so no account is looked up for them and they never carry the login cookie: browsers keep them (see
+# static_files_kept in app.py), and so can a shared cache such as Cloudflare's, which keeps no file that sets a cookie.
+FILES = {"static", "favicon"}
+
+
+class LoginCookie(SecureCookieSessionInterface):
+    """Flask's signed login cookie, except on Capsule's own files: those never set it, nor "Vary: Cookie".
+    (Flask renews a lasting login cookie with every response, a stylesheet or a font included. Every page
+    still renews it.)"""
+
+    def save_session(self, app: Flask, session: SessionMixin, response: Response) -> None:
+        if request.endpoint in FILES:
+            return
+        super().save_session(app, session, response)
+
+
 def load_user() -> None:
     """Runs before every request: find the signed-in user and scope the database to them."""
     g.user = None
+    if request.endpoint in FILES:       # a file, the same for everyone: the login cookie is not even read
+        return
     user_id = session.get("uid")
     if user_id is not None:
         user = db.get_user(user_id)

@@ -606,6 +606,107 @@ class ErrorPages(ProductionCase):
                       unescape(words(gone.get_data(as_text=True))))
 
 
+class CapsulesOwnFiles(ProductionCase):
+    """The stylesheet, the scripts and the fonts are kept by browsers for a year without asking again, so moving between
+    pages fetches only the page: on a slow phone connection, a round trip less before anything shows. Each address names
+    one version of its file, and none of Capsule's own files carries the login cookie (a shared cache such as
+    Cloudflare's keeps no file that sets one)."""
+
+    YEAR = "public, max-age=31536000, immutable"
+    FONTS = ["/static/fonts/instrument-sans-latin-wght-normal.woff2", "/static/fonts/instrument-serif-latin-400-normal.woff2"]
+
+    @staticmethod
+    def versioned(html: str) -> dict[str, str]:
+        """The page's addresses that carry ?v=, by file name: {"app.css": "/static/app.css?v=…", …}."""
+        return {path.rsplit("/", 1)[1]: f"{path}?v={v}" for path, v in re.findall(r'"(/static/[^"?]+)\?v=([^"]+)"', html)}
+
+    def test_the_stylesheet_scripts_and_fonts_are_kept_for_a_year_without_a_cookie(self):
+        ada = self.member("ada@example.com")
+        files = self.versioned(ada.get("/outfits").get_data(as_text=True))
+        self.assertEqual(sorted(files), ["app.css", "app.js", "htmx.min.js"])
+        self.assertEqual(len({url.split("?v=")[1] for url in files.values()}), 1, "one version for the three")
+        for who, client in (("a visitor", self.app.test_client()), ("a customer", ada)):
+            for url in [*files.values(), *self.FONTS]:
+                for ask in (client.get, client.head):
+                    response = ask(url)
+                    said = f"{ask.__name__.upper()} {url} for {who}"
+                    self.assertEqual(response.status_code, 200, said)
+                    self.assertEqual(response.headers.get("Cache-Control"), self.YEAR, said)
+                    self.assertNotIn("Set-Cookie", response.headers, said)
+                    self.assertNotIn("cookie", response.headers.get("Vary", "").lower(), said)
+                    response.close()
+        # Asked again with what the browser already has (a proxy might): not changed, and still kept for a year.
+        first = ada.get(files["app.css"])
+        again = ada.get(files["app.css"], headers={"If-None-Match": first.headers["ETag"]})
+        first.close()
+        again.close()
+        self.assertEqual((again.status_code, again.headers.get("Cache-Control")), (304, self.YEAR))
+        # Every page still renews the login cookie, so a customer's login is counted from the last visit.
+        self.assertIn("session=", ada.get("/outfits").headers.get("Set-Cookie", ""))
+
+    def test_an_address_is_never_kept_with_a_file_it_did_not_name(self):
+        from wardrobe.app import _asset_version
+        visitor = self.app.test_client()
+        # A page made before an update asks for the version it knew: it gets the file, checked again next time.
+        old = visitor.get("/static/app.css?v=from-before-an-update")
+        self.assertEqual((old.status_code, old.headers.get("Cache-Control")), (200, "no-cache"))
+        old.close()
+        # The manifest and the icons keep their addresses for good (phones remember them), so they are kept for a day.
+        for url in ("/static/app.webmanifest", "/static/icon.svg", "/static/apple-touch-icon.png", "/static/icon-192.png",
+                    "/favicon.ico"):
+            response = visitor.get(url)
+            self.assertEqual(response.headers.get("Cache-Control"), "public, max-age=86400", url)
+            response.close()
+        # The version changes with any file under static/: a new htmx in static/vendor/, even saved within the same
+        # instant, and an older copy of the stylesheet put back.
+        with tempfile.TemporaryDirectory() as folder, mock.patch("wardrobe.app.ROOT", Path(folder)):
+            css, htmx = Path(folder) / "wardrobe/static/app.css", Path(folder) / "wardrobe/static/vendor/htmx.min.js"
+            htmx.parent.mkdir(parents=True)
+            css.write_text("body {}")
+            htmx.write_text("// htmx 2.0.0")
+            same_instant = (2_000_000_000 * 10**9,) * 2
+            for file in (css, htmx):
+                os.utime(file, ns=same_instant)
+            seen = [_asset_version()]
+            htmx.write_text("// htmx 2.0.10")
+            os.utime(htmx, ns=same_instant)
+            seen.append(_asset_version())
+            os.utime(css, ns=(1_000_000_000 * 10**9,) * 2)
+            seen.append(_asset_version())
+        self.assertEqual(len(set(seen)), 3, f"the version did not change with the files: {seen}")
+
+    def test_the_website_loads_no_htmx(self):
+        # htmx runs the buttons of a customer's pages. The public pages have none, so a visitor never downloads it.
+        def scripts(client, url) -> list[tuple[str, bool]]:
+            """The scripts a page loads, each with whether its address carries ?v=."""
+            found = re.findall(r'<script[^>]* src="([^"]+)"', client.get(url).get_data(as_text=True))
+            return [(src.split("?")[0], "?v=" in src) for src in found]
+
+        visitor = self.app.test_client()
+        for url in ("/", "/signup", "/login", "/forgot", "/legal/privacy"):
+            self.assertEqual(scripts(visitor, url), [("/static/app.js", True)], url)
+        ada = self.member("ada@example.com")
+        for url in ("/outfits", "/", "/list", "/slots", "/profile", "/account"):
+            self.assertEqual(scripts(ada, url), [("/static/vendor/htmx.min.js", True), ("/static/app.js", True)], url)
+
+    def test_pictures_and_your_photo_keep_their_own_rules(self):
+        # Not Capsule's own files: an outfit's picture is kept by the customer's own browser only (private), and the
+        # customer's photo is never kept at all.
+        ada = self.member("ada@example.com")
+        with tempfile.TemporaryDirectory() as folder:
+            jpeg = Path(folder) / "picture.jpg"
+            jpeg.write_bytes(b"\xff\xd8\xff\xe0 a picture")
+            with mock.patch("wardrobe.looks.image", return_value=jpeg):
+                picture = ada.get("/looks/picture.jpg")
+            with mock.patch("wardrobe.person.photo", return_value=jpeg):
+                photo = ada.get("/profile/photo")
+            picture.close()
+            photo.close()
+        self.assertEqual((picture.status_code, picture.headers["Cache-Control"]),
+                         (200, "private, max-age=31536000, immutable"))
+        self.assertEqual((photo.status_code, photo.headers["Cache-Control"]), (200, "no-store"))
+
+
 CODE = "by-invitation-2026"
 
 

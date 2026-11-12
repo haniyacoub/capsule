@@ -75,6 +75,7 @@ imagegen.draw = stand_in
 
 failures: list[str] = []
 swapped: dict[str, str] = {}    # the piece swapped inside an outfit: its slot and the product chosen
+heard: list[str] = []           # every address the server was asked for, in order (see main)
 PASSWORD = "only for this check 123"
 EMAIL = f"check-{secrets.token_hex(4)}@example.com"
 
@@ -221,6 +222,7 @@ def run(base: str) -> None:
                 assert not seen["cut"], f"text cut off at {width}px: {seen['cut']}"
                 assert seen["description"], "no description for search results and shared links"
                 assert not [url for url in fetched if "/mock/img/" in url], "the landing page still loads the demo drawings"
+                assert not [url for url in fetched if "htmx" in url], f"the landing page loads htmx at {width}px"
             page.goto(base + "/legal/privacy", wait_until="networkidle")    # the customer is logged in here
             page.locator(".public-nav a", has_text="Open my outfits").click()
             page.wait_for_url(base + "/outfits")
@@ -254,6 +256,21 @@ def run(base: str) -> None:
             page.goto(base + "/does-not-exist", wait_until="networkidle")      # the customer is logged in here
             page.locator("main a", has_text="Go to your outfits").click()
             page.wait_for_url(base + "/outfits")
+
+        def tabs_fetch_only_the_page():
+            # The browser keeps the stylesheet, the scripts and the fonts for a year (their addresses change when they do),
+            # so moving between tabs asks the server for the page alone: on a slow phone connection, a round trip less
+            # before anything shows. Counted where the server hears it: Playwright also reports the files the browser
+            # took from its own cache.
+            page.goto(base + "/outfits", wait_until="networkidle")
+            heard.clear()
+            for name in ("Wardrobe", "Shopping", "Profile", "Outfits"):
+                page.locator("nav.tabs a", has_text=name).click()
+                page.wait_for_load_state("networkidle")
+            kept = ("/static/app.css", "/static/app.js", "/static/vendor/", "/static/fonts/")
+            again = sorted({path for path in heard if path.startswith(kept)})
+            assert "/list" in heard and "/profile" in heard, f"the tabs were not followed: {heard}"
+            assert not again, f"moving between tabs asked the server again for {again}"
 
         def price_levels():
             page.goto(base + "/", wait_until="networkidle")
@@ -487,6 +504,7 @@ def run(base: str) -> None:
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("the landing page says what Capsule is", the_landing_page),
                  ("public pages: no cookie, errors in plain words", public_pages_and_errors),
+                 ("moving between tabs fetches only the page", tabs_fetch_only_the_page),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
@@ -505,6 +523,13 @@ def run(base: str) -> None:
 
 def main() -> int:
     app = create_app()
+    answer = app.wsgi_app
+
+    def listening(environ, start_response):     # what reaches the server; what the browser keeps never does
+        heard.append(environ.get("PATH_INFO", ""))
+        return answer(environ, start_response)
+
+    app.wsgi_app = listening  # type: ignore[method-assign]
     server = make_server("127.0.0.1", 0, app, threaded=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:

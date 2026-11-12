@@ -7,6 +7,8 @@
    their open licences (SIL OFL 1.1) next to them: nothing is loaded from another
    site. The two "Fallback" faces are Arial and Georgia resized to the same
    measurements, so the text does not jump when the real font arrives. */
+/* Browsers keep the font files for a year without asking again (app.py, static_files_kept). A changed
+   font needs a new file name, here and in base.html's preload: under the old name, visitors keep the old one. */
 @font-face {
   font-family: "Instrument Sans";
   src: url("fonts/instrument-sans-latin-wght-normal.woff2") format("woff2");
