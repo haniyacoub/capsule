@@ -51,7 +51,7 @@
   --r-track: 8px;         /* the track around segmented cells: their 6px plus its 2px padding */
   --r-sheet: 14px;        /* the pop-up's top corners */
   --r-pill: 999px;        /* chips and the quality number */
-  /* The serif is used for four things only: the wordmark, the landing headline, page
+  /* The serif is used for four things only: the wordmark, the landing page's headline and step numbers, page
      titles and each outfit's title. To switch it off, change the second line to
      --display: var(--font); */
   --font: "Instrument Sans", "Instrument Sans Fallback", ui-sans-serif, system-ui, sans-serif;
@@ -582,16 +582,20 @@ details[open] > summary .edit { visibility: hidden; }
 .account-link { font-size: var(--t-s); font-weight: 500; color: var(--muted); text-decoration: none; padding: 8px 2px; }
 .account-link.on { color: var(--ink); }
 .public-nav { display: flex; gap: 8px; }
-.hero { padding: 26px 0 8px; text-align: center; }
+/* The landing page: words only, until one approved AI picture joins them. */
+.hero { padding: var(--s-5) 0 0; text-align: center; }
 .hero h1 { font: 400 var(--t-3xl)/var(--lh-3xl) var(--display); font-synthesis: none; max-width: 16em; margin: 0 auto; text-wrap: balance; }
-.hero-lead { color: var(--muted); font-size: var(--t-l); line-height: var(--lh-l); max-width: 34em; margin: 20px auto 0; text-wrap: pretty; }
-.hero-cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 22px 0 0; }
-.hero-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 520px; margin: 30px auto 0; }
-.hero-board img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: var(--r-img); border: 1px solid var(--line); display: block; }
-.steps { display: grid; gap: 12px; margin-top: 28px; }
-.steps .card + .card { margin-top: 0; }
-.steps h2 { font-size: var(--t-l); }
-.steps p { color: var(--muted); }
+.hero-lead { font-size: var(--t-l); line-height: var(--lh-l); max-width: 34em; margin: var(--s-5) auto 0; text-wrap: pretty; }
+.hero-lead span { white-space: nowrap; }            /* "best-value", "high-street": never split at the hyphen */
+.hero-cta { margin: var(--s-5) 0 0; }
+.hero-cta .btn { width: 100%; max-width: 440px; }   /* the page's one main action: full width on phones */
+.hero-note { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); max-width: 44em; margin: var(--s-3) auto 0; text-wrap: pretty; }
+/* How it works, in three steps: no boxes, a hairline above each and a large serif numeral. */
+.steps { list-style: none; margin: var(--s-7) 0 0; padding: 0; display: grid; gap: var(--s-5); }
+.steps li { border-top: 1px solid var(--line); padding-top: var(--s-4); }
+.steps h2 { font-size: var(--t-l); line-height: var(--lh-l); }
+.step-n { display: block; font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin-bottom: var(--s-2); }
+.steps p { color: var(--muted); margin-top: var(--s-1); max-width: 34em; text-wrap: pretty; }
 .auth { max-width: 440px; margin: 24px auto 0; }
 .auth h1 { margin-bottom: 12px; }
 .auth .form { margin-bottom: 12px; }
@@ -621,7 +625,7 @@ details[open] > summary .edit { visibility: hidden; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .card { padding: 20px; }
   .card .form { max-width: 620px; }
-  .steps { grid-template-columns: repeat(3, 1fr); }
+  .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); margin-top: var(--s-8); }
   .reel { margin: calc(-1 * var(--s-3)) 0; }   /* the 12px of room for focus rings stays (see .reel) */
   .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: 32px; padding: var(--s-3) 60px; }
   .stage { width: max(260px, min(470px, calc((100svh - 300px) * .667))); margin: 0; }
@@ -629,8 +633,8 @@ details[open] > summary .edit { visibility: hidden; }
   .about { margin: 0; }
   .reel-nav { display: inline-flex; }
   .sheet { margin: auto; padding: 22px; border-radius: var(--r-sheet); }
-  .hero { padding-top: 48px; }
-  .hero-board { grid-template-columns: repeat(6, 1fr); max-width: 880px; }
+  .hero { padding-top: var(--s-7); }
+  .hero-cta .btn { width: auto; }
 }
 @media (min-width: 900px) {
   .cands, .slot-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -187,6 +187,44 @@ def run(base: str) -> None:
                 other.wait_for_url(base + "/outfits")
                 context.close()
 
+        def the_landing_page():
+            # A stranger gives the page a few seconds. It says what Capsule is and who it is for, in plain words,
+            # with the way in on a phone's first screen and one 'Log in' there (the header's), the headline in
+            # Capsule's serif, no text cut off, nothing drawn from the demo data, and a description for search
+            # results. A customer back on the public pages is one tap from the outfits.
+            for width, phone in ((390, True), (1280, False)):
+                context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
+                visitor = context.new_page()
+                fetched: list[str] = []
+                visitor.on("request", lambda r: fetched.append(r.url))
+                visitor.goto(base + "/", wait_until="networkidle")
+                seen = visitor.evaluate("""() => document.fonts.ready.then(() => {
+                    const shown = el => { const b = el.getBoundingClientRect(); return b.width > 0 && b.bottom > 0 && b.top < innerHeight; };
+                    const join = [...document.querySelectorAll('main a')].find(a => a.textContent.trim() === 'Create a free account');
+                    return {text: document.querySelector('main').innerText.toLowerCase(),
+                            log_in: [...document.querySelectorAll('a, button')].filter(el => el.textContent.trim() === 'Log in' && shown(el)).length,
+                            join: !!join && shown(join) && join.getBoundingClientRect().bottom <= innerHeight,
+                            serif: getComputedStyle(document.querySelector('main h1')).fontFamily,
+                            loaded: [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family.replace(/"/g, '')),
+                            description: (document.querySelector('meta[name=description]') || {}).content || '',
+                            cut: [...document.querySelectorAll('main h1, main h2, main p, main .btn')]
+                                 .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent.trim().slice(0, 30))};
+                })""")
+                context.close()
+                assert "men's" in seen["text"].split(), f"at {width}px the page does not say who Capsule is for"
+                planner = [word for word in ("slot", "candidate", "score") if word in seen["text"]]
+                assert not planner, f"the planner's words on the landing page: {planner}"
+                assert seen["log_in"] == 1, f"'Log in' is on the first screen {seen['log_in']} times at {width}px"
+                assert seen["join"], f"'Create a free account' is not on the first screen at {width}px"
+                assert seen["serif"].startswith('"Instrument Serif"') and "Instrument Serif" in seen["loaded"], \
+                    f"the headline is not set in Instrument Serif at {width}px"
+                assert not seen["cut"], f"text cut off at {width}px: {seen['cut']}"
+                assert seen["description"], "no description for search results and shared links"
+                assert not [url for url in fetched if "/mock/img/" in url], "the landing page still loads the demo drawings"
+            page.goto(base + "/legal/privacy", wait_until="networkidle")    # the customer is logged in here
+            page.locator(".public-nav a", has_text="Open my outfits").click()
+            page.wait_for_url(base + "/outfits")
+
         def price_levels():
             page.goto(base + "/", wait_until="networkidle")
             assert page.locator(".levels small").count() == 6, "six choices, each with its total"
@@ -417,6 +455,7 @@ def run(base: str) -> None:
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
+                 ("the landing page says what Capsule is", the_landing_page),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),

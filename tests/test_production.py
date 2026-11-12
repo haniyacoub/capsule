@@ -24,6 +24,17 @@ def fresh_files():
     catalog._cache = shared._cache = None
 
 
+def words(html: str) -> str:
+    """What a visitor reads on a page: its text, without the tags and without the head."""
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.split("</head>", 1)[-1])).strip()
+
+
+def description(html: str) -> str:
+    """The page's description for search results and shared links ("" when it has none)."""
+    found = re.search(r'<meta name="description" content="([^"]*)">', html)
+    return found.group(1) if found else ""
+
+
 class ProductionCase(unittest.TestCase):
     def setUp(self):
         fresh_files()
@@ -129,6 +140,32 @@ class PublicSite(ProductionCase):
         with mock.patch.object(settings, "INVITE_CODE", given["INVITE_CODE"]), self.assertRaises(SystemExit) as stop:
             create_app()
         self.assertIn("placeholder", str(stop.exception))
+
+    def test_the_landing_page_says_what_capsule_is_in_plain_words(self):
+        # A stranger gives the page a few seconds. It says who Capsule is for, in the customer's words rather than
+        # the planner's; it has one way to log in (the header's) and no drawings from the demo data; search results
+        # and shared links get a description. AI pictures are off here (no key), so no model is promised.
+        page = self.app.test_client().get("/").get_data(as_text=True)
+        text = words(page)
+        self.assertRegex(text, r"\bmen's wardrobe\b")
+        for planner in ("slot", "candidate", "score"):
+            self.assertNotIn(planner, text.lower())
+        self.assertEqual(text.count("Log in"), 1, "one way to log in: the header's")
+        self.assertIn("Create a free account", text)
+        self.assertIn("Free. You buy straight from the stores, in your sizes. Capsule never takes payment.", text)
+        self.assertNotIn("/mock/img", page)
+        self.assertNotIn("<img", page)
+        self.assertEqual(description(page), "Plan a men's wardrobe where everything goes with everything: "
+                                            "about 18 pieces fitted to your budget. Free.")
+        self.assertNotIn("model", text + description(page))
+        self.assertEqual(description(self.app.test_client().get("/login").get_data(as_text=True)), "",
+                         "the description belongs to the landing page")
+
+    def test_the_public_pages_lead_a_customer_to_the_outfits(self):
+        ada = self.member("ada@example.com")
+        for url in ("/legal/impressum", "/legal/privacy", "/legal/terms"):
+            nav = re.search(r'<nav class="public-nav"[^>]*>(.*?)</nav>', ada.get(url).get_data(as_text=True), re.S).group(1)
+            self.assertEqual(re.findall(r'href="([^"]*)">([^<]*)</a>', nav), [("/outfits", "Open my outfits")], url)
 
 
 class Accounts(ProductionCase):

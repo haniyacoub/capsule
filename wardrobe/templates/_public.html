@@ -4,7 +4,7 @@
 {% block nav %}
 <nav class="public-nav" aria-label="Account">
   {% if user %}
-  <a class="btn small" href="{{ url_for('wardrobe') }}">Open my wardrobe</a>
+  <a class="btn small" href="{{ url_for('outfits_page') }}">Open my outfits</a>
   {% else %}
   <a class="btn ghost small" href="{{ url_for('auth.login') }}">Log in</a>
   <a class="btn small" href="{{ url_for('auth.signup') }}">Create account</a>

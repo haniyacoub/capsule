@@ -187,6 +187,14 @@ def _pictures_on() -> bool:
         return False
 
 
+def _photos_on() -> bool:
+    """Whether customers may upload a photo to be the model themselves: pictures on, and photos allowed."""
+    try:
+        return looks.service() is not None and looks.load_rules()["pictures"]["photos"]
+    except ConfigError:
+        return False
+
+
 def create_app() -> Flask:
     conf.check()
     app = Flask(__name__)
@@ -357,7 +365,7 @@ def create_app() -> Flask:
     def wardrobe():
         if conf.PRODUCTION and g.user is None:
             return render_template("landing.html", looks_on=_pictures_on(),      # the public website
-                                   invite=bool(conf.INVITE_CODE))
+                                   photos=_photos_on(), invite=bool(conf.INVITE_CODE))
         return page("wardrobe.html", tab="wardrobe")
 
     @app.post("/settings")

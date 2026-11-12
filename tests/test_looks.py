@@ -28,6 +28,7 @@ from wardrobe.__main__ import main
 
 from .test_app import HX, AppCase
 from .test_production import PASSWORD, ProductionCase
+from .test_production import description, words
 
 PICTURE = b"\xff\xd8\xff\xe0" + b"\x01" * 4000          # what the "service" sends back: passes for a JPEG
 OTHER_PICTURE = b"\x89PNG\r\n\x1a\n" + b"\x02" * 4000   # … and for a PNG
@@ -1415,11 +1416,30 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertEqual(popup.count('name="csrf_token"'), popup.count("<form"))
 
     def test_the_public_page_mentions_the_pictures_only_when_they_are_on(self):
+        # The landing page and its description for search results promise a model only while pictures are
+        # drawn, and "you" as the model only while customers may upload a photo of themselves.
         visitor = self.app.test_client()
-        self.assertIn(b"drawn on a model", visitor.get("/").data)
-        self.assertIn(b"price level", visitor.get("/").data)
-        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
-            self.assertNotIn(b"drawn on a model", visitor.get("/").data)
+        page = visitor.get("/").get_data(as_text=True)
+        self.assertIn("every outfit they make, worn by a model — or by you.", words(page))
+        self.assertIn("See every outfit on a model", words(page))
+        self.assertIn("price level", words(page))
+        self.assertIn("every outfit shown on a model", description(page))
+        self.with_rules(photos=False)
+        page = visitor.get("/").get_data(as_text=True)
+        self.assertIn("every outfit they make, worn by a model.", words(page))
+        self.assertNotIn("by you", words(page))
+
+        def broken():
+            raise config.ConfigError("config/looks.toml has a syntax error")
+        for off in (mock.patch.object(settings, "OPENAI_API_KEY", ""),     # no key: no pictures
+                    mock.patch.object(looks, "load_rules", broken)):       # a typo must not take the website down
+            with off:
+                response = visitor.get("/")
+            page = response.get_data(as_text=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("every outfit they make.", words(page))
+            self.assertNotIn("model", words(page) + description(page))
+            self.assertNotIn("by you", words(page))
 
     def test_without_a_key_customers_see_no_trace_of_the_feature(self):
         with mock.patch.object(settings, "OPENAI_API_KEY", ""):
