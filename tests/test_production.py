@@ -282,22 +282,25 @@ class OutfitsIsHome(ProductionCase):
         form = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "75",
                 "budget": "1500", "liked": "black, grey, white", "refused": "", "use": "both", "shoes": "on",
                 "outerwear": "on", "owned": "<b>lucky</b> charm"}
-        self.post(ada, "/profile", **form)
-        rebuilt = ada.get("/profile").data.decode()
+        saved = self.post(ada, "/profile", **form)
+        self.assertEqual(saved.headers["Location"], "/outfits", "the rebuilt plan is shown on the model")
+        rebuilt = ada.get("/outfits").data.decode()
         with db.as_user(self.user_id("ada@example.com")):
             pieces = sum(s["qty"] for s in db.list_slots())
-            first = db.list_slots()[0]["id"]
-        self.assertIn(f'Profile saved and your plan rebuilt from it: {pieces} pieces. <a href="/slots">Edit the plan</a>',
-                      rebuilt)
+            first = db.list_slots()[0]
+        self.assertIn(f"Your plan now has {pieces} pieces in your colours.", rebuilt)
         self.assertIn('“&lt;b&gt;lucky&lt;/b&gt; charm” is: add it to your plan by hand. <a href="/slots">Edit the plan</a>',
                       rebuilt, "what the customer typed is shown as text, the link as a link")
         self.assertNotIn("<b>lucky</b>", rebuilt)
 
-        self.post(ada, f"/slot/{first}/lock")            # a plan changed by hand is not rebuilt without asking
+        # A plan changed on the plan page is not rebuilt without asking; the message leads to the plan.
+        self.post(ada, f"/slots/{first['id']}/save", name="My own name", category=first["category"],
+                  colour=first["colour"], qty=str(first["qty"]))
         self.post(ada, "/profile", **{**form, "liked": "navy, grey", "owned": ""})
         kept = ada.get("/profile").data.decode()
-        self.assertIn('“Re-propose from profile” on the plan page rebuilds it from scratch. '
-                      '<a href="/slots">Edit the plan</a>', kept)
+        self.assertIn('To rebuild it from these answers, use “Start over from my profile” on '
+                      '<a href="/slots">the plan page</a>.', kept)
+        self.assertIn("Start over from my profile</button>", ada.get("/slots").data.decode(), "the button it names")
         for page in (rebuilt, kept):
             for gone in self.GONE:
                 self.assertNotIn(gone, page)

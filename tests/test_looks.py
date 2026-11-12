@@ -929,7 +929,9 @@ class TheModel(WithPictures, AppCase):
         self.assertIsNone(person.photo())
 
     def test_messages_of_other_pages_stay_at_the_top(self):
-        self.client.post("/profile", data={"budget": "1500"})
+        # Only the budget changes (the colours and uses are the example's own), so the page stays on Profile.
+        self.client.post("/profile", data={"budget": "1600", "liked": "navy, grey, white, olive", "use": "both",
+                                           "shoes": "on", "outerwear": "on"})
         top, model, photo = self.parts()
         self.assertIn("Profile saved", top)
         self.assertNotIn("Profile saved", model + photo)

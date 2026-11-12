@@ -9,7 +9,8 @@ stand-in for the image service (nothing is sent anywhere and nothing is billed),
 what a new customer would: signs up, changes the price level, watches an outfit's picture
 arrive, opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
 saves and "buys" one, logs in again and lands on the outfits, puts a model together,
-uploads a photo and deletes the account.
+uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece) and
+deletes the account.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
@@ -73,6 +74,7 @@ def stand_in(service, prompt, photo=None):
 imagegen.draw = stand_in
 
 failures: list[str] = []
+swapped: dict[str, str] = {}    # the piece swapped inside an outfit: its slot and the product chosen
 PASSWORD = "only for this check 123"
 EMAIL = f"check-{secrets.token_hex(4)}@example.com"
 
@@ -210,6 +212,8 @@ def run(base: str) -> None:
             choose = page.locator("#piece-body .swap li:not(.out) button", has_text="Choose")
             assert choose.count() > 0, "nothing to swap for"
             wanted = page.locator("#piece-body .swap li:not(.out) b").nth(0).inner_text()
+            swapped.update(choose.nth(0).evaluate("b => ({slot: b.form.getAttribute('action').split('/')[2], "
+                                                  "product: b.closest('li').querySelector('b').textContent.trim()})"))
             choose.nth(0).click()
             page.wait_for_url("**/outfits?at=**")
             page.wait_for_load_state("networkidle")
@@ -314,6 +318,31 @@ def run(base: str) -> None:
             page.wait_for_load_state("networkidle")
             assert page.locator(".me img").count() == 0, "the photo is still shown after deleting it"
 
+        def new_colours_rebuild_the_plan():
+            # New colours and a new use rebuild the plan, although a piece was swapped inside an outfit
+            # earlier: that swap is kept when the new plan has the same garment in the same colour.
+            page.goto(base + "/profile", wait_until="networkidle")
+            page.fill("input[name=liked]", "black, grey, white")
+            page.locator("input[name=use][value=office]").check(force=True)
+            page.click("button:has-text('Save profile')")
+            page.wait_for_url(base + "/outfits")
+            in_view("main > .flash", "Your plan now has")
+            said = page.locator("main > .flash").first.inner_text()
+            page.goto(base + "/slots", wait_until="networkidle")
+            names = [name.strip() for name in page.locator(".slot-list .nm").all_inner_texts()]
+            for colour in ("Black", "Grey", "White"):
+                assert any(name.startswith(colour + " ") for name in names), f"no {colour.lower()} piece in the plan: {names}"
+            assert not any(name.startswith(("Navy ", "Olive ")) for name in names), f"the old colours are still planned: {names}"
+            page.goto(base + "/", wait_until="networkidle")
+            lock = page.locator(f"#lock-{swapped['slot']}")
+            if lock.count():            # the new plan has the swapped piece: its product and lock stay
+                assert "Kept your 1 hand-picked piece" in said, f"the message does not count the kept piece: {said!r}"
+                assert lock.get_attribute("aria-pressed") == "true", "the kept piece is no longer locked"
+                card = page.locator(f"#card-{swapped['slot']} .item").inner_text()
+                assert swapped["product"] in card, f"the kept piece shows {card!r}, not {swapped['product']!r}"
+            else:
+                assert "Not kept: " in said, f"the swapped piece is gone and the message does not say so: {said!r}"
+
         def delete_account():
             page.goto(base + "/account", wait_until="networkidle")
             page.locator("form[action$='/account/delete'] input[name=current]").fill(PASSWORD)
@@ -330,6 +359,7 @@ def run(base: str) -> None:
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
+                 ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
                  ("delete the account", delete_account)]
         for name, step in steps:
             known = len(failures)

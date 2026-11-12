@@ -93,6 +93,57 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
 REFRESH_HINT = "Slots without candidates fill up at the next “python -m wardrobe refresh”."
 
 
+def plan_edited(before: dict) -> bool:
+    """Whether the plan itself was changed on the plan page: a piece added, renamed, recoloured or
+    removed. Choosing a product, locking it or marking a piece as owned doesn't count: a rebuild
+    from the profile keeps those (capsule.rebuild). `before` is the profile the plan was built from.
+    """
+    edited = db.get_setting("plan_edited")
+    if edited is None:
+        # Older accounts have one setting, "slots_customised", for every change made by hand. It counts
+        # as an edit only if the plan is not what the profile (or the example values every account
+        # starts with) proposes; a choice, a lock or an owned mark alone doesn't.
+        edited = bool(db.get_setting("slots_customised")) and not any(
+            capsule.same_plan(db.list_slots(), answers) for answers in (before, profile_mod.EXAMPLE))
+        db.set_setting("plan_edited", edited)
+    return bool(edited)
+
+
+def rebuild_plan(profile: dict, before: dict) -> tuple[capsule.Rebuilt, bool]:
+    """Rebuild the plan from the profile, keeping what was picked or marked as owned by hand, and
+    bring the catalogue in step. Also returns whether real data now needs a refresh."""
+    plan = capsule.rebuild(profile, db.list_slots(), before.get("owned", ""))
+    db.replace_slots(plan.slots)
+    needs_refresh = sync_catalog()
+    # A kept piece has the same id, garment and colour, so its product is on offer again. Checked all
+    # the same: the message must not say it was kept if it is not shown.
+    offered = catalog.by_slot(catalog.load())
+    for slot in list(plan.picked):
+        if slot["pick"] not in {c.get("id") for c in offered.get(slot["id"], [])}:
+            db.update_slot(slot["id"], locked=False, pick=None)
+            plan.picked.remove(slot)
+            plan.lost.append((slot["name"], "no longer in Capsule's product list"))
+    return plan, needs_refresh
+
+
+def rebuilt_message(plan: capsule.Rebuilt) -> str:
+    """'Your plan now has 17 pieces in your colours. Kept your 2 hand-picked pieces.', and what was not kept."""
+    def pieces(n: int) -> str:
+        return "piece" if n == 1 else "pieces"
+
+    total, picked, owned = sum(int(s.get("qty") or 1) for s in plan.slots), len(plan.picked), len(plan.owned)
+    words = [f"Your plan now has {total} {pieces(total)} in your colours."]
+    if picked and owned:
+        words.append(f"Kept your {picked} hand-picked {pieces(picked)} and the {owned} you own.")
+    elif picked:
+        words.append(f"Kept your {picked} hand-picked {pieces(picked)}.")
+    elif owned:
+        words.append(f"Kept the {owned} {pieces(owned)} you own.")
+    if plan.lost:
+        words.append("Not kept: " + ", ".join(f"{name} ({why})" for name, why in plan.lost) + ".")
+    return " ".join(words)
+
+
 def eur(value) -> str:
     value = float(value or 0)
     text = f"{value:,.0f}" if abs(value - round(value)) < 0.005 else f"{value:,.2f}"
@@ -279,8 +330,8 @@ def create_app() -> Flask:
         return render_template(template, w=w, **ctx) + extra
 
     def after_slot_change(slot_id: str):
-        """Re-render whichever view the button was pressed in."""
-        db.set_setting("slots_customised", True)
+        """Re-render whichever view the button was pressed in. (A choice, a lock or an owned mark
+        doesn't stop the profile from rebuilding the plan: the rebuild keeps them.)"""
         w = selection.build()
         if not request.headers.get("HX-Request"):   # plain form post (no JavaScript)
             return redirect(url_for("slot_page", slot_id=slot_id) if request.args.get("view") == "slot"
@@ -346,7 +397,6 @@ def create_app() -> Flask:
         # Choosing by hand locks the choice, so the price level can't undo it.
         db.update_slot(slot_id, pick=cand_id, locked=True, owned=False)
         if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
-            db.set_setting("slots_customised", True)
             return redirect(url_for("outfits_page", at=request.form["outfit"][:400],
                                     occasion=request.form.get("occasion") or None))
         return after_slot_change(slot_id)
@@ -656,7 +706,7 @@ def create_app() -> Flask:
         slot = capsule.new_slot(fields["category"], fields["colour"], fields["name"],
                                 fields["keywords"], fields["qty"], taken)
         db.add_slot(slot)
-        db.set_setting("slots_customised", True)
+        db.set_setting("plan_edited", True)     # a profile change no longer rebuilds the plan by itself
         needs_refresh = sync_catalog()
         flash(f"Added “{slot['name']}”." + (f" {REFRESH_HINT}" if needs_refresh else ""))
         return redirect(url_for("slots_page") + f"#slot-{slot['id']}")
@@ -669,10 +719,11 @@ def create_app() -> Flask:
         if fields is None:
             abort(400)
         changed = (fields["category"], fields["colour"]) != (slot["category"], slot["colour"])
+        if any(fields[k] != slot[k] for k in fields):
+            db.set_setting("plan_edited", True)     # (pressing Save without changing anything is no edit)
         if changed:
             fields.update(locked=False, pick=None)   # different garment or colour: old pick no longer applies
         db.update_slot(slot_id, **fields)
-        db.set_setting("slots_customised", True)
         needs_refresh = sync_catalog(changed_slot=slot_id if changed else None)
         flash(f"Saved “{fields['name']}”." + (f" {REFRESH_HINT}" if changed and needs_refresh else ""))
         return redirect(url_for("slots_page") + f"#slot-{slot_id}")
@@ -683,7 +734,7 @@ def create_app() -> Flask:
         if slot is None:
             abort(404)
         db.delete_slot(slot_id)
-        db.set_setting("slots_customised", True)
+        db.set_setting("plan_edited", True)
         sync_catalog()
         flash(f"Removed “{slot['name']}”.")
         return redirect(url_for("slots_page"))
@@ -692,7 +743,7 @@ def create_app() -> Flask:
     def slots_repropose():
         slots, unmatched = capsule.propose(profile_mod.load())
         db.replace_slots(slots)
-        db.set_setting("slots_customised", False)
+        db.set_setting("plan_edited", False)    # from scratch: profile changes rebuild it again
         needs_refresh = sync_catalog()
         flash(f"Capsule re-proposed from your profile: {len(slots)} slots." + (f" {REFRESH_HINT}" if needs_refresh else ""))
         for line in unmatched:
@@ -722,23 +773,21 @@ def create_app() -> Flask:
         shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned")
         # The plan has no tab of its own, so a message that sends you to it carries the link.
         # (Markup: the link is shown as a link; what the customer typed is still escaped.)
+        if all(current[f] == new[f] for f in shapes_capsule):      # sizes or budget: the plan stays as it is
+            flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
+            return redirect(url_for("profile_page"))
+        if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
+            flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
+                         "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
+            return redirect(url_for("profile_page"))
+
+        plan, needs_refresh = rebuild_plan(new, current)
+        flash(rebuilt_message(plan) + (f" {REFRESH_HINT}" if needs_refresh else ""))
         edit_the_plan = Markup('<a href="%s">Edit the plan</a>') % url_for("slots_page")
-        if all(current[f] == new[f] for f in shapes_capsule):
-            flash("Profile saved.")
-        elif db.get_setting("slots_customised", False):
-            flash(Markup("Profile saved. Your plan was left as it is, because you have already edited, locked or "
-                         "marked things. “Re-propose from profile” on the plan page rebuilds it from scratch. %s")
-                  % edit_the_plan)
-        else:
-            slots, unmatched = capsule.propose(new)
-            db.replace_slots(slots)
-            needs_refresh = sync_catalog()
-            flash(Markup("Profile saved and your plan rebuilt from it: %s pieces.%s %s")
-                  % (sum(s["qty"] for s in slots), f" {REFRESH_HINT}" if needs_refresh else "", edit_the_plan))
-            for line in unmatched:
-                flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
-                      % (line, edit_the_plan))
-        return redirect(url_for("profile_page"))
+        for line in plan.unmatched:
+            flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
+                  % (line, edit_the_plan))
+        return redirect(url_for("outfits_page"))       # the new plan, where it shows best: on the model
 
     # ── The model in the AI pictures: a description, or your own photo (person.py) ──
 
