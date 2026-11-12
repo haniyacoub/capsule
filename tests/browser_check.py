@@ -9,15 +9,17 @@ stand-in for the image service (nothing is sent anywhere and nothing is billed),
 what a new customer would: signs up, changes the price level, watches an outfit's picture
 arrive, opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
 saves and "buys" one, logs in again and lands on the outfits, puts a model together,
-uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece) and
-deletes the account.
+uploads a photo, saves new colours (the plan is rebuilt, keeping the swapped piece), fills
+a piece the store list has nothing for with one tap, and deletes the account.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import secrets
 import shutil
 import struct
@@ -46,7 +48,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import imagegen  # noqa: E402
+from wardrobe import colours, imagegen  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
 
@@ -400,6 +402,61 @@ def run(base: str) -> None:
             else:
                 assert "Not kept: " in said, f"the swapped piece is gone and the message does not say so: {said!r}"
 
+        def one_tap_colour():
+            # A piece the store list has nothing for says so and offers, in one tap, a colour Capsule has. The demo
+            # data has something for every piece, so a small list is published first, the way the operator does:
+            # jumpers in grey and navy only. The black jumper of this black, grey and white plan has nothing to buy.
+            jumper = {"category": "knit", "store": "zara", "currency": "EUR", "composition_text": "100% Wolle",
+                      "fit": "regular", "sizes_all": ["S", "M", "L"], "sizes_in_stock": ["S", "M", "L"],
+                      "image_url": "", "source": "collected"}
+            products = [{**jumper, "id": f"zara-9{n}", "name": f"Pullover aus Wolle {n}", "slug": f"pullover-{n}",
+                         "price": 39.95 + n, "colour": colour, "colour_hex": None, "url": f"https://www.zara.com/de/{n}"}
+                        for n, colour in enumerate(("Grau", "Marineblau"))]
+            (DATA / "store_catalog.json").write_text(json.dumps({
+                "published_at": "2026-11-12T12:00:00+01:00", "collected_at": "2026-11-11T17:00:00+01:00",
+                "stores": {}, "products": products}))
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            phone = context.new_page()
+            phone.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                     if r.status >= 400 and r.url.startswith(base) else None)
+            phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+            phone.goto(base + "/login", wait_until="networkidle")
+            phone.fill("input[name=email]", EMAIL)
+            phone.fill("input[name=password]", PASSWORD)
+            phone.click("button:has-text('Log in')")
+            phone.wait_for_load_state("networkidle")
+            phone.goto(base + "/", wait_until="networkidle")
+            seen = phone.evaluate("() => [innerWidth, document.documentElement.scrollWidth]")
+            assert seen[1] <= seen[0] + 1, f"with colours on offer the Wardrobe is {seen[1]}px wide on a {seen[0]}px phone"
+
+            def missing() -> int:
+                said = re.search(r"(\d+) pieces? not in the product list yet", phone.locator("#summary").text_content() or "")
+                return int(said.group(1)) if said else 0
+
+            offer = phone.locator("article.slot .offer button").first
+            assert offer.count(), "no piece with nothing to buy offers a colour Capsule has"
+            card = offer.evaluate("b => b.closest('article').id")
+            colour = colours.get(offer.evaluate("b => b.form.elements.colour.value"))
+            name = phone.locator(f"#{card} .slot-name").inner_text()
+            qty = phone.locator(f"#{card} .qty")
+            pieces = int(qty.inner_text().lstrip("×")) if qty.count() else 1
+            before = missing()
+            assert phone.locator(f"#{card} .note").inner_text().startswith("Not in Capsule's product list in "), \
+                "the empty piece does not say what is missing"
+            phone.evaluate("() => { window.stayed = true; }")
+            offer.focus()
+            phone.keyboard.press("Enter")
+            phone.wait_for_function("id => !document.querySelector('#' + id + ' .offer')", arg=card)
+            phone.wait_for_load_state("networkidle")
+            assert phone.evaluate("() => window.stayed === true"), "the page was loaded again"
+            assert phone.locator(f"#{card} .slot-price").inner_text().strip() != "—", f"{name!r} is still empty"
+            renamed = phone.locator(f"#{card} .slot-name").inner_text()
+            assert renamed.startswith(colour.label), f"{name!r} took {colour.label.lower()} but is now called {renamed!r}"
+            assert missing() == before - pieces, f"the bar still counts {missing()} missing pieces, not {before - pieces}"
+            assert phone.evaluate("id => document.activeElement === document.querySelector('#' + id + ' .slot-main')", card), \
+                "keyboard focus did not move to the piece once its button was gone"
+            context.close()
+
         def delete_account():
             page.goto(base + "/account", wait_until="networkidle")
             page.locator("form[action$='/account/delete'] input[name=current]").fill(PASSWORD)
@@ -420,6 +477,7 @@ def run(base: str) -> None:
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
+                 ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("delete the account", delete_account)]
         for name, step in steps:
             known = len(failures)

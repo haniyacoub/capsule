@@ -20,8 +20,9 @@ import math
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
+from . import capsule
 from . import catalog as catalog_mod
-from . import colours, db, scoring, sizecheck, sizes
+from . import colours, db, scoring, shared, sizecheck, sizes
 from . import profile as profile_mod
 from .garments import GARMENTS, SECTIONS, Garment
 
@@ -112,6 +113,10 @@ class SlotView:
     state: str = "auto"          # auto | locked | owned
     note: str | None = None
     warn: bool = False
+    # A piece Capsule's product list has nothing for: colours it has the garment in, to switch to in one
+    # tap (see _offer), or, when there are none, why the piece stays out of the outfits and the total.
+    offers: list[colours.Colour] = field(default_factory=list)
+    left_out: str | None = None
 
     @property
     def qty(self) -> int:
@@ -183,6 +188,16 @@ class Wardrobe:
         return sum(1 for s in self.slots if s.state != "owned" and s.chosen is None)
 
     @property
+    def n_missing(self) -> int:
+        """Pieces Capsule's product list has nothing for yet. Counted like n_buy: a white tee ×2 is two."""
+        return sum(s.qty for s in self.slots if s.state != "owned" and not s.cands)
+
+    @property
+    def n_no_size(self) -> int:
+        """Pieces with options, none of which is in stock in your size (or priced), so nothing is picked."""
+        return sum(s.qty for s in self.slots if s.state != "owned" and s.cands and s.chosen is None)
+
+    @property
     def sections(self) -> list[tuple[str, list[SlotView]]]:
         out = []
         for section in SECTIONS:
@@ -224,10 +239,11 @@ def at_level(pool: list[Cand], mode: str) -> Cand:
     return max((c for c in ranked if c.price == price), key=lambda c: c.score.total)
 
 
-def choose(cands: list[Cand], mode: str, threshold: int) -> tuple[Cand | None, str | None, bool]:
-    """The automatic pick for a slot: (candidate, note, is_warning)."""
+def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tuple[Cand | None, str | None, bool]:
+    """The automatic pick for a slot: (candidate, note, is_warning). `colour` is the piece's colour, in
+    words ('black'), for the note on a piece the product list has nothing for."""
     if not cands:
-        return None, "Nothing found for this slot yet", True
+        return None, f"Not in Capsule's product list in {colour} yet" if colour else "Not in Capsule's product list yet", True
     # An item without a price has no place on the price ladder: it is never picked automatically.
     available = [c for c in cands if c.available and c.price > 0]
     if not available:
@@ -362,11 +378,14 @@ def build(profile: dict | None = None) -> Wardrobe:
                 if not picked.available:
                     view.note, view.warn = "Your locked choice is not in stock in your size", True
             else:
-                view.chosen, view.note, view.warn = choose(cands, mode, threshold)
-                if slot["locked"] and slot["pick"]:
+                view.chosen, view.note, view.warn = choose(cands, mode, threshold, view.colour.label.lower())
+                if slot["locked"] and slot["pick"] and cands:     # (with nothing on offer, choose said so)
                     view.note = "Your locked choice is no longer in the catalogue — showing the automatic pick"
                     view.warn = True
         views.append(view)
+    for view in views:
+        if view.state != "owned" and not view.cands:
+            _offer(view, views, profile)
 
     wardrobe = Wardrobe(
         slots=views, mode=mode, threshold=threshold, budget=float(profile.get("budget") or 0),
@@ -384,6 +403,32 @@ def build(profile: dict | None = None) -> Wardrobe:
                              "budget, so these are the cheapest. Lower the minimum quality, mark what you own, "
                              "or raise the budget on the Profile page.")
     return wardrobe
+
+
+def _offer(view: SlotView, views: list[SlotView], profile: dict) -> None:
+    """For a piece the product list has nothing for: up to three colours Capsule has its garment in, each
+    of which fills it in one tap (app.slot_colour). Liked colours come first and refused ones never. A
+    colour whose products another piece of that garment already has is skipped, and so is one that
+    reaches the same products as a colour already offered: the piece must not become a copy of another.
+    With nothing left to offer, `left_out` says why the piece stays empty.
+    """
+    category = view.slot["category"]
+    on_offer = shared.colours_on_offer(category)
+    refused = capsule.banned(profile.get("refused", []))      # refusing "green" refuses olive too
+    taken = {c.id for other in views if other is not view and other.slot["category"] == category
+             for c in other.cands}
+    liked = [key for key in profile.get("liked", []) if key in on_offer]
+    for key in liked + [key for key in on_offer if key not in liked]:
+        if key in refused or key == view.slot["colour"] or on_offer[key] & taken:
+            continue
+        view.offers.append(colours.get(key))
+        taken |= on_offer[key]
+        if len(view.offers) == 3:
+            break
+    if not view.offers:
+        kind = view.garment.plural
+        has = f"no {kind} in other colours you wear yet" if on_offer else f"no {kind} yet"
+        view.left_out = f"Capsule has {has}, so this piece is left out of your outfits and your total."
 
 
 def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:

@@ -9,7 +9,7 @@
   {% for s in items %}
   {% set c = s.chosen %}
   <article class="slot is-{{ s.state }}{% if s.warn %} has-warn{% endif %}" id="card-{{ s.slot.id }}">
-    <a class="slot-main" href="{{ url_for('slot_page', slot_id=s.slot.id) }}" aria-label="{{ s.slot.name }}: see all candidates">
+    <a class="slot-main" href="{{ url_for('slot_page', slot_id=s.slot.id) }}" aria-label="{{ s.slot.name }}: see all candidates"{% if focus == s.slot.id %} autofocus{% endif %}>
       {% if c and s.state != 'owned' %}
         {{ pic(c.data.image_url, c.colour_hex, c.data.name) }}
       {% else %}
@@ -46,6 +46,7 @@
                 title="{{ 'Marked as already owned. Tap to undo.' if owned else 'I already own this (costs nothing)' }}">{{ icon('hanger') }}<span>{{ 'Owned' if owned else 'Own it' }}</span></button>
       </form>
     </div>
+    {% if s.offers or s.left_out %}{% include "_colour_offer.html" %}{% endif %}
   </article>
   {% endfor %}
 </div>

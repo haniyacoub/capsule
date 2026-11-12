@@ -270,6 +270,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .slot-actions form + form .act { border-top: 1px solid var(--line); }
 .act.on { background: var(--soft); color: var(--ink); font-weight: 600; }
 .act:disabled { opacity: .35; cursor: default; }
+/* A piece the product list has nothing for: the colours Capsule has its garment in, one tap each, or why it
+   stays out (_colour_offer.html). On a card the row runs under the piece and its two buttons. */
+.offer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.offer form { display: flex; }
+.offer .dot { width: 14px; height: 14px; }
+.left-out { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.slot .offer { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
 
 /* ── One slot: its candidates ────────────────────────────────────────────── */
 .crumb { margin: 0 0 10px; font-size: var(--t-s); }
@@ -278,6 +285,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .slot-head h1 { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; }
 .state { font-size: var(--t-m); color: var(--muted); }
 .state .note { display: block; font-size: var(--t-s); margin-top: 2px; }
+.slot-head .left-out { font-size: var(--t-m); line-height: var(--lh-m); }   /* as large as the line it explains */
 .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .sortbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; font-size: var(--t-s); color: var(--muted); }
 .cands { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }

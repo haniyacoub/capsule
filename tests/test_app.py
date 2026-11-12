@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from wardrobe import capsule, catalog, colours, config, db, outfits, paths, selection
+from wardrobe import capsule, catalog, colours, config, db, outfits, paths, selection, shared
 from wardrobe import profile as profile_mod
-from wardrobe.app import create_app, weblink
+from wardrobe.app import create_app, recoloured_name, weblink
 
 HX = {"HX-Request": "true"}
 
@@ -407,6 +407,51 @@ class RebuildingThePlan(AppCase):
         self.assertTrue(self.save_profile(**self.NEW).headers["Location"].endswith("/profile"))
         self.assertEqual(db.list_slots(), before)
         self.assertIs(db.get_setting("plan_edited"), True)
+
+
+class PiecesWithNothingToBuy(AppCase):
+    """A piece the product list has nothing for says so, and offers the colours Capsule has in one tap
+    (the published list is tested in test_production.py; this is your own machine)."""
+
+    @staticmethod
+    def collected(slot_id, sku, colour):
+        return {"id": f"zara-{sku}", "slot_id": slot_id, "store": "zara", "name": "Pullover", "slug": "pullover",
+                "price": 39.95, "colour": colour, "colour_hex": None, "sizes_all": ["M"], "sizes_in_stock": ["M"],
+                "url": "https://www.zara.com/de/", "image_url": "", "source": "collected"}
+
+    def test_on_your_own_machine_the_colours_on_offer_are_those_collected(self):
+        catalog.save({"source": "collected", "collected_at": "2026-11-11T17:00:00+01:00", "stores": {}, "candidates": [
+            self.collected("grey-merino-jumper", "1", "Grau"), self.collected("navy-merino-jumper", "2", "Marineblau"),
+            {**self.collected("navy-merino-jumper", "3", "Schwarz"), "source": "manual"}]})     # yours: not on offer
+        on_offer = shared.colours_on_offer("knit")
+        self.assertEqual((on_offer["grey"], on_offer["navy"]), ({"zara-1"}, {"zara-2"}))
+        self.assertNotIn("black", on_offer)
+        self.assertEqual(shared.colours_on_offer("coat"), {})
+
+        # A black jumper added on the plan page could only copy one of the two: nothing is offered, and it says why.
+        self.client.post("/slots/add", data={"name": "", "category": "knit", "colour": "black", "qty": "1"})
+        jumper = selection.build().get("black-jumper")
+        self.assertEqual((jumper.note, jumper.offers), ("Not in Capsule's product list in black yet", []))
+        page = html.unescape(self.client.get("/slot/black-jumper").data.decode())
+        self.assertIn("Capsule has no knitwear in other colours you wear yet, so this piece is left out of your "
+                      "outfits and your total.", page)
+        self.assertIn("python -m wardrobe refresh --slot black-jumper", page)
+        self.assertIn("Capsule has no coats yet", html.unescape(self.client.get("/").data.decode()))
+        self.assertEqual(self.client.post("/slot/black-jumper/colour", data={"colour": "grey"}).status_code, 409)
+
+    def test_a_new_colour_renames_a_piece_named_after_its_colour(self):
+        self.assertEqual(recoloured_name("Black wool blazer", "black", "navy"), "Navy wool blazer")
+        self.assertEqual(recoloured_name("Light grey tee", "light-grey", "navy"), "Navy tee")
+        self.assertEqual(recoloured_name("Black tee", "black", "light-grey"), "Light grey tee")
+        self.assertEqual(recoloured_name("black tee", "black", "green"), "forest green tee")
+        self.assertEqual(recoloured_name("My lucky blazer", "black", "navy"), "My lucky blazer")
+        self.assertEqual(recoloured_name("Blackwatch shirt", "black", "navy"), "Blackwatch shirt")
+
+    def test_the_demo_has_something_for_every_piece(self):
+        w = selection.build()
+        self.assertEqual((w.n_missing, w.n_no_size), (0, 0))
+        self.assertFalse([s.slot["name"] for s in w.slots if s.offers or s.left_out])
+        self.assertNotIn("not in the product list", self.client.get("/").data.decode())
 
 
 class Outfits(AppCase):
