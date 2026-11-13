@@ -1079,10 +1079,21 @@ class Pictures(WithPictures, AppCase):
         with mock.patch.object(db, "touch_look", side_effect=broken):          # fails after the turn was taken
             self.assertEqual(self.post("/outfits/look", key=first.key).status_code, 500)
         self.assertTrue(both_turns_free())
+        tickets = db.look_requests(0)
         with mock.patch.object(looks, "_spawn", side_effect=RuntimeError("can't start new thread")):
-            self.assertEqual(self.post("/outfits/look", key=second.key).status_code, 500)
+            shown = self.post("/outfits/look", key=second.key)
         self.assertTrue(both_turns_free())
         self.assertEqual(self.drawn, [])
+        # Nothing was sent, so nothing counts, and the box says so with "Try again" instead of "Drawing this outfit"
+        # for minutes about nothing.
+        self.assertEqual(shown.status_code, 200)
+        self.assertIn("Something went wrong while drawing. Try again.", shown.data.decode())
+        self.assertIn(">Try again</button>", shown.data.decode())
+        self.assertNotIn("Drawing this outfit", shown.data.decode())
+        self.assertEqual(db.look_requests(0), tickets, "a drawing that never started was counted")
+        self.assertEqual(looks.get(look_key(second)).status, "failed")
+        self.assertIn("look-pic", self.post("/outfits/look", key=second.key).data.decode(), "Try again draws it")
+        self.assertEqual(len(self.drawn), 1)
 
     def age(self, seconds):
         with closing(sqlite3.connect(paths.DB_PATH)) as con, con:
@@ -1249,7 +1260,16 @@ class Pictures(WithPictures, AppCase):
             if not under_jumper:
                 self.assertEqual(piece["spot"], spots[piece["role"]])
         page = self.client.get("/outfits", query_string={"at": outfit.sig}).data.decode()
-        self.assertIn(f"left:{spots['bottom'][0]}%;top:{spots['bottom'][1]}%", page)
+        self.assertIn(f"--x:{spots['bottom'][0]}%;--y:{spots['bottom'][1]}%", page)
+        # A dot low on the picture (the shoes') keeps clear of the label 'AI picture' in its corner (app.css); the
+        # others are placed exactly where the settings say.
+        first = page[page.index(f'id="outfit-{outfit.key}"'):]
+        first = first[:first.index("</article>")]
+        dots = re.findall(r'<a class="(spot[^"]*)"[^>]*style="--x:([\d.]+)%;--y:([\d.]+)%"', first)
+        self.assertEqual(len(dots), len(outfit.pieces))
+        for cls, _, top in dots:
+            self.assertEqual(cls, "spot low" if float(top) >= 70 else "spot", (cls, top))
+        self.assertIn(("spot low", str(spots["shoes"][0]), str(spots["shoes"][1])), dots)
 
     def test_checking_the_key_from_the_command_line(self):
         said = io.StringIO()
@@ -1436,6 +1456,70 @@ class Scenes(WithPictures, AppCase):
             page = self.client.get("/outfits").data.decode()
             self.assertNotIn('class="scenes"', page)
             self.assertEqual(self.post("/outfits/look", key=some_outfits(1)[0].key, scene="street").status_code, 404)
+
+    def test_the_drawings_question_never_undoes_a_scene_tap(self):
+        # While a picture is drawn its box asks every few seconds how it is going. A scene tapped meanwhile cancels a
+        # question under way (its answer, the studio, would otherwise come back over the street), and no question is
+        # asked while a scene's picture is being asked for. (The browser walk-through answers one late, for real.)
+        self.held_back()
+        outfit = some_outfits(1)[0]
+        drawing = self.ask(outfit)
+        question = re.search(r'<p class="look-bar band wait"[^>]*>', drawing).group(0)
+        self.assertIn('hx-sync="closest .look:abort"', question)
+        row = re.search(r'<form class="scenes"[^>]*>', drawing).group(0)
+        self.assertIn('hx-sync="closest .look:replace"', row)
+        self.assertIn(f'<div class="look" id="look-{outfit.key}" hx-target="this"', self.client.get("/outfits").data.decode())
+
+    def test_a_scene_tapped_without_javascript_is_the_scene_shown(self):
+        outfit, other = some_outfits(2)
+        self.ask(outfit)                                                # the studio picture, drawn by itself
+        studio = re.search(r'src="(/looks/[^"]+)"', self.ask(outfit)).group(1)
+        came_from = "http://localhost/outfits?occasion=all&n=12"
+        tapped = self.client.post("/outfits/look", data={"key": outfit.key, "scene": "street"},
+                                  headers={"Referer": came_from})        # a form sent by the browser itself
+        self.assertEqual(tapped.status_code, 302)
+        self.assertEqual(tapped.headers["Location"],
+                         f"/outfits?occasion=all&n=12&scene=street&scene_of={outfit.key}#outfit-{outfit.key}")
+        page = self.client.get(tapped.headers["Location"]).data.decode()
+        box = page[page.index(f'id="look-{outfit.key}"'):]
+        box = box[:box.index('<div class="spots">')]
+        self.assertEqual(self.pressed(box), ["Street"], "the page came back with the studio, not the street tapped")
+        street = re.search(r'src="(/looks/[^"]+)"', box).group(1)
+        self.assertNotEqual(street, studio)
+        self.assertIn(looks.load_rules()["scenes"]["street"]["setting"], self.drawn[-1]["prompt"])
+        self.assertIn('name="scene" value="street"', box, "Draw again stays in the street")
+        elsewhere = page[page.index(f'id="look-{other.key}"'):]
+        self.assertEqual(self.pressed(elsewhere[:elsewhere.index("</form>", elsewhere.index('class="scenes"'))]),
+                         ["Studio"], "another outfit's scene changed too")
+        self.assertEqual(len(self.drawn), 2, "showing the street drew nothing more")
+        # Draw again in the street, and back to the studio: the page follows, keeping where it came from.
+        again = self.client.post("/outfits/look", data={"key": outfit.key, "scene": "street", "again": "1"},
+                                 headers={"Referer": "http://localhost" + tapped.headers["Location"]})
+        self.assertEqual(again.headers["Location"], tapped.headers["Location"])
+        back = self.client.post("/outfits/look", data={"key": outfit.key, "scene": "studio"},
+                                headers={"Referer": "http://localhost" + tapped.headers["Location"]})
+        self.assertEqual(back.headers["Location"], f"/outfits?occasion=all&n=12#outfit-{outfit.key}")
+        self.assertIn(studio, self.client.get(back.headers["Location"]).data.decode())
+        # Only this site's outfits page is gone back to; a scene the settings do not offer is the studio.
+        away = self.client.post("/outfits/look", data={"key": outfit.key, "scene": "street"},
+                                headers={"Referer": "https://elsewhere.example/outfits?occasion=office"})
+        self.assertEqual(away.headers["Location"], f"/outfits?scene=street&scene_of={outfit.key}#outfit-{outfit.key}")
+        moon = self.client.get(f"/outfits?scene=moon&scene_of={outfit.key}").data.decode()
+        moon = moon[moon.index(f'id="look-{outfit.key}"'):]
+        self.assertEqual(self.pressed(moon[:moon.index('<div class="spots">')]), ["Studio"])
+
+    def test_why_a_new_version_was_not_drawn_is_said_under_its_line(self):
+        self.with_rules(per_day=1)
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        refused = self.ask(outfit, again="1")
+        self.assertIn("pictures are used up", refused)
+        line = refused.index('class="look-bar look-line"')
+        message, scenes = refused.index('<p class="look-msg">'), refused.index('<form class="scenes"')
+        self.assertLess(line, message)
+        self.assertLess(message, scenes, "the reason is under the scenes, not under the line with Draw again")
+        between = refused[refused.index("</form>", line) + len("</form>"):message]
+        self.assertEqual(between.strip(), "", "something stands between the line with Draw again and the reason")
 
     def held_back(self) -> list:
         """Drawings wait here instead of running, until popped and called."""

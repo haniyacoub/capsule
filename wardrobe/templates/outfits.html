@@ -113,14 +113,15 @@
         </div>
         {% if looks_on %}
         <div class="look" id="look-{{ o.key }}" hx-target="this" hx-swap="innerHTML">
-          {% with key = o.key, look = o.look, first = loop.first, video = o.video %}{% include "_look.html" %}{% endwith %}
+          {% with key = o.key, look = o.look, first = loop.first, video = o.video, scene = o.scene %}{% include "_look.html" %}{% endwith %}
         </div>
         {# A dot on each piece of the AI picture (only shown once there is one). Its label (the piece, the store
            and the price) shows on hover and focus, and Escape hides it (app.js); a screen reader hears it as the
-           dot's name, "Coat, Weekday, 159 €". #}
+           dot's name, "Coat, Weekday, 159 €". A dot low on the picture (from 70% down: the shoes') keeps clear of the
+           label 'AI picture' in its corner (app.css, .spot.low). #}
         <div class="spots">
           {% for p in o.pieces %}
-          {% call piece(o, p, 'spot', p.slot_name, 'left:' ~ p.spot[0] ~ '%;top:' ~ p.spot[1] ~ '%',
+          {% call piece(o, p, 'spot low' if p.spot[1] >= 70 else 'spot', p.slot_name, '--x:' ~ p.spot[0] ~ '%;--y:' ~ p.spot[1] ~ '%',
                         p.slot_name ~ ', ' ~ ('owned' if p.owned else 'no longer offered' if p.gone else STORES.get(p.store, p.store) ~ ', ' ~ p.price|eur)) %}
             <span class="tip"><b>{{ p.slot_name }}</b>{% if p.owned %}Owned{% elif p.gone %}No longer offered{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% endif %}</span>
           {% endcall %}

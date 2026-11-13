@@ -592,7 +592,7 @@ if (swatchGrid) {
   // What HTMX puts in. A video that has just been made plays (data-play) and, on the outfit on screen, is announced
   // in the page's one live region ("Video ready"); so is the start of its making ("Making the video"), once, not
   // at each of the few seconds' asks that follow. Keyboard focus that was in the part that was replaced goes to what
-  // took its place: the box to tick or the button that makes the video (the band's words describe both), the video
+  // took its place: the box to tick or the button that makes the video (the offer's words describe both), the video
   // itself, "See it move", or the outfit while the video is made.
   const isVid = (el) => el instanceof Element && el.matches('.look-vid');
   const tell = (words) => {

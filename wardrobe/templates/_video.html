@@ -3,18 +3,20 @@
    `key` is the outfit's key, `look` its finished picture, `video` where its video stands (or nothing yet).
 
    No video yet: a "See it move" button on the picture, at its top right, clear of the head and the dots. Tapping
-   it opens a band across the top of the picture (`asking`) that says what a video is and how many are left today
-   ("1 video left today"), next to the button that makes one: nothing is spent by one stray tap. While it is made,
-   the band says so and asks every few seconds (`wait`). A video that is ready lies over the picture: it plays once
-   (`play`, app.js 15), rests on its last frame, and is turned by dragging across it or with the arrow keys (a
-   slider, its value in degrees). Its own line, in place of the picture's, offers "Play again" and "Show picture"
-   (back to the picture and its dots). Reloaded, the page shows the picture again, with "See it move" to play the
-   video for free.
+   it opens the offer under the picture (`asking`), in place of the picture's line and the scenes, so the picture
+   stays whole: what a video is and how many are left today ("1 video left today") on one or two lines, then the
+   button that makes one beside "Not now". Nothing is spent by one stray tap. While it is made, a band across the
+   top of the picture says so and asks every few seconds (`wait`). A video that is ready lies over the picture: it
+   plays once (`play`, app.js 15), rests on its last frame, and is turned by dragging across it or with the arrow
+   keys (a slider, its value in degrees). Its own lines, in place of the picture's line and the scenes, keep the
+   picture's caption ("Look and fit will differ") where it was, and under it "Drag to turn", "Play again" and "Show
+   picture" (back to the picture and its dots). Reloaded, the page shows the picture again, with "See it move" to
+   play the video for free.
 
-   The band's words describe both of its buttons (aria-describedby), so a screen reader hears them, "No videos left
+   The offer's words describe both of its buttons (aria-describedby), so a screen reader hears them, "No videos left
    today: more tomorrow" too, on whichever button has keyboard focus. `needs_ok`: the picture is drawn from the
    customer's photo and he has not yet agreed to its going to Google for a video (his photo was added before those
-   words, videos.CONSENT): the band asks him to tick a box first, once. #}
+   words, videos.CONSENT): the offer asks him to tick a box first, once. #}
 {% from "_macros.html" import icon %}
 {% set here = url_for('outfits_video', look=look.key, outfit=key or None) %}
 {% if video and video.status == 'ready' %}
@@ -32,13 +34,16 @@
     </div>
     <span class="ai-chip">AI video</span>
   </div>
-  <p class="vid-line">
-    <span class="look-note">{{ icon('turn') }} Drag to turn</span>
-    <span class="look-links">
-      <button class="link" type="button" data-vid-again>Play again</button>
-      <button class="link" type="button" data-vid-close>Show picture</button>
-    </span>
-  </p>
+  <div class="vid-line">
+    <p class="vid-row"><span class="look-note"><span class="whole">Look and fit will differ on the real pieces.</span><span class="half">Look and fit will differ.</span></span></p>
+    <p class="vid-row">
+      <span class="vid-hint">{{ icon('turn') }} Drag to turn</span>
+      <span class="look-links">
+        <button class="link" type="button" data-vid-again>Play again</button>
+        <button class="link" type="button" data-vid-close>Show picture</button>
+      </span>
+    </p>
+  </div>
 </div>
 {% elif video and video.status == 'working' %}
 <p class="vid-bar band wait" hx-get="{{ url_for('outfits_video', look=look.key, outfit=key or None, wait=1) }}" hx-trigger="load delay:3s">
@@ -47,7 +52,7 @@
 </p>
 {% elif asking or (video and video.status in ('failed', 'limit', 'consent')) %}
 {% set failed = video and video.status == 'failed' %}
-<form class="vid-bar band ask" method="post" action="{{ url_for('outfits_video_make') }}" hx-post="{{ url_for('outfits_video_make') }}">{{ csrf_field() }}
+<form class="vid-bar ask" method="post" action="{{ url_for('outfits_video_make') }}" hx-post="{{ url_for('outfits_video_make') }}">{{ csrf_field() }}
   <input type="hidden" name="look" value="{{ look.key }}">
   <input type="hidden" name="outfit" value="{{ key }}">
   <span id="vid-said-{{ key }}">
