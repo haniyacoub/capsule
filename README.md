@@ -67,7 +67,8 @@ never on a schedule, and never as the source for the public site, which is to
 use the stores' licensed product feeds ([PRODUCTION.md](PRODUCTION.md#before-customers)).
 
 A Chrome window opens and reads, for each slot, only the category pages listed
-for that garment type in [config/stores.toml](config/stores.toml). It is slow on
+for that garment type in [config/stores.toml](config/stores.toml) (and, for Zara,
+each shortlisted product page, for fabric and sizes). It is slow on
 purpose: one page at a time, a few seconds apart. Leave the window alone and keep
 working. The result goes to `data/catalog.json` with the collection time; the
 app shows it on the next page load.
