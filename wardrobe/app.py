@@ -479,15 +479,17 @@ def create_app() -> Flask:
     def way_back() -> dict:
         """A piece's page opened from an outfit's pop-up ("Compare all 3 options") has ?from=outfit&at=<the
         outfit>&occasion=<its filter> in its address: its way back leads to that outfit, and the Outfits tab stays
-        lit. These are those address arguments, checked (an occasion that is not one is left out), or {} for a
-        page that is part of the Wardrobe. The page's buttons and links carry them, and so does every answer that
-        sends the browser back to the page: any button pressed without JavaScript, and adding, completing or
-        removing a product by hand (those forms always post plainly)."""
+        lit. These are those address arguments, checked (an occasion that is not one is left out; "saved", the
+        Saved outfits, is kept, as the Outfits page takes it), or {} for a page that is part of the Wardrobe. The
+        page's buttons and links carry them, and so does every answer that sends the browser back to the page: any
+        button pressed without JavaScript, and adding, completing or removing a product by hand (those forms always
+        post plainly)."""
         at = request.args.get("at", "")[:400] if request.args.get("from") == "outfit" else ""
         if not at:
             return {}
         occasion = request.args.get("occasion", "")
-        return {"from": "outfit", "at": at, **({"occasion": occasion} if occasion in outfits.OCCASIONS else {})}
+        known = occasion in outfits.OCCASIONS or occasion == "saved"
+        return {"from": "outfit", "at": at, **({"occasion": occasion} if known else {})}
 
     def slot_context(w: selection.Wardrobe, slot_id: str) -> dict:
         view = w.get(slot_id)
@@ -617,7 +619,7 @@ def create_app() -> Flask:
     def slot_import(slot_id: str):
         """Manual import: pasted product links become candidates (see collect/manual.py). What each link came to
         is said inside the "Add a product by link" section the page comes back to (#add), not at the top of the
-        page, far above it: those messages have their own kind, "import" (_slot_body.html, base.html)."""
+        page, far above it: those messages have their own kind, "import" (slot.html, base.html)."""
         from .collect import manual
 
         slot = db.get_slot(slot_id)
@@ -931,7 +933,9 @@ def create_app() -> Flask:
         db.add_slot(slot)
         db.set_setting("plan_edited", True)     # a profile change no longer rebuilds the plan by itself
         needs_refresh = sync_catalog()
-        flash(f"Added “{slot['name']}” to your plan." + (f" {REFRESH_HINT}" if needs_refresh else ""))
+        # Said inside the new piece, where the page lands, not at the page's top (slots.html, base.html).
+        flash(f"Added “{slot['name']}” to your plan." + (f" {REFRESH_HINT}" if needs_refresh else ""),
+              "plan:" + slot["id"])
         return redirect(url_for("slots_page") + f"#slot-{slot['id']}")
 
     @app.post("/slots/<slot_id>/save")
@@ -948,7 +952,8 @@ def create_app() -> Flask:
             fields.update(locked=False, pick=None)   # different garment or colour: old pick no longer applies
         db.update_slot(slot_id, **fields)
         needs_refresh = sync_catalog(changed_slot=slot_id if changed else None)
-        flash(f"Saved “{fields['name']}”." + (f" {REFRESH_HINT}" if changed and needs_refresh else ""))
+        flash(f"Saved “{fields['name']}”." + (f" {REFRESH_HINT}" if changed and needs_refresh else ""),
+              "plan:" + slot_id)      # said inside the piece, as "Added" above
         return redirect(url_for("slots_page") + f"#slot-{slot_id}")
 
     @app.post("/slots/<slot_id>/delete")

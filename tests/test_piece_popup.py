@@ -51,7 +51,8 @@ class PiecePopUp(AppCase):
         order = [said.index(words) for words in ("Open at", "In this outfit", "Swap it for", "Choosing one uses it",
                                                  "Compare all")]
         self.assertEqual(order, sorted(order), said)
-        self.assertIn("Choosing one uses it in all your outfits and keeps it when you change the price level.", said)
+        self.assertIn("Choosing one uses it in all your outfits and keeps it when you change the price level or the "
+                      "minimum quality.", said)
         self.assertNotIn("locks it", said)
         self.assertRegex(said, r"In \d+ of the \d+ outfits your pieces make")
         # Each option's name is in English too where every word is known, the store's own words under it.
@@ -174,7 +175,10 @@ class PiecePopUp(AppCase):
         self.assertNotIn("Locked", self.read(self.popup(outfit, sid)))
         other = next(c for c in coat.view.cands if c.id != coat.view.chosen.id and c.price > 0)
         self.client.post(f"/slot/{sid}/pick", data={"candidate": other.id, "outfit": outfit.sig})
-        self.assertIn("Locked: kept when you change the price level", self.read(self.popup(outfit, sid)))
+        # Said in the words of the piece's own page: kept when the price level or the minimum quality changes.
+        locked = "Locked: kept when you change the price level or the minimum quality"
+        self.assertIn(locked, self.read(self.popup(outfit, sid)))
+        self.assertIn(locked + ".", self.read(self.client.get(f"/slot/{sid}").data.decode()))
 
         self.post(f"/slot/{sid}/own")
         page = self.popup(outfit, sid)
@@ -276,6 +280,23 @@ class PiecePopUp(AppCase):
             way_back(html.unescape(sorting.group(1)))
         self.assertIn(f'action="/slot/{sid}/pick?view=slot&amp;sort=score&amp;from=outfit', self.client.get(
             html.unescape(sorting.group(1))).data.decode(), "sorted, its buttons keep the way back")
+
+    def test_a_piece_page_opened_from_the_saved_outfits_leads_back_to_them(self):
+        # The Outfits page takes "saved" (the Saved outfits) as it takes an occasion. A piece's page opened with it
+        # leads back to the Saved outfits, with "Saved" lit, and every button and link on it keeps it.
+        outfit, coat = self.outfit_with("outer")
+        sid = coat.view.slot["id"]
+        page = self.client.get(f"/slot/{sid}", query_string={"from": "outfit", "at": outfit.sig, "occasion": "saved"})
+        page = page.data.decode()
+        back = re.search(r'<p class="crumb"><a href="([^"]+)">.*?</svg> Back to the outfit</a></p>', page, re.S)
+        assert back is not None, "no way back to the outfit"
+        self.assertEqual(html.unescape(back.group(1)), f"/outfits?at={outfit.sig}&occasion=saved")
+        self.assertIn('<a href="/outfits" class="on" aria-current="page">Outfits</a>', page)
+        kept = re.findall(r'(?:action|href)="(/slot/[^"]*from=outfit[^"]*)"', page)
+        self.assertGreaterEqual(len(kept), 4, "the page's buttons and links")
+        self.assertEqual([a for a in kept if "occasion=saved" not in a], [], "a button or link drops 'saved'")
+        lands = self.client.get(html.unescape(back.group(1))).data.decode()
+        self.assertRegex(lands, r'<a class="chip-link on" href="/outfits\?occasion=saved" aria-current="page">')
 
     def test_the_piece_page_on_its_own_still_belongs_to_the_wardrobe(self):
         _, coat = self.outfit_with("outer")

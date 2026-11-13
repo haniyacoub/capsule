@@ -164,8 +164,9 @@
 
 <section class="card add" id="add">
   <h2>Add a product by link</h2>
-  {# What the links pasted here came to (app.slot_import) is said here, where the page lands (#add), not at its top. #}
-  {% for message in get_flashed_messages(category_filter=['import']) %}
+  {# What the links pasted here came to (app.slot_import) is said here, where the page lands (#add), not at its top.
+     Only the whole page reads it (slot.html): an HTMX answer that re-renders this part never reads a message. #}
+  {% for message in link_messages or [] %}
   <p class="flash{% if not message.startswith('Added') %} bad{% endif %}" role="status">{{ message }}</p>
   {% endfor %}
   {# The stores customers are offered (programmes.py); a link to any other store is refused. #}

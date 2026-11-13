@@ -109,6 +109,32 @@ class SameCardEverywhere(AppCase):
                 self.assertEqual(text.count("Fabric:"), 1, place)
                 self.assertEqual(text.count("Fit:"), 1, place)
 
+    def test_the_quality_number_has_no_tooltip_and_is_heard_once(self):
+        # Wherever a product's quality is shown (the Wardrobe, the pop-up and its other options, a piece's page, Buy and
+        # the shopping list), the word Quality is beside the number, so the number has no tooltip: a tooltip would
+        # have a screen reader say the number twice, and say "score". It is heard as "Quality 73 out of 100".
+        sid = self.piece.slot["id"]
+        pages = {"Wardrobe": "/", "piece page": f"/slot/{sid}", "Buy": f"/outfits/buy?at={self.outfit.sig}",
+                 "shopping list": "/list"}
+        said = {place: self.client.get(url).data.decode() for place, url in pages.items()}
+        said["pop-up"] = self.client.get("/outfits/piece", query_string={"at": self.outfit.sig, "slot": sid},
+                                         headers=HX).data.decode()
+        quality = re.compile(r'<span class="quality">Quality <span class="pill [a-z]*">(\d+)<span class="of" '
+                             r'aria-hidden="true">/100</span></span><span class="sr"> out of 100</span></span>')
+        for place, page in said.items():
+            with self.subTest(place):
+                pills = re.findall(r'<span class="pill\b[^>]*>', page)
+                self.assertTrue(pills, f"no quality shown on the {place}")
+                self.assertEqual(len(quality.findall(page)), len(pills), f"a quality on the {place} is said otherwise")
+                self.assertFalse([p for p in pills if "title=" in p], f"a quality on the {place} has a tooltip")
+                titles = re.findall(r'title="([^"]*)"', page)
+                self.assertFalse([t for t in titles if re.search(r"\bscore|^quality \d", t, re.I)], titles)
+                heard = " ".join(html.unescape(re.sub(r"<[^>]+>", "", re.sub(
+                    r'<span[^>]*aria-hidden="true">[^<]*</span>', "", page))).split())
+                for total in quality.findall(page):
+                    self.assertIn(f"Quality {total} out of 100", heard)
+                self.assertNotRegex(heard, r"Quality \d+ \d+", "a number heard twice")
+
     def test_the_english_line_and_the_stores_own_words_are_marked(self):
         name, said = self.c.data["name"], english.name(self.c.data["name"])
         page = self.client.get("/").data.decode()

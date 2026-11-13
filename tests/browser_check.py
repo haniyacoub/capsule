@@ -12,7 +12,8 @@ arrive (said to be drawing inside its box, then labelled 'AI picture' on itself,
 page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, opens a piece on a phone
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
 comparing all options to the same outfit), tabs up and down a pop-up that scrolls (nothing with keyboard focus
-hidden under its top row), sees that with scrollbars shown the page behind the pop-up does not move sideways,
+hidden under its top row, no focus ring cut off at its bottom), sees that with scrollbars shown the page behind
+the pop-up does not move sideways,
 moves between outfits (by keyboard too: Next among the first Tab stops, focus going with the outfit shown, which a
 screen reader hears named, Tab leading into the outfit shown and Next keeping focus at the end of the row, the heart
 keeping focus, Escape hiding a dot's label),
@@ -24,7 +25,8 @@ screen shows the outfit on the model with its price and the heart (and every chi
 by keyboard), tabs through three pages to see that nothing with keyboard focus is hidden under the
 budget bar or the tab bar, locks and chooses on a piece's page by keyboard (focus stays where it was) and pastes
 a link that is not a store's (answered inside that section, on a phone's screen, with JavaScript on and off),
-and deletes the account.
+sees an option's "Choose this" and "Open at COS" side by side wherever they fit, on three phones, adds and saves a
+piece of the plan (answered inside that piece, on a phone's screen), and deletes the account.
 
 On the way a second customer, on a small product list published for that step alone, goes from the
 starter outfits to his profile with "Make them mine" and fills a piece the list has nothing for with one tap.
@@ -767,8 +769,10 @@ def run(base: str) -> None:
             # focus is never hidden under it (WCAG 2.4.11). On a small phone and a short computer screen, where the
             # coat's pop-up scrolls, Tab goes from Close to the last control, then from the sheet's end Shift+Tab
             # comes back up to Close, so that each new focus comes in from below and from above. At least one of
-            # five points of each must be inside the sheet with neither the top row nor Close over it.
+            # five points of each must be inside the sheet with neither the top row nor Close over it, and its focus
+            # ring must reach no further down than the sheet's bottom edge, where it would be cut off.
             hidden: list[str] = []
+            cut: list[str] = []
             for width, height, phone in ((320, 568, True), (1280, 640, False)):
                 context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=phone, has_touch=phone)
                 open_the_coat(other)
@@ -795,16 +799,23 @@ def run(base: str) -> None:
                                 const top = document.elementFromPoint(x, y);
                                 return top && !((row.contains(top) || close.contains(top)) && !el.contains(top));
                             }).length;
-                            return {seen, name: (el.innerText || el.getAttribute('aria-label') || el.tagName).replace(/\\s+/g, ' ').trim().slice(0, 50)};
+                            const style = getComputedStyle(el);     // how far the ring reaches outside the box
+                            const ring = style.outlineStyle === 'none' ? 0
+                                : Math.max(0, parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth));
+                            const below = r.bottom + ring - (s.top + sheet.clientTop + sheet.clientHeight);
+                            return {seen, below, name: (el.innerText || el.getAttribute('aria-label') || el.tagName).replace(/\\s+/g, ' ').trim().slice(0, 50)};
                         }""")
                         if focus is None:
                             break
                         stops += 1
                         if not focus["seen"]:
                             hidden.append(f"{width} x {height} {key}: {focus['name']}")
+                        if focus["below"] > 0.5:
+                            cut.append(f"{width} x {height} {key}: {focus['name']} ({focus['below']:.1f}px)")
                     assert stops >= 4, f"at {width} x {height}, {key} met only {stops} things to focus in the pop-up"
                 context.close()
             assert not hidden, "hidden under the pop-up's top row while it had keyboard focus: " + "; ".join(hidden[:6])
+            assert not cut, "a focus ring cut off by the pop-up's bottom edge: " + "; ".join(cut[:6])
 
         def the_page_behind_the_pop_up_stays_put():
             # On a computer set to always show scrollbars, their room is kept on every page, so that the page behind
@@ -1705,6 +1716,103 @@ def run(base: str) -> None:
                 finally:
                     context.close()
 
+        def options_fit_three_phones():
+            # On a piece's page, each option's "Choose this" and "Open at COS" sit on one line wherever the two and the
+            # 8px between them fit the option's width ("Open at COS" does on a 390px phone), and on two lines where they
+            # do not, never one over the other, and never out of the option's box: at 320, 360 and 390. The demo data
+            # links to no store, so a small list is published for this step (as for the one-tap colour): three grey
+            # jumpers, two at COS and one at Weekday, for a new customer whose starter plan has a grey jumper.
+            jumper = {"category": "knit", "currency": "EUR", "composition_text": "100% Wolle", "fit": "regular",
+                      "sizes_all": ["S", "M", "L"], "sizes_in_stock": ["S", "M", "L"], "image_url": "", "source": "collected",
+                      "colour": "Grau", "colour_hex": None}
+            products = [{**jumper, "id": f"{store}-8{n}", "store": store, "name": f"Pullover aus Wolle {n}",
+                         "slug": f"pullover-8{n}", "price": 49.95 + 10 * n, "url": f"https://www.example.com/de/8{n}"}
+                        for n, store in enumerate(("cos", "cos", "weekday"))]
+            listed = DATA / "store_catalog.json"
+            listed.write_text(json.dumps({"published_at": "2026-11-12T12:00:00+01:00",
+                                          "collected_at": "2026-11-11T17:00:00+01:00", "stores": {}, "products": products}))
+            ROWS = """() => [...document.querySelectorAll('.cand .cand-body > .cand-actions')].map(row => {
+                const choose = row.querySelector('button.btn'), open = row.querySelector('a.extlink');
+                if (!choose || !open) return null;
+                const a = choose.getBoundingClientRect(), b = open.getBoundingClientRect();
+                const card = row.closest('.cand').getBoundingClientRect();
+                return {open: open.firstChild.textContent.trim(), fits: a.width + 8 + b.width <= row.clientWidth + 0.5,
+                        one_line: b.top < a.bottom && a.top < b.bottom,
+                        over: a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom,
+                        inside: Math.max(a.right, b.right) <= card.right + 0.5 && Math.min(a.left, b.left) >= card.left - 0.5};
+            }).filter(Boolean)"""
+            who, problems = "options-" + EMAIL, []
+            try:
+                for width in (320, 360, 390):
+                    context = browser.new_context(viewport={"width": width, "height": 800}, is_mobile=True, has_touch=True)
+                    try:
+                        phone = context.new_page()
+                        phone.goto(base + ("/signup" if width == 320 else "/login"), wait_until="networkidle")
+                        phone.fill("input[name=email]", who)
+                        phone.fill("input[name=password]", PASSWORD)
+                        phone.click("button:has-text('Create account')" if width == 320 else "button:has-text('Log in')")
+                        phone.wait_for_url(base + "/outfits")
+                        phone.goto(base + "/slot/grey-merino-jumper", wait_until="networkidle")
+                        rows = phone.evaluate(ROWS)
+                        assert len(rows) == 2 and {row["open"] for row in rows} == {"Open at COS", "Open at Weekday"}, \
+                            f"at {width}px the grey jumper's other options are {rows}"
+                        for row in rows:
+                            if row["over"] or not row["inside"] or row["fits"] != row["one_line"]:
+                                problems.append(f"{width}px {row}")
+                        if width == 390:
+                            assert any(row["one_line"] for row in rows if row["open"] == "Open at COS"), \
+                                f"at 390px 'Open at COS' is not beside 'Choose this': {rows}"
+                    finally:
+                        context.close()
+            finally:
+                listed.unlink(missing_ok=True)
+            assert not problems, "an option's two actions are laid out badly: " + "; ".join(problems[:4])
+
+        def the_plan_answers_next_to_the_piece():
+            # After adding a piece to the plan, or saving one, the plan page lands on that piece (#slot-<its id>): what
+            # it came to is said inside that piece, on a phone's screen, not at the page's top. The piece added here
+            # is removed again; that message is said at the top, as the piece has gone.
+            context, phone = logged_in_on(browser, viewport={"width": 360, "height": 640}, is_mobile=True, has_touch=True)
+            phone.on("dialog", lambda d: d.accept())       # "Remove … from your plan?"
+            SAID = """() => {
+                const bar = document.querySelector('#summary'), tabs = document.querySelector('nav.tabs');
+                const top = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0;
+                const bottom = tabs && getComputedStyle(tabs).position === 'fixed' ? tabs.getBoundingClientRect().top : innerHeight;
+                return [...document.querySelectorAll('main .flash')].map(m => {
+                    const b = m.getBoundingClientRect(), piece = m.closest('li');
+                    return {words: m.textContent.trim(), piece: piece ? '#' + piece.id : null, status: m.getAttribute('role'),
+                            shown: b.top >= top - 1 && b.bottom <= bottom + 1};
+                });
+            }"""
+            try:
+                phone.goto(base + "/slots", wait_until="networkidle")
+                add = phone.locator("form[action$='/slots/add']")
+                add.locator("input[name=name]").fill("Weekend overshirt")
+                add.locator("button", has_text="Add piece").click()
+                phone.wait_for_load_state("networkidle")
+                hash_ = phone.evaluate("location.hash")
+                assert hash_.startswith("#slot-"), f"after adding a piece the page is at {phone.url}, not at the piece"
+                said = phone.evaluate(SAID)
+                assert said == [{"words": "Added “Weekend overshirt” to your plan.", "piece": hash_, "status": "status",
+                                 "shown": True}], f"adding a piece is answered so: {said}"
+                piece = phone.locator(hash_)
+                piece.locator("summary").click()
+                piece.locator("input[name=name]").fill("Olive weekend overshirt")
+                piece.locator("button", has_text="Save").click()
+                phone.wait_for_load_state("networkidle")
+                said = phone.evaluate(SAID)
+                assert said == [{"words": "Saved “Olive weekend overshirt”.", "piece": hash_, "status": "status",
+                                 "shown": True}], f"saving a piece is answered so: {said}"
+                piece = phone.locator(hash_)
+                piece.locator("summary").click()
+                piece.locator("button", has_text="Remove this piece").click()
+                phone.wait_for_load_state("networkidle")
+                said = phone.evaluate(SAID)
+                assert [(m["words"], m["piece"]) for m in said] == [("Removed “Olive weekend overshirt” from your plan.", None)], \
+                    f"removing the piece is answered so: {said}"
+            finally:
+                context.close()
+
         def delete_account():
             page.goto(base + "/account", wait_until="networkidle")
             page.locator("form[action$='/account/delete'] input[name=current]").fill(PASSWORD)
@@ -1830,6 +1938,8 @@ def run(base: str) -> None:
                  ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),
                  ("the budget bar never hides what has focus", budget_bar_never_hides_the_focus),
                  ("a piece's page by keyboard, links answered there", a_pieces_page_by_keyboard),
+                 ("an option's two actions on three phones", options_fit_three_phones),
+                 ("the plan answers inside the piece", the_plan_answers_next_to_the_piece),
                  ("delete the account", delete_account)]
         for name, step in steps:
             known = len(failures)

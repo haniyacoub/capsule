@@ -319,6 +319,49 @@ class APiecesPageInPlainWords(AppCase):
         profile_mod.save({**empty, "use": "office"})
         self.assertIn("Planned for the office.", self.visible("/slots"))
 
+    def test_adding_or_saving_a_piece_is_answered_inside_that_piece(self):
+        # The plan page comes back at the piece just added or saved (#slot-<id>), far down the page on a phone: what
+        # that came to is said inside that piece, as a status line, and nothing about it at the page's top. Removing
+        # a piece is said at the top: the piece is gone.
+        flash = re.compile(r'<p class="flash[^"]*" role="status">(.*?)</p>', re.S)
+
+        def answered(response) -> tuple[str, list[str], dict[str, list[str]]]:
+            """Where the answer lands, the messages at the page's top, and those inside each piece that has any."""
+            location = response.headers["Location"]
+            page = self.client.get(location).data.decode()
+            top = page.split("<main>", 1)[1].split("<h1>", 1)[0]
+            pieces = {m.group(1): flash.findall(m.group(2)) for m in re.finditer(r'<li id="slot-([^"]+)">(.*?)</li>', page, re.S)}
+            return location, flash.findall(top), {sid: said for sid, said in pieces.items() if said}
+
+        where, top, inside = answered(self.client.post("/slots/add", data={"name": "", "category": "overshirt",
+                                                                            "colour": "rust", "qty": "1"}))
+        new = db.list_slots()[-1]["id"]
+        self.assertEqual(where, f"/slots#slot-{new}")
+        self.assertEqual((top, inside), ([], {new: ["Added “Rust overshirt” to your plan."]}))
+        where, top, inside = answered(self.client.post(f"/slots/{new}/save", data={
+            "name": "Rust work overshirt", "category": "overshirt", "colour": "rust", "qty": "1"}))
+        self.assertEqual(where, f"/slots#slot-{new}")
+        self.assertEqual((top, inside), ([], {new: ["Saved “Rust work overshirt”."]}))
+        where, top, inside = answered(self.client.post(f"/slots/{new}/delete"))
+        self.assertEqual((where, top, inside), ("/slots", ["Removed “Rust work overshirt” from your plan."], {}))
+
+    def test_an_answer_to_part_of_a_piece_page_takes_no_message_away(self):
+        # A button pressed on a piece's page (Lock, Choose this, I already own this) is answered with that part of the
+        # page only (HTMX). A message still waiting for the next whole page, of any kind, is not read by that answer:
+        # it is said on the page it was meant for, and what pasted links came to inside its own section.
+        sid = self.first("coat").slot["id"]
+        with self.client.session_transaction() as session:
+            session["_flashes"] = [("message", "A message for the next page."), ("import", "Added “Some coat”.")]
+        part = self.post(f"/slot/{sid}/lock?view=slot")
+        self.assertIn('id="slot-lock"', part.data.decode(), "not the piece page's part")
+        self.assertNotIn("A message for the next page.", part.data.decode())
+        page = self.client.get(f"/slot/{sid}").data.decode()
+        top, add = page.split("<main>", 1)[1].split('id="add"', 1)
+        self.assertIn('<p class="flash" role="status">A message for the next page.</p>', top)
+        self.assertNotIn("Some coat", top)
+        self.assertIn('<p class="flash" role="status">Added “Some coat”.</p>', add)
+        self.assertNotIn("A message for the next page.", self.client.get(f"/slot/{sid}").data.decode(), "said once")
+
 
 class SlotsAndProfile(AppCase):
     def test_add_edit_remove_a_slot(self):

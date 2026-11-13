@@ -407,7 +407,7 @@ details.why summary::-webkit-details-marker { display: none; }
 .sz { font-size: var(--t-s); padding: 1px 6px; border-radius: var(--r-ui); border: 1px solid var(--line); background: var(--surface); }
 .sz.gone { text-decoration: line-through; color: var(--muted); background: none; }
 .sz.mine { border-color: var(--ink); font-weight: 600; }
-.cand-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.cand-actions { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-top: 10px; }   /* "Open at COS" beside "Choose this" on a 390px phone */
 .chosen-mark { display: inline-flex; align-items: center; gap: 5px; min-height: 38px; font-size: var(--t-s); font-weight: 500; }
 .extlink { display: inline-flex; align-items: center; gap: 4px; min-height: 38px; font-size: var(--t-s); color: var(--muted); }
 
@@ -654,9 +654,10 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
    when it opens or closes. */
 html { scrollbar-gutter: stable; }
 html:has(dialog[open]) { overflow: hidden; }
-/* --sheet-t and --sheet-x: the sheet's padding at the top and the sides, which its top row reaches over. */
+/* --sheet-t and --sheet-x: the sheet's padding at the top and the sides, which its top row reaches over. --close: the
+   size of Close's target, which the top row keeps room for. */
 .sheet {
-  --sheet-t: var(--s-2); --sheet-x: var(--s-4);
+  --sheet-t: var(--s-2); --sheet-x: var(--s-4); --close: 44px;
   width: min(560px, 100%); max-width: 100%; max-height: min(88svh, 780px); margin: auto auto 0;
   padding: var(--sheet-t) var(--sheet-x) calc(var(--s-5) + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   background: var(--surface); color: var(--ink); overflow-y: auto; overscroll-behavior: contain;
@@ -668,22 +669,22 @@ html:has(dialog[open]) { overflow: hidden; }
    to scroll: each sticks where it already is ('top' counts from inside the sheet's padding, so the row's is minus
    that padding: the sheet's very top). */
 .sheet-close {
-  position: sticky; top: 0; z-index: 2; display: block; width: 44px; height: 44px; padding: var(--s-1);
-  margin: 0 calc(var(--sheet-t) - var(--sheet-x)) -44px auto;   /* takes no room: the top row is under it */
+  position: sticky; top: 0; z-index: 2; display: block; width: var(--close); height: var(--close); padding: var(--s-1);
+  margin: 0 calc(var(--sheet-t) - var(--sheet-x)) calc(-1 * var(--close)) auto;   /* takes no room: the top row is under it */
   border: 0; border-radius: 50%; background: var(--soft) content-box; font-size: var(--t-xl); line-height: 1; cursor: pointer;
 }
 .piece-top {
   position: sticky; top: calc(-1 * var(--sheet-t)); z-index: 1; display: flex; align-items: center; justify-content: space-between;
-  gap: var(--s-3); min-height: calc(var(--sheet-t) + 44px);
+  gap: var(--s-3); min-height: calc(var(--sheet-t) + var(--close));
   margin: calc(-1 * var(--sheet-t)) calc(-1 * var(--sheet-x)) var(--s-2);
-  padding: var(--sheet-t) calc(var(--sheet-x) + 44px) 0 var(--sheet-x); background: var(--surface);
+  padding: var(--sheet-t) calc(var(--sheet-x) + var(--close)) 0 var(--sheet-x); background: var(--surface);
 }
 #piece-body { display: flow-root; }   /* the row's reach up over the padding is not merged into Close's margin */
 /* What gets keyboard focus in the sheet is scrolled into view below the top row, never under it (WCAG 2.4.11): the
-   room kept above it is the row's height and 12px more, as under the budget bar, so its focus ring shows whole. Set
-   on what scrolls under the row only, so that coming back to Close (in the row, always in view) leaves the sheet
-   where it is. */
-#piece-body * { scroll-margin-top: calc(var(--sheet-t) + 44px + var(--s-3)); }
+   room kept above it is the row's height and 12px more, as under the budget bar, so its focus ring shows whole; and
+   12px below it, so that its ring is not cut off by the sheet's bottom edge either. Set on what scrolls under the
+   row only, so that coming back to Close (in the row, always in view) leaves the sheet where it is. */
+#piece-body * { scroll-margin-top: calc(var(--sheet-t) + var(--close) + var(--s-3)); scroll-margin-bottom: var(--s-3); }
 /* Once the sheet is scrolled, a hairline under the top row shows where the rest goes under it (in browsers that can
    tie a style to scrolling; in others the row has no line). At rest there is none. */
 @supports (animation-timeline: scroll()) {
@@ -706,7 +707,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .as-of span { white-space: nowrap; }   /* the date and time stay together */
 .piece-facts .size-notes { margin: 0; display: block; }
 .piece-facts .extlink { min-height: 40px; }
-.piece-state { display: flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); font-weight: 500; }
+.piece-state { display: flex; align-items: start; gap: var(--s-1); font-size: var(--t-s); font-weight: 500; }   /* the icon by the first line, where "Locked: …" wraps */
 .sheet .sec { margin: var(--s-5) 0 var(--s-2); }
 .swap { list-style: none; margin: 0 0 var(--s-2); padding: 0; display: grid; gap: var(--s-3); }
 .swap li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; }
@@ -818,6 +819,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .edit { font-size: var(--t-s); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
 details[open] > summary .edit { visibility: hidden; }
 .slot-edit { padding: 4px 12px 10px; border-top: 1px solid var(--line); }
+.slot-list .flash { margin: 0 var(--s-3) var(--s-3); overflow-wrap: anywhere; }   /* what adding or saving the piece came to, inside it */
 .slot-edit .form { margin-top: 10px; }
 .form { display: grid; gap: 12px; }
 .form > .btn { justify-self: start; }
@@ -960,7 +962,7 @@ details[open] > summary .edit { visibility: hidden; }
 }
 .cat-table tbody tr + tr > * { border-top: 1px solid var(--line); }
 .cat-table .num-col { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: var(--s-5); }
-.cat-name { display: block; font-size: var(--t-m); line-height: 1.3; font-weight: 500; overflow-wrap: anywhere; }   /* 1.3 as .cand h3, a product's name; --lh-m adds 3px a line */
+.cat-name { display: block; font-size: var(--t-m); line-height: 1.3; font-weight: 500; overflow-wrap: anywhere; }   /* 1.3 as .cand h2, a product's name; --lh-m adds 3px a line */
 .cat-sub { display: block; color: var(--muted); overflow-wrap: anywhere; }
 .cell-label { display: none; }
 .c-store .cat-sub, .c-feed, .c-import, .c-price { white-space: nowrap; }

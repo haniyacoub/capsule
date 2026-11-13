@@ -45,6 +45,11 @@
         </form>
       </div>
     </details>
+    {# After adding or saving this piece the page lands here (#slot-<id>), so what that came to is said here, not at
+       the page's top, off the screen on a phone (app.slots_add, app.slots_save). #}
+    {% for kind, message in get_flashed_messages(with_categories=true) if kind == 'plan:' ~ s.slot.id %}
+    <p class="flash" role="status">{{ message }}</p>
+    {% endfor %}
   </li>
   {% endfor %}
 </ul>
