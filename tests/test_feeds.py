@@ -169,6 +169,11 @@ class FeedCase(unittest.TestCase):
 
 # ── the tables ────────────────────────────────────────────────────────────────
 
+# What version 7 adds besides (the videos, "See it move", and the Pro accounts: db.SCHEMA_VIDEOS, test_videos.py).
+VERSION_7_ADDS = [("index", "sqlite_autoindex_videos_1"), ("index", "video_requests_at"), ("index", "videos_picture"),
+                  ("table", "pro"), ("table", "video_requests"), ("table", "videos")]
+
+
 class Schema(FeedCase):
     def tables(self, con) -> set[str]:
         return {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
@@ -212,12 +217,12 @@ class Schema(FeedCase):
             after = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
             self.assertEqual(before - after, set(), "no table or index of version 4 was changed or removed")
             self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
-                             [("index", "products_by_group"), ("index", "sqlite_autoindex_products_1"),
-                              ("index", "sqlite_autoindex_stores_1"), ("table", "owners"), ("table", "products"),
-                              ("table", "stores")])
+                             sorted([("index", "products_by_group"), ("index", "sqlite_autoindex_products_1"),
+                                     ("index", "sqlite_autoindex_stores_1"), ("table", "owners"), ("table", "products"),
+                                     ("table", "stores")] + VERSION_7_ADDS))
             self.assertEqual({t: sorted(con.execute(f"SELECT * FROM {t}").fetchall()) for t in old_tables},  # nosec
                              rows_before, "every row is as it was")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 7)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master")), after)
@@ -247,9 +252,10 @@ class Schema(FeedCase):
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             after = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
             self.assertEqual(before - after, set(), "no table or index of version 5 was changed or removed")
-            self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before), [("table", "owners")])
+            self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
+                             sorted([("table", "owners")] + VERSION_7_ADDS))
             self.assertEqual({t: con.execute(f"SELECT * FROM {t}").fetchall() for t in rows_before}, rows_before)  # nosec
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 7)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM owners").fetchone()[0], 0, "nobody is an owner by itself")
 
 

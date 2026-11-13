@@ -16,7 +16,8 @@ the words about the place and the light, and so is a picture of its own, with
 its own name, kept, billed and counted like any other.
 
 All of it is off until a key is set (settings.py). The wording, the service,
-the limits and where the dots sit are in config/looks.toml.
+the limits and where the dots sit are in config/looks.toml. A finished picture
+can also be made into a short video ("See it move"): videos.py.
 """
 from __future__ import annotations
 
@@ -127,12 +128,30 @@ def _check(data: dict) -> None:
         if len(scene["label"]) > 12:
             raise ConfigError(f"scenes.{name}.label must be one short word: it goes on a button under the picture")
 
+    if data.get("videos") is not None:                 # "See it move" (videos.py); without [videos] it is off
+        _check_videos(config.table(data["videos"], "videos"))
+
     spots = config.table(data.get("hotspots"), "hotspots")
     for name in ("outer", "mid", "top", "collar", "bottom", "shoes"):
         pair = spots.get(name)
         if not (isinstance(pair, list) and len(pair) == 2
                 and all(isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 100 for v in pair)):
             raise ConfigError(f"hotspots.{name} must be two percentages, like [50, 30]")
+
+
+def _check_videos(videos: dict) -> None:
+    if not isinstance(videos.get("on"), bool):
+        raise ConfigError("videos.on must be true or false")
+    for name in ("model", "text"):
+        if not isinstance(videos.get(name), str) or not videos[name].strip():
+            raise ConfigError(f"videos.{name} must be " + ("the name of a model" if name == "model" else "words"))
+    seconds = videos.get("turn_seconds")
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not 1 <= seconds <= 8:
+        raise ConfigError("videos.turn_seconds must be a number of seconds from 1 to 8 (the clip is 8 seconds long)")
+    for name in ("per_day", "per_customer_per_day", "pro_per_customer_per_day"):
+        value = videos.get(name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ConfigError(f"videos.{name} must be a whole number, 0 or more")
 
 
 def service() -> imagegen.Service | None:
@@ -476,6 +495,8 @@ def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ti
                 return
             if before and before != name:
                 (folder() / before).unlink(missing_ok=True)
+                from . import videos                     # its videos showed the picture that is gone
+                videos.forget_made_from(before)
             log.info("Drew look %s with %s", key, chosen.tag)
         except imagegen.DrawError as problem:
             if photo is not None and problem.kind == "request":
@@ -491,13 +512,13 @@ def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ti
                 _held = (time.time() + wait, said)
             level = logging.ERROR if problem.kind in OPERATORS else logging.WARNING
             log.log(level, "Look %s was not drawn (%s): %s", key, problem.kind, problem.detail)
-            _write_down(key, chosen, problem.kind, problem.detail)
+            _write_down(key, chosen.tag, problem.kind, problem.detail)
         except Exception as error:
             # Never the exception's own words in a log that outlives the process: they could quote the key.
             trace = traceback.format_exc()
             log.error("Look %s was not drawn\n%s", key, trace.replace(chosen.key, "(the key)") if chosen.key else trace)
             db.fail_look(key, SAY["unknown"])
-            _write_down(key, chosen, "unknown", type(error).__name__)
+            _write_down(key, chosen.tag, "unknown", type(error).__name__)
 
 
 def _say(problem: imagegen.DrawError) -> str:
@@ -509,21 +530,24 @@ def _say(problem: imagegen.DrawError) -> str:
     return f"{text} {problem.detail.rstrip('.')}." if problem.detail else text
 
 
-def _write_down(key: str, chosen: imagegen.Service, kind: str, detail: str) -> None:
-    """Keep the reason a picture failed in <data>/looks/problems.log, where the operator can find it later."""
+def _write_down(key: str, tag: str, kind: str, detail: str, what: str = "look") -> None:
+    """Keep the reason a picture (or a video, videos.py) failed in <data>/looks/problems.log, where the operator
+    can find it later. `tag`: which service and model."""
     try:
         folder().mkdir(parents=True, exist_ok=True)
         book_path = folder() / "problems.log"
         if book_path.exists() and book_path.stat().st_size > 512 * 1024:     # keep it readable: one older file, no more
             os.replace(book_path, folder() / "problems.old.log")
         with book_path.open("a", encoding="utf-8") as book:
-            book.write(f"{db.now_iso()}  {kind:<8} {chosen.tag}  look {key}  {' '.join(detail.split())[:500]}\n")
+            book.write(f"{db.now_iso()}  {kind:<8} {tag}  {what} {key}  {' '.join(detail.split())[:500]}\n")
     except OSError:
         pass                                             # the server log has it too
 
 
 def forget_pictures_of(user_id: int) -> None:
-    """Delete every picture drawn from a user's photo."""
+    """Delete every picture drawn from a user's photo, and the videos made from those pictures (videos.py)."""
+    from . import videos
+    videos.forget_of(user_id)
     for name in db.drop_personal_looks(user_id):
         (folder() / name).unlink(missing_ok=True)
 

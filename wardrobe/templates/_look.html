@@ -15,7 +15,11 @@
    unless another was tapped. Under the line, in every state, the scenes are a row
    of buttons: the one shown is pressed, and tapping another asks for that
    scene's picture (drawn then, and kept). Each button keeps its id when the box
-   is replaced, so keyboard focus stays on the scene that was tapped. #}
+   is replaced, so keyboard focus stays on the scene that was tapped.
+
+   `videos_on`: under a finished picture, in .look-vid, "See it move" (_video.html), with `video`, the state of
+   that picture's video. On a page, a video that failed shows as not made yet: what went wrong is said when
+   "See it move" is tapped again. #}
 {% set scene = scene or 'studio' %}
 {% set scene_row %}
 {% if scenes and scenes|length > 1 %}
@@ -53,6 +57,11 @@
     <button class="link">Draw again</button>
   </span>
 </form>
+{% if videos_on %}
+<div class="look-vid" id="vid-{{ key }}" data-look="{{ look.key }}" hx-target="this" hx-swap="innerHTML">
+  {%- with video = video if video and video.status in ('ready', 'working') else none, asking = false, play = false, left = none %}{% include "_video.html" %}{% endwith -%}
+</div>
+{% endif %}
 {{ scene_row }}
 {% if look.message %}<p class="look-msg">{{ look.message }}</p>{% endif %}
 {% else %}

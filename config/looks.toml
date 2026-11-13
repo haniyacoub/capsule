@@ -102,3 +102,33 @@ top    = [50, 30]   # chest
 collar = [50, 22]   # a shirt under a jumper shows only here
 bottom = [45, 66]   # thigh
 shoes  = [58, 92]   # the middle of one shoe
+
+
+# "See it move": a short AI video of an outfit (videos.py). Under an outfit's
+# finished picture, in any scene, "See it move" asks Google's video model for an
+# 8-second, upright (9:16), 720p clip that starts from that picture: the model
+# turns once on the spot, then poses. The customer can play it again and drag
+# across it to turn the model. It needs GEMINI_API_KEY, also where OpenAI draws
+# the pictures.
+#
+# A clip costs about $0.56 to $0.81 (Google's price per second of video, Nov
+# 2026), about twenty pictures' worth, and takes 40 seconds to two minutes. Each
+# one is kept and shown again for free, to everybody who sees that picture (a
+# picture drawn from a customer's photo, and its video, only to that customer).
+[videos]
+on    = true       # false: no "See it move" anywhere
+model = "gemini-omni-flash-preview"   # the names gemini-omni-1.2-flash and -1.1-flash answered "not found" on 13 Nov 2026
+
+# How many videos may be asked for in 24 hours. These are apart from the
+# pictures' limits: a video never uses up a picture, nor a picture a video.
+per_customer_per_day     = 1    # each customer of a public service
+pro_per_customer_per_day = 5    # each Pro account (python -m wardrobe pro add EMAIL) and each owner
+per_day                  = 10   # everyone together (on your own machine, where there is no limit per person: you)
+
+# Dragging across the video turns the model: from left to right, these first
+# seconds of the clip, where he turns once round. Nudge it if a drag across the
+# whole picture turns him a little more or less than once.
+turn_seconds = 6.2
+
+# What the video model is told, with the picture. New words mean new videos.
+text = "Animate this exact photograph. The person turns slowly on the spot through one full circle at an even pace, so that the front, one side, the back and the other side of the outfit are each seen clearly. Then they face the camera again and settle into a relaxed, natural pose for the last seconds. The camera stays still and does not zoom, and the whole figure stays in frame from head to shoes. Keep every piece of clothing exactly as it is in the photograph, with its colour, fabric and fit, and keep the person, the background and the light unchanged. No text, no logos, no other people."

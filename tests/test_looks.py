@@ -1323,7 +1323,7 @@ class TheModel(WithPictures, AppCase):
         self.assertIsNone(db.get_setting("photo_consent"))
         self.upload(agree="on")
         self.assertEqual(db.get_setting("photo_consent"), PHOTO_CONSENT)
-        self.assertEqual(PHOTO_CONSENT, "2026-11-12", "the date of the box's words on Profile")
+        self.assertEqual(PHOTO_CONSENT, "2026-11-13", "the date of the box's words on Profile (videos added)")
         self.assertIsNotNone(db.get_setting("photo_added"), "beside when the photo was added")
         self.assertEqual(db.export_user()["settings"]["photo_consent"], PHOTO_CONSENT, "in his copy of his data too")
 

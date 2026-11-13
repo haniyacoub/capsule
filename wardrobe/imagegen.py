@@ -40,7 +40,7 @@ GOOGLE_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
 GOOGLE_REVISION = "2026-05-20"       # the version of Google's interface whose answers are read below
 AGENT = "capsule-wardrobe/1.0"
 TIMEOUT = 180                        # seconds: a picture can take a minute or two
-MAX_ANSWER = 40 * 1024 * 1024        # bytes: no picture comes anywhere near this
+MAX_ANSWER = 40 * 1024 * 1024        # bytes: no picture or video comes anywhere near this
 LABELS = {"openai": "OpenAI", "google": "Google"}
 MIME = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 
@@ -240,12 +240,14 @@ _opener = urllib.request.build_opener(urllib.request.ProxyHandler(urllib.request
                                       _NoRedirect)
 
 
-def _send(url: str, headers: dict[str, str], body: bytes) -> tuple[int, bytes]:
-    """One HTTPS POST. Returns the status and the bytes of the answer."""
+def _send(url: str, headers: dict[str, str], body: bytes | None, timeout: float = TIMEOUT) -> tuple[int, bytes]:
+    """One HTTPS POST (a GET without a `body`: fetching a video, videogen.py). Returns the status and the bytes
+    of the answer."""
     host = url.split("/")[2]
-    request = urllib.request.Request(url, data=body, headers={"User-Agent": AGENT, **headers}, method="POST")
+    request = urllib.request.Request(url, data=body, headers={"User-Agent": AGENT, **headers},
+                                     method="GET" if body is None else "POST")
     try:
-        answer = _opener.open(request, timeout=TIMEOUT)
+        answer = _opener.open(request, timeout=timeout)
     except urllib.error.HTTPError as refusal:        # an answer with an error status
         return refusal.code, refusal.read(1024 * 1024)
     except urllib.error.URLError as problem:         # it could not be reached: nothing was sent, nothing drawn

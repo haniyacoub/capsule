@@ -1,0 +1,58 @@
+{# "See it move" (videos.py): the part of an outfit's picture box about its video. It lives in .look-vid
+   (_look.html), which HTMX fills on its own, so the picture is never sent again nor fades in again.
+   `key` is the outfit's key, `look` its finished picture, `video` where its video stands (or nothing yet).
+
+   No video yet: a "See it move" button on the picture, at its top right, clear of the head and the dots. Tapping
+   it opens a band across the top of the picture (`asking`) that says what a video is and how many are left today
+   ("1 video left today"), next to the button that makes one: nothing is spent by one stray tap. While it is made,
+   the band says so and asks every few seconds (`wait`). A video that is ready lies over the picture: it plays once
+   (`play`, app.js 15), rests on its last frame, and is turned by dragging across it or with the arrow keys (a
+   slider, its value in degrees). Its own line, in place of the picture's, offers "Play again" and "Picture" (back
+   to the picture and its dots). Reloaded, the page shows the picture again, with "See it move" to play the video
+   for free. #}
+{% from "_macros.html" import icon %}
+{% set here = url_for('outfits_video', look=look.key, outfit=key or None) %}
+{% if video and video.status == 'ready' %}
+<div class="vid{{ ' on' if play }}" data-vid{{ ' data-play' if play }} data-turn-seconds="{{ turn_seconds }}">
+  <button class="vid-pill" type="button" data-vid-open>{{ icon('play') }}<span>See it move</span></button>
+  <div class="vid-box">
+    <div class="vid-turn" role="slider" tabindex="0" aria-label="Drag to turn the model" aria-valuemin="0" aria-valuemax="360"
+         aria-valuenow="0" aria-valuetext="0 degrees">
+      <video class="vid-clip" src="{{ url_for('video_file', name=video.file) }}" poster="{{ url_for('look_image', name=look.file) }}"
+             muted playsinline preload="none" disablepictureinpicture aria-hidden="true"></video>
+      {%- if video.turn %}
+      <video class="vid-drag" src="{{ url_for('video_file', name=video.turn) }}" poster="{{ url_for('look_image', name=look.file) }}"
+             muted playsinline preload="none" disablepictureinpicture aria-hidden="true" hidden></video>
+      {%- endif %}
+    </div>
+    <span class="ai-chip">AI video</span>
+  </div>
+  <p class="vid-line">
+    <span class="look-note">{{ icon('turn') }} Drag to turn</span>
+    <span class="look-links">
+      <button class="link" type="button" data-vid-again>Play again</button>
+      <button class="link" type="button" data-vid-close>Picture</button>
+    </span>
+  </p>
+</div>
+{% elif video and video.status == 'working' %}
+<p class="vid-bar band wait" hx-get="{{ url_for('outfits_video', look=look.key, outfit=key or None, wait=1) }}" hx-trigger="load delay:3s">
+  <span class="spin" aria-hidden="true"></span>
+  <span>Making the video · about a minute</span>
+</p>
+{% elif asking or (video and video.status in ('failed', 'limit')) %}
+{% set failed = video and video.status == 'failed' %}
+<form class="vid-bar band ask" method="post" action="{{ url_for('outfits_video_make') }}" hx-post="{{ url_for('outfits_video_make') }}">{{ csrf_field() }}
+  <input type="hidden" name="look" value="{{ look.key }}">
+  <input type="hidden" name="outfit" value="{{ key }}">
+  <span id="vid-said-{{ key }}">
+    {%- if video and video.message %}<span class="look-msg" role="status">{{ video.message }}</span>
+    {%- else %}An 8-second AI video: the model turns round once, then poses.{% endif %}
+    {%- if left is not none and not (video and video.status == 'limit') %} <b>{{ left_words(left) }}.</b>{% endif -%}
+  </span>
+  {% if left %}<button class="btn small" aria-describedby="vid-said-{{ key }}">{{ 'Try again' if failed else 'Make the video' }}</button>{% endif %}
+  <button class="link" type="button" hx-get="{{ here }}">{{ 'Not now' if left else 'Close' }}</button>
+</form>
+{% else %}
+<button class="vid-pill" type="button" hx-get="{{ url_for('outfits_video', look=look.key, outfit=key or None, ask=1) }}">{{ icon('play') }}<span>See it move</span></button>
+{% endif %}

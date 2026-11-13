@@ -557,6 +557,57 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 }
 .scenes [aria-pressed="false"]:hover { color: var(--ink); }   /* the one shown keeps its page-colour words */
 .scenes [aria-pressed="true"] { background: var(--ink); color: var(--bg); box-shadow: inset 0 0 0 2px var(--soft); cursor: default; }
+/* "See it move" (_video.html, app.js 15): the outfit's AI video, over its picture.
+   The button on the picture, at its top right (clear of the head, which is centred, and of the dots): the same dark
+   veil and white as the 'AI picture' label (7.4:1 on the studio grey), 32px tall to the eye and 48px to a finger. Its
+   focus ring is white inside a dark one, so it shows on any picture. */
+.vid-pill {
+  position: absolute; top: var(--s-2); right: var(--s-2); z-index: 2;
+  display: inline-flex; align-items: center; gap: var(--s-1); height: 32px; padding: 0 var(--s-3) 0 10px;
+  border: 0; border-radius: var(--r-pill); background: rgba(27, 27, 26, .72); color: #fff; cursor: pointer;
+  font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; white-space: nowrap;
+  transition: background-color .15s ease-out;
+}
+.vid-pill .ic { width: 14px; height: 14px; fill: currentColor; }
+.vid-pill::after { content: ""; position: absolute; inset: -8px 0; }   /* 48px tall to a finger (44px under 300px) */
+.vid-pill:hover { background: rgba(27, 27, 26, .9); }
+.vid-pill:focus-visible { outline: 2px solid #1b1b1a; outline-offset: 2px; box-shadow: 0 0 0 2px #fff; }
+/* On a picture under 300px wide (a phone under about 800px tall) the head reaches nearer the top right corner: the
+   button moves 4px nearer the corner and is 28px tall to the eye (44px to a finger), so it stays above the hair. */
+@container (max-width: 299.98px) {
+  .vid-pill { top: var(--s-1); right: var(--s-1); height: 28px; }
+}
+/* The video lies over the picture in the same 2:3 box, as tall as the box (it is 9:16: the whole figure, head to
+   shoes). On either side the picture it started from shows through: the same ground, so the edges do not show.
+   It is labelled 'AI video' like the picture. While it shows, the dots (which
+   would not follow the model as he turns) and the picture's line are hidden, and its own line takes that line's
+   place: the same 40px, so nothing moves. It is turned by dragging sideways across it (touch-action: a sideways
+   drag turns him rather than moving on to the next outfit) or with the arrow keys once it has focus. */
+.vid-box { display: none; position: absolute; top: 0; left: 0; z-index: 1; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; }
+.vid.on .vid-box { display: block; }
+.vid.on .vid-pill { display: none; }
+.vid-turn { position: absolute; inset: 0; cursor: grab; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.vid-turn.held { cursor: grabbing; }
+.vid-turn video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.vid-turn video[hidden] { display: none; }
+.vid-turn:focus-visible { outline: none; }
+.vid-turn:focus-visible::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  outline: 2px solid #1b1b1a; outline-offset: -2px; box-shadow: inset 0 0 0 4px #fff;
+}
+.stage:has(.vid.on) .spots, .stage:has(.vid.on) .look-pic .ai-chip { display: none; }   /* its own label is on the video */
+.look:has(.vid.on) > .look-line { display: none; }
+.vid-line {
+  display: none; align-items: center; justify-content: space-between; gap: var(--s-3);
+  width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
+  font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); white-space: nowrap;
+}
+.vid.on .vid-line { display: flex; }
+.vid-line .ic { width: 16px; height: 16px; margin-right: 2px; }
+/* The band across the top of the picture while a video is offered, made or refused: the picture's band, with its
+   "Not now" in white and as tall as the white button beside it. */
+.vid-bar .link { display: inline-flex; align-items: center; min-height: 40px; padding: 0; color: #fff; }
+.vid-bar b { font-weight: 600; }
 .spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--ink); animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* The dots on the AI picture: one per piece, placed by config/looks.toml. */
@@ -648,6 +699,7 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
   .spin { animation: none; }
   .look-pic { transition: none; }
   .scenes button { transition: none; }
+  .vid-pill { transition: none; }
 }
 
 /* ── The pop-up for one piece (a sheet from the bottom on a phone) ───────── */
@@ -1085,6 +1137,7 @@ details[open] > summary .edit { visibility: hidden; }
   .looks { --pair: calc(var(--stage-w) + var(--s-6) + 420px); }   /* the picture, the gap and the list: the slide's columns */
   .stage { margin: 0; }
   .collage, .look-pic { border-radius: var(--r-img); }
+  .vid-box { border-radius: var(--r-img); }
   .band { border-radius: var(--r-img) var(--r-img) 0 0; }
   .about { margin: 0; }
   .sheet { --sheet-t: var(--s-3); --sheet-x: var(--s-5); margin: auto; padding: var(--sheet-t) var(--sheet-x) var(--s-5); border-radius: var(--r-sheet); }

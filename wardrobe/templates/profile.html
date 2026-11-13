@@ -151,16 +151,18 @@
   {% endif %}
   {% if photos and model_menu %}
   {# What a person needs to know before agreeing comes first: where the photo goes, how long it is kept, how to take it
-     back. The consent's words are dated: app.py stores PHOTO_CONSENT with the photo; change the two together. #}
+     back. The consent's words are dated: app.py stores PHOTO_CONSENT with the photo; change the two together.
+     `videos_on`: the pictures of him can also be made into videos ("See it move", videos.py), by Google. #}
   <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
     <p class="photo-facts" id="photo-facts">Your photo goes to {{ drawn_by }} each time a picture of you is drawn, so the model looks like you.
-      {{ site_name }} keeps it{{ ' in data/people on this computer' if not production }}, without where and when it was taken, until you delete it; you can delete it here at any time, and the pictures made from it go with it.
+      {%- if videos_on %} When you ask for a video of a picture of you (“See it move”), that picture goes to Google, which makes the video from it.{% endif %}
+      {{ site_name }} keeps it{{ ' in data/people on this computer' if not production }}, without where and when it was taken, until you delete it; you can delete it here at any time, and the pictures made from it go with it{{ ', with their videos' if videos_on }}.
       How {{ site_name }} handles your data: <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>.</p>
     <label class="field"><span>{{ 'Use a different photo' if has_photo else 'A clear, well-lit photo of you facing the camera' }}</span>
       <input type="file" name="photo" accept="image/*" required></label>
     {# app.js says here what it made of the chosen file: ready to send, or not a picture this browser can open. #}
     <div class="photo-ready" data-photo-ready role="status" hidden><img alt="" width="54" height="72" hidden><p></p></div>
-    <label class="check"><input type="checkbox" name="agree" required aria-describedby="photo-facts"> <span>This is me, I'm 18 or over, and I agree to {{ site_name }} sending this photo to {{ drawn_by }} to draw pictures of me in my outfits.</span></label>
+    <label class="check"><input type="checkbox" name="agree" required aria-describedby="photo-facts"> <span>This is me, I'm 18 or over, and I agree to {{ site_name }} sending this photo to {{ drawn_by }} to draw pictures of me in my outfits{{ ', and those pictures to Google to make videos of them when I ask' if videos_on }}.</span></label>
     <button class="btn small">{{ 'Replace photo' if has_photo else 'Use this photo' }}</button>
   </form>
   <p class="muted small photo-note">Your face in a picture will be close, not exact.</p>

@@ -86,7 +86,7 @@
         </div>
         {% if looks_on %}
         <div class="look" id="look-{{ o.key }}" hx-target="this" hx-swap="innerHTML">
-          {% with key = o.key, look = o.look, first = loop.first %}{% include "_look.html" %}{% endwith %}
+          {% with key = o.key, look = o.look, first = loop.first, video = o.video %}{% include "_look.html" %}{% endwith %}
         </div>
         {# A dot on each piece of the AI picture (only shown once there is one). Its label (the piece, the store
            and the price) shows on hover and focus, and Escape hides it (app.js); a screen reader hears it as the
