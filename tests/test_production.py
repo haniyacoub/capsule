@@ -729,7 +729,8 @@ class Guards(ProductionCase):
             response = self.post(ada, f"/slot/{knit}/import",
                                  urls="https://www.zara.com/de/de/grobstrickpullover-100-wolle-p01928374.html")
         self.assertEqual(response.status_code, 302)
-        self.assertIn(b"Grobstrickpullover 100 wolle", ada.get(f"/slot/{knit}").data)
+        self.assertIn(b'<h2 lang="de">Grobstrickpullover 100 wolle</h2>', ada.get(f"/slot/{knit}").data,
+                      "named from the link, without Zara's article number")
 
         from wardrobe.__main__ import main
         for command in (["refresh"], ["mock"], ["serve"]):

@@ -224,8 +224,8 @@ class PiecePopUp(AppCase):
         way_back(response.headers["Location"])
         page = plain_post(page, rf'value="{added.group(1)}">\s*<button class="link danger">Remove', candidate=added.group(1))
         self.assertNotIn("added by you", page)
-        for sort in ("By price", "By score"):           # links, not forms: sorting keeps the way back too
-            sorting = re.search(rf'<a class="chip-link[^"]*" href="([^"]+)">{sort}</a>', page)
+        for sort in ("By price", "By quality"):         # links, not forms: sorting keeps the way back too
+            sorting = re.search(rf'<a class="chip-link[^"]*" href="([^"]+)"[^>]*>{sort}</a>', page)
             assert sorting is not None
             way_back(html.unescape(sorting.group(1)))
         self.assertIn(f'action="/slot/{sid}/pick?view=slot&amp;sort=score&amp;from=outfit', self.client.get(

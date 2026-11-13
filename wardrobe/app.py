@@ -97,7 +97,7 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
     return not conf.PRODUCTION and any(s["id"] not in filled and not s["owned"] for s in slots)
 
 
-REFRESH_HINT = "Slots without candidates fill up at the next “python -m wardrobe refresh”."
+REFRESH_HINT = "Pieces with nothing to buy fill up at the next “python -m wardrobe refresh”."
 
 
 def plan_edited(before: dict) -> bool:
@@ -591,7 +591,9 @@ def create_app() -> Flask:
 
     @app.post("/slot/<slot_id>/import")
     def slot_import(slot_id: str):
-        """Manual import: pasted product links become candidates (see collect/manual.py)."""
+        """Manual import: pasted product links become candidates (see collect/manual.py). What each link came to
+        is said inside the "Add a product by link" section the page comes back to (#add), not at the top of the
+        page, far above it: those messages have their own kind, "import" (_slot_body.html, base.html)."""
         from .collect import manual
 
         slot = db.get_slot(slot_id)
@@ -599,7 +601,7 @@ def create_app() -> Flask:
             abort(404)
         links = [u for u in re.split(r"\s+", request.form.get("urls", "")) if u][:8]
         if not links:
-            flash("Paste at least one product link.")
+            flash("Paste at least one product link.", "import")
             return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
         # On a server no browser is ever opened: only what the link itself says is taken.
         results = manual.from_urls(links, slot, allow_fetch=not conf.PRODUCTION)
@@ -612,7 +614,8 @@ def create_app() -> Flask:
                     cat["candidates"].append(cand)
         catalog.update(add)
         for link, cand, note in results:
-            flash(f"{cand['name'] if cand else link}: {note}.")
+            shown = link if len(link) <= 80 else link[:79] + "…"
+            flash(f"Added “{cand['name']}”: {note}." if cand else f"Not added: “{shown}” {note}.", "import")
         return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
 
     @app.post("/slot/<slot_id>/details")
@@ -623,12 +626,15 @@ def create_app() -> Flask:
         if catalog.find(catalog.load(), slot_id, cand_id) is None:
             abort(404)
         typed: dict = {}
+        problems = 0
         fabric = " ".join(form.get("composition", "").split())
         if fabric:
             if composition.parse(fabric):
                 typed["composition_text"] = fabric
             else:
-                flash(f"Couldn't read a composition from “{fabric}” — write it like “80% Wolle, 20% Polyamid”.")
+                problems += 1
+                flash(f"Couldn't read the fabric “{fabric[:60]}”: write it as the label does, like “80% Wolle, "
+                      f"20% Polyamid”.")
         sizes_given = [s for s in re.split(r"[,;\s]+", form.get("sizes", "").strip()) if s]
         price_text = form.get("price", "").replace("€", "").replace(",", ".").strip()
         try:
@@ -637,6 +643,7 @@ def create_app() -> Flask:
                 raise ValueError
         except (ValueError, OverflowError):
             price = None
+            problems += 1
             flash(f"“{form.get('price', '')[:20]}” isn't a price.")
 
         def change(cat: dict) -> None:
@@ -654,7 +661,17 @@ def create_app() -> Flask:
             if form.get("clear") == "1":
                 cand.pop("manual", None)
         catalog.update(change)
-        flash("Details cleared." if form.get("clear") == "1" else "Details saved.")
+        # Said only of what was saved: after "“cheap” isn't a price." a bare "Details saved." would be untrue.
+        saved = [word for key, word in (("composition_text", "fabric"), ("sizes_in_stock", "sizes"), ("price", "price"))
+                 if key in typed]
+        if form.get("clear") == "1":
+            flash("Details cleared.")
+        elif saved and not problems:
+            flash("Details saved.")
+        elif saved:                                         # "Saved the sizes." / "Saved the fabric and sizes."
+            flash("Saved the " + (", ".join(saved[:-1]) + " and " if len(saved) > 1 else "") + saved[-1] + ".")
+        elif not problems:
+            flash("Nothing to save yet: type the fabric, the sizes in stock or the price.")
         return redirect(url_for("slot_page", slot_id=slot_id, sort=request.args.get("sort", "price"), **way_back()))
 
     @app.post("/slot/<slot_id>/remove")
@@ -669,7 +686,7 @@ def create_app() -> Flask:
             db.update_slot(slot_id, locked=False, pick=None)
         catalog.update(lambda cat: cat.__setitem__("candidates", [
             c for c in cat["candidates"] if not (c.get("slot_id") == slot_id and c.get("id") == cand_id)]))
-        flash(f"Removed “{cand['name']}”.")
+        flash(f"Removed “{cand['name']}” from this piece's options.")
         return redirect(url_for("slot_page", slot_id=slot_id, **way_back()))
 
     # ── Outfits ───────────────────────────────────────────────────────────────
@@ -886,7 +903,7 @@ def create_app() -> Flask:
         db.add_slot(slot)
         db.set_setting("plan_edited", True)     # a profile change no longer rebuilds the plan by itself
         needs_refresh = sync_catalog()
-        flash(f"Added “{slot['name']}”." + (f" {REFRESH_HINT}" if needs_refresh else ""))
+        flash(f"Added “{slot['name']}” to your plan." + (f" {REFRESH_HINT}" if needs_refresh else ""))
         return redirect(url_for("slots_page") + f"#slot-{slot['id']}")
 
     @app.post("/slots/<slot_id>/save")
@@ -914,7 +931,7 @@ def create_app() -> Flask:
         db.delete_slot(slot_id)
         db.set_setting("plan_edited", True)
         sync_catalog()
-        flash(f"Removed “{slot['name']}”.")
+        flash(f"Removed “{slot['name']}” from your plan.")
         return redirect(url_for("slots_page"))
 
     @app.post("/slots/repropose")
@@ -923,9 +940,11 @@ def create_app() -> Flask:
         db.replace_slots(slots)
         db.set_setting("plan_edited", False)    # from scratch: profile changes rebuild it again
         needs_refresh = sync_catalog()
-        flash(f"Capsule re-proposed from your profile: {len(slots)} slots." + (f" {REFRESH_HINT}" if needs_refresh else ""))
+        pieces = sum(int(s.get("qty") or 1) for s in slots)       # a white tee ×2 is two pieces, as on the page
+        flash(f"Started over from your profile: your plan has {pieces} {'piece' if pieces == 1 else 'pieces'}."
+              + (f" {REFRESH_HINT}" if needs_refresh else ""))
         for line in unmatched:
-            flash(f"Couldn't tell what kind of garment “{line}” is — add it as a slot by hand.")
+            flash(f"Couldn't tell what kind of garment “{line}” is: add it to your plan by hand.")
         return redirect(url_for("slots_page"))
 
     # ── Profile ───────────────────────────────────────────────────────────────
