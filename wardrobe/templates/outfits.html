@@ -18,15 +18,18 @@
 <h1 class="sr">Outfits</h1>
 
 {# One piece of an outfit, as something to tap. In today's outfits it opens the
-   pop-up (see _piece.html); in a saved outfit it goes to the product page. #}
-{% macro piece(o, p, cls, title, style='') %}
+   pop-up (see _piece.html); in a saved outfit it goes to the product page.
+   `title` is the tooltip a mouse shows. With a `label` instead (the dots on the picture, whose own label shows
+   on hover and focus), that is the name a screen reader says, and there is no tooltip over the label. #}
+{% macro piece(o, p, cls, title, style='', label='') %}
+{% set named %}{% if label %} aria-label="{{ label }}"{% else %} title="{{ title }}"{% endif %}{% endset %}
 {% if o.sig %}
-<button class="{{ cls }}" type="button" title="{{ title }}"{% if style %} style="{{ style }}"{% endif %}
+<button class="{{ cls }}" type="button"{{ named }}{% if style %} style="{{ style }}"{% endif %}
         hx-get="{{ url_for('outfits_piece', at=o.sig, slot=p.slot_id, occasion=occasion) }}" hx-target="#piece-body" hx-swap="innerHTML">{{ caller() }}</button>
 {% elif p.owned %}
-<a class="{{ cls }}" href="{{ url_for('slot_page', slot_id=p.slot_id) }}" title="{{ title }}"{% if style %} style="{{ style }}"{% endif %}>{{ caller() }}</a>
+<a class="{{ cls }}" href="{{ url_for('slot_page', slot_id=p.slot_id) }}"{{ named }}{% if style %} style="{{ style }}"{% endif %}>{{ caller() }}</a>
 {% else %}
-<a class="{{ cls }}" href="{{ p.url|weblink }}" target="_blank" rel="noopener noreferrer" title="{{ title }}"{% if style %} style="{{ style }}"{% endif %}>{{ caller() }}</a>
+<a class="{{ cls }}" href="{{ p.url|weblink }}" target="_blank" rel="noopener noreferrer"{{ named }}{% if style %} style="{{ style }}"{% endif %}>{{ caller() }}</a>
 {% endif %}
 {% endmacro %}
 
@@ -57,7 +60,14 @@
 </p>
 
 <section class="looks{% if occasion == 'saved' %} saved{% endif %}" aria-label="Outfits, one at a time">
-  <div class="reel" id="reel" tabindex="0">
+  {# The arrows only where there is another slide to move to: none for a single outfit (Saved with one, say).
+     They come before the outfits, so that the keyboard reaches Next in a few presses rather than after every
+     outfit; app.css places them beside the outfit. The arrow keys work anywhere on the page (app.js). #}
+  {% if boards|length > 1 or (occasion != 'saved' and boards|length < total) %}
+  <button class="reel-nav prev" type="button" data-reel="-1" aria-label="Previous outfit">{{ icon('back') }}</button>
+  <button class="reel-nav next" type="button" data-reel="1" aria-label="Next outfit">{{ icon('back') }}</button>
+  {% endif %}
+  <div class="reel" id="reel">
     {% for o in boards %}
     <article class="slide" id="outfit-{{ o.key }}" data-slide aria-label="Outfit {{ loop.index }} of {{ boards|length }}">
       <div class="stage">
@@ -74,10 +84,13 @@
         <div class="look" id="look-{{ o.key }}" hx-target="this" hx-swap="innerHTML">
           {% with key = o.key, look = o.look, first = loop.first %}{% include "_look.html" %}{% endwith %}
         </div>
-        {# A dot on each piece of the AI picture (only shown once there is one). #}
+        {# A dot on each piece of the AI picture (only shown once there is one). Its label (the piece, the store
+           and the price) shows on hover and focus, and Escape hides it (app.js); a screen reader hears it as the
+           dot's name, "Coat, Weekday, 159 €". #}
         <div class="spots">
           {% for p in o.pieces %}
-          {% call piece(o, p, 'spot', p.slot_name, 'left:' ~ p.spot[0] ~ '%;top:' ~ p.spot[1] ~ '%') %}
+          {% call piece(o, p, 'spot', p.slot_name, 'left:' ~ p.spot[0] ~ '%;top:' ~ p.spot[1] ~ '%',
+                        p.slot_name ~ ', ' ~ ('owned' if p.owned else STORES.get(p.store, p.store) ~ ', ' ~ p.price|eur)) %}
             <span class="tip"><b>{{ p.slot_name }}</b>{% if p.owned %}Owned{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% endif %}</span>
           {% endcall %}
           {% endfor %}
@@ -129,11 +142,6 @@
     </article>
     {% endif %}
   </div>
-  {# The arrows only where there is another slide to move to: none for a single outfit (Saved with one, say). #}
-  {% if boards|length > 1 or (occasion != 'saved' and boards|length < total) %}
-  <button class="reel-nav prev" type="button" data-reel="-1" aria-label="Previous outfit">{{ icon('back') }}</button>
-  <button class="reel-nav next" type="button" data-reel="1" aria-label="Next outfit">{{ icon('back') }}</button>
-  {% endif %}
 </section>
 
 {# The pop-up for one piece. Its content comes from /outfits/piece when a piece is tapped; its title there

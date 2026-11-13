@@ -427,12 +427,15 @@ details.why summary::-webkit-details-marker { display: none; }
      row's edge shows whole. */
   margin: calc(-1 * var(--s-4)) calc(-1 * var(--gutter));
 }
-.reel:focus-visible { outline-offset: -3px; }   /* it runs to the screen's edges on a phone */
 .reel::-webkit-scrollbar { display: none; }
 .slide {
   flex: 0 0 100%; min-width: 0; scroll-snap-align: center; scroll-snap-stop: always;
   display: grid; gap: var(--s-3); align-content: start; padding: var(--s-4) var(--gutter);
 }
+/* An outfit takes keyboard focus itself only where the outfit you moved to has nothing like what had focus in the
+   one you left (app.js, 6a): a quiet ring in the edge colour of a field (3.3:1 on the page), inside the room the
+   slide pads back, around the whole outfit. */
+.slide:focus-visible { outline: 2px solid var(--field); outline-offset: calc(-1 * var(--s-2)); border-radius: var(--r-ui); }
 /* The stage: the outfit as a picture, 2 wide by 3 high, without a border. Square corners on a phone; on computers
    the photo radius (see "Wider screens"). On a phone the first screen shows the whole model, its price and the
    heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
@@ -556,6 +559,7 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 }
 .spot .tip b { display: block; font-weight: 500; }
 .spot:hover .tip, .spot:focus-visible .tip { display: block; }
+.looks.hush .spot .tip { display: none; }   /* Escape hides them, until the next dot pointed at or focused (app.js, 6c) */
 /* Beside (or under) the stage: what the outfit is made of. */
 .about { width: min(100%, 460px); margin: 0 auto; }
 /* The outfit line: the title in the serif, then "1 / 12", the price and the heart, which go under the title together
@@ -591,7 +595,8 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
    outfit, 12px from the picture's left edge and from the list's right edge, centred on the picture's height. --pair
    is the outfit's width: the picture alone where the list is under it, the picture, the 32px between and the list
    (420px) from 760px. Where the outfit fills the row, they keep to the row's edges; in a window so narrow that they
-   reach the picture, they lie on its edge, over its band and dots (z-index). */
+   reach the picture, they lie on its edge, over its band and dots (z-index). They come before the row in the page
+   (the keyboard reaches them first) and the z-index keeps them over it, so a click lands on them, not on a slide. */
 .looks { --pair: var(--stage-w); }
 .reel-nav {
   display: none; position: absolute; z-index: 3; top: calc(var(--stage-w) * 3 / 4 - 44px / 2); width: 44px; height: 44px; padding: 0; border-radius: 50%;

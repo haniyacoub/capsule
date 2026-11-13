@@ -13,7 +13,8 @@ page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer o
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
 comparing all options to the same outfit), tabs up and down a pop-up that scrolls (nothing with keyboard focus
 hidden under its top row), sees that with scrollbars shown the page behind the pop-up does not move sideways,
-moves between outfits,
+moves between outfits (by keyboard too: Next among the first Tab stops, focus going with the outfit shown, which a
+screen reader hears named, the heart keeping focus, Escape hiding a dot's label),
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
 logs in again and lands on the outfits, puts a model together, uploads a photo, sees Profile ask before a
 budget or colours changed and not saved would be lost, saves new colours (the plan is rebuilt,
@@ -435,6 +436,10 @@ def run(base: str) -> None:
             assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
             page.wait_for_selector(f"{first} .look-bar.wait")              # asked for by itself, then waited for
             status = drawing_status(page)
+            # It asks the server again every 3 s: a screen reader must not read it out each time (the page's one live
+            # region says 'Picture ready' instead, once).
+            assert page.eval_on_selector(f"{first} .look-bar.wait", "el => !el.closest('[role=status], [aria-live]')"), \
+                "the drawing status, asked for again every few seconds, is read out by screen readers each time"
             # Nothing else is being drawn, so it is drawn at once: it must not be said to be waiting its turn.
             assert status["words"] and status["words"].startswith("Drawing this outfit") and status["inside"], \
                 f"while the only picture is drawn, the status is not 'Drawing this outfit…' inside the picture's box: {status}"
@@ -544,7 +549,7 @@ def run(base: str) -> None:
             other.evaluate("() => window.scrollTo(0, 120)")
             other.wait_for_timeout(300)
             still = other.evaluate("scrollY")
-            coat = other.locator(f"{first} .spot[title*=coat i]")              # the tallest pop-up: the coat's
+            coat = other.locator(f"{first} .spot[aria-label*=coat i]")         # the tallest pop-up: the coat's
             spot = coat.first if coat.count() else other.locator(f"{first} .spot").first
             sig = re.search(r"at=([^&]+)", spot.get_attribute("hx-get")).group(1)
             spot.tap()
@@ -789,6 +794,63 @@ def run(base: str) -> None:
             assert page.locator("#reel [data-slide]").nth(2).locator(".count").inner_text().strip() == count, "Back shows another outfit"
             page.reload(wait_until="networkidle")
             wait_for_outfit(2, "after a reload")
+
+        def the_outfit_row_by_keyboard():
+            # By keyboard: from the top of the page, Tab reaches Next within 15 presses (the arrows come before the
+            # outfits). With focus on outfit 1's 'Buy this outfit', → shows outfit 2 and focus goes with it, so that
+            # Enter buys the outfit on screen, not the one left behind; a screen reader hears which outfit is shown,
+            # from the page's live region. The heart pressed with Enter keeps focus, and is called "Save outfit"
+            # whether saved or not (pressed says which). Escape hides a dot's label, until a dot is pointed at again.
+            slides = page.locator("#reel [data-slide]")
+            try:
+                page.set_viewport_size({"width": 1280, "height": 900})
+                page.goto(base + "/outfits", wait_until="networkidle")
+                for presses in range(1, 16):
+                    page.keyboard.press("Tab")
+                    if page.evaluate("() => document.activeElement.matches('.reel-nav.next')"):
+                        break
+                else:
+                    raise AssertionError("from the top of Outfits, 15 Tab presses do not reach Next")
+                buy_second = slides.nth(1).locator(".about-actions a").get_attribute("href")
+                slides.nth(0).locator(".about-actions a").focus()
+                page.keyboard.press("ArrowRight")
+                inside = page.evaluate("""() => { const s = document.activeElement.closest('#reel [data-slide]');
+                    return s ? [...document.querySelectorAll('#reel [data-slide]')].indexOf(s) + 1 : 0; }""")
+                assert inside == 2, f"after → from outfit 1's 'Buy this outfit', focus is in outfit {inside or 'none'}, not in outfit 2"
+                heard = page.wait_for_function("""() => { const words = document.getElementById('announce').textContent;
+                    return words.startsWith('Outfit 2 of ') && words; }""").json_value()
+                named = slides.nth(1).evaluate("""s => `${s.getAttribute('aria-label')}, ${s.querySelector('.about-head h2').firstChild.textContent.trim()}, `
+                    + s.querySelector('.board-cost').textContent.trim()""")
+                assert heard == named, f"after →, a screen reader hears {heard!r}, not the outfit on screen ({named!r})"
+                assert page.evaluate("() => Math.round(reel.scrollLeft / reel.clientWidth)") == 1, "outfit 2 is not on screen"
+                page.keyboard.press("Enter")
+                page.wait_for_url("**/outfits/buy?**")
+                assert page.url.endswith(buy_second), "Enter after → opened another outfit's Buy page than the one on screen"
+
+                page.goto(base + "/outfits", wait_until="networkidle")
+                page.locator(f"{first} .heart").focus()
+                for pressed in ("true", "false"):           # saved, then not: the walk-through saves it later
+                    page.keyboard.press("Enter")
+                    # htmx takes over the new heart once it has settled (htmx-added gone, 20 ms): a key pressed
+                    # before that would send the form without it, as a page of its own.
+                    page.wait_for_selector(f"{first} form.save:not(.htmx-added) .heart[aria-pressed={pressed}]")
+                    heart = page.evaluate("""() => ({on: document.activeElement.matches('#reel .slide:first-child .heart'),
+                        name: document.activeElement.textContent.trim()})""")
+                    assert heart["on"], f"after pressing the heart with Enter (aria-pressed {pressed}), focus left it"
+                    assert heart["name"] == "Save outfit", f"the heart is called {heart['name']!r} (aria-pressed {pressed})"
+
+                page.wait_for_selector(f"{first} .look-pic img")       # the dots show on the picture (drawn by itself)
+                dot = page.locator(f"{first} .spot").first
+                assert re.fullmatch(r"[^,]+, ((COS|Weekday|Zara), [\d.,]+\s€|owned)", dot.get_attribute("aria-label") or "") \
+                    and dot.get_attribute("title") is None, f"a dot is named {dot.get_attribute('aria-label')!r}, with a tooltip"
+                dot.focus()
+                assert dot.locator(".tip").is_visible(), "a dot with keyboard focus shows no label"
+                page.keyboard.press("Escape")
+                assert not dot.locator(".tip").is_visible(), "Escape does not hide the label of a dot with keyboard focus"
+                dot.hover()
+                assert dot.locator(".tip").is_visible(), "after Escape, pointing at a dot does not show its label again"
+            finally:
+                page.set_viewport_size({"width": 1280, "height": 860})
 
         def save_and_buy():
             page.goto(base + "/outfits", wait_until="networkidle")
@@ -1364,6 +1426,7 @@ def run(base: str) -> None:
                  ("the page behind the pop-up stays put", the_page_behind_the_pop_up_stays_put),
                  ("arrows and arrow keys", arrows_move),
                  ("arrows for every mouse, your place kept on Back", arrows_for_every_mouse_and_your_place_kept),
+                 ("the outfit row by keyboard and screen reader", the_outfit_row_by_keyboard),
                  ("save an outfit and buy it", save_and_buy),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
