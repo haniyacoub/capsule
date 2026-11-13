@@ -30,6 +30,7 @@ Module map (each file does one job):
         refresh.py    fetch a feed when it changed, replace that store's products in one go
         rows.py, google.py, awin_csv.py, tradedoubler.py   reading each format into product rows
     app.py          the web pages
+    owner.py        the owner's pages (every store's catalogue, /stores) and `python -m wardrobe owner`
 
 Running for customers (see PRODUCTION.md):
 

@@ -13,6 +13,7 @@ import gzip
 import io
 import json
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -24,13 +25,18 @@ import urllib.request
 from collections import Counter
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
+from html import unescape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from wardrobe import config, db, paths, settings
+from wardrobe import config, db, owner, paths, settings
 from wardrobe.__main__ import main
+from wardrobe.app import create_app
 from wardrobe.feeds import awin_csv, google, refresh, registry, rows, tradedoubler
+
+from .test_production import HX, PASSWORD, ProductionCase
+from .test_production import words as page_text
 
 FEEDS = Path(__file__).parent / "fixtures" / "feeds"
 MUSTERHAUS = [f"MH-1001-{s}" for s in "LMS"] + ["MH-2001-M", "MH-3001-3232", "MH-4001", "MH-5002-M", "MH-6002-43"]
@@ -174,7 +180,7 @@ class Schema(FeedCase):
             columns = [r[1] for r in con.execute("PRAGMA table_info(products)")]
         self.assertEqual(columns, list(db.PRODUCT_COLUMNS))
 
-    def test_a_database_at_version_4_gains_the_store_tables_and_nothing_else_changes(self):
+    def test_a_database_at_version_4_gains_the_new_tables_and_nothing_else_changes(self):
         # The owner's own server runs a database made by version 4: the tables below, holding data.
         fresh_database()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
@@ -207,16 +213,44 @@ class Schema(FeedCase):
             self.assertEqual(before - after, set(), "no table or index of version 4 was changed or removed")
             self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
                              [("index", "products_by_group"), ("index", "sqlite_autoindex_products_1"),
-                              ("index", "sqlite_autoindex_stores_1"), ("table", "products"), ("table", "stores")])
+                              ("index", "sqlite_autoindex_stores_1"), ("table", "owners"), ("table", "products"),
+                              ("table", "stores")])
             self.assertEqual({t: sorted(con.execute(f"SELECT * FROM {t}").fetchall()) for t in old_tables},  # nosec
                              rows_before, "every row is as it was")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 5)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 6)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master")), after)
         with db.as_user(2):
             self.assertEqual(db.get_setting("mode"), "cheapest")
             self.assertEqual([s["id"] for s in db.list_slots()], ["white-tee"])
+
+
+    def test_a_database_at_version_5_gains_the_owners_table_and_nothing_else_changes(self):
+        # A database made by version 5 (the store tables, with stores and products in them).
+        fresh_database()
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            for statement in (VERSION_4 + db.SCHEMA_FEEDS).split(";"):
+                if statement.strip():
+                    con.execute(statement)
+            con.executescript("""
+                PRAGMA journal_mode = WAL;
+                INSERT INTO users (id, email, password_hash, created_at) VALUES (1, 'local@localhost', '', 'x'), (2, 'someone@example.com', 'a hash', 'x');
+                INSERT INTO stores (key, label, status) VALUES ('musterhaus', 'Musterhaus', 'approved');
+                INSERT INTO products (store, product_id, name, price, currency, buy_link, imported_at)
+                    VALUES ('musterhaus', 'MH-1', 'Hemd', 39.95, 'EUR', 'https://shop.example.com/1', 'x');
+                PRAGMA user_version = 5;
+            """)
+            before = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
+            rows_before = {t: con.execute(f"SELECT * FROM {t}").fetchall() for t in ("users", "stores", "products")}  # nosec
+        db.init()
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            after = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
+            self.assertEqual(before - after, set(), "no table or index of version 5 was changed or removed")
+            self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before), [("table", "owners")])
+            self.assertEqual({t: con.execute(f"SELECT * FROM {t}").fetchall() for t in rows_before}, rows_before)  # nosec
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 6)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM owners").fetchone()[0], 0, "nobody is an owner by itself")
 
 
 # ── reading the values ────────────────────────────────────────────────────────
@@ -1007,6 +1041,208 @@ class Downloads(FeedCase):
             self.assertEqual(datetime.fromisoformat(refresh.version_in(answer, "900001")), noon, answer)
         self.assertIsNone(refresh.version_in(listing, "123"))
         self.assertIsNone(refresh.version_in('{"products": []}', "900001"))
+
+
+# ── the owner's catalogue view (owner.py, /stores) ────────────────────────────
+
+SAMPLES = (("musterhaus", "musterhaus.jsonl"), ("nordfaden", "nordfaden.csv"), ("kleiderwerk", "kleiderwerk.json"))
+
+
+class OwnerCatalogue(ProductionCase):
+    """The owner's view of every listed store's catalogue, in production: owners only, from the feeds only."""
+
+    def setUp(self):
+        super().setUp()
+        # The invented samples are left out in production, so they are imported as on the owner's own machine.
+        patcher = mock.patch.object(refresh, "_opener", side_effect=AssertionError("a network connection was opened"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        with mock.patch.object(settings, "PRODUCTION", False):
+            registry.sync()
+            for store, name in SAMPLES:
+                self.assertEqual(refresh.run(store, from_file=str(FEEDS / name), say=lambda line: None), 0)
+        self.products = {f"{p['store']}/{p['product_id']}": p for store, _ in SAMPLES for p in db.store_products(store)}
+        self.assertEqual(len(self.products), 17)
+
+    def cli(self, *argv: str) -> str:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(list(argv))
+        return out.getvalue()
+
+    def an_owner(self, email="olga@example.com"):
+        client = self.member(email)
+        self.assertIn("is now an owner", self.cli("owner", "add", email))
+        return client
+
+    def shown(self, client, address="/stores") -> list[str]:
+        """The products listed on the page, as store/id, in their order."""
+        response = client.get(address)
+        self.assertEqual(response.status_code, 200, address)
+        return re.findall(r'<tr role="row" data-product="([^"]+)">', response.get_data(as_text=True))
+
+    def test_owners_are_marked_in_the_database_from_the_command_line_without_a_restart(self):
+        olga = self.member("olga@example.com")
+        self.assertEqual(olga.get("/stores").status_code, 404)
+        self.assertIn("No owners yet", self.cli("owner"))
+        with self.assertRaises(SystemExit) as refused:
+            self.cli("owner", "add", "nobody@example.com")
+        self.assertIn("There is no account with the address nobody@example.com", str(refused.exception))
+        self.assertIn("olga@example.com is now an owner", self.cli("owner", "add", " Olga@Example.com "))
+        self.assertIn("olga@example.com is an owner already", self.cli("owner", "add", "olga@example.com"))
+        self.assertEqual(olga.get("/stores").status_code, 200, "from the next page, with the same app running")
+        self.assertRegex(self.cli("owner", "list"), r"olga@example\.com\s+owner since ")
+        self.assertIn("olga@example.com is no longer an owner", self.cli("owner", "remove", "olga@example.com"))
+        self.assertEqual(olga.get("/stores").status_code, 404)
+        with self.assertRaises(SystemExit) as refused:
+            self.cli("owner", "remove", "olga@example.com")
+        self.assertIn("is not an owner", str(refused.exception))
+
+    def test_anyone_else_gets_exactly_the_page_that_is_not_there(self):
+        # Signed out or signed in, by every method: what /stores answers is what an address that does not exist
+        # answers, word for word. Nothing says the page is there, not even "log in first" or "not allowed".
+        ada = self.member("ada@example.com")
+        visitor = self.app.test_client()
+        visitor.get("/login")
+        self.an_owner()                                   # there is an owner, just not them
+
+        def answers(client, address):
+            token = self.token(client)
+            got = [client.get(address), client.head(address), client.options(address),
+                   client.get(address, headers=HX), client.post(address), client.post(address, data={"csrf_token": token}),
+                   client.put(address, data={"csrf_token": token}), client.delete(address, headers={"X-CSRF-Token": token})]
+            return [(r.status_code, sorted(r.headers.items()), r.get_data()) for r in got]
+
+        for who, client in (("a visitor", visitor), ("a customer", ada)):
+            for address in ("/stores", "/stores?store=musterhaus", "/stores/"):
+                there, missing = answers(client, address), answers(client, "/no-such-page")
+                self.assertEqual(there, missing, f"{who} at {address}")
+                self.assertEqual([status for status, _, _ in there], [404, 404, 404, 404, 400, 404, 404, 404])
+        page = unescape(page_text(ada.get("/stores").get_data(as_text=True)))
+        self.assertIn("We can't find that page", page)
+        self.assertNotIn("Store", page)
+        account = ada.get("/account").get_data(as_text=True)
+        self.assertNotIn("/stores", account)
+        self.assertNotIn("catalogue", account.lower())
+        self.assertNotIn("stores", self.app.test_client().get("/robots.txt").get_data(as_text=True).lower())
+
+    def test_an_owner_sees_the_page_and_its_link_on_the_account_page(self):
+        olga = self.an_owner()
+        account = olga.get("/account").get_data(as_text=True)
+        self.assertIn('<a class="btn ghost small" href="/stores">Open the store catalogues</a>', account)
+        response = olga.get("/stores")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('<meta name="robots" content="noindex">', response.get_data(as_text=True))
+        self.assertEqual(olga.post("/stores", data={"csrf_token": self.token(olga)}).status_code, 405,
+                         "an owner is told the truth: the page takes no forms")
+        # On your own machine, one person and no login: the local user is the owner.
+        with mock.patch.object(settings, "PRODUCTION", False):
+            self.assertEqual(create_app().test_client().get("/stores").status_code, 200)
+
+    def test_each_store_is_listed_with_its_counts_and_dates(self):
+        olga = self.an_owner()
+        page = unescape(page_text(olga.get("/stores").get_data(as_text=True)))
+        self.assertIn("Store catalogues Products from the stores' own feeds, as of each store's feed date.", page)
+        for store in db.list_stores():
+            line = (f"{store['label']} {store['key']} {owner.NETWORKS[store['network']]} Approved "
+                    f"· {store['products']} products Feed of {owner.when(store['last_feed_update'])} "
+                    f"Imported {owner.when(store['last_import_at'])}")
+            self.assertIn(line, page)
+        self.assertEqual([db.get_store(key)["products"] for key, _ in SAMPLES], [8, 5, 4])
+        self.assertIn("17 products.", page)
+        # What the owner must act on: a failed refresh, a stale feed, products of a store no longer approved.
+        db.note_store("nordfaden", error="2026-11-13T06:00:00+01:00: there is no file gone.csv")
+        kleiderwerk = {name: db.get_store("kleiderwerk")[name] for name in db.STORE_SETTINGS}
+        db.save_store("kleiderwerk", {**kleiderwerk, "status": "applied", "rules": {}})
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            con.execute("UPDATE stores SET last_feed_update = '2026-01-01T06:00:00+01:00' WHERE key = 'musterhaus'")
+            con.commit()
+        page = unescape(page_text(olga.get("/stores").get_data(as_text=True)))
+        self.assertIn("The last refresh failed: 2026-11-13T06:00:00+01:00: there is no file gone.csv", page)
+        self.assertIn("Stale: the feed is older than its refresh hours plus a day", page)
+        self.assertIn("No longer approved, yet its products are still here. "
+                      "Delete them: python -m wardrobe stores end kleiderwerk", page)
+
+    def test_filtering_by_store_colour_size_category_and_words_narrows_the_list(self):
+        olga = self.an_owner()
+        every = self.shown(olga)
+        self.assertEqual(sorted(every), sorted(self.products), "every product of every store, once")
+
+        def expected(keep) -> list[str]:
+            return sorted(key for key, p in self.products.items() if keep(p))
+
+        cases = {
+            "/stores?store=nordfaden": lambda p: p["store"] == "nordfaden",
+            "/stores?colour=white": lambda p: p["colour_key"] == "white",
+            "/stores?colour=navy": lambda p: p["colour_key"] == "navy",
+            "/stores?size=M": lambda p: "M" in p["sizes_in_stock"],
+            "/stores?size=32/32": lambda p: "32/32" in p["sizes_in_stock"],
+            "/stores?store=musterhaus&size=M": lambda p: p["store"] == "musterhaus" and "M" in p["sizes_in_stock"],
+            "/stores?category=Herren+>+Hemden": lambda p: p["category"] == "Herren > Hemden",
+            "/stores?q=WEISS": lambda p: p["colour"] == "Weiß",
+            "/stores?q=navy+merino": lambda p: p["colour_key"] == "navy" and "Merino" in p["name"] + (p["material"] or ""),
+        }
+        for address, keep in cases.items():
+            wanted = expected(keep)
+            self.assertTrue(wanted, f"{address} should find something in the samples")
+            self.assertLess(len(wanted), len(self.products), address)
+            self.assertEqual(sorted(self.shown(olga, address)), wanted, address)
+            text = unescape(page_text(olga.get(address).get_data(as_text=True)))
+            self.assertIn(f"{len(wanted)} of 17 products match.", text, address)
+        self.assertEqual(self.shown(olga, "/stores?size=XXXL"), [])
+        self.assertIn("Nothing matches these filters.", unescape(page_text(olga.get("/stores?size=XXXL").get_data(as_text=True))))
+        # The filters offer what the products have, each with its count, and keep what was chosen.
+        page = olga.get("/stores?store=nordfaden&colour=navy").get_data(as_text=True)
+        self.assertIn('<option value="nordfaden" selected>Nordfaden (sample) (5)</option>', page)
+        self.assertIn('<option value="navy" selected>Navy (2)</option>', page)
+        self.assertIn('<option value="M">M (5)</option>', page)
+
+    def test_photos_and_links_are_the_feeds_own_addresses(self):
+        olga = self.an_owner()
+        page = olga.get("/stores").get_data(as_text=True)
+        photos = [unescape(src) for src in re.findall(r'<img src="([^"]+)"', page)]
+        self.assertEqual(sorted(photos), sorted(p["image_url"] for p in self.products.values() if p["image_url"]),
+                         "every photo from the feed's address, unchanged: no copy, no proxy")
+        links = re.findall(r'<a class="cat-link" href="([^"]+)" target="_blank" rel="sponsored noopener">', page)
+        self.assertEqual(sorted(unescape(link) for link in links), sorted(p["buy_link"] for p in self.products.values()))
+        css = (paths.ROOT / "wardrobe" / "static" / "app.css").read_text()
+        self.assertRegex(css, r"\.cat-pic img \{ object-fit: contain;", "the whole photo, never cropped")
+        self.assertNotIn("download", page.lower(), "no export or download from this page")
+        self.assertNotIn(".csv", page)
+
+    def test_it_shows_only_the_feeds_products(self):
+        olga = self.an_owner()
+        self.assertEqual(len(self.shown(olga)), 17, "exactly the rows of the products table")
+        for store, _ in SAMPLES:
+            registry.end(store)
+        page = unescape(page_text(olga.get("/stores").get_data(as_text=True)))
+        self.assertIn("No products yet.", page)
+        self.assertEqual(self.shown(olga), [])
+        self.assertIn("Ended", page)
+
+    def test_a_hundred_to_a_page_with_the_filters_kept(self):
+        olga = self.an_owner()
+        with mock.patch.object(owner, "PER_PAGE", 4):
+            first = olga.get("/stores?store=musterhaus").get_data(as_text=True)
+            self.assertIn("8 of 17 products match. Showing 1–4, page 1 of 2.", unescape(page_text(first)))
+            self.assertIn('href="/stores?store=musterhaus&amp;page=2" rel="next"', first)
+            second = self.shown(olga, "/stores?store=musterhaus&page=2")
+            self.assertEqual(len(second), 4)
+            self.assertEqual(sorted(self.shown(olga, "/stores?store=musterhaus") + second),
+                             sorted(k for k in self.products if k.startswith("musterhaus/")))
+            self.assertEqual(self.shown(olga, "/stores?store=musterhaus&page=99"), second, "past the end: the last page")
+            self.assertEqual(self.shown(olga, "/stores?page=nonsense"), self.shown(olga, "/stores"))
+        self.assertEqual(owner.PER_PAGE, 100)
+
+    def test_the_owner_mark_is_in_the_owners_copy_of_their_data_and_goes_with_the_account(self):
+        olga = self.an_owner()
+        ada = self.member("ada@example.com")
+        self.assertIn("owner_since", json.loads(olga.get("/account/export").data)["account"])
+        self.assertNotIn("owner", json.dumps(json.loads(ada.get("/account/export").data)["account"]))
+        olga_id = self.user_id("olga@example.com")
+        self.post(olga, "/account/delete", current=PASSWORD)
+        self.assertFalse(db.is_owner(olga_id))
+        self.assertIn("No owners yet", self.cli("owner", "list"))
 
 
 if __name__ == "__main__":

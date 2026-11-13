@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{# The owner's view of every listed store and its current catalogue (owner.py). It shows only rows of the products
+   table, the products from the stores' own feeds, never the collector's snapshot. Owners only: anyone else gets
+   "We can't find that page". Nothing here exports or downloads the data.
+   Two tables, the stores and their products. On a computer they are tables; on a phone each row is a card (app.css,
+   "The owner's store catalogues"). The roles on the tables keep them tables for screen readers when a phone's
+   layout changes how they are drawn (Safari otherwise drops them). The few cells that need a name on a phone carry
+   it in .cell-label, which is not read out: the column's header already is.
+   The stores' words (names, colours, fabrics, categories) come from German feeds: marked lang="de". #}
+{% from "_macros.html" import icon %}
+{% block title %}Store catalogues · Capsule{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block summary %}{% endblock %}
+{% block notices %}{% endblock %}
+{% block main %}
+<h1 class="page-title">Store catalogues</h1>
+<p class="lead">Products from the stores' own feeds, as of each store's feed date.</p>
+
+<h2 class="cat-h2" id="cat-stores-title">Stores</h2>
+{% if stores %}
+<div class="card cat-card"><div class="cat-scroll">
+<table class="cat-table cat-stores" role="table" aria-labelledby="cat-stores-title">
+  <thead role="rowgroup"><tr role="row">
+    <th scope="col" role="columnheader">Store</th>
+    <th scope="col" role="columnheader">Network</th>
+    <th scope="col" role="columnheader">Status</th>
+    <th scope="col" role="columnheader" class="num-col">Products</th>
+    <th scope="col" role="columnheader">Feed of</th>
+    <th scope="col" role="columnheader">Imported</th>
+    <th scope="col" role="columnheader">State</th>
+  </tr></thead>
+  <tbody role="rowgroup">
+  {% for s in stores %}
+  <tr role="row">
+    <th scope="row" role="rowheader" class="c-store"><span class="cat-name">{{ s.label }}</span> <span class="cat-sub">{{ s.key }}</span></th>
+    <td role="cell" class="c-net">{{ networks.get(s.network, "No programme") }}</td>
+    <td role="cell" class="c-status"><span class="tag st-{{ s.status }}">{{ s.status|capitalize }}</span></td>
+    <td role="cell" class="c-count num-col"><span class="cell-label" aria-hidden="true">· </span>{{ "{:,}".format(s.products) }}<span class="cell-label" aria-hidden="true"> {{ "product" if s.products == 1 else "products" }}</span></td>
+    <td role="cell" class="c-feed"><span class="cell-label" aria-hidden="true">Feed of </span>{{ when(s.last_feed_update) }}</td>
+    <td role="cell" class="c-import"><span class="cell-label" aria-hidden="true">Imported </span>{{ when(s.last_import_at) }}</td>
+    <td role="cell" class="c-state">{% for kind, words in s.notes %}<span class="cat-note {{ kind }}">{{ words }}</span>{% else %}<span class="muted" aria-hidden="true">–</span><span class="sr">nothing to note</span>{% endfor %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div></div>
+{% else %}
+<p class="cat-empty">No stores yet. List them in config/feeds.toml, then run <code>python -m wardrobe stores sync</code>.</p>
+{% endif %}
+
+<h2 class="cat-h2" id="cat-products-title">Products</h2>
+{% if every %}
+<form class="card cat-filters" method="get" action="{{ url_for('owner.stores') }}" role="search" aria-label="Products">
+  {% for name, label, everything in (("store", "Store", "All stores"), ("category", "Category", "All categories"),
+                                     ("colour", "Colour", "All colours"), ("size", "Size in stock", "Any size")) %}
+  <label class="field"><span>{{ label }}</span>
+    <select name="{{ name }}">
+      <option value="">{{ everything }}</option>
+      {% for value, words, n in choices[name] %}
+      <option value="{{ value }}"{% if name == "category" %} lang="de"{% endif %}{% if asked[name] == value %} selected{% endif %}>{{ words }} ({{ "{:,}".format(n) }})</option>
+      {% endfor %}
+    </select></label>
+  {% endfor %}
+  <label class="field cat-q"><span>Search</span>
+    <input type="search" name="q" value="{{ asked.q }}" maxlength="100" placeholder="Name, brand, fabric or id"></label>
+  <div class="cat-go">
+    <button class="btn small">Show</button>
+    {% if filtered %}<a class="btn ghost small" href="{{ url_for('owner.stores') }}">Clear</a>{% endif %}
+  </div>
+</form>
+
+<p class="cat-count">
+  {%- if filtered %}{{ "{:,}".format(total) }} of {{ "{:,}".format(every) }} products match.
+  {%- else %}{{ "{:,}".format(every) }} {{ "product" if every == 1 else "products" }}.{% endif %}
+  {%- if pages > 1 %} Showing {{ "{:,}".format(first) }}–{{ "{:,}".format(first + products|length - 1) }}, page {{ page }} of {{ pages }}.{% endif %}
+</p>
+
+{% if products %}
+<div class="card cat-card"><div class="cat-scroll">
+<table class="cat-table cat-products" role="table" aria-labelledby="cat-products-title">
+  <thead role="rowgroup"><tr role="row">
+    <th scope="col" role="columnheader"><span class="sr">Photo</span></th>
+    <th scope="col" role="columnheader">Product</th>
+    <th scope="col" role="columnheader">Colour</th>
+    <th scope="col" role="columnheader">Fabric</th>
+    <th scope="col" role="columnheader">In stock</th>
+    <th scope="col" role="columnheader" class="num-col">Price</th>
+    <th scope="col" role="columnheader">Feed of</th>
+    <th scope="col" role="columnheader"><span class="sr">At the store</span></th>
+  </tr></thead>
+  <tbody role="rowgroup">
+  {% for p in products %}
+  {% set hex = swatch(p.colour_key) %}
+  <tr role="row" data-product="{{ p.store }}/{{ p.product_id }}">
+    {# The feed's photo address exactly as given: no copy, no proxy, the whole photo (object-fit: contain). Where
+       there is none, or it does not load (app.js), the colour shows instead, with a word saying which. #}
+    <td role="cell" class="c-photo"><span class="pic cat-pic{% if not p.image_url %} noimg{% endif %}" style="--sw:{{ hex }};--on:{{ ink_on(hex) }}">
+      {%- if p.image_url %}<img src="{{ p.image_url }}" alt="" loading="lazy" decoding="async">{% endif -%}
+      <span class="fb">{{ "Not loaded" if p.image_url else "No photo" }}</span></span></td>
+    <th scope="row" role="rowheader" class="c-product">
+      <span class="cat-name" lang="de">{{ p.name }}</span>
+      <span class="cat-sub">{% if p.brand %}{{ p.brand }} · {% endif %}{{ p.store_label }}</span>
+      <span class="cat-sub">{% if p.category %}<span lang="de">{{ p.category }}</span> · {% endif %}{{ p.product_id }}</span>
+    </th>
+    <td role="cell" class="c-colour"><span class="cell-label" aria-hidden="true">Colour: </span>
+      {%- if p.colour %}<span lang="de">{{ p.colour }}</span>{% else %}<span class="muted">not given</span>{% endif %}
+      <span class="cat-key">{% if p.colour_key %}<i class="dot" style="background:{{ hex }}"></i><span class="sr">Capsule's colour: </span>{{ COLOURS[p.colour_key].label }}{% else %}not recognised{% endif %}</span></td>
+    <td role="cell" class="c-fabric"><span class="cell-label" aria-hidden="true">Fabric: </span>
+      {%- if p.material %}<span lang="de">{{ p.material }}</span>{% else %}<span class="muted">not given</span>{% endif %}</td>
+    <td role="cell" class="c-sizes">
+      {%- if p.sizes_in_stock %}<span class="cell-label" aria-hidden="true">In stock: </span><span class="allsizes">{% for size in p.sizes_in_stock %}<span class="sz">{{ size }}</span>{% endfor %}</span>
+      {%- elif p.available == 0 %}<span class="cat-note bad">Not in stock</span>
+      {%- elif p.sizes %}<span class="muted">Sizes {{ p.sizes|join(", ") }}, stock per size not given</span>
+      {%- elif p.available == 1 %}<span class="muted">In stock, no sizes given</span>
+      {%- else %}<span class="muted">Stock not given</span>{% endif %}</td>
+    <td role="cell" class="c-price num-col"><b>{{ money(p.price, p.currency) }}</b>
+      {%- if p.sale_price %}<span class="cat-sub">Sale {{ money(p.sale_price, p.currency) }}</span>{% endif %}</td>
+    <td role="cell" class="c-feed"><span class="cell-label" aria-hidden="true">Feed of </span>{{ when(p.feed_updated_at) }}</td>
+    <td role="cell" class="c-link"><a class="cat-link" href="{{ p.buy_link|weblink }}" target="_blank" rel="sponsored noopener"><u>Open</u>{{ icon("ext") }}<span class="sr"> {{ p.name }} at {{ p.store_label }} (opens in a new tab)</span></a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div></div>
+{% else %}
+<p class="cat-empty">Nothing matches these filters. <a href="{{ url_for('owner.stores') }}">Show every product</a></p>
+{% endif %}
+
+{% if pages > 1 %}
+<nav class="cat-pages" aria-label="Pages of products">
+  {% if page > 1 %}<a class="btn ghost small" href="{{ link(page=page - 1) }}" rel="prev">Previous</a>{% endif %}
+  <span>Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="btn ghost small" href="{{ link(page=page + 1) }}" rel="next">Next</a>{% endif %}
+</nav>
+{% endif %}
+{% else %}
+<p class="cat-empty">No products yet. Import an approved store's feed with <code>python -m wardrobe feeds</code>.</p>
+{% endif %}
+{% endblock %}

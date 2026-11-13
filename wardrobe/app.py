@@ -23,10 +23,10 @@ from urllib.parse import urlsplit
 
 from flask import Flask, Response, abort, flash, g, redirect, render_template, request, send_file, url_for
 from markupsafe import Markup
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, NotFound
 
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
-               person, scoring, selection, shared, tryon)
+               owner, person, scoring, selection, shared, tryon)
 from . import profile as profile_mod
 from . import settings as conf
 from .onboarding import ensure_setup
@@ -256,6 +256,7 @@ def create_app() -> Flask:
         app.register_blueprint(auth.bp)
     else:
         app.secret_key = secrets.token_hex(16)   # only signs the one-off "saved" messages
+    app.register_blueprint(owner.bp)            # the owner's pages, such as /stores: owners only (owner.py)
     app.jinja_env.trim_blocks = True
     app.jinja_env.lstrip_blocks = True
     app.jinja_env.filters["eur"] = eur
@@ -309,6 +310,9 @@ def create_app() -> Flask:
             if request.endpoint in auth.FILES:      # a stylesheet, script, font or icon: no account, no form
                 return None
             auth.check_csrf()
+            # The owner's pages (owner.py): to anyone else, exactly what an address that does not exist gets.
+            if request.blueprint == owner.bp.name and not auth.is_owner():
+                abort(404)
             if g.user is None:
                 if request.endpoint in PUBLIC or request.endpoint is None:
                     return None
@@ -388,6 +392,8 @@ def create_app() -> Flask:
 
     @app.errorhandler(HTTPException)
     def http_error(err: HTTPException):
+        if err.code == 405 and owner.hidden_here():    # an owner's page, asked with another method: as if not there
+            err = NotFound()
         if request.headers.get("HX-Request") or err.code in (301, 302, 303, 307, 308):
             return err
         if err.code == 413 and request.endpoint == "profile_photo":     # back to the form, not to a dead end

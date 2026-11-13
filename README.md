@@ -284,6 +284,11 @@ python -m wardrobe stores end musterhaus    # a programme ended: all its product
   old), or by the file's own time if they carry none.
 - It is separate from the collector: nothing from `refresh` or its snapshot goes
   into these tables, and the planner does not use them yet.
+- Owners see every listed store and its current products at `/stores`, with
+  filters by store, category, colour, size in stock and words, and no export.
+  On your own machine you are the owner; in production, sign up, then mark the
+  account: `python -m wardrobe owner add you@example.com` (also `owner remove`,
+  `owner list`). Anyone else gets "We can't find that page" there.
 
 ## Checks
 

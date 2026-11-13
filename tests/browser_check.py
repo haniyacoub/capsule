@@ -22,6 +22,8 @@ budget bar or the tab bar, and deletes the account.
 
 On the way a second customer, on a small product list published for that step alone, goes from the
 starter outfits to his profile with "Make them mine" and fills a piece the list has nothing for with one tap.
+And with the invented sample stores' feeds imported, the customer finds no store catalogues (/stores) until he is
+marked as an owner; then his Account page leads to them, on a phone and on a computer.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
@@ -1161,6 +1163,78 @@ def run(base: str) -> None:
             assert "deleted" in page.content(), "the account was not deleted"
             assert not any((DATA / "people").glob("*")) if (DATA / "people").exists() else True, "a photo was left behind"
 
+        def owners_store_catalogues():
+            # The owner's view of every store's catalogue (/stores, owner.py), with the invented sample stores'
+            # feeds imported. A customer who is no owner gets the page that is not there, and no link to it. Once
+            # marked as an owner, the Account page leads to it: the stores and their products, no wider than a phone
+            # or a computer screen, every photo from the feed's own address and shown whole, a filter that narrows
+            # the list. The samples' photo addresses (example.com, example.org) are answered here with a stand-in:
+            # nothing leaves this computer.
+            from wardrobe import db
+            from wardrobe.feeds import FORMATS, registry
+            feeds = ROOT / "tests" / "fixtures" / "feeds"
+            now = db.now_iso()
+            for key, values in registry.load().items():     # (production leaves the samples out of `stores sync`)
+                db.save_store(key, values)
+                found = FORMATS[values["feed_format"]](feeds / Path(values["feed_location"]).name).rows
+                for row in found:
+                    row.update(imported_at=now, feed_updated_at=row["feed_updated_at"] or now)
+                db.replace_products(key, found)
+                db.note_store(key, error=None, feed_update=now, imported_at=now)
+            stand_in_photo = picture(150, 200)
+
+            def answered_here(route):
+                if route.request.url.startswith(base):
+                    return route.continue_()
+                return route.fulfill(status=200, content_type="image/png", body=stand_in_photo)
+
+            def logged_in_at(width: int, phone: bool):
+                context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
+                context.route("**/*", answered_here)
+                other = context.new_page()
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_load_state("networkidle")
+                return context, other
+
+            context, other = logged_in_at(1280, False)
+            assert other.goto(base + "/stores").status == 404, "a customer who is no owner can open /stores"
+            other.goto(base + "/account", wait_until="networkidle")
+            assert not other.locator("a[href='/stores']").count(), "a customer who is no owner has a link to /stores"
+            context.close()
+            assert db.add_owner(EMAIL) == "added"
+            try:
+                for width, phone in ((390, True), (1280, False)):
+                    context, other = logged_in_at(width, phone)
+                    other.goto(base + "/account", wait_until="networkidle")
+                    other.click("a:has-text('Open the store catalogues')")
+                    other.wait_for_load_state("networkidle")
+                    other.evaluate("() => document.querySelectorAll('img[loading=lazy]').forEach(i => i.loading = 'eager')")
+                    other.wait_for_timeout(300)
+                    seen = other.evaluate("""() => {
+                        const imgs = [...document.querySelectorAll('.cat-pic img')];
+                        return {path: location.pathname, wide: document.documentElement.scrollWidth,
+                                stores: document.querySelectorAll('.cat-stores tbody tr').length,
+                                rows: document.querySelectorAll('.cat-products tbody tr').length,
+                                whole: imgs.every(i => getComputedStyle(i).objectFit === 'contain'),
+                                loaded: imgs.filter(i => i.complete && i.naturalWidth > 0).length,
+                                outside: imgs.filter(i => i.getAttribute('src').startsWith('/')).length};
+                    }""")
+                    assert seen.pop("wide") <= width + 1, f"the store catalogues are wider than {width}px"
+                    assert seen == {"path": "/stores", "stores": 3, "rows": 17, "whole": True, "loaded": 17, "outside": 0}, \
+                        f"the store catalogues at {width}px: {seen}"
+                    other.select_option("select[name=size]", "M")
+                    other.click("button:has-text('Show')")
+                    other.wait_for_load_state("networkidle")
+                    shown = other.locator(".cat-products tbody tr").count()
+                    assert shown == 5 and other.evaluate("document.documentElement.scrollWidth") <= width + 1, \
+                        f"filtered to size M at {width}px: {shown} products (5 in the samples have M in stock)"
+                    context.close()
+            finally:
+                db.remove_owner(EMAIL)
+
         steps = [("create an account", sign_up), ("Capsule's own typefaces load", own_typefaces),
                  ("price levels and best for budget", price_levels),
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
@@ -1180,6 +1254,7 @@ def run(base: str) -> None:
                  ("public pages: no cookie, errors in plain words", public_pages_and_errors),
                  ("moving between tabs fetches only the page", tabs_fetch_only_the_page),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
+                 ("the owner's store catalogues, owners only", owners_store_catalogues),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),

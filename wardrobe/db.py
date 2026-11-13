@@ -14,6 +14,7 @@ Look around with `sqlite3 data/wardrobe.db`:
     SELECT key, value FROM settings WHERE user_id = 1;
     SELECT key, status, last_import_at FROM stores;          -- the store feeds (feeds/)
     SELECT store, name, price, colour, sizes_in_stock FROM products LIMIT 20;
+    SELECT u.email, o.added_at FROM owners o JOIN users u ON u.id = o.user_id;   -- who runs Capsule (owner.py)
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 LOCAL_USER_ID = 1
 
 SCHEMA = """
@@ -157,6 +158,17 @@ CREATE TABLE IF NOT EXISTS products (   -- one row per product per store, replac
 CREATE INDEX IF NOT EXISTS products_by_group ON products (store, group_id);
 """
 
+# Added in version 6: who runs Capsule (owner.py). An owner's account sees the owner's pages, such as
+# every store's catalogue at /stores. Marked with `python -m wardrobe owner add EMAIL`, straight in
+# the database: no setting and no restart. Deleting the account deletes the mark with it.
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_OWNERS = """
+CREATE TABLE IF NOT EXISTS owners (     -- `python -m wardrobe owner add | remove | list`
+    user_id  INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL
+);
+"""
+
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -234,6 +246,9 @@ def _migrate() -> None:
             con.execute("INSERT INTO look_requests (user_id, at) SELECT user_id, at FROM look_requests_v3")
             con.execute("DROP TABLE look_requests_v3")
         for statement in SCHEMA_FEEDS.split(";"):      # new in version 5, safe to repeat
+            if statement.strip():
+                con.execute(statement)
+        for statement in SCHEMA_OWNERS.split(";"):     # new in version 6, safe to repeat
             if statement.strip():
                 con.execute(statement)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -351,6 +366,37 @@ def delete_user(user_id: int) -> None:
             con.execute("DELETE FROM login_attempts WHERE email = ?", (email["email"],))
 
 
+# ── owners: the accounts that run Capsule (owner.py) ──────────────────────────
+
+def add_owner(email: str) -> str:
+    """Mark the account with this address as an owner. Returns 'added', 'already' or 'no account'."""
+    with connect() as con:
+        user = con.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+        if user is None:
+            return "no account"
+        cur = con.execute("INSERT OR IGNORE INTO owners (user_id, added_at) VALUES (?, ?)", (user["id"], now_iso()))
+    return "added" if cur.rowcount == 1 else "already"
+
+
+def remove_owner(email: str) -> bool:
+    """The account with this address is no longer an owner. False if it was not one."""
+    with connect() as con:
+        cur = con.execute("DELETE FROM owners WHERE user_id = (SELECT id FROM users WHERE email = ?)", (email,))
+    return cur.rowcount == 1
+
+
+def list_owners() -> list[dict]:
+    with connect() as con:
+        rows = con.execute("SELECT u.email, o.added_at FROM owners o JOIN users u ON u.id = o.user_id "
+                           "ORDER BY u.email").fetchall()
+    return [dict(r) for r in rows]
+
+
+def is_owner(user_id: int) -> bool:
+    with connect() as con:
+        return con.execute("SELECT 1 FROM owners WHERE user_id = ?", (user_id,)).fetchone() is not None
+
+
 def export_user() -> dict:
     """Everything stored about the current user, as plain data (their GDPR copy)."""
     user_id = uid()
@@ -359,8 +405,12 @@ def export_user() -> dict:
         prefs = con.execute("SELECT key, value FROM settings WHERE user_id = ?", (user_id,)).fetchall()
         catalogue = con.execute("SELECT data FROM catalogs WHERE user_id = ?", (user_id,)).fetchone()
         asked = con.execute("SELECT at FROM look_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
+        owner = con.execute("SELECT added_at FROM owners WHERE user_id = ?", (user_id,)).fetchone()
+    account = dict(user) if user else {}
+    if owner:       # only on the copy of someone who runs Capsule (owner.py)
+        account["owner_since"] = owner["added_at"]
     return {
-        "account": dict(user) if user else {},
+        "account": account,
         "settings": {r["key"]: json.loads(r["value"]) for r in prefs},
         "slots": list_slots(),
         "saved_outfits": list_saved(),
@@ -775,3 +825,65 @@ def store_products(store: str) -> list[dict]:
             d["available"] = bool(d["available"])
         out.append(d)
     return out
+
+
+# ── the owner's view of every store's catalogue (owner.py) ────────────────────
+
+def _has_words(text: str | None, words: str) -> bool:
+    """Whether every word of a search is in the text, whatever their case: 'WEISS merino' finds
+    'Weiß ... Merinowolle' ('ß' folds to 'ss'). `words` comes folded already."""
+    folded = (text or "").casefold()
+    return all(word in folded for word in words.split())
+
+
+# Which products a search finds. Every filter is given, as NULL when it is not used, so the statement is
+# fixed text: nothing from the request is ever written into it. Colour 'unknown' finds the products whose
+# colour Capsule did not recognise. A size is one the feed says is in stock. The words are looked for in the
+# name, brand, category, colour (the feed's and Capsule's: 'navy' finds 'Marineblau'), fabric, id and store.
+_FOUND = """
+    FROM products p JOIN stores s ON s.key = p.store
+    WHERE (:store IS NULL OR p.store = :store)
+      AND (:category IS NULL OR p.category = :category)
+      AND (:colour IS NULL OR p.colour_key = :colour OR (:colour = 'unknown' AND p.colour_key IS NULL))
+      AND (:size IS NULL OR EXISTS (SELECT 1 FROM json_each(p.sizes_in_stock) j WHERE j.value = :size))
+      AND (:words IS NULL OR has_words(p.name || ' ' || COALESCE(p.brand, '') || ' ' || COALESCE(p.category, '')
+                                       || ' ' || COALESCE(p.colour, '') || ' ' || replace(COALESCE(p.colour_key, ''), '-', ' ')
+                                       || ' ' || COALESCE(p.material, '') || ' ' || p.product_id || ' ' || s.label, :words))
+"""
+_COUNT_FOUND = "SELECT COUNT(*)" + _FOUND  # nosec - fixed text only (see _FOUND)
+_LIST_FOUND = ("SELECT p.*, s.label AS store_label" + _FOUND  # nosec - fixed text only (see _FOUND)
+               + " ORDER BY s.label, p.name, p.group_id, p.product_id LIMIT :limit OFFSET :offset")
+
+
+def find_products(store: str | None = None, category: str | None = None, colour: str | None = None,
+                  size: str | None = None, words: str | None = None, limit: int = 100,
+                  offset: int = 0) -> tuple[int, list[dict]]:
+    """Every store's products that match, a page at a time: (how many match in all, this page's rows),
+    with the JSON columns read back into lists and the store's label as store_label."""
+    asked = {"store": store, "category": category, "colour": colour, "size": size,
+             "words": " ".join(words.casefold().split()) or None if words else None,
+             "limit": limit, "offset": offset}
+    with connect() as con:
+        con.create_function("has_words", 2, _has_words, deterministic=True)
+        total = con.execute(_COUNT_FOUND, asked).fetchone()[0]
+        rows = con.execute(_LIST_FOUND, asked).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        for name in ("composition", "sizes", "sizes_in_stock"):
+            d[name] = json.loads(d[name])
+        out.append(d)
+    return total, out
+
+
+def product_choices() -> dict[str, list[tuple[str | None, int]]]:
+    """What the filters on the owner's catalogue offer, each with how many products have it: the feeds'
+    own categories, Capsule's colours (None: not recognised) and the sizes the feeds say are in stock."""
+    with connect() as con:
+        return {
+            "categories": [tuple(r) for r in con.execute(
+                "SELECT category, COUNT(*) FROM products WHERE category IS NOT NULL GROUP BY category ORDER BY category")],
+            "colours": [tuple(r) for r in con.execute("SELECT colour_key, COUNT(*) FROM products GROUP BY colour_key")],
+            "sizes": [tuple(r) for r in con.execute(
+                "SELECT j.value, COUNT(*) FROM products p, json_each(p.sizes_in_stock) j GROUP BY j.value")],
+        }

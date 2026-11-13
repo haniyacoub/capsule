@@ -65,6 +65,16 @@ def load_user() -> None:
     g.user_token = db.set_user(g.user["id"] if g.user else None)
 
 
+def is_owner() -> bool:
+    """Whether the person asking runs Capsule, and so may see the owner's pages (owner.py).
+    On your own machine you do: one person, no login. In production, an account marked with
+    `python -m wardrobe owner add EMAIL`; nobody signed out is one."""
+    if not settings.PRODUCTION:
+        return True
+    user = g.get("user")
+    return bool(user) and db.is_owner(user["id"])
+
+
 def unload_user(_exc=None) -> None:
     token = g.pop("user_token", None)
     if token is not None:
@@ -240,7 +250,7 @@ def reset(token: str):
 
 @bp.get("/account")
 def account():
-    return render_template("account.html", tab="account")
+    return render_template("account.html", tab="account", owner=is_owner())    # owner: the link to /stores
 
 
 @bp.post("/account/password")
