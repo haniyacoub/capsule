@@ -69,11 +69,12 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
     On demo data the invented candidates are rebuilt. On real data, candidates
     of deleted slots are dropped, and so are those collected for a slot whose
     garment or colour just changed (they no longer fit it). Items you added by
-    hand always stay. Returns True if real data now needs a refresh: only on your
+    hand always stay, also from a store that is no longer offered (set aside, see
+    catalog.set_aside). Returns True if real data now needs a refresh: only on your
     own machine, where you can run one (REFRESH_HINT). A customer can't, so a
     customer is never told to.
     """
-    current = catalog.load()
+    current = catalog.stored()      # all of it: what you added from a store that is no longer offered stays
     slots = db.list_slots()
     if conf.PRODUCTION:                 # customers get their candidates from the shared store catalogue
         real = shared.build_catalog(slots, current)
@@ -544,7 +545,8 @@ def create_app() -> Flask:
             cands = sorted(view.cands, key=lambda c: (not c.available, -c.score.total, c.price))
         else:
             sort, cands = "price", view.cands   # already: in stock first, then by price
-        return {"s": view, "cands": cands, "sort": sort, "way": way_back()}
+        return {"s": view, "cands": cands, "sort": sort, "way": way_back(),
+                "set_aside": catalog.set_aside(slot_id)}    # from a store no longer offered (_set_aside.html)
 
     # ── Wardrobe ──────────────────────────────────────────────────────────────
 
@@ -798,9 +800,10 @@ def create_app() -> Flask:
 
     @app.post("/slot/<slot_id>/remove")
     def slot_remove(slot_id: str):
-        """Remove a candidate you added by hand."""
+        """Remove a candidate you added by hand: one of the piece's options, or one set aside because its store is no
+        longer offered (catalog.set_aside, listed on the piece's page)."""
         cand_id = request.form.get("candidate", "")
-        cand = catalog.find(catalog.load(), slot_id, cand_id)
+        cand = catalog.find(catalog.stored(), slot_id, cand_id)
         if cand is None or cand.get("source") != "manual":
             abort(404)
         slot = db.get_slot(slot_id)
@@ -808,7 +811,9 @@ def create_app() -> Flask:
             db.update_slot(slot_id, locked=False, pick=None)
         catalog.update(lambda cat: cat.__setitem__("candidates", [
             c for c in cat["candidates"] if not (c.get("slot_id") == slot_id and c.get("id") == cand_id)]))
-        flash(f"Removed “{cand['name']}” from this piece's options.")
+        # One set aside was never among the piece's options: "Removed “Basic T-Shirt”."
+        where = " from this piece's options" if programmes.is_offered(cand.get("store")) else ""
+        flash(f"Removed “{cand['name']}”{where}.")
         return redirect(url_for("slot_page", slot_id=slot_id, **way_back()))
 
     # ── Outfits ───────────────────────────────────────────────────────────────

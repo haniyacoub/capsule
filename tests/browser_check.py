@@ -34,7 +34,8 @@ A third picks his colours on a phone by tapping swatches (and by keyboard), sees
 neutral become the plan's accent, and then types colours into the two text fields with JavaScript switched off.
 And with the invented sample stores' feeds imported, the customer finds no store catalogues (/stores) until he is
 marked as an owner; then his Account page leads to them, on a phone and on a computer: every store with a partner
-programme, grouped by network, each with its programme's page as a link, and the samples' products.
+programme, grouped by network, each with its programme's page as a link, and the samples' products; on a small
+laptop (960-1150px) too, with every store's notes in view and no table scrolling sideways.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
@@ -1860,6 +1861,27 @@ def run(base: str) -> None:
                     assert seen == {"path": "/stores", "stores": len(listed), "groups": 8, "programmes": len(real),
                                     "tappable": True, "rows": 17, "whole": True, "loaded": 17, "outside": 0}, \
                         f"the store catalogues at {width}px: {seen}"
+                    if not phone:
+                        # A small laptop too: no store's table scrolls sideways in its box, and every store's notes
+                        # are in view, whole and wide enough to read (at 960-1199px each under its store's row).
+                        for narrow in (960, 1024, 1150, 1280):
+                            other.set_viewport_size({"width": narrow, "height": 844})
+                            fit = other.evaluate("""() => {
+                                const boxes = [...document.querySelectorAll('.cat-scroll')];
+                                const notes = [...document.querySelectorAll('.cat-stores .c-state')]
+                                    .filter(n => n.querySelector('.cat-note'));
+                                return {sideways: Math.max(...boxes.map(b => b.scrollWidth - b.clientWidth)),
+                                        page: document.documentElement.scrollWidth,
+                                        notes: notes.length,
+                                        read: notes.filter(n => {
+                                            const box = n.closest('.cat-scroll').getBoundingClientRect();
+                                            const r = n.getBoundingClientRect();
+                                            return r.left >= box.left && r.right <= box.right + 0.5 && r.width >= 240;
+                                        }).length};
+                            }""")
+                            assert fit["sideways"] <= 0 and fit["page"] <= narrow and fit["notes"] > 20 \
+                                and fit["read"] == fit["notes"], f"the stores' tables at {narrow}px: {fit}"
+                        other.set_viewport_size({"width": width, "height": 844})
                     other.select_option("select[name=size]", "M")
                     other.click("button:has-text('Show')")
                     other.wait_for_load_state("networkidle")

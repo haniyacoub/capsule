@@ -16,7 +16,8 @@ Only the products of stores customers are offered are read from the list
 (programmes.py): a store without a partner programme, such as Zara, stays in the
 file and is skipped. When a store stops being offered, every customer's products
 are rebuilt without it, and his pieces that were picked from it are picked again
-(refresh_customer).
+(refresh_customer). What he added himself by its link from that store is kept,
+set aside (catalog.set_aside), and comes back if the store is offered again.
 """
 from __future__ import annotations
 
@@ -178,7 +179,9 @@ def _on_offer(pool: dict, category: str, refused: frozenset[str]) -> dict[str, l
 
 def build_catalog(slots: list[dict], previous: dict | None) -> dict | None:
     """One customer's candidates from the shared list, never in a colour they refused (see _for_piece). Their own
-    additions, typed-in details and locked choices are kept."""
+    additions, typed-in details and locked choices are kept. `previous` is their catalogue as it is stored
+    (catalog.stored): what they added from a store that is no longer offered is kept too, set aside
+    (catalog.set_aside), and is among their options again if the store is offered again."""
     pool = load()
     if pool is None:
         return None
@@ -244,7 +247,7 @@ def refresh_customer() -> None:
     if pool is None or db.get_setting("pool") == revision(pool):
         return
     gone = _stores_gone()
-    built = build_catalog(db.list_slots(), catalog.load())
+    built = build_catalog(db.list_slots(), catalog.stored())     # stored: what he added from a store that went stays
     if built:
         catalog.save(built)
         db.set_setting("pool", revision(pool))
@@ -260,9 +263,12 @@ GONE_SETTING = "stores_gone"     # what the Wardrobe page says once, after a sto
 def _stores_gone() -> dict[str, list[str]] | None:
     """Before a customer's products are rebuilt: the stores among them that are no longer offered (programmes.py),
     and his pieces that were picked from them. Those are unlocked here, so that the rebuilt products pick them
-    again: a piece locked to such a product, by "Lock this choice" or a product he chose himself, is automatic
-    again. Owned pieces are not touched. None when no store went, or when he was on the demo data (invented
-    products, which the real ones replace in any case)."""
+    again: a piece locked to such a product, by "Lock this choice" or a product he chose himself (one he added by
+    its link too: that is set aside, see catalog.set_aside), is automatic again. A piece he owns stays owned, and
+    is not among the pieces picked again (nothing is picked for it), but if it was locked to such a product, that
+    lock goes too, so that the product is not his choice should he say he does not own it after all. None when
+    no store went, or when he was on the demo data (invented products, which the real ones replace in any
+    case)."""
     stored = catalog.stored()
     if stored.get("source") != "collected":
         return None

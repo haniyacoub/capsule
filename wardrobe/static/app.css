@@ -794,6 +794,17 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .card h2 { font-size: var(--t-l); margin-bottom: 10px; }
 .card.add { margin-top: 22px; }
 .card.add .flash { overflow-wrap: anywhere; }   /* what pasted links came to (a piece's page): a long link wraps, never widens the page */
+/* A piece's page: what you added from a store no longer offered (_set_aside.html), each with its store, name and
+   price, and Remove at the end of its line (44px tall to tap). */
+.card.set-aside { margin-top: var(--s-5); }
+.set-aside-list { list-style: none; margin: var(--s-2) 0 0; padding: 0; }
+.set-aside-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: var(--s-1) 0; }
+.set-aside-list li + li { border-top: 1px solid var(--line); }
+.set-aside-list .what { min-width: 0; font-size: var(--t-m); line-height: var(--lh-m); overflow-wrap: anywhere; }
+.set-aside-list .store { display: block; color: var(--muted); }
+.set-aside-list .name { font-weight: 500; }
+.set-aside-list .price { margin-left: var(--s-1); }
+.set-aside-list .link { flex: none; min-height: 44px; padding: 0 var(--s-1); }
 .card .sec { margin: 8px 0 0; font-size: var(--t-xs); }   /* a section label stays small inside a card too */
 #sizes { scroll-margin-top: calc(var(--s-8) * 2); }   /* "Change" by Your sizes lands here: well clear of the bar that sticks to the top */
 .card .demo { margin: 6px 0 4px; }
@@ -1031,7 +1042,8 @@ details[open] > summary .edit { visibility: hidden; }
   .cat-link { margin-top: 0; }
 }
 /* From 960px the stores' tables share their columns' widths (all but the notes, which take the rest), so the
-   networks' tables line up one under the other; a window too narrow for them scrolls inside each box. */
+   networks' tables line up one under the other. Under 1200px the notes go under each row (below), so that the
+   tables fit; only text made much larger than this would make one scroll inside its box. */
 @media (min-width: 960px) {
   .cat-stores { table-layout: fixed; min-width: 82em; }
   .cat-stores .w-store { width: 15em; }
@@ -1039,6 +1051,21 @@ details[open] > summary .edit { visibility: hidden; }
   .cat-stores .w-status { width: 9.5em; }
   .cat-stores .w-count { width: 7.5em; }
   .cat-stores .w-date { width: 10em; }
+}
+/* A small laptop, 960-1199px, is too narrow for the notes as a seventh column: there the six columns share the width
+   in the same proportions, and each store's notes take a line of their own under its row, from the programme to the
+   end, so that nothing scrolls sideways or is cut off. Their column's header is read out, not shown. */
+@media (min-width: 960px) and (max-width: 1199.98px) {
+  .cat-stores { min-width: 0; }
+  .cat-stores, .cat-stores thead, .cat-stores tbody { display: block; }
+  .cat-stores colgroup { display: none; }
+  .cat-stores tr { display: grid; grid-template-columns: minmax(0, 15fr) minmax(0, 14fr) minmax(0, 9.5fr) minmax(0, 7.5fr) minmax(0, 10fr) minmax(0, 10fr); }
+  .cat-stores thead th:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .cat-stores .c-store { grid-row: span 2; }
+  .cat-stores .c-state { grid-column: 2 / -1; min-width: 0; padding-top: 0; }
+  .cat-stores .c-state:has(.sr) { display: none; }      /* nothing to note: no empty line */
+  .cat-stores tbody tr + tr > * { border-top: 0; }
+  .cat-stores tbody tr + tr { border-top: 1px solid var(--line); }
 }
 @media (min-width: 1200px) {
   .card.cat-filters { grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 1fr)) minmax(0, .8fr) minmax(0, 1.3fr) auto; }
