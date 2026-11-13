@@ -203,7 +203,7 @@ wardrobe/db.py             all the SQL (SQLite)
 wardrobe/collect/          the store collector (the owner runs it)
 config/                    the rules, in TOML: scoring, stores, size charts, AI pictures
 tests/                     unit tests, one file per area; browser_check.py: the walk-through
-tests/fixtures/            sample store pages for the collector's tests
+tests/fixtures/            made-up pages in the stores' shape for the collector's tests
 check.sh                   every check in one go
 .github/workflows/checks.yml   the five checks GitHub runs
 pyproject.toml             settings for mypy, bandit and coverage (the 85% floor)
