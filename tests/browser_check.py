@@ -11,7 +11,11 @@ the whole picture above the tab bar on three phones), changes the price level, w
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
 page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, opens a piece on a phone
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
-comparing all options to the same outfit), moves between outfits,
+comparing all options to the same outfit), tabs up and down a pop-up that scrolls (nothing with keyboard focus
+hidden under its top row), sees that with scrollbars shown the page behind the pop-up does not move sideways,
+moves between outfits (by keyboard too: Next among the first Tab stops, focus going with the outfit shown, which a
+screen reader hears named, Tab leading into the outfit shown and Next keeping focus at the end of the row, the heart
+keeping focus, Escape hiding a dot's label),
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
 logs in again and lands on the outfits, puts a model together, uploads a photo, sees Profile ask before a
 budget or colours changed and not saved would be lost, saves new colours (the plan is rebuilt,
@@ -454,6 +458,10 @@ def run(base: str) -> None:
             assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
             page.wait_for_selector(f"{first} .look-bar.wait")              # asked for by itself, then waited for
             status = drawing_status(page)
+            # It asks the server again every 3 s: a screen reader must not read it out each time (the page's one live
+            # region says 'Picture ready' instead, once).
+            assert page.eval_on_selector(f"{first} .look-bar.wait", "el => !el.closest('[role=status], [aria-live]')"), \
+                "the drawing status, asked for again every few seconds, is read out by screen readers each time"
             # Nothing else is being drawn, so it is drawn at once: it must not be said to be waiting its turn.
             assert status["words"] and status["words"].startswith("Drawing this outfit") and status["inside"], \
                 f"while the only picture is drawn, the status is not 'Drawing this outfit…' inside the picture's box: {status}"
@@ -563,7 +571,7 @@ def run(base: str) -> None:
             other.evaluate("() => window.scrollTo(0, 120)")
             other.wait_for_timeout(300)
             still = other.evaluate("scrollY")
-            coat = other.locator(f"{first} .spot[title*=coat i]")              # the tallest pop-up: the coat's
+            coat = other.locator(f"{first} .spot[aria-label*=coat i]")         # the tallest pop-up: the coat's
             spot = coat.first if coat.count() else other.locator(f"{first} .spot").first
             sig = re.search(r"at=([^&]+)", spot.get_attribute("hx-get")).group(1)
             spot.tap()
@@ -592,6 +600,15 @@ def run(base: str) -> None:
                 touch.send("Input.synthesizeScrollGesture", {"x": 195, "y": int(box["y"] + box["height"] - 60), "xDistance": 0,
                                                             "yDistance": -300, "speed": 1200, "gestureSourceType": "touch"})
                 other.wait_for_timeout(300)
+            # Swiped to its end, the sheet keeps its close button where it was: at its top, whole and on top.
+            kept = other.evaluate("""() => {
+                const sheet = document.querySelector('dialog#piece'), s = sheet.getBoundingClientRect();
+                const close = sheet.querySelector('.sheet-close'), c = close.getBoundingClientRect();
+                return {scrollable: sheet.scrollHeight > sheet.clientHeight, scrolled: sheet.scrollTop, top: c.top - s.top,
+                        on_top: close.contains(document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2))};
+            }""")
+            assert (kept["scrolled"] > 0 or not kept["scrollable"]) and 0 <= kept["top"] <= 12 and kept["on_top"], \
+                f"once the pop-up is swiped, its close button is not whole at its top: {kept}"
             other.locator("dialog#piece .sheet-close").tap()
             other.wait_for_selector("dialog#piece:not([open])", state="attached")
             assert other.evaluate("scrollY") == still, f"swiping inside the pop-up moved the page from {still} to {other.evaluate('scrollY')}"
@@ -607,6 +624,109 @@ def run(base: str) -> None:
             back = re.search(r"at=([^&]+)", other.locator(f"{first} .piece-row").first.get_attribute("hx-get")).group(1)
             assert back == sig, f"back on {back}, not on the outfit the pop-up was opened from ({sig})"
             context.close()
+
+        def logged_in_on(where_browser, **screen):
+            """A page of its own, logged in as the customer, in a context with these settings (viewport, touch...)."""
+            context = where_browser.new_context(**screen)
+            other = context.new_page()
+            other.goto(base + "/login", wait_until="networkidle")
+            other.fill("input[name=email]", EMAIL)
+            other.fill("input[name=password]", PASSWORD)
+            other.click("button:has-text('Log in')")
+            other.wait_for_load_state("networkidle")
+            return context, other
+
+        def open_the_coat(other) -> None:
+            """The coat's pop-up from the first outfit's list of pieces (the tallest pop-up), or the first piece's."""
+            other.goto(base + "/outfits", wait_until="networkidle")
+            coat = other.locator(f"{first} .piece-row[title*=coat i]")
+            (coat.first if coat.count() else other.locator(f"{first} .piece-row").first).click()
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            other.wait_for_load_state("networkidle")
+
+        def pop_up_never_hides_the_focus():
+            # The pop-up's top row (the piece's name and Close) stays while the sheet scrolls, and what has keyboard
+            # focus is never hidden under it (WCAG 2.4.11). On a small phone and a short computer screen, where the
+            # coat's pop-up scrolls, Tab goes from Close to the last control, then from the sheet's end Shift+Tab
+            # comes back up to Close, so that each new focus comes in from below and from above. At least one of
+            # five points of each must be inside the sheet with neither the top row nor Close over it.
+            hidden: list[str] = []
+            for width, height, phone in ((320, 568, True), (1280, 640, False)):
+                context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=phone, has_touch=phone)
+                open_the_coat(other)
+                assert other.evaluate("() => { const s = document.querySelector('dialog#piece'); return s.scrollHeight > s.clientHeight; }"), \
+                    f"at {width} x {height} the pop-up does not scroll, so this step would check nothing"
+                for key in ("Tab", "Shift+Tab"):
+                    if key == "Shift+Tab":          # from the sheet's end, its last control first
+                        other.evaluate("""() => { const sheet = document.querySelector('dialog#piece');
+                            const all = [...sheet.querySelectorAll('#piece-body a[href], #piece-body button')].filter(e => e.offsetParent);
+                            sheet.scrollTop = sheet.scrollHeight; all[all.length - 1].focus(); }""")
+                    stops = 0
+                    for _ in range(60):
+                        if key == "Tab" or stops:
+                            other.keyboard.press(key)
+                        focus = other.evaluate("""() => {
+                            const sheet = document.querySelector('dialog#piece'), el = document.activeElement;
+                            const row = sheet.querySelector('.piece-top'), close = sheet.querySelector('.sheet-close');
+                            if (!sheet.contains(el) || el === sheet || el === close) return null;     // round to Close, or out
+                            const s = sheet.getBoundingClientRect(), r = el.getBoundingClientRect();
+                            const points = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + 1, r.top + 1],
+                                            [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]];
+                            const seen = points.filter(([x, y]) => {
+                                if (x < s.left || y < s.top || x >= s.right || y >= s.bottom) return false;
+                                const top = document.elementFromPoint(x, y);
+                                return top && !((row.contains(top) || close.contains(top)) && !el.contains(top));
+                            }).length;
+                            return {seen, name: (el.innerText || el.getAttribute('aria-label') || el.tagName).replace(/\\s+/g, ' ').trim().slice(0, 50)};
+                        }""")
+                        if focus is None:
+                            break
+                        stops += 1
+                        if not focus["seen"]:
+                            hidden.append(f"{width} x {height} {key}: {focus['name']}")
+                    assert stops >= 4, f"at {width} x {height}, {key} met only {stops} things to focus in the pop-up"
+                context.close()
+            assert not hidden, "hidden under the pop-up's top row while it had keyboard focus: " + "; ".join(hidden[:6])
+
+        def the_page_behind_the_pop_up_stays_put():
+            # On a computer set to always show scrollbars, their room is kept on every page, so that the page behind
+            # the pop-up does not move sideways when the pop-up opens or closes, even on a page that does not scroll.
+            # The browsers here hide scrollbars, so this step has one of its own that shows them, in a window taller
+            # than the outfits page (whose picture grows with the window, up to its largest).
+            shown = p.chromium.launch(ignore_default_args=["--hide-scrollbars"], args=["--disable-features=OverlayScrollbar"])
+            try:
+                context, other = logged_in_on(shown, viewport={"width": 1280, "height": 1400})
+                other.goto(base + "/outfits", wait_until="networkidle")
+                for _ in range(3):
+                    tall = other.evaluate("document.documentElement.scrollHeight")
+                    if tall <= other.evaluate("innerHeight"):
+                        break
+                    other.set_viewport_size({"width": 1280, "height": tall + 100})
+                    other.wait_for_timeout(100)
+                where = """() => {
+                    const probe = document.createElement('div');            // a box that always has a scrollbar
+                    probe.style.cssText = 'position:absolute; top:0; width:100px; height:100px; overflow:scroll';
+                    document.body.append(probe);
+                    const bar = probe.offsetWidth - probe.clientWidth;
+                    probe.remove();
+                    return {bar, scrolls: document.documentElement.scrollHeight > innerHeight,
+                            edges: ['header.top', 'nav.tabs', 'main'].map(s => {
+                                const b = document.querySelector(s).getBoundingClientRect();
+                                return s + ' ' + b.left.toFixed(1) + '-' + b.right.toFixed(1); })};
+                }"""
+                shut = other.evaluate(where)
+                assert shut["bar"] >= 10 and not shut["scrolls"], f"no scrollbar shown, or the page scrolls, so this step would check nothing: {shut}"
+                other.locator(f"{first} .piece-row").first.click()
+                other.wait_for_selector("dialog#piece[open] #piece-title")
+                opened = other.evaluate(where)
+                other.locator("dialog#piece .sheet-close").click()
+                other.wait_for_selector("dialog#piece:not([open])", state="attached")
+                closed = other.evaluate(where)
+                assert opened["edges"] == shut["edges"] == closed["edges"], \
+                    f"the page behind the pop-up moved sideways: shut {shut['edges']}, open {opened['edges']}, closed again {closed['edges']}"
+                context.close()
+            finally:
+                shown.close()
 
         def arrows_move():
             def shown() -> int:
@@ -697,6 +817,114 @@ def run(base: str) -> None:
             page.reload(wait_until="networkidle")
             wait_for_outfit(2, "after a reload")
 
+        def the_outfit_row_by_keyboard():
+            # By keyboard: from the top of the page, Tab reaches Next within 15 presses (the arrows come before the
+            # outfits). With focus on outfit 1's 'Buy this outfit', → shows outfit 2 and focus goes with it, so that
+            # Enter buys the outfit on screen, not the one left behind; a screen reader hears which outfit is shown,
+            # from the page's live region. The heart pressed with Enter keeps focus, and is called "Save outfit"
+            # whether saved or not (pressed says which). Escape hides a dot's label, until a dot is pointed at again.
+            # Tab after moving the row leads into the outfit moved to, which stays on screen (only the outfit on screen
+            # is in the Tab order; the browser would scroll the row back to an outfit that Tab reached), and so does
+            # Shift+Tab from below the row. At the end of the row Next keeps focus: it says it can go no further
+            # instead of being switched off, which would drop focus to the page.
+            slides = page.locator("#reel [data-slide]")
+
+            def where() -> dict:
+                return page.evaluate("""() => { const all = [...document.querySelectorAll('#reel [data-slide]')];
+                    const s = document.activeElement.closest('#reel [data-slide]'), r = document.getElementById('reel');
+                    return {focus_in: s ? all.indexOf(s) + 1 : 0, shown: Math.round(r.scrollLeft / r.clientWidth) + 1}; }""")
+
+            def at_rest(index: int, after: str):
+                # The row is on outfit `index` (0 first), and stays there for longer than app.js waits to call it at rest.
+                try:
+                    page.wait_for_function("i => { const r = document.getElementById('reel'); "
+                                           "return Math.round(r.scrollLeft / r.clientWidth) === i; }", arg=index, timeout=5000)
+                except Exception:  # noqa: BLE001
+                    raise AssertionError(f"{after}, outfit {index + 1} should be on screen; it is {where()}") from None
+                page.wait_for_timeout(500)
+
+            try:
+                page.set_viewport_size({"width": 1280, "height": 900})
+                page.goto(base + "/outfits", wait_until="networkidle")
+                for presses in range(1, 16):
+                    page.keyboard.press("Tab")
+                    if page.evaluate("() => document.activeElement.matches('.reel-nav.next')"):
+                        break
+                else:
+                    raise AssertionError("from the top of Outfits, 15 Tab presses do not reach Next")
+                for index in (1, 2, 3):
+                    page.keyboard.press("Enter")
+                    at_rest(index, f"after Enter {index} times on Next")
+                page.keyboard.press("Tab")
+                at_rest(3, "after Next three times and then Tab")
+                assert where() == {"focus_in": 4, "shown": 4}, \
+                    f"after Next three times, Tab should lead into outfit 4 and keep it on screen: {where()}"
+                assert page.evaluate("() => location.hash") == "#" + slides.nth(3).get_attribute("id"), \
+                    "after Tab into outfit 4, the address no longer keeps outfit 4"
+                page.locator(".site-foot a").first.focus()
+                page.keyboard.press("Shift+Tab")
+                at_rest(3, "after Shift+Tab from the footer")
+                assert where() == {"focus_in": 4, "shown": 4}, \
+                    f"Shift+Tab from below the row should lead into the outfit on screen, outfit 4: {where()}"
+                last = slides.count() - 1
+                page.evaluate("i => { const r = document.getElementById('reel'); r.style.scrollBehavior = 'auto'; "
+                              "r.scrollLeft = i * r.clientWidth; r.style.scrollBehavior = ''; }", last - 1)
+                at_rest(last - 1, "after the row was moved to the one before the last")
+                page.locator(".reel-nav.next").focus()
+                page.keyboard.press("Enter")
+                at_rest(last, "after Next to the end of the row")
+                end = page.evaluate("() => ({on_next: document.activeElement.matches('.reel-nav.next'), "
+                                    "says: document.querySelector('.reel-nav.next').getAttribute('aria-disabled')})")
+                assert end == {"on_next": True, "says": "true"}, \
+                    f"at the end of the row Next should keep focus and say it can go no further: {end}"
+                page.keyboard.press("Enter")
+                page.keyboard.press("Tab")
+                at_rest(last, "after Enter on Next at the end of the row, and Tab")
+                assert where() == {"focus_in": last + 1, "shown": last + 1}, \
+                    f"Tab from Next at the end of the row should lead into the last slide, on screen: {where()}"
+
+                page.goto(base + "/outfits", wait_until="networkidle")
+                buy_second = slides.nth(1).locator(".about-actions a").get_attribute("href")
+                slides.nth(0).locator(".about-actions a").focus()
+                page.keyboard.press("ArrowRight")
+                inside = page.evaluate("""() => { const s = document.activeElement.closest('#reel [data-slide]');
+                    return s ? [...document.querySelectorAll('#reel [data-slide]')].indexOf(s) + 1 : 0; }""")
+                assert inside == 2, f"after → from outfit 1's 'Buy this outfit', focus is in outfit {inside or 'none'}, not in outfit 2"
+                heard = page.wait_for_function("""() => { const words = document.getElementById('announce').textContent;
+                    return words.startsWith('Outfit 2 of ') && words; }""").json_value()
+                named = slides.nth(1).evaluate("""s => `${s.getAttribute('aria-label')}, ${s.querySelector('.about-head h2').firstChild.textContent.trim()}, `
+                    + s.querySelector('.board-cost').textContent.trim()""")
+                assert heard == named, f"after →, a screen reader hears {heard!r}, not the outfit on screen ({named!r})"
+                assert page.evaluate("() => Math.round(reel.scrollLeft / reel.clientWidth)") == 1, "outfit 2 is not on screen"
+                page.keyboard.press("Enter")
+                page.wait_for_url("**/outfits/buy?**")
+                assert page.url.endswith(buy_second), "Enter after → opened another outfit's Buy page than the one on screen"
+
+                page.goto(base + "/outfits", wait_until="networkidle")
+                page.locator(f"{first} .heart").focus()
+                for pressed in ("true", "false"):           # saved, then not: the walk-through saves it later
+                    page.keyboard.press("Enter")
+                    # htmx takes over the new heart once it has settled (htmx-added gone, 20 ms): a key pressed
+                    # before that would send the form without it, as a page of its own.
+                    page.wait_for_selector(f"{first} form.save:not(.htmx-added) .heart[aria-pressed={pressed}]")
+                    heart = page.evaluate("""() => ({on: document.activeElement.matches('#reel .slide:first-child .heart'),
+                        name: document.activeElement.textContent.trim()})""")
+                    assert heart["on"], f"after pressing the heart with Enter (aria-pressed {pressed}), focus left it"
+                    assert heart["name"] == "Save outfit", f"the heart is called {heart['name']!r} (aria-pressed {pressed})"
+
+                page.wait_for_selector(f"{first} .look-pic img")       # the dots show on the picture (drawn by itself)
+                dot = page.locator(f"{first} .spot").first
+                assert re.fullmatch(r"[^,]+, ((COS|Weekday|Zara), [\d.,]+\s€|owned)", dot.get_attribute("aria-label") or "") \
+                    and dot.get_attribute("title") is None, f"a dot is named {dot.get_attribute('aria-label')!r}, with a tooltip"
+                dot.focus()
+                assert dot.locator(".tip").is_visible(), "a dot with keyboard focus shows no label"
+                page.keyboard.press("Escape")
+                assert not dot.locator(".tip").is_visible(), "Escape does not hide the label of a dot with keyboard focus"
+                dot.hover()
+                assert dot.locator(".tip").is_visible(), "after Escape, pointing at a dot does not show its label again"
+            finally:
+                page.set_viewport_size({"width": 1280, "height": 860})
+
         def save_and_buy():
             page.goto(base + "/outfits", wait_until="networkidle")
             page.locator(f"{first} .heart").click()
@@ -723,6 +951,7 @@ def run(base: str) -> None:
             assert "example sizes" not in page.locator("main").inner_text(), "the example warning stays after 'These are my sizes'"
             page.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
             assert page.locator("#reel .slide").count() == 1, "the saved outfit is not under Saved"
+            assert page.locator(".reel-nav").count() == 0, "a single saved outfit has arrows that lead nowhere"
 
         def list_prints_without_photos():
             # On paper the shopping list is words and links: the photos would only use ink.
@@ -1440,8 +1669,11 @@ def run(base: str) -> None:
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
+                 ("the pop-up's top row never hides what has focus", pop_up_never_hides_the_focus),
+                 ("the page behind the pop-up stays put", the_page_behind_the_pop_up_stays_put),
                  ("arrows and arrow keys", arrows_move),
                  ("arrows for every mouse, your place kept on Back", arrows_for_every_mouse_and_your_place_kept),
+                 ("the outfit row by keyboard and screen reader", the_outfit_row_by_keyboard),
                  ("save an outfit and buy it", save_and_buy),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),

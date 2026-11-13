@@ -29,6 +29,9 @@
    have HTMX buttons, so only they ask for the token: a visitor reading the public pages gets no cookie.
    (The forms on sign-up, log-in and forgotten password carry it in a hidden field, which sets the cookie.) #}
 <body{% if production and user %} hx-headers='{"X-CSRF-Token": "{{ csrf_token() }}"}'{% endif %}>
+  {# What changed on the page without a new page, said once to a screen reader ("Outfit 2 of 12, Office, 257.75 €",
+     "Picture ready"): app.js writes it. Unseen, and it takes no room, so nothing on the page moves. #}
+  <p id="announce" class="sr" role="status" aria-live="polite"></p>
   <header class="top">
     {# The wordmark leads home: the outfits for a customer (and on your own machine), the website for a visitor. #}
     <a class="brand" href="{{ url_for('outfits_page') if user or not production else url_for('wardrobe') }}">Capsule</a>

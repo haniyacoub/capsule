@@ -98,6 +98,23 @@ class PiecePopUp(AppCase):
         self.assertIn("Check that your size is in stock", said)
         self.assertNotIn("gave no sizes", said)
 
+    def test_the_day_of_the_prices_and_stock_sits_with_the_size_line(self):
+        # "In stock" holds as of the day the products were collected: that day is said right under the size line, on
+        # the pop-up's first screen, in the words used everywhere else, and not again at the pop-up's end.
+        outfit, coat = self.outfit_with("outer")
+        when = selection.build().collected
+        page = self.popup(outfit, coat.view.slot["id"])
+        said = self.read(page)
+        self.assertIn(f"Prices and stock as of {when}", said)
+        self.assertEqual(said.count("as of"), 1, said)
+        self.assertLess(said.index("Your size"), said.index("Prices and stock as of"))
+        self.assertLess(said.index("Prices and stock as of"), said.index("Open at"))
+        self.assertRegex(page, r'(?s)<p class="sizeline">.*?</p>\s*<p class="as-of">Prices and stock as of <span>'
+                         + re.escape(html.escape(when)) + "</span></p>")
+        foot = re.search(r'<p class="muted small sheet-foot">(.*?)</p>', page, re.S)
+        self.assertIsNotNone(foot)
+        self.assertNotIn("as of", foot.group(1))
+
     def test_example_sizes_are_said_until_they_are_confirmed(self):
         outfit, coat = self.outfit_with("outer")
         page = self.popup(outfit, coat.view.slot["id"])
@@ -136,7 +153,7 @@ class PiecePopUp(AppCase):
         said = self.read(page)
         self.assertIn("You have this", said)
         self.assertNotIn("Swap it for", said)
-        self.assertNotIn("Price and stock as of", said)
+        self.assertNotIn("stock as of", said)      # no product, so no day for its price and stock
 
     def test_compare_all_options_leads_to_the_piece_page_and_back_to_the_same_outfit(self):
         outfit, coat = self.outfit_with("outer")
