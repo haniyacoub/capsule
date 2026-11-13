@@ -243,6 +243,37 @@ Things to know:
   may have been charged for, so it counts.
 - Pictures are drawn two at a time; the rest wait their turn and say so.
 
+## Store feeds (licensed product data)
+
+The public site will take products only from stores whose affiliate programme
+has accepted Capsule, through the product feed that the programme's network
+licenses to approved partners. None has accepted yet, so for now this runs on
+three invented sample stores (Musterhaus, Nordfaden, Kleiderwerk) whose feeds
+are files in `tests/fixtures/feeds/`.
+
+```bash
+python -m wardrobe stores sync              # copy config/feeds.toml into the database
+python -m wardrobe stores                   # each store: status, products, feed date, stale or failed
+python -m wardrobe feeds                    # every approved store whose feed changed
+python -m wardrobe feeds --store musterhaus --from tests/fixtures/feeds/musterhaus.csv   # a file you have
+python -m wardrobe stores end musterhaus    # a programme ended: all its products go at once
+```
+
+- Stores are listed in [config/feeds.toml](config/feeds.toml) with their network,
+  status, feed format and address. Secrets never go there: an address names
+  them, `{AWIN_API_TOKEN}`, and they are read from environment variables.
+- Formats: Google Shopping (Awin's product API as JSON Lines, Webgains and others
+  as CSV or TSV), Awin's standard CSV and Tradedoubler's JSON. Rakuten's files
+  come in a later round.
+- An import replaces that store's products in one go: whatever is missing from
+  the new file is gone, and a failure part-way keeps the old products. A
+  product without a price or a link is skipped and counted.
+- A feed is downloaded only when it changed, within the networks' limits (Awin
+  5 requests a minute, Tradedoubler 3 downloads of one version a day). One
+  older than its refresh hours plus a day is marked stale.
+- It is separate from the collector: nothing from `refresh` or its snapshot goes
+  into these tables, and the planner does not use them yet.
+
 ## Checks
 
 ```bash
@@ -267,6 +298,7 @@ config/scoring.toml        quality score rules
 config/stores.toml         which category pages the collector reads, and how slowly
 config/size_charts.toml    each store's size labels and body measurements
 config/looks.toml          AI pictures: service, limits, wording, where the dots sit
+config/feeds.toml          the stores whose licensed product feeds are imported (see "Store feeds")
 data/catalog.json          what the stores sell (rewritten by refresh)
 data/wardrobe.db           your profile, slots, locks, saved outfits (SQLite)
 data/looks/                AI pictures already drawn (safe to delete: they are drawn again when asked for),

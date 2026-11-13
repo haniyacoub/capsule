@@ -25,6 +25,10 @@ Module map (each file does one job):
         manual.py     importing a pasted product link
     mock.py         invented demo catalogue (before the first refresh)
     tryon.py        extension point for a true virtual try-on of the actual garments (not built)
+    feeds/          the licensed store feeds behind `python -m wardrobe stores` and `feeds`
+        registry.py   config/feeds.toml -> the stores table, stale feeds, ending a store
+        refresh.py    fetch a feed when it changed, replace that store's products in one go
+        rows.py, google.py, awin_csv.py, tradedoubler.py   reading each format into product rows
     app.py          the web pages
 
 Running for customers (see PRODUCTION.md):
