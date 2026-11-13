@@ -358,7 +358,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .cand-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .colour-name { font-size: var(--t-s); color: var(--muted); margin-left: 4px; }
 .price { font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.cand h3 { font-size: var(--t-m); font-weight: 500; line-height: 1.3; margin: 3px 0; }
+.cand h2 { font-size: var(--t-m); font-weight: 500; line-height: 1.3; margin: 3px 0; }   /* each option's name: a heading under the piece's */
 .fabric { font-size: var(--t-s); color: var(--muted); }
 .est { font-size: var(--t-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--ok); background: var(--ok-bg); padding: 1px 6px; border-radius: var(--r-pill); white-space: nowrap; }
 .was { font-size: var(--t-s); font-weight: 400; color: var(--muted); margin-left: 4px; }
@@ -735,6 +735,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .card h1 { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin-bottom: 8px; }
 .card h2 { font-size: var(--t-l); margin-bottom: 10px; }
 .card.add { margin-top: 22px; }
+.card.add .flash { overflow-wrap: anywhere; }   /* what pasted links came to (a piece's page): a long link wraps, never widens the page */
 .card .sec { margin: 8px 0 0; font-size: var(--t-xs); }   /* a section label stays small inside a card too */
 #sizes { scroll-margin-top: calc(var(--s-8) * 2); }   /* "Change" by Your sizes lands here: well clear of the bar that sticks to the top */
 .card .demo { margin: 6px 0 4px; }

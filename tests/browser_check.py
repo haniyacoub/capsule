@@ -18,7 +18,9 @@ budget or colours changed and not saved would be lost, saves new colours (the pl
 keeping the swapped piece, and the budget bar takes the banner's place), sees that a phone's first
 screen shows the outfit on the model with its price and the heart (and every chip over it, whole,
 by keyboard), tabs through three pages to see that nothing with keyboard focus is hidden under the
-budget bar or the tab bar, and deletes the account.
+budget bar or the tab bar, locks and chooses on a piece's page by keyboard (focus stays where it was) and pastes
+a link that is not a store's (answered inside that section, on a phone's screen, with JavaScript on and off),
+and deletes the account.
 
 On the way a second customer, on a small product list published for that step alone, goes from the
 starter outfits to his profile with "Make them mine" and fills a piece the list has nothing for with one tap.
@@ -1155,6 +1157,84 @@ def run(base: str) -> None:
             context.close()
             assert not hidden, "hidden under the bars or off the screen while it had keyboard focus: " + "; ".join(hidden[:6])
 
+        def a_pieces_page_by_keyboard():
+            # On a piece's page the buttons stay where they are and keep keyboard focus: after 'Lock this choice' it is
+            # on the same button, now 'Unlock'; after 'Choose this' on the mark that replaces it, and the next Tab
+            # goes on through that option, not to the footer. What pasted links came to is said inside the 'Add a
+            # product by link' section the page comes back to, on the screen, with JavaScript on and off. The piece
+            # used is one Capsule picks (not the one swapped earlier), and it is left that way.
+            ACTIVE = "() => ({id: document.activeElement.id, text: document.activeElement.textContent.replace(/\\s+/g, ' ').trim()})"
+            page.goto(base + "/", wait_until="networkidle")
+            pieces = [href for href in page.locator("a[href^='/slot/']").evaluate_all("as => as.map(a => a.getAttribute('href'))")
+                      if href.split("?")[0].split("#")[0].split("/")[2] != swapped.get("slot")]
+            for href in pieces:
+                page.goto(base + href.split("#")[0], wait_until="networkidle")
+                if page.locator("#slot-lock", has_text="Lock this choice").count() and page.locator("button[id^=choose-]").count():
+                    break
+            else:
+                raise AssertionError("no piece that Capsule picks, with another option to choose")
+            address = page.url
+            page.locator("#slot-lock").focus()
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#slot-lock:has-text('Unlock')")
+            page.wait_for_load_state("networkidle")
+            seen = page.evaluate(ACTIVE)
+            assert seen == {"id": "slot-lock", "text": "Unlock (back to automatic)"}, f"after Lock this choice focus is on {seen}"
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#slot-lock:has-text('Lock this choice')")
+            page.wait_for_load_state("networkidle")
+            seen = page.evaluate(ACTIVE)
+            assert seen == {"id": "slot-lock", "text": "Lock this choice"}, f"after Unlock focus is on {seen}"
+            choose = page.locator("button[id^=choose-]").first
+            option = choose.get_attribute("id")
+            choose.focus()
+            page.keyboard.press("Enter")
+            page.wait_for_selector(f"span#{option}")
+            page.wait_for_load_state("networkidle")
+            seen = page.evaluate(ACTIVE)
+            assert seen["id"] == option and seen["text"] in ("Current pick", "Chosen and locked"), \
+                f"after Choose this focus is on {seen}, not on the mark that replaced it"
+            page.keyboard.press("Tab")
+            inside = page.evaluate("id => document.activeElement.closest('.cand') === document.getElementById(id).closest('.cand')", option)
+            assert inside, f"the Tab after choosing leaves the option for {page.evaluate(ACTIVE)}"
+            page.locator("#slot-lock").focus()                     # back to what Capsule picks
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#slot-lock:has-text('Lock this choice')")
+            page.wait_for_load_state("networkidle")
+
+            for javascript in (True, False):
+                context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True,
+                                              java_script_enabled=javascript)
+                try:
+                    phone = context.new_page()
+                    # (As on the main page: one picture of the demo catalogue is missing on purpose.)
+                    phone.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                             if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                    phone.goto(base + "/login", wait_until="networkidle")
+                    phone.fill("input[name=email]", EMAIL)
+                    phone.fill("input[name=password]", PASSWORD)
+                    phone.click("button:has-text('Log in')")
+                    phone.wait_for_load_state("networkidle")
+                    phone.goto(address, wait_until="networkidle")
+                    phone.fill("#add textarea[name=urls]", "https://shop.example.org/jumper")
+                    phone.locator("#add button", has_text="Add").click()
+                    phone.wait_for_load_state("networkidle")
+                    said = phone.evaluate("""() => {
+                        const bar = document.querySelector('#summary'), tabs = document.querySelector('nav.tabs');
+                        const top = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0;
+                        const bottom = tabs && getComputedStyle(tabs).position === 'fixed' ? tabs.getBoundingClientRect().top : innerHeight;
+                        return [...document.querySelectorAll('main .flash')].map(m => {
+                            const b = m.getBoundingClientRect();
+                            return {words: m.textContent.trim(), inside: !!m.closest('#add'), status: m.getAttribute('role'),
+                                    shown: b.top >= top - 1 && b.bottom <= bottom + 1};
+                        });
+                    }""")
+                    assert said == [{"words": "Not added: “https://shop.example.org/jumper” is not a COS, Weekday or Zara link.",
+                                     "inside": True, "status": "status", "shown": True}], \
+                        f"with JavaScript {'on' if javascript else 'off'} the rejected link is answered: {said}"
+                finally:
+                    context.close()
+
         def delete_account():
             page.goto(base + "/account", wait_until="networkidle")
             page.locator("form[action$='/account/delete'] input[name=current]").fill(PASSWORD)
@@ -1261,6 +1341,7 @@ def run(base: str) -> None:
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
                  ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),
                  ("the budget bar never hides what has focus", budget_bar_never_hides_the_focus),
+                 ("a piece's page by keyboard, links answered there", a_pieces_page_by_keyboard),
                  ("delete the account", delete_account)]
         for name, step in steps:
             known = len(failures)

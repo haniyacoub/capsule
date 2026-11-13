@@ -13,6 +13,7 @@ from wardrobe import profile as profile_mod
 from wardrobe.app import create_app, eur, weblink
 
 from .test_production import ProductionCase
+from .test_production import words as page_words
 
 HX = {"HX-Request": "true"}
 
@@ -192,6 +193,115 @@ class ManualControl(AppCase):
         self.assertGreaterEqual(w.n_unfilled, 1)
         self.assertEqual(self.client.get("/").status_code, 200)
         self.assertEqual(self.client.get("/outfits").status_code, 200)
+
+
+class APiecesPageInPlainWords(AppCase):
+    """A piece's page and the plan page in the customer's words, and keyboard focus that stays where it was."""
+
+    def visible(self, url: str) -> str:
+        return html.unescape(page_words(self.client.get(url).data.decode()))
+
+    def test_a_piece_and_its_options_are_said_in_the_customers_words(self):
+        coat = self.first("coat")
+        sid, n = coat.slot["id"], len(coat.cands)
+        # One old price, to hear how it is said.
+        on_sale = next(c for c in coat.cands if c.price > 0)
+        catalog.update(lambda cat: catalog.find(cat, sid, on_sale.id).__setitem__("price_before", on_sale.price + 20))
+        page = self.client.get(f"/slot/{sid}").data.decode()
+        text = html.unescape(page_words(page))
+        for jargon in ("candidate", "slot", "score", "re-propose", "Why this"):
+            self.assertNotIn(jargon, text.lower(), f"the piece's page says {jargon!r}")
+        self.assertIn(f"{n} options · {coat.n_available} in your size", text)
+        self.assertIn("Picked for you: the cheapest option rated 70 or more. Choose another below to swap it in.", text)
+        self.assertIn('href="/slot/%s" aria-current="true">By price</a>' % sid, page)
+        by_quality = self.client.get(f"/slot/{sid}?sort=score").data.decode()
+        self.assertIn('href="/slot/%s?sort=score" aria-current="true">By quality</a>' % sid, by_quality)
+        self.assertEqual(by_quality.count('aria-current="true"'), 1, "one way of sorting is the current one")
+        # Each option is a section under the piece: its name, as the store wrote it, is a heading one level down.
+        self.assertEqual(re.findall(r"<h3", page), [])
+        self.assertEqual(len(re.findall(r'<h2 lang="de">', page)), n)
+        self.assertEqual(page.count('<span class="colour-name" lang="de">'), n)
+        # Quality is named, as in the pop-up, and how it is rated is shown with the working.
+        self.assertEqual(page.count("Quality <span class=\"pill"), n)
+        self.assertEqual(page.count('<span class="sr"> out of 100</span></span> <u>How it\'s rated</u>'), n)
+        self.assertIn(f"Quality {coat.cands[0].score.total}/100", text)
+        self.assertIn("Capsule rates ", text)
+        self.assertEqual(text.count("Fabric counts most. The brand part is Capsule's own judgement of how well "
+                                    "each store makes this kind of garment."), n)
+        self.assertRegex(text, r"× 50% = \d+\.\d", "the working is still shown")
+        # What the look says, a screen reader hears too: an old price, a size sold out, your own size.
+        self.assertIn('<s class="was"><span class="sr">was </span>', page)
+        sizes = re.findall(r'<span class="sz([^"]*)">([^<]+)((?:<span class="sr">[^<]*</span>)*)</span>', page)
+        self.assertTrue(sizes)
+        for kind, label, heard in sizes:
+            self.assertEqual("gone" in kind, ", sold out" in heard, label)
+            self.assertEqual("mine" in kind, ", your size" in heard, label)
+        self.assertIn(" gone", "".join(kind for kind, _, _ in sizes), "no size sold out to check")
+        self.assertIn(" mine", "".join(kind for kind, _, _ in sizes), "no size of yours to check")
+        # The store's page opens in a new tab, and that is said.
+        self.assertEqual(page.count('<span class="sr"> (opens in a new tab)</span></a>'), n)
+
+    def test_buttons_keep_their_ids_so_keyboard_focus_stays_put(self):
+        # HTMX gives focus back to the element with the id that had it: the same id before and after a press.
+        def ids(fragment: str) -> dict:
+            return {name: [(tag, label.strip()) for tag, label in re.findall(
+                        rf'<(button|span)[^>]* id="{name}"[^>]*>(?:\s|<svg.*?</svg>)*([^<]*)', fragment, re.S)]
+                    for name in ("slot-lock", "slot-own")}
+
+        self.set_mode("cheapest")
+        s = self.first("knit")
+        sid = s.slot["id"]
+        page = self.client.get(f"/slot/{sid}").data.decode()
+        self.assertEqual(ids(page), {"slot-lock": [("button", "Lock this choice")],
+                                     "slot-own": [("button", "I already own this")]})
+        locked = self.post(f"/slot/{sid}/lock?view=slot").data.decode()
+        self.assertEqual(ids(locked)["slot-lock"], [("button", "Unlock (back to automatic)")])
+        owned = self.post(f"/slot/{sid}/own?view=slot").data.decode()
+        self.assertEqual(ids(owned)["slot-own"], [("button", "I don’t own this after all")])
+        self.post(f"/slot/{sid}/own?view=slot")
+        self.post(f"/slot/{sid}/lock?view=slot")                     # back to automatic
+
+        other = next(c for c in s.cands if c.id != s.chosen.id and c.price > 0)
+        page = self.client.get(f"/slot/{sid}").data.decode()
+        self.assertIn(f'<button class="btn small" id="choose-{other.id}"', page)
+        self.assertEqual(page.count(f'id="choose-{other.id}"'), 1)
+        self.assertIn(f'<span class="chosen-mark" id="choose-{s.chosen.id}" tabindex="-1">', page)
+        picked = self.post(f"/slot/{sid}/pick?view=slot", candidate=other.id).data.decode()
+        self.assertEqual(picked.count(f'id="choose-{other.id}"'), 1)
+        self.assertIn(f'<span class="chosen-mark" id="choose-{other.id}" tabindex="-1">', picked,
+                      "the mark that replaces 'Choose this' has its id, and can take focus")
+        self.assertIn(f'<button class="btn small" id="choose-{s.chosen.id}"', picked)
+
+    def test_the_plan_page_speaks_of_pieces(self):
+        slots = db.list_slots()
+        pieces, n_colours = sum(s["qty"] for s in slots), len({s["colour"] for s in slots})
+        page = self.client.get("/slots").data.decode()
+        text = html.unescape(page_words(page))
+        self.assertNotIn("slot", text.lower())
+        self.assertIn(f"{pieces} pieces in {n_colours} colours, planned from your profile. Change anything: rename, "
+                      "recolour, remove or add. Your wardrobe and outfits update straight away.", text)
+        self.assertIn("Planned for everyday and the office.", text)       # the example profile dresses for both
+        self.assertIn('data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, '
+                      'locked choices and pieces marked as yours are lost."', page)
+        self.assertEqual(text.count("Remove this piece"), len(slots))
+        self.assertIn("Add a piece", text)
+
+        def said(response) -> list[str]:
+            return [html.unescape(m) for m in re.findall(r'<p class="flash[^"]*" role="status">(.*?)</p>',
+                                                         self.client.get(response.headers["Location"]).data.decode(), re.S)]
+
+        added = said(self.client.post("/slots/add", data={"name": "", "category": "overshirt", "colour": "rust", "qty": "1"}))
+        self.assertEqual(added, ["Added “Rust overshirt” to your plan."])
+        new = db.list_slots()[-1]
+        removed = said(self.client.post(f"/slots/{new['id']}/delete"))
+        self.assertEqual(removed, ["Removed “Rust overshirt” from your plan."])
+        again = said(self.client.post("/slots/repropose"))
+        self.assertEqual(again, [f"Started over from your profile: your plan has {pieces} pieces."])
+        empty = profile_mod.load()
+        db.replace_slots([])
+        self.assertIn("No pieces in your plan yet. Add one below, or start over from your profile.", self.visible("/slots"))
+        profile_mod.save({**empty, "use": "office"})
+        self.assertIn("Planned for the office.", self.visible("/slots"))
 
 
 class SlotsAndProfile(AppCase):

@@ -114,7 +114,7 @@ To go back to the invented demo data: `python -m wardrobe mock --yes`.
 ## Edit the scoring rules
 
 Open [config/scoring.toml](config/scoring.toml), change a number, save, reload
-the page. No restart. Each candidate's "Why this score" shows the result.
+the page. No restart. Each option's "How it's rated", on a piece's page, shows the result.
 
 The score is a weighted average of three parts, all in that file:
 
