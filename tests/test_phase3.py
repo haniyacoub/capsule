@@ -15,9 +15,13 @@ ME = {**profile_mod.EXAMPLE, "top_size": "M", "waist": 32, "length": 32, "shoe":
 IN_STOCK = sizes.SizeStatus(True, "M", "M in stock")
 
 
-def notes(category="knit", store="cos", fit="regular", size=IN_STOCK, **profile):
+def check(category="knit", store="cos", fit="regular", size=IN_STOCK, **profile):
     data = {"store": store, "fit": fit}
-    return sizecheck.check(data, size, {**ME, **profile}, category, CHARTS).notes
+    return sizecheck.check(data, size, {**ME, **profile}, category, CHARTS)
+
+
+def notes(category="knit", store="cos", fit="regular", size=IN_STOCK, **profile):
+    return check(category, store, fit, size, **profile).notes
 
 
 class SizeCheck(unittest.TestCase):
@@ -25,13 +29,21 @@ class SizeCheck(unittest.TestCase):
         self.assertEqual(notes(), [])
 
     def test_oversized_and_slim_cuts_are_flagged(self):
-        self.assertIn("Oversized cut", notes(fit="oversized")[0])
-        self.assertIn("Slim cut", notes(fit="slim")[0])
-        self.assertEqual(notes(fit="relaxed"), [], "only the two cuts the spec names are flagged")
+        # The cut is the card's "Fit:" line, not one of the notes about your size.
+        self.assertEqual((check(fit="oversized").fit, check(fit="oversized").fit_flag),
+                         ("oversized, runs large. Size down for a regular fit.", True))
+        self.assertEqual((check(fit="slim").fit, check(fit="slim").fit_flag), ("slim, sits close to the body.", True))
+        self.assertEqual((check(fit="relaxed").fit, check(fit="relaxed").fit_flag), ("relaxed", False),
+                         "only the two cuts the spec names are flagged")
+        self.assertEqual((check().fit, check().fit_flag), ("", False), "a regular cut says nothing")
+        for fit in ("oversized", "slim", "relaxed"):
+            self.assertEqual(notes(fit=fit), [], fit)
         # height and weight tune the advice
-        self.assertIn("one size down", notes(fit="oversized", height_cm=185, weight_kg=68)[0])
-        self.assertIn("one size up", notes(fit="slim", height_cm=175, weight_kg=88)[0])
-        self.assertNotIn("one size up", notes(fit="slim")[0])
+        self.assertEqual(check(fit="oversized", height_cm=185, weight_kg=68).fit,
+                         "oversized, runs large. On a slim build it looks bigger still: consider one size down.")
+        self.assertEqual(check(fit="slim", height_cm=175, weight_kg=88).fit,
+                         "slim, sits close to the body. Consider one size up.")
+        self.assertNotIn("one size up", check(fit="slim").fit)
 
     def test_between_sizes_by_the_stores_chart(self):
         self.assertEqual(notes(), [], "no chest entered: no chart check")
@@ -64,8 +76,11 @@ class SizeCheck(unittest.TestCase):
         self.assertEqual(notes("tee", height_cm=195), [], "a tee's length is not flagged")
 
     def test_missing_size_information_is_said_out_loud(self):
+        # Truthfully: nobody opened the store's product page, so the sizes were not checked, at a store named.
         unknown = sizes.SizeStatus(True, None, "unknown", known=False)
-        self.assertTrue(any("gave no sizes" in n for n in notes(size=unknown)))
+        self.assertEqual(notes(size=unknown)[-1], "Sizes not checked at COS: look on its page before you buy.")
+        self.assertEqual(notes(store="weekday", size=unknown)[-1],
+                         "Sizes not checked at Weekday: look on its page before you buy.")
 
     def test_the_likely_label_when_a_store_gives_no_sizes(self):
         for store, category, expected in [("cos", "tee", "M"), ("cos", "coat", "M / 48"), ("cos", "trousers", "48"),
@@ -107,9 +122,10 @@ class SizeCheckInTheApp(AppCase):
         w = selection.build()
         view = next(s for s in w.slots if any(c.data["fit"] == "oversized" and c.available for c in s.cands))
         cand = next(c for c in view.cands if c.data["fit"] == "oversized" and c.available)
-        self.assertIn(b"Oversized cut", self.client.get(f"/slot/{view.slot['id']}").data)
+        said = "Fit: oversized, runs large. Size down for a regular fit."
+        self.assertIn(said, self.client.get(f"/slot/{view.slot['id']}").data.decode())
         self.client.post(f"/slot/{view.slot['id']}/pick", data={"candidate": cand.id}, headers=HX)
-        self.assertIn(b"Oversized cut", self.client.get("/").data)
+        self.assertIn(said, self.client.get("/").data.decode())
 
     def test_the_size_to_order_is_the_stores_own_label(self):
         w = selection.build()
@@ -218,8 +234,9 @@ class ShoppingList(AppCase):
         self.client.post(f"/slot/{view.slot['id']}/pick", data={"candidate": cand.id}, headers=HX)
         sl = export.build(selection.build())
         line = next(line for g in sl.groups for line in g.lines if line.slot == view.slot["name"])
-        self.assertTrue(any("Slim cut" in n for n in line.notes))
-        self.assertIn("Slim cut", export.to_markdown(sl))
+        self.assertTrue(any(n.startswith("Fit: slim, sits close to the body.") for n in line.notes), line.notes)
+        self.assertIn("  - Fit: slim, sits close to the body.", export.to_markdown(sl))
+        self.assertIn("Fit: slim, sits close to the body.", export.to_csv(sl))
 
     def test_pages_and_downloads(self):
         page = self.client.get("/list")

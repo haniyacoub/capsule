@@ -8,7 +8,7 @@ from pathlib import Path
 
 from markupsafe import escape
 
-from wardrobe import capsule, catalog, colours, config, db, export, outfits, paths, selection, shared
+from wardrobe import capsule, catalog, colours, config, db, english, export, outfits, paths, selection, shared
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app, eur, weblink
 
@@ -211,19 +211,35 @@ class APiecesPageInPlainWords(AppCase):
         text = html.unescape(page_words(page))
         for jargon in ("candidate", "slot", "score", "re-propose", "Why this"):
             self.assertNotIn(jargon, text.lower(), f"the piece's page says {jargon!r}")
-        self.assertIn(f"{n} options · {coat.n_available} in your size", text)
-        self.assertIn("Picked for you: the cheapest option rated 70 or more. Choose another below to swap it in.", text)
+        # Every demo option has its sizes, so none is "with sizes not checked" (test_size_picks: one that is not).
+        self.assertIn(f"{n} options · {coat.n_in_your_size} in your size By price", text)
+        self.assertEqual(coat.n_not_checked, 0)
+        self.assertIn("Picked for you: the cheapest option in your size rated 70 or more. Choose another below to swap "
+                      "it in.", text)
         self.assertIn('href="/slot/%s" aria-current="true">By price</a>' % sid, page)
         by_quality = self.client.get(f"/slot/{sid}?sort=score").data.decode()
         self.assertIn('href="/slot/%s?sort=score" aria-current="true">By quality</a>' % sid, by_quality)
         self.assertEqual(by_quality.count('aria-current="true"'), 1, "one way of sorting is the current one")
-        # Each option is a section under the piece: its name, as the store wrote it, is a heading one level down.
+        # Each option is a section under the piece: its name is a heading one level down, in English where every
+        # word is known, with the store's own words (German) under it in small print; otherwise the store's own.
         self.assertEqual(re.findall(r"<h3", page), [])
-        self.assertEqual(len(re.findall(r'<h2 lang="de">', page)), n)
+        self.assertEqual(len(re.findall(r'<h2 lang="(?:en|de)">', page)), n)
+        translated = 0
+        for c in coat.cands:
+            said = english.name(c.data["name"])
+            if said:
+                translated += 1
+                self.assertIn(f'<h2 lang="en">{escape(said)}</h2>', page)
+                self.assertIn(f'<p class="orig"><span lang="de">{escape(c.data["name"])}</span>', page)
+            else:
+                self.assertIn(f'<h2 lang="de">{escape(c.data["name"])}</h2>', page)
+        self.assertTrue(translated, "the demo coats have names the word list knows")
         self.assertEqual(page.count('<span class="colour-name" lang="de">'), n)
-        # Quality is named, as in the pop-up, and how it is rated is shown with the working.
+        # Quality is named beside the store, as on every card ("Quality 73/100", heard as "Quality 73 out of 100"),
+        # and how it is rated is shown with the working.
         self.assertEqual(page.count("Quality <span class=\"pill"), n)
-        self.assertEqual(page.count('<span class="sr"> out of 100</span></span> <u>How it\'s rated</u>'), n)
+        self.assertEqual(page.count('<span class="of" aria-hidden="true">/100</span></span><span class="sr"> out of 100</span>'), n)
+        self.assertEqual(page.count("<summary><u>How it's rated</u></summary>"), n)
         self.assertIn(f"Quality {coat.cands[0].score.total}/100", text)
         self.assertIn("Stilsmith rates ", text)
         self.assertEqual(text.count("Fabric counts most. The brand part is Stilsmith's own judgement of how well "
@@ -302,6 +318,49 @@ class APiecesPageInPlainWords(AppCase):
         self.assertIn("No pieces in your plan yet. Add one below, or start over from your profile.", self.visible("/slots"))
         profile_mod.save({**empty, "use": "office"})
         self.assertIn("Planned for the office.", self.visible("/slots"))
+
+    def test_adding_or_saving_a_piece_is_answered_inside_that_piece(self):
+        # The plan page comes back at the piece just added or saved (#slot-<id>), far down the page on a phone: what
+        # that came to is said inside that piece, as a status line, and nothing about it at the page's top. Removing
+        # a piece is said at the top: the piece is gone.
+        flash = re.compile(r'<p class="flash[^"]*" role="status">(.*?)</p>', re.S)
+
+        def answered(response) -> tuple[str, list[str], dict[str, list[str]]]:
+            """Where the answer lands, the messages at the page's top, and those inside each piece that has any."""
+            location = response.headers["Location"]
+            page = self.client.get(location).data.decode()
+            top = page.split("<main>", 1)[1].split("<h1>", 1)[0]
+            pieces = {m.group(1): flash.findall(m.group(2)) for m in re.finditer(r'<li id="slot-([^"]+)">(.*?)</li>', page, re.S)}
+            return location, flash.findall(top), {sid: said for sid, said in pieces.items() if said}
+
+        where, top, inside = answered(self.client.post("/slots/add", data={"name": "", "category": "overshirt",
+                                                                            "colour": "rust", "qty": "1"}))
+        new = db.list_slots()[-1]["id"]
+        self.assertEqual(where, f"/slots#slot-{new}")
+        self.assertEqual((top, inside), ([], {new: ["Added “Rust overshirt” to your plan."]}))
+        where, top, inside = answered(self.client.post(f"/slots/{new}/save", data={
+            "name": "Rust work overshirt", "category": "overshirt", "colour": "rust", "qty": "1"}))
+        self.assertEqual(where, f"/slots#slot-{new}")
+        self.assertEqual((top, inside), ([], {new: ["Saved “Rust work overshirt”."]}))
+        where, top, inside = answered(self.client.post(f"/slots/{new}/delete"))
+        self.assertEqual((where, top, inside), ("/slots", ["Removed “Rust work overshirt” from your plan."], {}))
+
+    def test_an_answer_to_part_of_a_piece_page_takes_no_message_away(self):
+        # A button pressed on a piece's page (Lock, Choose this, I already own this) is answered with that part of the
+        # page only (HTMX). A message still waiting for the next whole page, of any kind, is not read by that answer:
+        # it is said on the page it was meant for, and what pasted links came to inside its own section.
+        sid = self.first("coat").slot["id"]
+        with self.client.session_transaction() as session:
+            session["_flashes"] = [("message", "A message for the next page."), ("import", "Added “Some coat”.")]
+        part = self.post(f"/slot/{sid}/lock?view=slot")
+        self.assertIn('id="slot-lock"', part.data.decode(), "not the piece page's part")
+        self.assertNotIn("A message for the next page.", part.data.decode())
+        page = self.client.get(f"/slot/{sid}").data.decode()
+        top, add = page.split("<main>", 1)[1].split('id="add"', 1)
+        self.assertIn('<p class="flash" role="status">A message for the next page.</p>', top)
+        self.assertNotIn("Some coat", top)
+        self.assertIn('<p class="flash" role="status">Added “Some coat”.</p>', add)
+        self.assertNotIn("A message for the next page.", self.client.get(f"/slot/{sid}").data.decode(), "said once")
 
 
 class SlotsAndProfile(AppCase):
@@ -816,8 +875,14 @@ class BuyingInYourSizes(AppCase):
                 self.assertIn(swatch, html_line)
                 if line.image_url:
                     self.assertIn(f'<img src="{escape(line.image_url)}"', html_line)
+                # The link is the product's name in English where every word is known, the store's own (German)
+                # under it in small print; otherwise the store's own.
+                said = english.name(line.product)
                 self.assertIn(f'<a class="buy-product" href="{escape(weblink(line.url))}" target="_blank" '
-                              f'rel="noopener noreferrer"><span lang="de">{escape(line.product)}</span>', html_line)
+                              f'rel="noopener noreferrer"><span lang="{"en" if said else "de"}">'
+                              f'{escape(said or line.product)}</span>', html_line)
+                if said:
+                    self.assertIn(f'<span class="orig" lang="de">{escape(line.product)}</span>', html_line)
                 self.assertIn(f'Colour: <span lang="de">{escape(line.colour)}</span> · Size: <b>{escape(line.size)}</b>',
                               html_line)
         # Both kinds were checked: the demo data has products with a photo and one without (the Weekday chinos).

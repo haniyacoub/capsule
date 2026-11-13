@@ -8,6 +8,10 @@
 {% else %}
 <p class="crumb"><a href="{{ url_for('wardrobe') }}#card-{{ s.slot.id }}">{{ icon('back') }} Wardrobe</a></p>
 {% endif %}
+{# What adding products by link came to (app.slot_import) is read here, by the whole page only, and said inside that
+   section of the page (_slot_body.html). An HTMX answer re-renders _slot_body.html alone, and reading messages
+   there would take every waiting message, of any kind, away from the page it was meant for. #}
+{% set link_messages = get_flashed_messages(category_filter=['import']) %}
 <div id="slot-body" hx-target="this" hx-swap="innerHTML" hx-sync="this:queue all">
   {% include "_slot_body.html" %}
 </div>
