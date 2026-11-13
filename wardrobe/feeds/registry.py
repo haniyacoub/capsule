@@ -110,6 +110,13 @@ def stale(store: dict, now: datetime | None = None) -> bool:
     return (now or datetime.now().astimezone()) - datetime.fromisoformat(when) > timedelta(hours=hours + 24)
 
 
+def stale_words(store: dict) -> str:
+    """Why a stale store is stale, in the words every list of the stores uses."""
+    if not (store.get("last_feed_update") or store.get("last_import_at")):
+        return "no feed imported yet"
+    return "the feed is older than its refresh hours plus a day"
+
+
 def table(now: datetime | None = None) -> list[str]:
     """`python -m wardrobe stores`: one line per store, and a second one for a problem."""
     stores = db.list_stores()
@@ -120,8 +127,7 @@ def table(now: datetime | None = None) -> list[str]:
         lines.append(f"{s['key']:<16}{s['status']:<10}{s['network'] or '-':<14}{s['products']:>9}  "
                      f"{_short(s['last_feed_update']):<18}{_short(s['last_import_at']):<18}".rstrip())
         if stale(s, now):
-            lines.append("    STALE: " + ("no feed imported yet" if not (s["last_feed_update"] or s["last_import_at"])
-                                         else "the feed is older than its refresh hours plus a day"))
+            lines.append(f"    STALE: {stale_words(s)}")
         if s["last_error"]:
             lines.append(f"    last refresh failed: {s['last_error']}")
     return lines

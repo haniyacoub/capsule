@@ -44,6 +44,11 @@ def product(record: dict) -> dict:
                                                 #          unsure: how Awin's JSON Lines writes it (the
                                                 #          price reader takes text, a number or {"value", "currency"})
         sale_price=f.get("sale_price"),         # [Google] [Awin] [Webgains] sale_price: the reduced price, if any
+        sale_dates=f.get("sale_price_effective_date"),   # [Google] sale_price_effective_date: when the sale price
+                                                #          applies, a start and an end in ISO 8601 split by "/",
+                                                #          "2026-11-20T00:00+01:00/2026-11-30T23:59+01:00"; without
+                                                #          it the sale price always applies. Unsure: whether
+                                                #          [Awin]'s and [Webgains]' files carry it (rows.sale_runs)
         sizes=f.get("size"),                    # [Google] [Awin] [Webgains] size: this row's size (each size is its own row)
         available=rows.in_stock(f.get("availability")),  # [Google] [Awin] [Webgains] availability:
                                                          #          in_stock | out_of_stock | preorder | backorder

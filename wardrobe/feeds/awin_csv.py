@@ -43,7 +43,9 @@ def product(record: dict) -> dict:
         material=get("Fashion:material"),        # [Guide] material; unsure: "Fashion:"
         price=get("search_price"),               # [Guide] search_price: the price it sells for now
         sale_price=None,                         # [Guide] rrp_price, a "was" price, is not read: only the
-                                                 #         current price is shown until the lawyer has answered
+                                                 #         current price is shown until the lawyer has answered.
+                                                 #         So no sale dates are read either; unsure: whether the
+                                                 #         guide names a column for them, as Google's format does
         currency=get("currency"),                # [Guide] unsure: the name. Without one, euros are assumed
         sizes=get("Fashion:size"),               # [Guide] size: "S,M,L"; unsure: "Fashion:"
         size_stock=rows.size_stock(get("size_stock_status")),   # [Guide] "S:available|M:out of stock",

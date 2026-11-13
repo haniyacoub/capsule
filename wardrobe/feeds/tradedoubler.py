@@ -53,7 +53,9 @@ def product(record: dict) -> dict:
                                                              #      unsure: its exact name
         material=fields.get("material"),             # [TD] a store field; unsure: that a store calls it "material"
         price=_current_price(offer),                 # [TD] priceHistory, else price; unsure: their shape,
-                                                     #      taken to be {"value": "49.95", "currency": "EUR"}
+                                                     #      taken to be {"value": "49.95", "currency": "EUR"}.
+                                                     #      Only the price it sells for now is read, so no sale
+                                                     #      dates either; unsure: whether an offer carries any
         sizes=record.get("size") or fields.get("size"),      # [TD] size; unsure: on the product or a store field
         available=rows.in_stock(offer.get("availability"),   # [TD] availability, in words
                                 offer.get("inStock")),       # [TD] inStock, a count
