@@ -194,7 +194,7 @@ def rebuild_mock(args: argparse.Namespace) -> None:
     from . import catalog, db, mock
 
     db.init()
-    current = catalog.load()
+    current = catalog.stored()      # what you added from a store that is no longer offered is kept too
     if current.get("source") == "collected" and not args.yes:
         sys.exit("The catalogue holds real store data. To throw it away and go back to the\n"
                  "invented demo data, run:  python -m wardrobe mock --yes")

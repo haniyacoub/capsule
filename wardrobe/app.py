@@ -73,11 +73,12 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
     On demo data the invented candidates are rebuilt. On real data, candidates
     of deleted slots are dropped, and so are those collected for a slot whose
     garment or colour just changed (they no longer fit it). Items you added by
-    hand always stay. Returns True if real data now needs a refresh: only on your
+    hand always stay, also from a store that is no longer offered (set aside, see
+    catalog.set_aside). Returns True if real data now needs a refresh: only on your
     own machine, where you can run one (REFRESH_HINT). A customer can't, so a
     customer is never told to.
     """
-    current = catalog.load()
+    current = catalog.stored()      # all of it: what you added from a store that is no longer offered stays
     slots = db.list_slots()
     if conf.PRODUCTION:                 # customers get their candidates from the shared store catalogue
         real = shared.build_catalog(slots, current)
@@ -288,6 +289,8 @@ def create_app() -> Flask:
         ink_on=colours.ink_on, level_hints=selection.HINTS,
         # The stores customers are offered, {key: name}, and their names in a sentence (programmes.py).
         STORES=programmes.OFFERED, store_names=programmes.names,
+        # What a customer added to a piece from a store that is no longer offered, listed on its page (_set_aside.html).
+        set_aside_for=catalog.set_aside,
     )
     bootstrap()
 
@@ -494,6 +497,54 @@ def create_app() -> Flask:
         known = occasion in outfits.OCCASIONS or occasion == "saved"
         return {"from": "outfit", "at": at, **({"occasion": occasion} if known else {})}
 
+    def earlier_option(view: selection.SlotView, cand_id: str) -> dict | None:
+        """A product this piece had before a change, by its id: its name and price, if it is one of the piece's
+        options now or (in production) a product a lock to it brings back among them (shared.brought_back_by_a_lock:
+        Choose lets one go that only its lock kept, see slot_pick). None for any other id."""
+        here = next((c for c in view.cands if c.id == cand_id), None)
+        if here is not None:
+            return {"name": here.data.get("name", ""), "price": here.price}
+        product = shared.brought_back_by_a_lock(view.slot, cand_id) if conf.PRODUCTION and cand_id else None
+        if product is None:
+            return None
+        return {"name": product.get("name", ""), "price": selection.usable_price(product.get("price"))}
+
+    def change_said(w: selection.Wardrobe, shown: outfits.Outfit | None) -> dict | None:
+        """What a change just made from an outfit did, for the line over the outfits (outfits.html), read from the
+        address it led to. Each value is checked against this customer's own wardrobe, and one that does not match is
+        left out: such an address can come from anywhere (an old tab, a link). `shown` is the outfit at the address.
+
+        Choose in the pop-up (slot_pick): ?changed=<piece>&was=<product before, or empty>&was_locked=<0|1>: the piece
+        now locked to another product than `was`. Said with Undo where `was` and was_locked describe a state it can
+        go back to (see slot_restore).
+        'Leave the coat off' and 'Wear the … instead' (_piece.html): ?left=<piece>&back=<outfit> or
+        ?instead=<piece>&back=<outfit>: the outfit shown is the one at `back` without that piece, or with another in
+        its place. Said with the link back to it."""
+        args = request.args
+        if args.get("changed"):
+            view = w.get(args["changed"])
+            was, was_locked = args.get("was", ""), args.get("was_locked")
+            if view is None or view.state != "locked" or view.chosen is None or view.chosen.id == was:
+                return None             # (after Undo and then Back, say: what the address says changed is undone)
+            said = {"kind": "changed", "view": view, "was": was, "was_locked": was_locked, "at": args.get("at", "")[:400]}
+            earlier = earlier_option(view, was) if was else None
+            if (was_locked == "1" and earlier) or (was_locked == "0" and (earlier or not was)):
+                said["undo"], said["was_price"] = True, earlier["price"] if earlier else None
+            return said
+        back_sig = args.get("back", "")[:400]
+        before = outfits.find_by_sig(w, back_sig) if back_sig else None
+        if shown is None or before is None:
+            return None
+        here, there = shown.slots, before.slots
+        left, instead = args.get("left", ""), args.get("instead", "")
+        if left and left in there and here == tuple(s for s in there if s != left):
+            return {"kind": "left", "piece": w.get(left), "back": back_sig}
+        if instead and instead in there and len(here) == len(there):
+            i = there.index(instead)
+            if here[i] != instead and here[:i] + here[i + 1:] == there[:i] + there[i + 1:]:
+                return {"kind": "instead", "piece": w.get(instead), "new": w.get(here[i]), "back": back_sig}
+        return None
+
     def slot_context(w: selection.Wardrobe, slot_id: str) -> dict:
         view = w.get(slot_id)
         if view is None:
@@ -560,9 +611,61 @@ def create_app() -> Flask:
         if conf.PRODUCTION and before and before.id != cand_id and shared.kept_for_its_lock(view.slot, before.data):
             sync_catalog()      # the product it was locked to, in a colour he refused since, was kept only for that
         if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
+            # with what was there before, so that the page says what changed and can undo it (change_said). The
+            # pop-up's form says what it showed; a form without it (an older pop-up) gets the piece as it was here.
+            was, was_locked = request.form.get("was"), request.form.get("was_locked")
+            if was is None or was_locked not in ("0", "1"):
+                was = view.chosen.id if view.chosen and view.state != "owned" else ""
+                was_locked = "1" if view.state == "locked" else "0"
             return redirect(url_for("outfits_page", at=request.form["outfit"][:400],
-                                    occasion=request.form.get("occasion") or None))
+                                    occasion=request.form.get("occasion") or None,
+                                    changed=slot_id, was=was[:200], was_locked=was_locked))
         return after_slot_change(slot_id)
+
+    @app.post("/slot/<slot_id>/restore")
+    def slot_restore(slot_id: str):
+        """'Undo' on the line that says what Choose changed (outfits.html): the piece's earlier product and lock state
+        again, or automatic again when it was not locked. Back to the same outfit, with a line saying so. A product
+        that was kept among the piece's options only for its lock went when another was chosen (slot_pick): the
+        lock put back brings it back. One that is no longer in the product list at all cannot be put back: said."""
+        view = selection.build().get(slot_id)
+        was, locked = request.form.get("was", ""), request.form.get("was_locked")
+        if view is None or locked not in ("0", "1"):
+            abort(404)
+        outfit = request.form.get("outfit", "")[:400]
+        occasion = request.form.get("occasion", "")
+        back = url_for("outfits_page", at=outfit or None, occasion=occasion if occasion in outfits.OCCASIONS else None)
+        earlier = earlier_option(view, was) if locked == "1" else None
+        if locked == "1" and earlier is None:
+            flash(f"The product your {view.slot['name'].lower()} had before is no longer in {conf.SITE_NAME}'s product "
+                  "list, so it can't be put back.")
+            return redirect(back)
+        if earlier is not None and earlier["price"] <= 0:     # as Choose refuses it (slot_pick), said on the outfit
+            said = Markup("The product your %s had before has no price now, so it can't be put back.") % (
+                view.slot["name"].lower())
+            if any(c.id == was for c in view.cands):       # its price can be added on the piece's page, where it is
+                way: dict = {"from": "outfit", "at": outfit, **({"occasion": occasion} if occasion in outfits.OCCASIONS
+                                                                 else {})} if outfit else {}     # (as way_back reads it)
+                said += Markup(' <a href="%s">Add its price</a>') % url_for(
+                    "slot_page", slot_id=slot_id, _anchor=f"cand-{was}", **way)
+            flash(said, "said")
+            return redirect(back)
+        if locked == "1":
+            db.update_slot(slot_id, pick=was, locked=True)
+        else:
+            db.update_slot(slot_id, pick=None, locked=False)        # automatic again
+        # The options again as they should be: with the product put back if a lock alone keeps it, and without one
+        # that only the lock just undone kept (as Choose and Unlock do).
+        brought_back = locked == "1" and all(c.id != was for c in view.cands)
+        letting_go = [c.data for c in view.cands if not (locked == "1" and c.id == was)]
+        if conf.PRODUCTION and (brought_back or shared.kept_for_its_lock(view.slot, *letting_go)):
+            sync_catalog()
+        now = selection.build().get(slot_id)
+        if now is not None and now.chosen is not None:     # "Indigo jeans: back to …" (the look: app.css .said)
+            flash(Markup('%s: back to <span lang="de">%s</span>, %s, in all your outfits.%s') % (
+                view.slot["name"], now.chosen.data.get("name", ""), eur(now.chosen.price),
+                "" if locked == "1" else " The price level picks this piece again."), "said")
+        return redirect(back)
 
     @app.post("/slot/<slot_id>/lock")
     def slot_lock(slot_id: str):
@@ -705,9 +808,10 @@ def create_app() -> Flask:
 
     @app.post("/slot/<slot_id>/remove")
     def slot_remove(slot_id: str):
-        """Remove a candidate you added by hand."""
+        """Remove a candidate you added by hand: one of the piece's options, or one set aside because its store is no
+        longer offered (catalog.set_aside, listed on the piece's page)."""
         cand_id = request.form.get("candidate", "")
-        cand = catalog.find(catalog.load(), slot_id, cand_id)
+        cand = catalog.find(catalog.stored(), slot_id, cand_id)
         if cand is None or cand.get("source") != "manual":
             abort(404)
         slot = db.get_slot(slot_id)
@@ -715,7 +819,9 @@ def create_app() -> Flask:
             db.update_slot(slot_id, locked=False, pick=None)
         catalog.update(lambda cat: cat.__setitem__("candidates", [
             c for c in cat["candidates"] if not (c.get("slot_id") == slot_id and c.get("id") == cand_id)]))
-        flash(f"Removed “{cand['name']}” from this piece's options.")
+        # One set aside was never among the piece's options: "Removed “Basic T-Shirt”."
+        where = " from this piece's options" if programmes.is_offered(cand.get("store")) else ""
+        flash(f"Removed “{cand['name']}”{where}.")
         return redirect(url_for("slot_page", slot_id=slot_id, **way_back()))
 
     # ── Outfits ───────────────────────────────────────────────────────────────
@@ -733,6 +839,7 @@ def create_app() -> Flask:
         except ValueError:
             n, seed = 12, 0
         saved = db.saved_keys()
+        said = None             # what a change just made from an outfit did (change_said)
 
         if occasion == "saved":
             now_picked = {s.slot["id"]: (s.chosen.id if s.chosen and s.state != "owned" else None) for s in w.slots}
@@ -756,6 +863,7 @@ def create_app() -> Flask:
         else:
             chosen, total = outfits.generate(w, occasion=occasion, limit=n, seed=seed)
             at = request.args.get("at", "")
+            first = None
             if at:      # one particular combination, shown first: after a swap, or "wear something else here"
                 first = outfits.find_by_sig(w, at)
                 if first:
@@ -765,6 +873,7 @@ def create_app() -> Flask:
                 else:
                     flash("With that change the combination no longer passes the outfit rules, "
                           "so it is not shown. These do.")
+            said = change_said(w, first)
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
                        "saved": o.key in saved} for o in chosen]
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
@@ -776,6 +885,7 @@ def create_app() -> Flask:
                     # Until the profile is saved, the starter banner stands where the budget bar would: a budget
                     # the customer never set says nothing yet. Saving the profile brings the bar back.
                     starter=starter_line() if prof["example"] else "",
+                    said=said,      # what a change just made from an outfit did, over the outfits (change_said)
                     auto=looks_on and looks.load_rules()["pictures"]["auto"] and not looks.held_off())
 
     @app.get("/outfits/piece")

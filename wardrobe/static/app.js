@@ -271,6 +271,17 @@ if (sheet) {
   });
 }
 
+// 8a. Each piece of an outfit (its photo, its dot on the picture, its line in the list) is a link to the piece's own
+//     page, which is what a tap opens without JavaScript (outfits.html). Here HTMX opens the pop-up from it instead,
+//     so it is a button: a screen reader calls it one, and Space presses it, as it would a button.
+document.querySelectorAll('#reel a[hx-target="#piece-body"]').forEach((link) => link.setAttribute('role', 'button'));
+document.addEventListener('keydown', (e) => {
+  const link = e.key === ' ' && e.target instanceof Element && e.target.closest('#reel a[role=button][hx-target="#piece-body"]');
+  if (!link || e.altKey || e.ctrlKey || e.metaKey) return;
+  e.preventDefault();       // not the page scrolling down
+  if (!e.repeat) link.click();
+});
+
 // 9. "Open all": every product page of one store, each in its own tab. Browsers
 //    hold back tabs they did not expect; if that happens, say so.
 document.addEventListener('click', (e) => {
@@ -354,6 +365,18 @@ if (starter && 'ResizeObserver' in window) {
   new ResizeObserver(() => {
     document.documentElement.style.setProperty('--bar-h', `${starter.getBoundingClientRect().height}px`);
   }).observe(starter);
+}
+
+// 12a. The line over the outfits that says what a change made from an outfit did (Choose, Undo, leaving a piece off)
+//      is one to four lines on a phone, by the length of the product's name. The picture gives up room for it (--told,
+//      see app.css): the longest line's until this runs. Here it is the room the line really takes, its height and
+//      the space under it, so that a shorter line leaves the picture larger. It is measured again when it rewraps.
+const saidLine = document.querySelector('main > .said');
+if (saidLine && 'ResizeObserver' in window) {
+  new ResizeObserver(() => {
+    const under = parseFloat(getComputedStyle(saidLine).marginBottom) || 0;
+    document.documentElement.style.setProperty('--said-h', `${saidLine.getBoundingClientRect().height + under}px`);
+  }).observe(saidLine);
 }
 
 // 13. Profile: About you is one form, the model and the photo are others, and sending either of those loads the page

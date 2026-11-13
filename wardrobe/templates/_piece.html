@@ -65,10 +65,10 @@
 <h3 class="sec">In this outfit</h3>
 <div class="chips">
   {% for other, target in swaps %}
-  <a class="chip-link" href="{{ url_for('outfits_page', at=target, occasion=occasion or None) }}"><i class="dot" style="background:{{ other.hex }}"></i>Wear the {{ other.view.slot.name|lower }} instead</a>
+  <a class="chip-link" href="{{ url_for('outfits_page', at=target, occasion=occasion or None, instead=s.slot.id, back=sig) }}"><i class="dot" style="background:{{ other.hex }}"></i>Wear the {{ other.view.slot.name|lower }} instead</a>
   {% endfor %}
   {% if without %}
-  <a class="chip-link" href="{{ url_for('outfits_page', at=without, occasion=occasion or None) }}">Leave the {{ s.garment.label|lower }} off</a>
+  <a class="chip-link" href="{{ url_for('outfits_page', at=without, occasion=occasion or None, left=s.slot.id, back=sig) }}">Leave the {{ s.garment.label|lower }} off</a>
   {% endif %}
 </div>
 {% endif %}
@@ -99,6 +99,9 @@
       <input type="hidden" name="candidate" value="{{ o.id }}">
       <input type="hidden" name="outfit" value="{{ sig }}">
       <input type="hidden" name="occasion" value="{{ occasion }}">
+      {# What the piece is now, so that the outfit page can say what changed and undo it (app.py, change_said). #}
+      <input type="hidden" name="was" value="{{ c.id if c else '' }}">
+      <input type="hidden" name="was_locked" value="{{ 1 if s.state == 'locked' else 0 }}">
       <button class="btn ghost small">Choose</button>
     </form>
     {% else %}

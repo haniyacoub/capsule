@@ -6,6 +6,7 @@ the two real services are exercised against canned answers.
 import base64
 import contextlib
 import copy
+import html as html_mod
 import io
 import json
 import os
@@ -28,8 +29,9 @@ from wardrobe import catalog, config, db, imagegen, looks, outfits, paths, perso
 from wardrobe import videos
 from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
-from wardrobe.app import PHOTO_CONSENT
+from wardrobe.app import PHOTO_CONSENT, eur
 
+from . import test_production as production
 from .test_app import HX, AppCase
 from .test_production import PASSWORD, ProductionCase
 from .test_production import description, words
@@ -363,7 +365,8 @@ class Viewer(AppCase):
         again = outfits.find_by_sig(selection.build(), outfit.sig)
         if again:       # still passes the outfit rules with the new piece: it leads the reel
             self.assertLess(page.index(f'id="outfit-{again.key}"'), page.index("2 / "))
-            self.assertIn(other.data["name"], page)
+            # worn in that outfit (not only named in the line over the outfits that says what changed)
+            self.assertIn(str(escape(other.data["name"])), page[page.index(f'id="outfit-{again.key}"'):page.index("2 / ")])
         else:
             self.assertIn("no longer passes the outfit rules", page)
 
@@ -470,6 +473,270 @@ class Viewer(AppCase):
         self.assertIn(f'id="outfit-{outfit.key}"', page)
         self.assertIn("1 / 1", page)
         self.assertNotIn("Buy this outfit", page)       # a saved outfit is a snapshot, not today's selection
+
+
+# ── a change made from an outfit, said in words, with Undo ───────────────────
+
+def status_line(page: str) -> str:
+    """The words of the line over the outfits that says what a change did (outfits.html), as read: "" if none."""
+    found = re.search(r'<div class="flash said[^"]*" role="status">(.*?)</div>', page, re.S)
+    return as_read(found.group(1)) if found else ""
+
+
+def flashes(page: str) -> list[str]:
+    return [as_read(m) for m in re.findall(r'<p class="flash[^"]*" role="status">(.*?)</p>', page, re.S)]
+
+
+def as_read(markup: str) -> str:
+    """Text without its tags, the spaces between words as the browser shows them (a price keeps its no-break space)."""
+    return re.sub(r"[ \t\r\n]+", " ", html_mod.unescape(re.sub(r"<[^>]+>", "", markup))).strip()
+
+
+class SaidWithUndo(AppCase):
+    """'Choose' in an outfit's pop-up changes the piece in every outfit and locks it; leaving a piece off or wearing
+    another shows another outfit. Each is said in words over the outfit, with the way back."""
+
+    def piece_with_options(self):
+        outfit = some_outfits(1)[0]
+        piece = next(p for p in outfit.pieces if p.layer == "top")
+        sid = piece.view.slot["id"]
+        other = next(c for c in piece.view.cands if c.available and c.price > 0 and c.id != piece.view.chosen.id)
+        return outfit, sid, piece.view.chosen, other
+
+    def choose(self, outfit, sid, other):
+        """Choose `other` in the pop-up, as its form sends it: the address the browser is sent to."""
+        popup = self.client.get("/outfits/piece", query_string={"at": outfit.sig, "slot": sid, "occasion": "all"},
+                                headers=HX).data.decode()
+        form = re.search(rf'<input type="hidden" name="candidate" value="{re.escape(other.id)}">(.*?)</form>', popup, re.S)
+        sent = dict(re.findall(r'name="(\w+)" value="([^"]*)"', form.group(1)))
+        r = self.client.post(f"/slot/{sid}/pick", data={"candidate": other.id, **sent})
+        self.assertEqual(r.status_code, 302)
+        return sent, r.headers["Location"]
+
+    def undo(self, page):
+        """Press Undo on the line: the form's own fields, sent to its own address."""
+        form = re.search(r'<form method="post" action="(/slot/[^"]+/restore)">(.*?)</form>', page, re.S)
+        self.assertIsNotNone(form, "no Undo")
+        return self.client.post(form.group(1), data=dict(re.findall(r'name="(\w+)" value="([^"]*)"', form.group(2))))
+
+    def test_choose_says_the_piece_the_product_its_price_and_the_old_price_and_undo_makes_it_automatic_again(self):
+        outfit, sid, before, other = self.piece_with_options()
+        self.assertEqual(self.view(sid).state, "auto")
+        sent, where = self.choose(outfit, sid, other)
+        self.assertEqual((sent["was"], sent["was_locked"]), (before.id, "0"), "the form carries what the piece is now")
+        self.assertTrue(where.startswith(f"/outfits?at={outfit.sig}"), where)
+        self.assertEqual(self.view(sid).chosen.id, other.id)
+        page = self.client.get(where).data.decode()
+        name = self.view(sid).slot["name"]
+        self.assertEqual(status_line(page), f"{name} changed in all your outfits: {other.data['name']}, {eur(other.price)} "
+                                            f"(was {eur(before.price)}). It stays when you change the price level. Undo")
+        self.assertIn(f'<span lang="de">{escape(other.data["name"])}</span>', page)
+
+        back = self.undo(page)
+        self.assertEqual(back.status_code, 302)
+        self.assertEqual(back.headers["Location"], f"/outfits?at={outfit.sig}&occasion=all")
+        page = self.client.get(back.headers["Location"]).data.decode()
+        self.assertEqual(flashes(page), [f"{name}: back to {before.data['name']}, {eur(before.price)}, in all your outfits. "
+                                         "The price level picks this piece again."])
+        self.assertEqual(status_line(page), "")
+        after = self.view(sid)
+        self.assertEqual((after.state, after.chosen.id, after.slot["pick"]), ("auto", before.id, None))
+        self.assertIn('<button id="lock-%s" class="act" aria-pressed="false"' % sid, self.client.get("/").data.decode())
+
+    def test_undo_puts_back_a_locked_choice_locked(self):
+        outfit, sid, before, other = self.piece_with_options()
+        self.post(f"/slot/{sid}/lock")                      # "Lock this choice" on the Wardrobe page
+        self.assertEqual((self.view(sid).state, self.view(sid).chosen.id), ("locked", before.id))
+        sent, where = self.choose(outfit, sid, other)
+        self.assertEqual((sent["was"], sent["was_locked"]), (before.id, "1"))
+        page = self.client.get(where).data.decode()
+        self.assertIn(f"(was {eur(before.price)})", status_line(page))
+        self.undo(page)
+        after = self.view(sid)
+        self.assertEqual((after.state, after.chosen.id), ("locked", before.id))
+        self.assertIn('<button id="lock-%s" class="act on" aria-pressed="true"' % sid, self.client.get("/").data.decode())
+        # Back to the page that said it changed: it is undone, so it no longer says so.
+        self.assertEqual(status_line(self.client.get(where).data.decode()), "")
+
+    def test_undo_says_so_when_the_earlier_product_has_no_price_now(self):
+        # As Choose refuses a product without a price, Undo does not lock the piece to one: it says so on the outfit,
+        # with the way to add its price, and the piece keeps the product chosen.
+        outfit, sid, before, other = self.piece_with_options()
+        self.post(f"/slot/{sid}/lock")
+        _, where = self.choose(outfit, sid, other)
+        page = self.client.get(where).data.decode()
+        data = catalog.load()
+        for cand in data["candidates"]:
+            if cand["slot_id"] == sid and cand["id"] == before.id:
+                cand["price"] = 0                       # a newer product list without its price
+        catalog.save(data)
+        r = self.undo(page)
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r.headers["Location"], f"/outfits?at={outfit.sig}&occasion=all")
+        self.assertEqual((self.view(sid).state, self.view(sid).chosen.id), ("locked", other.id))
+        after = self.client.get(r.headers["Location"]).data.decode()
+        name = self.view(sid).slot["name"].lower()
+        self.assertEqual(flashes(after), [f"The product your {name} had before has no price now, so it can't be put "
+                                          "back. Add its price"])
+        link = html_mod.unescape(re.search(r'<p class="flash said" role="status">.*?<a href="([^"]+)">Add its price</a>',
+                                           after, re.S).group(1))
+        self.assertEqual(link, f"/slot/{sid}?from=outfit&at={outfit.sig}&occasion=all#cand-{before.id}")
+        self.assertIn(f'id="cand-{before.id}"', self.client.get(link.split("#")[0]).data.decode())
+
+    def test_a_pop_up_without_the_earlier_state_still_gets_its_undo(self):
+        outfit, sid, before, other = self.piece_with_options()
+        r = self.client.post(f"/slot/{sid}/pick", data={"candidate": other.id, "outfit": outfit.sig})
+        self.assertIn(f"&changed={sid}&was={before.id}&was_locked=0", r.headers["Location"])
+
+    def test_values_that_do_not_match_are_ignored(self):
+        outfit, sid, before, other = self.piece_with_options()
+        _, where = self.choose(outfit, sid, other)
+        unrelated = next(s for s in selection.build().slots if s.slot["id"] != sid and s.cands)
+
+        def said(**args) -> str:
+            return status_line(self.client.get("/outfits", query_string={"at": outfit.sig, **args}).data.decode())
+
+        self.assertTrue(said(changed=sid, was=before.id, was_locked="0").endswith("Undo"))
+        for args in ({"changed": "no-such-piece", "was": before.id, "was_locked": "0"},
+                     {"changed": unrelated.slot["id"], "was": unrelated.cands[0].id, "was_locked": "0"},  # not changed
+                     {"changed": sid, "was": other.id, "was_locked": "0"}):                   # what it is now
+            self.assertEqual(said(**args), "", args)
+        for args in ({"changed": sid, "was": "made-up", "was_locked": "0"},
+                     {"changed": sid, "was": unrelated.cands[0].id, "was_locked": "1"},     # another piece's product
+                     {"changed": sid, "was": before.id, "was_locked": "yes"},
+                     {"changed": sid, "was": "", "was_locked": "1"}):                       # a lock needs a product
+            line = said(**args)
+            self.assertTrue(line.startswith(f"{self.view(sid).slot['name']} changed"), args)
+            self.assertNotIn("Undo", line, args)
+            self.assertNotIn("(was", line, args)
+        # Undo itself checks again: another piece's product, or none, is never put back.
+        r = self.client.post(f"/slot/{sid}/restore", data={"was": unrelated.cands[0].id, "was_locked": "1",
+                                                           "outfit": outfit.sig})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual((self.view(sid).state, self.view(sid).chosen.id), ("locked", other.id))
+        self.assertIn("can't be put back", " ".join(flashes(self.client.get(r.headers["Location"]).data.decode())))
+        self.assertEqual(self.client.post(f"/slot/{sid}/restore", data={"was": before.id, "was_locked": "2"}).status_code, 404)
+        self.assertEqual(self.client.post("/slot/no-such-piece/restore", data={"was_locked": "0"}).status_code, 404)
+        self.assertEqual(self.view(sid).chosen.id, other.id)
+        # Leaving off or wearing instead: only an outfit at `back` that the outfit shown is, less that piece or with
+        # another in its place.
+        w = selection.build()
+        coat = next(o for o in outfits.all_outfits(w) if o.pieces[0].layer == "outer")
+        swaps, without = outfits.alternatives(w, coat, coat.slots[0])
+        for at, args in ((without, {"left": coat.slots[1], "back": coat.sig}),         # not the piece left off
+                         (without, {"left": coat.slots[0], "back": "no~such~outfit"}),
+                         (swaps[0][1], {"instead": coat.slots[1], "back": coat.sig}),
+                         (swaps[0][1], {"left": coat.slots[0], "back": coat.sig}),    # not left off: another instead
+                         (coat.sig, {"instead": coat.slots[0], "back": coat.sig})):
+            page = self.client.get("/outfits", query_string={"at": at, **args}).data.decode()
+            self.assertEqual(status_line(page), "", args)
+
+    def test_leaving_a_piece_off_or_wearing_another_says_so_with_the_way_back(self):
+        w = selection.build()
+        outfit = next(o for o in outfits.all_outfits(w) if o.pieces[0].layer == "outer")
+        coat = outfit.pieces[0].view
+        popup = html_mod.unescape(self.client.get("/outfits/piece", headers=HX, query_string={
+            "at": outfit.sig, "slot": coat.slot["id"], "occasion": "all"}).data.decode())
+        off = re.search(r'<a class="chip-link" href="([^"]+)">Leave the', popup).group(1)
+        self.assertIn(f"&left={coat.slot['id']}&back={outfit.sig}", off)
+        page = self.client.get(off).data.decode()
+        label = coat.garment.label.lower()
+        self.assertEqual(status_line(page), f"Showing this outfit without the {label}. Put it back")
+        back = html_mod.unescape(re.search(r'<a href="([^"]+)">Put it back</a>', page).group(1))
+        self.assertEqual(back, f"/outfits?at={outfit.sig}&occasion=all")
+        again = self.client.get(back).data.decode()
+        self.assertLess(again.index(f'id="outfit-{outfit.key}"'), again.index("2 / "), "the outfit with the coat leads")
+        self.assertEqual(status_line(again), "")
+
+        instead = re.search(r'<a class="chip-link" href="([^"]+)"><i class="dot"[^>]*></i>Wear the ([^<]+) instead</a>',
+                            popup)
+        self.assertIn(f"&instead={coat.slot['id']}&back={outfit.sig}", instead.group(1))
+        page = self.client.get(instead.group(1)).data.decode()
+        self.assertEqual(status_line(page), f"Wearing the {instead.group(2)} instead of the {label}. Undo")
+        self.assertIn(f'<a href="/outfits?at={escape(outfit.sig)}&amp;occasion=all">Undo</a>', page)
+
+
+class SaidWithUndoAndPictures(WithPictures, AppCase):
+    def setUp(self):
+        super().setUp()
+        self.switch_on()
+
+    def test_the_earlier_picture_is_never_shown_over_the_changed_outfit(self):
+        outfit = some_outfits(1)[0]
+        drawn = self.post("/outfits/look", key=outfit.key).data.decode()
+        earlier = re.search(r'src="(/looks/[^"]+)"', drawn).group(1)
+        piece = next(p for p in outfit.pieces if p.layer == "top")
+        other = next(c for c in piece.view.cands if c.available and c.price > 0 and c.id != piece.view.chosen.id)
+        where = self.client.post(f"/slot/{piece.view.slot['id']}/pick", data={
+            "candidate": other.id, "outfit": outfit.sig}).headers["Location"]
+        page = self.client.get(where).data.decode()
+        changed = outfits.find_by_sig(selection.build(), outfit.sig)
+        slide = page[page.index(f'id="outfit-{changed.key}"'):page.index("2 / ")]
+        self.assertNotIn(earlier, slide, "the picture of the outfit before the change")
+        self.assertNotIn("look-pic", slide)
+        self.assertIn("collage", slide)
+        # Undo: the outfit as it was, and its picture again, without drawing it again.
+        r = self.client.post(f"/slot/{piece.view.slot['id']}/restore", data={
+            "was": piece.view.chosen.id, "was_locked": "0", "outfit": outfit.sig})
+        self.assertIn(earlier, self.client.get(r.headers["Location"]).data.decode())
+        self.assertEqual(len(self.drawn), 1)
+
+
+class SaidWithUndoOnTheSharedList(ProductionCase):
+    """For customers, whose products come from the shared list (shared.py): jeans chosen by hand in "Dark Blue", a
+    colour refused since, are among the piece's options only for that lock, and go when other jeans are chosen in an
+    outfit's pop-up (slot_pick). Undo brings them back with their lock; when the list no longer has them, it says
+    so plainly and changes nothing."""
+    # (Its fixtures, borrowed by name: imported bare, SharedStoreCatalogue's own tests would run here a second time.)
+    publish = production.SharedStoreCatalogue.publish
+    DENIM, DENIM_SLOT = production.SharedStoreCatalogue.DENIM, production.SharedStoreCatalogue.DENIM_SLOT
+    ANSWERS = production.SharedStoreCatalogue.ANSWERS
+    KEPT = ("locked", "cos-j2", {"weekday-j1", "cos-j2", "weekday-j4"})
+
+    def jeans(self, email) -> tuple:
+        with db.as_user(self.user_id(email)):
+            view = selection.build().get("indigo-jeans")
+            return view.state, view.chosen.id, {c.id for c in view.cands}
+
+    def chosen_in_an_outfit(self, email):
+        """Dark Blue jeans chosen, navy refused, then other jeans chosen in an outfit's pop-up: the page it leads to."""
+        self.publish(extra=self.DENIM, slots=[self.DENIM_SLOT])
+        client = self.member(email)
+        self.post(client, "/slot/indigo-jeans/pick", candidate="cos-j2")
+        self.post(client, "/profile", **self.ANSWERS, liked="grey, white", refused="navy")
+        self.assertEqual(self.jeans(email), self.KEPT)
+        with db.as_user(self.user_id(email)):
+            outfit = next(o for o in outfits.all_outfits(selection.build()) if "indigo-jeans" in o.slots)
+        popup = client.get("/outfits/piece", query_string={"at": outfit.sig, "slot": "indigo-jeans"}, headers=HX)
+        form = re.search(r'value="weekday-j1">(.*?)</form>', popup.get_data(as_text=True), re.S).group(1)
+        sent = dict(re.findall(r'name="(\w+)" value="([^"]*)"', form))
+        self.assertEqual((sent["was"], sent["was_locked"]), ("cos-j2", "1"))
+        r = self.post(client, "/slot/indigo-jeans/pick", candidate="weekday-j1", **{k: v for k, v in sent.items()
+                                                                                    if k != "csrf_token"})
+        self.assertEqual(self.jeans(email), ("locked", "weekday-j1", {"weekday-j1", "weekday-j4"}), "they went at once")
+        return client, client.get(r.headers["Location"]).get_data(as_text=True)
+
+    def undo(self, client, page):
+        form = re.search(r'<form method="post" action="(/slot/[^"]+/restore)">(.*?)</form>', page, re.S)
+        r = client.post(form.group(1), data=dict(re.findall(r'name="(\w+)" value="([^"]*)"', form.group(2))))
+        self.assertEqual(r.status_code, 302)
+        return client.get(r.headers["Location"]).get_data(as_text=True)
+
+    def test_undo_brings_back_jeans_only_their_lock_kept(self):
+        client, page = self.chosen_in_an_outfit("dan@example.com")
+        self.assertEqual(status_line(page), "Indigo jeans changed in all your outfits: Jeans Straight Fit, 39.95\xa0€ "
+                                            "(was 85\xa0€). It stays when you change the price level. Undo")
+        after = self.undo(client, page)
+        self.assertEqual(self.jeans("dan@example.com"), self.KEPT)
+        self.assertEqual(flashes(after), ["Indigo jeans: back to Regular jeans, 85\xa0€, in all your outfits."])
+
+    def test_undo_says_so_when_the_list_no_longer_has_them(self):
+        client, page = self.chosen_in_an_outfit("eve@example.com")
+        self.publish(extra=[p for p in self.DENIM if p["id"] != "cos-j2"], slots=[self.DENIM_SLOT])   # a newer list
+        after = self.undo(client, page)
+        self.assertEqual(self.jeans("eve@example.com"), ("locked", "weekday-j1", {"weekday-j1", "weekday-j4"}))
+        self.assertEqual(flashes(after), ["The product your indigo jeans had before is no longer in Stilsmith's "
+                                          "product list, so it can't be put back."])
 
 
 # ── AI pictures: off ──────────────────────────────────────────────────────────

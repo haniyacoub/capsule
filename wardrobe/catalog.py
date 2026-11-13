@@ -28,7 +28,10 @@ are kept.
 
 Only the products of stores customers are offered are ever read (programmes.py):
 a store without a partner programme is skipped, and left out when the
-catalogue is next saved.
+catalogue is next saved. What you added yourself by its link is never deleted
+for it: it is set aside (set_aside), kept in your catalogue but never among a
+piece's options, in an outfit or on the shopping list, and it comes back if
+the store is offered again. Your piece's page lists it, to remove.
 """
 from __future__ import annotations
 
@@ -92,12 +95,37 @@ def update(change) -> dict:
     """Read the file, apply `change(catalog)`, write it back. Returns the catalogue.
 
     Both the app and the collector write this way, so neither overwrites what
-    the other saved a moment ago.
+    the other saved a moment ago. The change is given what is kept (kept): the
+    products of the stores customers are offered and, set aside, what you added
+    yourself from a store that no longer is, so that removing a piece's
+    products (prune), or one of them (app.slot_remove), removes those too.
     """
-    cat = load()
+    cat = kept(stored())
     change(cat)
     save(cat)
     return cat
+
+
+def _yours(cand: dict) -> bool:
+    return cand.get("source") == "manual"
+
+
+def kept(catalogue: dict) -> dict:
+    """A catalogue as it is saved: the products of the stores customers are offered (programmes.only_offered),
+    and every product you added yourself by its link, from any store. A new dict; the one given is left as it is."""
+    out = programmes.only_offered(catalogue)
+    offered = programmes.offered()
+    out["candidates"] = [c for c in catalogue.get("candidates", []) if c.get("store") in offered or _yours(c)]
+    return out
+
+
+def set_aside(slot_id: str) -> list[dict]:
+    """What you added to this piece yourself, by its link, from a store that is no longer offered (programmes.py):
+    kept in your catalogue, but never among the piece's options, in an outfit or on the shopping list, until the
+    store is offered again. The piece's page lists it, with a button to remove it (_set_aside.html)."""
+    offered = programmes.offered()
+    return [c for c in stored().get("candidates", [])
+            if c.get("slot_id") == slot_id and _yours(c) and c.get("store") not in offered]
 
 
 def start_collected(cat: dict) -> None:

@@ -1,0 +1,29 @@
+{# What the customer added to this piece himself, by its link, from a store that is no longer offered (catalog.set_aside):
+   kept in his account, never among the options above, in an outfit or on the shopping list, and among the options
+   again if the store is offered again. Listed here so that he can remove it. No photo and no link to the store: its
+   products are not shown while it has no partner programme. #}
+{% set set_aside = set_aside_for(s.slot.id) %}
+{% if set_aside %}
+{% set one = set_aside|length == 1 %}
+{% set gone = set_aside|map(attribute='store')|unique|list %}
+<section class="card set-aside" id="set-aside" aria-labelledby="set-aside-title">
+  <h2 id="set-aside-title">From a store {{ site_name }} no longer offers</h2>
+  <p class="muted small">You added {{ 'this' if one else 'these' }} by {{ 'its link' if one else 'their links' }}.
+    {{ store_names(gone) }} {{ 'has' if gone|length == 1 else 'have' }} no partner programme, so {{ site_name }} keeps
+    {{ 'it' if one else 'them' }} for you but no longer offers {{ 'it' if one else 'them' }} for this piece or in your
+    outfits. {{ 'It comes' if one else 'They come' }} back if {{ 'the store is' if gone|length == 1 else 'the stores are' }} offered again.</p>
+  <ul class="set-aside-list">
+    {% for d in set_aside %}
+    {% set price = d.manual.price if d.manual and d.manual.price else d.price %}
+    <li id="set-aside-{{ d.id }}">
+      <p class="what"><span class="store">{{ store_names([d.store]) }}</span>
+        <span class="name" lang="de">{{ d.name }}</span>{% if price and price > 0 %} <span class="price">{{ price|eur }}</span>{% endif %}</p>
+      <form method="post" action="{{ url_for('slot_remove', slot_id=s.slot.id, **way) }}" data-confirm="Remove “{{ d.name }}” from your account?">{{ csrf_field() }}
+        <input type="hidden" name="candidate" value="{{ d.id }}">
+        <button class="link danger">Remove<span class="sr"> {{ d.name }}</span></button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
