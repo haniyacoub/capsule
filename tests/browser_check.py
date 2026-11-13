@@ -14,7 +14,8 @@ page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer o
 comparing all options to the same outfit), tabs up and down a pop-up that scrolls (nothing with keyboard focus
 hidden under its top row), sees that with scrollbars shown the page behind the pop-up does not move sideways,
 moves between outfits (by keyboard too: Next among the first Tab stops, focus going with the outfit shown, which a
-screen reader hears named, the heart keeping focus, Escape hiding a dot's label),
+screen reader hears named, Tab leading into the outfit shown and Next keeping focus at the end of the row, the heart
+keeping focus, Escape hiding a dot's label),
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
 logs in again and lands on the outfits, puts a model together, uploads a photo, sees Profile ask before a
 budget or colours changed and not saved would be lost, saves new colours (the plan is rebuilt,
@@ -801,7 +802,26 @@ def run(base: str) -> None:
             # Enter buys the outfit on screen, not the one left behind; a screen reader hears which outfit is shown,
             # from the page's live region. The heart pressed with Enter keeps focus, and is called "Save outfit"
             # whether saved or not (pressed says which). Escape hides a dot's label, until a dot is pointed at again.
+            # Tab after moving the row leads into the outfit moved to, which stays on screen (only the outfit on screen
+            # is in the Tab order; the browser would scroll the row back to an outfit that Tab reached), and so does
+            # Shift+Tab from below the row. At the end of the row Next keeps focus: it says it can go no further
+            # instead of being switched off, which would drop focus to the page.
             slides = page.locator("#reel [data-slide]")
+
+            def where() -> dict:
+                return page.evaluate("""() => { const all = [...document.querySelectorAll('#reel [data-slide]')];
+                    const s = document.activeElement.closest('#reel [data-slide]'), r = document.getElementById('reel');
+                    return {focus_in: s ? all.indexOf(s) + 1 : 0, shown: Math.round(r.scrollLeft / r.clientWidth) + 1}; }""")
+
+            def at_rest(index: int, after: str):
+                # The row is on outfit `index` (0 first), and stays there for longer than app.js waits to call it at rest.
+                try:
+                    page.wait_for_function("i => { const r = document.getElementById('reel'); "
+                                           "return Math.round(r.scrollLeft / r.clientWidth) === i; }", arg=index, timeout=5000)
+                except Exception:  # noqa: BLE001
+                    raise AssertionError(f"{after}, outfit {index + 1} should be on screen; it is {where()}") from None
+                page.wait_for_timeout(500)
+
             try:
                 page.set_viewport_size({"width": 1280, "height": 900})
                 page.goto(base + "/outfits", wait_until="networkidle")
@@ -811,6 +831,38 @@ def run(base: str) -> None:
                         break
                 else:
                     raise AssertionError("from the top of Outfits, 15 Tab presses do not reach Next")
+                for index in (1, 2, 3):
+                    page.keyboard.press("Enter")
+                    at_rest(index, f"after Enter {index} times on Next")
+                page.keyboard.press("Tab")
+                at_rest(3, "after Next three times and then Tab")
+                assert where() == {"focus_in": 4, "shown": 4}, \
+                    f"after Next three times, Tab should lead into outfit 4 and keep it on screen: {where()}"
+                assert page.evaluate("() => location.hash") == "#" + slides.nth(3).get_attribute("id"), \
+                    "after Tab into outfit 4, the address no longer keeps outfit 4"
+                page.locator(".site-foot a").first.focus()
+                page.keyboard.press("Shift+Tab")
+                at_rest(3, "after Shift+Tab from the footer")
+                assert where() == {"focus_in": 4, "shown": 4}, \
+                    f"Shift+Tab from below the row should lead into the outfit on screen, outfit 4: {where()}"
+                last = slides.count() - 1
+                page.evaluate("i => { const r = document.getElementById('reel'); r.style.scrollBehavior = 'auto'; "
+                              "r.scrollLeft = i * r.clientWidth; r.style.scrollBehavior = ''; }", last - 1)
+                at_rest(last - 1, "after the row was moved to the one before the last")
+                page.locator(".reel-nav.next").focus()
+                page.keyboard.press("Enter")
+                at_rest(last, "after Next to the end of the row")
+                end = page.evaluate("() => ({on_next: document.activeElement.matches('.reel-nav.next'), "
+                                    "says: document.querySelector('.reel-nav.next').getAttribute('aria-disabled')})")
+                assert end == {"on_next": True, "says": "true"}, \
+                    f"at the end of the row Next should keep focus and say it can go no further: {end}"
+                page.keyboard.press("Enter")
+                page.keyboard.press("Tab")
+                at_rest(last, "after Enter on Next at the end of the row, and Tab")
+                assert where() == {"focus_in": last + 1, "shown": last + 1}, \
+                    f"Tab from Next at the end of the row should lead into the last slide, on screen: {where()}"
+
+                page.goto(base + "/outfits", wait_until="networkidle")
                 buy_second = slides.nth(1).locator(".about-actions a").get_attribute("href")
                 slides.nth(0).locator(".about-actions a").focus()
                 page.keyboard.press("ArrowRight")

@@ -609,7 +609,11 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
   .reel-nav { display: inline-flex; }
 }
 .reel-nav.next .ic { transform: rotate(180deg); }
-.reel-nav:disabled { opacity: .3; cursor: default; }
+/* At either end of the row (app.js, 6): faded, and pressing it does nothing. It keeps keyboard focus, so with focus
+   on it only its arrow fades, and the focus ring shows in full. */
+.reel-nav[aria-disabled="true"] { cursor: default; }
+.reel-nav[aria-disabled="true"]:not(:focus-visible) { opacity: .3; }
+.reel-nav[aria-disabled="true"]:focus-visible .ic { opacity: .3; }
 .save { display: flex; }
 /* The heart: a 44px target that takes no more room in the line than its 24px; its icon lines up with the list's edge. */
 .heart { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -10px -10px -10px 0; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 50%; }

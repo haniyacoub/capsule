@@ -120,25 +120,51 @@ if (reel) {
   };
   let told = shown();     // the outfit the page opens on (or comes back to) is not announced: the page says it
   const onScreen = () => slides[goal === null ? shown() : goal];    // the outfit on screen, or being moved to
+  //     Tab goes through the outfit on screen only. The things to press in the other outfits are taken out of the
+  //     Tab order (tabindex -1, their own tabindex kept in data-tab) and given back when their outfit is shown: at
+  //     once when an arrow or an arrow key moves the row, so a Tab pressed before it comes to rest already leads
+  //     into the outfit being moved to. So Tab from Next leads into the outfit you moved to, and Shift+Tab from
+  //     below the row back into it, never into outfit 1, which the browser would scroll back to. The other outfits
+  //     are not made inert: swiping, and a screen reader reading the whole row, work as before. What HTMX puts in
+  //     (a picture, the heart) is sorted the same way once it is in.
+  const pressable = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [tabindex]';
+  const tabInto = (current) => slides.forEach((slide) => slide.querySelectorAll(pressable).forEach((el) => {
+    if (slide === current) {
+      if (!('tab' in el.dataset)) return;
+      if (el.dataset.tab) el.setAttribute('tabindex', el.dataset.tab);
+      else el.removeAttribute('tabindex');
+      delete el.dataset.tab;
+    } else if (el.tabIndex >= 0) {
+      el.dataset.tab = el.getAttribute('tabindex') || '';
+      el.tabIndex = -1;
+    }
+  }));
+  tabInto(onScreen());
+  document.body.addEventListener('htmx:afterSettle', () => tabInto(onScreen()));
 
   const step = (direction) => {
     const from = goal === null ? shown() : goal;
     goal = Math.max(0, Math.min(slides.length - 1, from + direction));
     reel.scrollTo({ left: goal * reel.clientWidth, behavior: motion.matches ? 'auto' : 'smooth' });
     keep(goal);       // at once: 'Buy this outfit' may be pressed before the row has come to rest
-    follow(goal);     // at once too, for the same reason
+    tabInto(slides[goal]);    // at once too, for the same reason
+    follow(goal);
   };
   // A single outfit has no arrows (outfits.html leaves them out): there is nowhere to move to.
+  // At either end of the row the arrow says it can go no further (aria-disabled, faded by app.css) and pressing it
+  // does nothing. It is not switched off (disabled): that would throw keyboard focus off the arrow you have just
+  // pressed to the page, and the next Tab would lead back to outfit 1. So both arrows stay Tab stops.
   const prev = document.querySelector('.reel-nav.prev');
   const next = document.querySelector('.reel-nav.next');
   const ends = () => {
     if (!prev || !next) return;
-    prev.disabled = reel.scrollLeft < 8;
-    next.disabled = reel.scrollLeft > reel.scrollWidth - reel.clientWidth - 8;
+    prev.setAttribute('aria-disabled', String(reel.scrollLeft < 8));      // 'true' at the first outfit
+    next.setAttribute('aria-disabled', String(reel.scrollLeft > reel.scrollWidth - reel.clientWidth - 8));   // at the last
   };
   if (prev && next) {
-    prev.addEventListener('click', () => step(-1));
-    next.addEventListener('click', () => step(1));
+    [[prev, -1], [next, 1]].forEach(([arrow, direction]) => arrow.addEventListener('click', () => {
+      if (arrow.getAttribute('aria-disabled') !== 'true') step(direction);
+    }));
   }
   reel.addEventListener('scroll', () => {
     ends();
@@ -147,6 +173,7 @@ if (reel) {
       goal = null;
       const now = shown();
       keep(now);
+      tabInto(slides[now]);
       follow(now);
       if (now !== told) {
         told = now;
