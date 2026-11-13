@@ -11,7 +11,9 @@ the whole picture above the tab bar on three phones), changes the price level, w
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
 page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, opens a piece on a phone
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
-comparing all options to the same outfit), moves between outfits,
+comparing all options to the same outfit), tabs up and down a pop-up that scrolls (nothing with keyboard focus
+hidden under its top row), sees that with scrollbars shown the page behind the pop-up does not move sideways,
+moves between outfits,
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
 logs in again and lands on the outfits, puts a model together, uploads a photo, sees Profile ask before a
 budget or colours changed and not saved would be lost, saves new colours (the plan is rebuilt,
@@ -595,6 +597,109 @@ def run(base: str) -> None:
             back = re.search(r"at=([^&]+)", other.locator(f"{first} .piece-row").first.get_attribute("hx-get")).group(1)
             assert back == sig, f"back on {back}, not on the outfit the pop-up was opened from ({sig})"
             context.close()
+
+        def logged_in_on(where_browser, **screen):
+            """A page of its own, logged in as the customer, in a context with these settings (viewport, touch...)."""
+            context = where_browser.new_context(**screen)
+            other = context.new_page()
+            other.goto(base + "/login", wait_until="networkidle")
+            other.fill("input[name=email]", EMAIL)
+            other.fill("input[name=password]", PASSWORD)
+            other.click("button:has-text('Log in')")
+            other.wait_for_load_state("networkidle")
+            return context, other
+
+        def open_the_coat(other) -> None:
+            """The coat's pop-up from the first outfit's list of pieces (the tallest pop-up), or the first piece's."""
+            other.goto(base + "/outfits", wait_until="networkidle")
+            coat = other.locator(f"{first} .piece-row[title*=coat i]")
+            (coat.first if coat.count() else other.locator(f"{first} .piece-row").first).click()
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            other.wait_for_load_state("networkidle")
+
+        def pop_up_never_hides_the_focus():
+            # The pop-up's top row (the piece's name and Close) stays while the sheet scrolls, and what has keyboard
+            # focus is never hidden under it (WCAG 2.4.11). On a small phone and a short computer screen, where the
+            # coat's pop-up scrolls, Tab goes from Close to the last control, then from the sheet's end Shift+Tab
+            # comes back up to Close, so that each new focus comes in from below and from above. At least one of
+            # five points of each must be inside the sheet with neither the top row nor Close over it.
+            hidden: list[str] = []
+            for width, height, phone in ((320, 568, True), (1280, 640, False)):
+                context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=phone, has_touch=phone)
+                open_the_coat(other)
+                assert other.evaluate("() => { const s = document.querySelector('dialog#piece'); return s.scrollHeight > s.clientHeight; }"), \
+                    f"at {width} x {height} the pop-up does not scroll, so this step would check nothing"
+                for key in ("Tab", "Shift+Tab"):
+                    if key == "Shift+Tab":          # from the sheet's end, its last control first
+                        other.evaluate("""() => { const sheet = document.querySelector('dialog#piece');
+                            const all = [...sheet.querySelectorAll('#piece-body a[href], #piece-body button')].filter(e => e.offsetParent);
+                            sheet.scrollTop = sheet.scrollHeight; all[all.length - 1].focus(); }""")
+                    stops = 0
+                    for _ in range(60):
+                        if key == "Tab" or stops:
+                            other.keyboard.press(key)
+                        focus = other.evaluate("""() => {
+                            const sheet = document.querySelector('dialog#piece'), el = document.activeElement;
+                            const row = sheet.querySelector('.piece-top'), close = sheet.querySelector('.sheet-close');
+                            if (!sheet.contains(el) || el === sheet || el === close) return null;     // round to Close, or out
+                            const s = sheet.getBoundingClientRect(), r = el.getBoundingClientRect();
+                            const points = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + 1, r.top + 1],
+                                            [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]];
+                            const seen = points.filter(([x, y]) => {
+                                if (x < s.left || y < s.top || x >= s.right || y >= s.bottom) return false;
+                                const top = document.elementFromPoint(x, y);
+                                return top && !((row.contains(top) || close.contains(top)) && !el.contains(top));
+                            }).length;
+                            return {seen, name: (el.innerText || el.getAttribute('aria-label') || el.tagName).replace(/\\s+/g, ' ').trim().slice(0, 50)};
+                        }""")
+                        if focus is None:
+                            break
+                        stops += 1
+                        if not focus["seen"]:
+                            hidden.append(f"{width} x {height} {key}: {focus['name']}")
+                    assert stops >= 4, f"at {width} x {height}, {key} met only {stops} things to focus in the pop-up"
+                context.close()
+            assert not hidden, "hidden under the pop-up's top row while it had keyboard focus: " + "; ".join(hidden[:6])
+
+        def the_page_behind_the_pop_up_stays_put():
+            # On a computer set to always show scrollbars, their room is kept on every page, so that the page behind
+            # the pop-up does not move sideways when the pop-up opens or closes, even on a page that does not scroll.
+            # The browsers here hide scrollbars, so this step has one of its own that shows them, in a window taller
+            # than the outfits page (whose picture grows with the window, up to its largest).
+            shown = p.chromium.launch(ignore_default_args=["--hide-scrollbars"], args=["--disable-features=OverlayScrollbar"])
+            try:
+                context, other = logged_in_on(shown, viewport={"width": 1280, "height": 1400})
+                other.goto(base + "/outfits", wait_until="networkidle")
+                for _ in range(3):
+                    tall = other.evaluate("document.documentElement.scrollHeight")
+                    if tall <= other.evaluate("innerHeight"):
+                        break
+                    other.set_viewport_size({"width": 1280, "height": tall + 100})
+                    other.wait_for_timeout(100)
+                where = """() => {
+                    const probe = document.createElement('div');            // a box that always has a scrollbar
+                    probe.style.cssText = 'position:absolute; top:0; width:100px; height:100px; overflow:scroll';
+                    document.body.append(probe);
+                    const bar = probe.offsetWidth - probe.clientWidth;
+                    probe.remove();
+                    return {bar, scrolls: document.documentElement.scrollHeight > innerHeight,
+                            edges: ['header.top', 'nav.tabs', 'main'].map(s => {
+                                const b = document.querySelector(s).getBoundingClientRect();
+                                return s + ' ' + b.left.toFixed(1) + '-' + b.right.toFixed(1); })};
+                }"""
+                shut = other.evaluate(where)
+                assert shut["bar"] >= 10 and not shut["scrolls"], f"no scrollbar shown, or the page scrolls, so this step would check nothing: {shut}"
+                other.locator(f"{first} .piece-row").first.click()
+                other.wait_for_selector("dialog#piece[open] #piece-title")
+                opened = other.evaluate(where)
+                other.locator("dialog#piece .sheet-close").click()
+                other.wait_for_selector("dialog#piece:not([open])", state="attached")
+                closed = other.evaluate(where)
+                assert opened["edges"] == shut["edges"] == closed["edges"], \
+                    f"the page behind the pop-up moved sideways: shut {shut['edges']}, open {opened['edges']}, closed again {closed['edges']}"
+                context.close()
+            finally:
+                shown.close()
 
         def arrows_move():
             def shown() -> int:
@@ -1255,6 +1360,8 @@ def run(base: str) -> None:
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
+                 ("the pop-up's top row never hides what has focus", pop_up_never_hides_the_focus),
+                 ("the page behind the pop-up stays put", the_page_behind_the_pop_up_stays_put),
                  ("arrows and arrow keys", arrows_move),
                  ("arrows for every mouse, your place kept on Back", arrows_for_every_mouse_and_your_place_kept),
                  ("save an outfit and buy it", save_and_buy),

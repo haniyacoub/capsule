@@ -508,10 +508,11 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 /* The line under the box: one line, 40px tall in every state (empty until there is a picture), so that nothing under
    it moves when the picture arrives. It never wraps: at the browser's standard text size its words show whole (at a
    larger one they end in '…'). Where the box is narrower than the half sentence and the two links (272px: on a
-   phone under about 760px tall, or 795px on Saved, whose lead line is longer, either about 24px more while the
-   starter banner shows; on a computer under about 710px tall, or 675px with the banner; or under a message at the
-   top), the line is 272px wide and reaches past the box equally on both sides, by 61px each at most (the box is
-   never under 150px), so it still fits a 320px phone. */
+   phone under about 760px tall, or 795px on Saved, whose lead line is longer, each about 24px more while the
+   starter banner shows and about 22px more while the budget bar has its line about missing pieces; on a computer
+   under about 710px tall, or 675px with the banner; or under a message at the top), the line is 272px wide and
+   reaches past the box equally on both sides, by 61px each at most (the box is never under 150px), so it still
+   fits a 320px phone. */
 .look-line {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
   width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
@@ -650,6 +651,11 @@ html:has(dialog[open]) { overflow: hidden; }
   padding: var(--sheet-t) calc(var(--sheet-x) + 44px) 0 var(--sheet-x); background: var(--surface);
 }
 #piece-body { display: flow-root; }   /* the row's reach up over the padding is not merged into Close's margin */
+/* What gets keyboard focus in the sheet is scrolled into view below the top row, never under it (WCAG 2.4.11): the
+   room kept above it is the row's height and 12px more, as under the budget bar, so its focus ring shows whole. Set
+   on what scrolls under the row only, so that coming back to Close (in the row, always in view) leaves the sheet
+   where it is. */
+#piece-body * { scroll-margin-top: calc(var(--sheet-t) + 44px + var(--s-3)); }
 /* Once the sheet is scrolled, a hairline under the top row shows where the rest goes under it (in browsers that can
    tie a style to scrolling; in others the row has no line). At rest there is none. */
 @supports (animation-timeline: scroll()) {
