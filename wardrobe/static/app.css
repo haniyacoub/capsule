@@ -464,10 +464,12 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 /* The line that says what a change made from an outfit did (.said, outfits.html), and what Undo put back, is up to
    four lines on a phone (the piece, the product's own long name, the prices, the price level): it gets that room, so
    the whole model still ends above the tab bar of a 390 x 664 phone under it, below the starter banner too. After
-   leaving a piece off or wearing another (.short) it is at most two lines. One line on a computer. */
+   leaving a piece off or wearing another (.short) it is at most two lines. One line on a computer. app.js (12a) sets
+   --said-h to the room the line really takes on this screen, so that a shorter line leaves the picture larger; until
+   then, and without JavaScript, the picture gives up the room of the longest line. */
 @media (max-width: 759.98px) {
-  main:has(> .said) .looks { --told: calc(4 * var(--t-m) * var(--lh-m) + var(--s-6)); --least: 150px; }
-  main:has(> .said.short) .looks { --told: calc(2 * var(--t-m) * var(--lh-m) + var(--s-6)); --least: 170px; }
+  main:has(> .said) .looks { --told: var(--said-h, calc(4 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 150px; }
+  main:has(> .said.short) .looks { --told: var(--said-h, calc(2 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 170px; }
 }
 /* The stage is also the box the line under the picture measures itself against (see .look-line). */
 .stage {

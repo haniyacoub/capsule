@@ -602,7 +602,9 @@ def run(base: str) -> None:
             page.wait_for_load_state("networkidle")
             changed_at = page.url
             names = page.locator(f"{first} .piece-text span").all_inner_texts()
-            explained = page.locator(".flash").all_inner_texts()
+            # (A message that explains why it is not, such as an outfit that no longer passes the rules: not the line
+            # that says what changed, which is always there now.)
+            explained = page.locator("main > .flash:not(.said)").all_inner_texts()
             assert wanted in names or explained, f"{wanted!r} is not in the outfit and nothing says why"
             line = said_over_the_outfits(page)
             assert line == (f"{was['piece']} changed in all your outfits: {wanted}, {was['new_price']} (was {was['price']}). "

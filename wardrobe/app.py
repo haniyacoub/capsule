@@ -630,8 +630,16 @@ def create_app() -> Flask:
             flash(f"The product your {view.slot['name'].lower()} had before is no longer in {conf.SITE_NAME}'s product "
                   "list, so it can't be put back.")
             return redirect(back)
-        if earlier is not None and earlier["price"] <= 0:     # as Choose refuses it (slot_pick)
-            abort(409, "That item has no price yet. Add its price on the piece's page first.")
+        if earlier is not None and earlier["price"] <= 0:     # as Choose refuses it (slot_pick), said on the outfit
+            said = Markup("The product your %s had before has no price now, so it can't be put back.") % (
+                view.slot["name"].lower())
+            if any(c.id == was for c in view.cands):       # its price can be added on the piece's page, where it is
+                way: dict = {"from": "outfit", "at": outfit, **({"occasion": occasion} if occasion in outfits.OCCASIONS
+                                                                 else {})} if outfit else {}     # (as way_back reads it)
+                said += Markup(' <a href="%s">Add its price</a>') % url_for(
+                    "slot_page", slot_id=slot_id, _anchor=f"cand-{was}", **way)
+            flash(said, "said")
+            return redirect(back)
         if locked == "1":
             db.update_slot(slot_id, pick=was, locked=True)
         else:

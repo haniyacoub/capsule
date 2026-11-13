@@ -364,7 +364,8 @@ class Viewer(AppCase):
         again = outfits.find_by_sig(selection.build(), outfit.sig)
         if again:       # still passes the outfit rules with the new piece: it leads the reel
             self.assertLess(page.index(f'id="outfit-{again.key}"'), page.index("2 / "))
-            self.assertIn(other.data["name"], page)
+            # worn in that outfit (not only named in the line over the outfits that says what changed)
+            self.assertIn(str(escape(other.data["name"])), page[page.index(f'id="outfit-{again.key}"'):page.index("2 / ")])
         else:
             self.assertIn("no longer passes the outfit rules", page)
 
@@ -555,6 +556,31 @@ class SaidWithUndo(AppCase):
         self.assertIn('<button id="lock-%s" class="act on" aria-pressed="true"' % sid, self.client.get("/").data.decode())
         # Back to the page that said it changed: it is undone, so it no longer says so.
         self.assertEqual(status_line(self.client.get(where).data.decode()), "")
+
+    def test_undo_says_so_when_the_earlier_product_has_no_price_now(self):
+        # As Choose refuses a product without a price, Undo does not lock the piece to one: it says so on the outfit,
+        # with the way to add its price, and the piece keeps the product chosen.
+        outfit, sid, before, other = self.piece_with_options()
+        self.post(f"/slot/{sid}/lock")
+        _, where = self.choose(outfit, sid, other)
+        page = self.client.get(where).data.decode()
+        data = catalog.load()
+        for cand in data["candidates"]:
+            if cand["slot_id"] == sid and cand["id"] == before.id:
+                cand["price"] = 0                       # a newer product list without its price
+        catalog.save(data)
+        r = self.undo(page)
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r.headers["Location"], f"/outfits?at={outfit.sig}&occasion=all")
+        self.assertEqual((self.view(sid).state, self.view(sid).chosen.id), ("locked", other.id))
+        after = self.client.get(r.headers["Location"]).data.decode()
+        name = self.view(sid).slot["name"].lower()
+        self.assertEqual(flashes(after), [f"The product your {name} had before has no price now, so it can't be put "
+                                          "back. Add its price"])
+        link = html_mod.unescape(re.search(r'<p class="flash said" role="status">.*?<a href="([^"]+)">Add its price</a>',
+                                           after, re.S).group(1))
+        self.assertEqual(link, f"/slot/{sid}?from=outfit&at={outfit.sig}&occasion=all#cand-{before.id}")
+        self.assertIn(f'id="cand-{before.id}"', self.client.get(link.split("#")[0]).data.decode())
 
     def test_a_pop_up_without_the_earlier_state_still_gets_its_undo(self):
         outfit, sid, before, other = self.piece_with_options()
