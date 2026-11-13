@@ -485,6 +485,20 @@ class PicturesOff(AppCase):
             main(["looks"])
         self.assertIn("OPENAI_API_KEY", str(stop.exception))
 
+    def test_without_a_key_profile_calls_it_the_ai_service(self):
+        # Only a setup without a key (a developer's own machine: in production the model and photo forms need one)
+        # shows a stand-in name for the service; it is the customer's word for it, as everywhere else.
+        self.assertIsNone(looks.service())
+        text = words(self.client.get("/profile").data.decode())
+        self.assertIn("it is used once a key for the AI service is set", text)
+        self.assertIn("Your photo goes to the AI service each time a picture of you is drawn", text)
+        self.assertIn("I agree to Capsule sending this photo to the AI service to draw pictures of me", text)
+        self.client.post("/profile/photo", data={"photo": (io.BytesIO(PHOTO), "me.jpg")},
+                         content_type="multipart/form-data")      # the box not ticked
+        text = words(self.client.get("/profile").data.decode())
+        self.assertIn("and that the photo may be sent to the AI service.", text)
+        self.assertNotIn("image service", text)
+
     def test_several_servers_starting_at_once_set_the_database_up_once(self):
         for path in (paths.DB_PATH, paths.DB_PATH.with_name(paths.DB_PATH.name + "-wal"),
                      paths.DB_PATH.with_name(paths.DB_PATH.name + "-shm")):
@@ -1584,6 +1598,22 @@ class PicturesForCustomers(WithPictures, ProductionCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM looks WHERE user_id = ?", (uid,)).fetchone()[0], 0)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ?", (uid,)).fetchone()[0], 0)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM looks").fetchone()[0], 1)
+
+    def test_the_copy_of_your_data_says_what_the_account_page_says_of_your_photo(self):
+        # Account lists "your photo and the pictures made from it (see or delete them on Profile)" among what the
+        # download holds, so the download says the same of the photo: kept with its pictures, and where they go.
+        ada = self.member("ada@example.com")
+        self.assertEqual(json.loads(ada.get("/account/export").data)["your_photo"], "none stored")
+        ada.post("/profile/photo", content_type="multipart/form-data", data={
+            "photo": (io.BytesIO(PHOTO), "me.jpg"), "agree": "on", "csrf_token": self.token(ada)})
+        self.ask(ada, self.outfit_keys(ada)[0])                     # a picture of her
+        self.assertEqual(json.loads(ada.get("/account/export").data)["your_photo"],
+                         "stored, with the pictures made from it; see the photo, or delete it and them, "
+                         "on the Profile page")
+        account = words(ada.get("/account").get_data(as_text=True))
+        self.assertIn("your photo and the pictures made from it (see or delete them on Profile", account)
+        self.post(ada, "/profile/photo", remove="1")                # gone, with its pictures
+        self.assertEqual(json.loads(ada.get("/account/export").data)["your_photo"], "none stored")
 
     def test_a_photo_stored_before_pictures_were_switched_off_can_still_be_seen_and_deleted(self):
         # The Account page sends customers to Profile to see or delete their photo. With AI pictures switched off

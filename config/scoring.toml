@@ -8,7 +8,7 @@
 #    brand   how good this store is at this kind of garment
 #    price   whether the price is plausible for this kind of garment
 #  The final score is their weighted average. The app shows the working for
-#  every item under "Why this score".
+#  every item under "How it's rated".
 #
 #  Garment types: coat, jacket, blazer, overshirt, cardigan, knit, shirt, polo,
 #  tee, longsleeve, trousers, chinos, jeans, sneakers, shoes, boots

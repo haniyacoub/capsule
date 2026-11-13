@@ -11,17 +11,25 @@ the whole picture above the tab bar on three phones), changes the price level, w
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
 page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, opens a piece on a phone
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
-comparing all options to the same outfit), moves between outfits,
+comparing all options to the same outfit), tabs up and down a pop-up that scrolls (nothing with keyboard focus
+hidden under its top row), sees that with scrollbars shown the page behind the pop-up does not move sideways,
+moves between outfits (by keyboard too: Next among the first Tab stops, focus going with the outfit shown, which a
+screen reader hears named, Tab leading into the outfit shown and Next keeping focus at the end of the row, the heart
+keeping focus, Escape hiding a dot's label),
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
 logs in again and lands on the outfits, puts a model together, uploads a photo, sees Profile ask before a
 budget or colours changed and not saved would be lost, saves new colours (the plan is rebuilt,
 keeping the swapped piece, and the budget bar takes the banner's place), sees that a phone's first
 screen shows the outfit on the model with its price and the heart (and every chip over it, whole,
 by keyboard), tabs through three pages to see that nothing with keyboard focus is hidden under the
-budget bar or the tab bar, and deletes the account.
+budget bar or the tab bar, locks and chooses on a piece's page by keyboard (focus stays where it was) and pastes
+a link that is not a store's (answered inside that section, on a phone's screen, with JavaScript on and off),
+and deletes the account.
 
 On the way a second customer, on a small product list published for that step alone, goes from the
 starter outfits to his profile with "Make them mine" and fills a piece the list has nothing for with one tap.
+A third picks his colours on a phone by tapping swatches (and by keyboard), sees his first liked colour that is not a
+neutral become the plan's accent, and then types colours into the two text fields with JavaScript switched off.
 And with the invented sample stores' feeds imported, the customer finds no store catalogues (/stores) until he is
 marked as an owner; then his Account page leads to them, on a phone and on a computer: every store with a partner
 programme, grouped by network, each with its programme's page as a link, and the samples' products.
@@ -144,6 +152,23 @@ def run(base: str) -> None:
             """Every line on the Profile page that speaks of example values."""
             return where_page.evaluate("""() => [...document.querySelectorAll('main p')]
                 .map(p => p.textContent.replace(/\\s+/g, ' ').trim()).filter(t => /example/i.test(t))""")
+
+        def pick_colours(where_page, liked=(), avoided=()) -> None:
+            """Colours chosen on Profile the way a customer does: by tapping their swatches. Whatever is chosen already
+            is cleared first (a liked colour takes two taps, one to avoid a single tap), then each liked colour is
+            tapped once, most important first, and each to avoid twice. The two hidden fields the taps fill in must
+            then name them in that order, as typing them would."""
+            for _ in range(60):
+                chosen = where_page.locator(".swatch[aria-pressed=true]")
+                if not chosen.count():
+                    break
+                chosen.first.click()
+            for key, taps in [(key, 1) for key in liked] + [(key, 2) for key in avoided]:
+                for _ in range(taps):
+                    where_page.locator(f".swatch[data-colour='{colours.get(key).label.lower()}']").click()
+            names = [", ".join(colours.get(key).label.lower() for key in keys) for keys in (liked, avoided)]
+            seen = [where_page.input_value("input[name=liked]"), where_page.input_value("input[name=refused]")]
+            assert seen == names, f"tapping {list(liked)} once and {list(avoided)} twice wrote {seen}, not {names}"
 
         # Said from the example values every account starts with (wardrobe/profile.py), never typed.
         liked = [colours.get(key).label.lower() for key in profile_mod.EXAMPLE["liked"]]
@@ -434,6 +459,10 @@ def run(base: str) -> None:
             assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
             page.wait_for_selector(f"{first} .look-bar.wait")              # asked for by itself, then waited for
             status = drawing_status(page)
+            # It asks the server again every 3 s: a screen reader must not read it out each time (the page's one live
+            # region says 'Picture ready' instead, once).
+            assert page.eval_on_selector(f"{first} .look-bar.wait", "el => !el.closest('[role=status], [aria-live]')"), \
+                "the drawing status, asked for again every few seconds, is read out by screen readers each time"
             # Nothing else is being drawn, so it is drawn at once: it must not be said to be waiting its turn.
             assert status["words"] and status["words"].startswith("Drawing this outfit") and status["inside"], \
                 f"while the only picture is drawn, the status is not 'Drawing this outfit…' inside the picture's box: {status}"
@@ -543,7 +572,7 @@ def run(base: str) -> None:
             other.evaluate("() => window.scrollTo(0, 120)")
             other.wait_for_timeout(300)
             still = other.evaluate("scrollY")
-            coat = other.locator(f"{first} .spot[title*=coat i]")              # the tallest pop-up: the coat's
+            coat = other.locator(f"{first} .spot[aria-label*=coat i]")         # the tallest pop-up: the coat's
             spot = coat.first if coat.count() else other.locator(f"{first} .spot").first
             sig = re.search(r"at=([^&]+)", spot.get_attribute("hx-get")).group(1)
             spot.tap()
@@ -572,6 +601,21 @@ def run(base: str) -> None:
                 touch.send("Input.synthesizeScrollGesture", {"x": 195, "y": int(box["y"] + box["height"] - 60), "xDistance": 0,
                                                             "yDistance": -300, "speed": 1200, "gestureSourceType": "touch"})
                 other.wait_for_timeout(300)
+            # Some headless browsers (GitHub's, for one) ignore a synthesized touch swipe inside a dialog: the sheet
+            # does not move at all. Then it is scrolled to its end directly, so the promise below (scrolled to its end,
+            # the close button stays at its top) is still checked, never skipped.
+            if other.evaluate("() => { const s = document.querySelector('dialog#piece'); return s.scrollTop === 0 && s.scrollHeight > s.clientHeight }"):
+                other.evaluate("() => { const s = document.querySelector('dialog#piece'); s.scrollTop = s.scrollHeight }")
+                other.wait_for_timeout(300)
+            # Swiped to its end, the sheet keeps its close button where it was: at its top, whole and on top.
+            kept = other.evaluate("""() => {
+                const sheet = document.querySelector('dialog#piece'), s = sheet.getBoundingClientRect();
+                const close = sheet.querySelector('.sheet-close'), c = close.getBoundingClientRect();
+                return {scrollable: sheet.scrollHeight > sheet.clientHeight, scrolled: sheet.scrollTop, top: c.top - s.top,
+                        on_top: close.contains(document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2))};
+            }""")
+            assert (kept["scrolled"] > 0 or not kept["scrollable"]) and 0 <= kept["top"] <= 12 and kept["on_top"], \
+                f"once the pop-up is swiped, its close button is not whole at its top: {kept}"
             other.locator("dialog#piece .sheet-close").tap()
             other.wait_for_selector("dialog#piece:not([open])", state="attached")
             assert other.evaluate("scrollY") == still, f"swiping inside the pop-up moved the page from {still} to {other.evaluate('scrollY')}"
@@ -587,6 +631,109 @@ def run(base: str) -> None:
             back = re.search(r"at=([^&]+)", other.locator(f"{first} .piece-row").first.get_attribute("hx-get")).group(1)
             assert back == sig, f"back on {back}, not on the outfit the pop-up was opened from ({sig})"
             context.close()
+
+        def logged_in_on(where_browser, **screen):
+            """A page of its own, logged in as the customer, in a context with these settings (viewport, touch...)."""
+            context = where_browser.new_context(**screen)
+            other = context.new_page()
+            other.goto(base + "/login", wait_until="networkidle")
+            other.fill("input[name=email]", EMAIL)
+            other.fill("input[name=password]", PASSWORD)
+            other.click("button:has-text('Log in')")
+            other.wait_for_load_state("networkidle")
+            return context, other
+
+        def open_the_coat(other) -> None:
+            """The coat's pop-up from the first outfit's list of pieces (the tallest pop-up), or the first piece's."""
+            other.goto(base + "/outfits", wait_until="networkidle")
+            coat = other.locator(f"{first} .piece-row[title*=coat i]")
+            (coat.first if coat.count() else other.locator(f"{first} .piece-row").first).click()
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            other.wait_for_load_state("networkidle")
+
+        def pop_up_never_hides_the_focus():
+            # The pop-up's top row (the piece's name and Close) stays while the sheet scrolls, and what has keyboard
+            # focus is never hidden under it (WCAG 2.4.11). On a small phone and a short computer screen, where the
+            # coat's pop-up scrolls, Tab goes from Close to the last control, then from the sheet's end Shift+Tab
+            # comes back up to Close, so that each new focus comes in from below and from above. At least one of
+            # five points of each must be inside the sheet with neither the top row nor Close over it.
+            hidden: list[str] = []
+            for width, height, phone in ((320, 568, True), (1280, 640, False)):
+                context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=phone, has_touch=phone)
+                open_the_coat(other)
+                assert other.evaluate("() => { const s = document.querySelector('dialog#piece'); return s.scrollHeight > s.clientHeight; }"), \
+                    f"at {width} x {height} the pop-up does not scroll, so this step would check nothing"
+                for key in ("Tab", "Shift+Tab"):
+                    if key == "Shift+Tab":          # from the sheet's end, its last control first
+                        other.evaluate("""() => { const sheet = document.querySelector('dialog#piece');
+                            const all = [...sheet.querySelectorAll('#piece-body a[href], #piece-body button')].filter(e => e.offsetParent);
+                            sheet.scrollTop = sheet.scrollHeight; all[all.length - 1].focus(); }""")
+                    stops = 0
+                    for _ in range(60):
+                        if key == "Tab" or stops:
+                            other.keyboard.press(key)
+                        focus = other.evaluate("""() => {
+                            const sheet = document.querySelector('dialog#piece'), el = document.activeElement;
+                            const row = sheet.querySelector('.piece-top'), close = sheet.querySelector('.sheet-close');
+                            if (!sheet.contains(el) || el === sheet || el === close) return null;     // round to Close, or out
+                            const s = sheet.getBoundingClientRect(), r = el.getBoundingClientRect();
+                            const points = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + 1, r.top + 1],
+                                            [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]];
+                            const seen = points.filter(([x, y]) => {
+                                if (x < s.left || y < s.top || x >= s.right || y >= s.bottom) return false;
+                                const top = document.elementFromPoint(x, y);
+                                return top && !((row.contains(top) || close.contains(top)) && !el.contains(top));
+                            }).length;
+                            return {seen, name: (el.innerText || el.getAttribute('aria-label') || el.tagName).replace(/\\s+/g, ' ').trim().slice(0, 50)};
+                        }""")
+                        if focus is None:
+                            break
+                        stops += 1
+                        if not focus["seen"]:
+                            hidden.append(f"{width} x {height} {key}: {focus['name']}")
+                    assert stops >= 4, f"at {width} x {height}, {key} met only {stops} things to focus in the pop-up"
+                context.close()
+            assert not hidden, "hidden under the pop-up's top row while it had keyboard focus: " + "; ".join(hidden[:6])
+
+        def the_page_behind_the_pop_up_stays_put():
+            # On a computer set to always show scrollbars, their room is kept on every page, so that the page behind
+            # the pop-up does not move sideways when the pop-up opens or closes, even on a page that does not scroll.
+            # The browsers here hide scrollbars, so this step has one of its own that shows them, in a window taller
+            # than the outfits page (whose picture grows with the window, up to its largest).
+            shown = p.chromium.launch(ignore_default_args=["--hide-scrollbars"], args=["--disable-features=OverlayScrollbar"])
+            try:
+                context, other = logged_in_on(shown, viewport={"width": 1280, "height": 1400})
+                other.goto(base + "/outfits", wait_until="networkidle")
+                for _ in range(3):
+                    tall = other.evaluate("document.documentElement.scrollHeight")
+                    if tall <= other.evaluate("innerHeight"):
+                        break
+                    other.set_viewport_size({"width": 1280, "height": tall + 100})
+                    other.wait_for_timeout(100)
+                where = """() => {
+                    const probe = document.createElement('div');            // a box that always has a scrollbar
+                    probe.style.cssText = 'position:absolute; top:0; width:100px; height:100px; overflow:scroll';
+                    document.body.append(probe);
+                    const bar = probe.offsetWidth - probe.clientWidth;
+                    probe.remove();
+                    return {bar, scrolls: document.documentElement.scrollHeight > innerHeight,
+                            edges: ['header.top', 'nav.tabs', 'main'].map(s => {
+                                const b = document.querySelector(s).getBoundingClientRect();
+                                return s + ' ' + b.left.toFixed(1) + '-' + b.right.toFixed(1); })};
+                }"""
+                shut = other.evaluate(where)
+                assert shut["bar"] >= 10 and not shut["scrolls"], f"no scrollbar shown, or the page scrolls, so this step would check nothing: {shut}"
+                other.locator(f"{first} .piece-row").first.click()
+                other.wait_for_selector("dialog#piece[open] #piece-title")
+                opened = other.evaluate(where)
+                other.locator("dialog#piece .sheet-close").click()
+                other.wait_for_selector("dialog#piece:not([open])", state="attached")
+                closed = other.evaluate(where)
+                assert opened["edges"] == shut["edges"] == closed["edges"], \
+                    f"the page behind the pop-up moved sideways: shut {shut['edges']}, open {opened['edges']}, closed again {closed['edges']}"
+                context.close()
+            finally:
+                shown.close()
 
         def arrows_move():
             def shown() -> int:
@@ -677,6 +824,114 @@ def run(base: str) -> None:
             page.reload(wait_until="networkidle")
             wait_for_outfit(2, "after a reload")
 
+        def the_outfit_row_by_keyboard():
+            # By keyboard: from the top of the page, Tab reaches Next within 15 presses (the arrows come before the
+            # outfits). With focus on outfit 1's 'Buy this outfit', → shows outfit 2 and focus goes with it, so that
+            # Enter buys the outfit on screen, not the one left behind; a screen reader hears which outfit is shown,
+            # from the page's live region. The heart pressed with Enter keeps focus, and is called "Save outfit"
+            # whether saved or not (pressed says which). Escape hides a dot's label, until a dot is pointed at again.
+            # Tab after moving the row leads into the outfit moved to, which stays on screen (only the outfit on screen
+            # is in the Tab order; the browser would scroll the row back to an outfit that Tab reached), and so does
+            # Shift+Tab from below the row. At the end of the row Next keeps focus: it says it can go no further
+            # instead of being switched off, which would drop focus to the page.
+            slides = page.locator("#reel [data-slide]")
+
+            def where() -> dict:
+                return page.evaluate("""() => { const all = [...document.querySelectorAll('#reel [data-slide]')];
+                    const s = document.activeElement.closest('#reel [data-slide]'), r = document.getElementById('reel');
+                    return {focus_in: s ? all.indexOf(s) + 1 : 0, shown: Math.round(r.scrollLeft / r.clientWidth) + 1}; }""")
+
+            def at_rest(index: int, after: str):
+                # The row is on outfit `index` (0 first), and stays there for longer than app.js waits to call it at rest.
+                try:
+                    page.wait_for_function("i => { const r = document.getElementById('reel'); "
+                                           "return Math.round(r.scrollLeft / r.clientWidth) === i; }", arg=index, timeout=5000)
+                except Exception:  # noqa: BLE001
+                    raise AssertionError(f"{after}, outfit {index + 1} should be on screen; it is {where()}") from None
+                page.wait_for_timeout(500)
+
+            try:
+                page.set_viewport_size({"width": 1280, "height": 900})
+                page.goto(base + "/outfits", wait_until="networkidle")
+                for presses in range(1, 16):
+                    page.keyboard.press("Tab")
+                    if page.evaluate("() => document.activeElement.matches('.reel-nav.next')"):
+                        break
+                else:
+                    raise AssertionError("from the top of Outfits, 15 Tab presses do not reach Next")
+                for index in (1, 2, 3):
+                    page.keyboard.press("Enter")
+                    at_rest(index, f"after Enter {index} times on Next")
+                page.keyboard.press("Tab")
+                at_rest(3, "after Next three times and then Tab")
+                assert where() == {"focus_in": 4, "shown": 4}, \
+                    f"after Next three times, Tab should lead into outfit 4 and keep it on screen: {where()}"
+                assert page.evaluate("() => location.hash") == "#" + slides.nth(3).get_attribute("id"), \
+                    "after Tab into outfit 4, the address no longer keeps outfit 4"
+                page.locator(".site-foot a").first.focus()
+                page.keyboard.press("Shift+Tab")
+                at_rest(3, "after Shift+Tab from the footer")
+                assert where() == {"focus_in": 4, "shown": 4}, \
+                    f"Shift+Tab from below the row should lead into the outfit on screen, outfit 4: {where()}"
+                last = slides.count() - 1
+                page.evaluate("i => { const r = document.getElementById('reel'); r.style.scrollBehavior = 'auto'; "
+                              "r.scrollLeft = i * r.clientWidth; r.style.scrollBehavior = ''; }", last - 1)
+                at_rest(last - 1, "after the row was moved to the one before the last")
+                page.locator(".reel-nav.next").focus()
+                page.keyboard.press("Enter")
+                at_rest(last, "after Next to the end of the row")
+                end = page.evaluate("() => ({on_next: document.activeElement.matches('.reel-nav.next'), "
+                                    "says: document.querySelector('.reel-nav.next').getAttribute('aria-disabled')})")
+                assert end == {"on_next": True, "says": "true"}, \
+                    f"at the end of the row Next should keep focus and say it can go no further: {end}"
+                page.keyboard.press("Enter")
+                page.keyboard.press("Tab")
+                at_rest(last, "after Enter on Next at the end of the row, and Tab")
+                assert where() == {"focus_in": last + 1, "shown": last + 1}, \
+                    f"Tab from Next at the end of the row should lead into the last slide, on screen: {where()}"
+
+                page.goto(base + "/outfits", wait_until="networkidle")
+                buy_second = slides.nth(1).locator(".about-actions a").get_attribute("href")
+                slides.nth(0).locator(".about-actions a").focus()
+                page.keyboard.press("ArrowRight")
+                inside = page.evaluate("""() => { const s = document.activeElement.closest('#reel [data-slide]');
+                    return s ? [...document.querySelectorAll('#reel [data-slide]')].indexOf(s) + 1 : 0; }""")
+                assert inside == 2, f"after → from outfit 1's 'Buy this outfit', focus is in outfit {inside or 'none'}, not in outfit 2"
+                heard = page.wait_for_function("""() => { const words = document.getElementById('announce').textContent;
+                    return words.startsWith('Outfit 2 of ') && words; }""").json_value()
+                named = slides.nth(1).evaluate("""s => `${s.getAttribute('aria-label')}, ${s.querySelector('.about-head h2').firstChild.textContent.trim()}, `
+                    + s.querySelector('.board-cost').textContent.trim()""")
+                assert heard == named, f"after →, a screen reader hears {heard!r}, not the outfit on screen ({named!r})"
+                assert page.evaluate("() => Math.round(reel.scrollLeft / reel.clientWidth)") == 1, "outfit 2 is not on screen"
+                page.keyboard.press("Enter")
+                page.wait_for_url("**/outfits/buy?**")
+                assert page.url.endswith(buy_second), "Enter after → opened another outfit's Buy page than the one on screen"
+
+                page.goto(base + "/outfits", wait_until="networkidle")
+                page.locator(f"{first} .heart").focus()
+                for pressed in ("true", "false"):           # saved, then not: the walk-through saves it later
+                    page.keyboard.press("Enter")
+                    # htmx takes over the new heart once it has settled (htmx-added gone, 20 ms): a key pressed
+                    # before that would send the form without it, as a page of its own.
+                    page.wait_for_selector(f"{first} form.save:not(.htmx-added) .heart[aria-pressed={pressed}]")
+                    heart = page.evaluate("""() => ({on: document.activeElement.matches('#reel .slide:first-child .heart'),
+                        name: document.activeElement.textContent.trim()})""")
+                    assert heart["on"], f"after pressing the heart with Enter (aria-pressed {pressed}), focus left it"
+                    assert heart["name"] == "Save outfit", f"the heart is called {heart['name']!r} (aria-pressed {pressed})"
+
+                page.wait_for_selector(f"{first} .look-pic img")       # the dots show on the picture (drawn by itself)
+                dot = page.locator(f"{first} .spot").first
+                assert re.fullmatch(r"[^,]+, ((COS|Weekday|Zara), [\d.,]+\s€|owned)", dot.get_attribute("aria-label") or "") \
+                    and dot.get_attribute("title") is None, f"a dot is named {dot.get_attribute('aria-label')!r}, with a tooltip"
+                dot.focus()
+                assert dot.locator(".tip").is_visible(), "a dot with keyboard focus shows no label"
+                page.keyboard.press("Escape")
+                assert not dot.locator(".tip").is_visible(), "Escape does not hide the label of a dot with keyboard focus"
+                dot.hover()
+                assert dot.locator(".tip").is_visible(), "after Escape, pointing at a dot does not show its label again"
+            finally:
+                page.set_viewport_size({"width": 1280, "height": 860})
+
         def save_and_buy():
             page.goto(base + "/outfits", wait_until="networkidle")
             page.locator(f"{first} .heart").click()
@@ -703,6 +958,7 @@ def run(base: str) -> None:
             assert "example sizes" not in page.locator("main").inner_text(), "the example warning stays after 'These are my sizes'"
             page.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
             assert page.locator("#reel .slide").count() == 1, "the saved outfit is not under Saved"
+            assert page.locator(".reel-nav").count() == 0, "a single saved outfit has arrows that lead nowhere"
 
         def list_prints_without_photos():
             # On paper the shopping list is words and links: the photos would only use ink.
@@ -808,10 +1064,12 @@ def run(base: str) -> None:
                 assert other.input_value("#budget") == str(int(budget) + 111), "told no, the changed budget is gone"
 
                 # The photo's button asks the same, once a photo is chosen and the box ticked (the browser's own checks
-                # come first).
+                # come first). This time the budget is back as it was and only a colour swatch was tapped: a tap is a
+                # change too.
                 photo = HOME / "me-again.png"
                 photo.write_bytes(picture(600, 800, (150, 130, 120)))
-                other.fill("input[name=refused]", "yellow")
+                other.fill("#budget", budget)
+                pick_colours(other, profile_mod.EXAMPLE["liked"], ["mustard"])
                 other.set_input_files("[data-photo-form] input[type=file]", str(photo))
                 other.wait_for_selector("[data-photo-form] [data-photo-ready]:not(.bad) img:not([hidden])")
                 other.check("[data-photo-form] input[name=agree]")
@@ -863,7 +1121,7 @@ def run(base: str) -> None:
                 notes = example_notes(phone)
                 assert notes == ["These are example values. Change them to yours and save: your plan is rebuilt around them, "
                                  "then you see the outfits."], f"a new account's Profile says of its example values: {notes}"
-                phone.fill("input[name=liked]", "black, grey, white")
+                pick_colours(phone, ("black", "grey", "white"))
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/outfits")
                 phone.wait_for_load_state("networkidle")
@@ -909,6 +1167,100 @@ def run(base: str) -> None:
                 listed.unlink(missing_ok=True)
                 context.close()
 
+        def colours_by_tapping_swatches():
+            # Every colour Capsule knows is a swatch to tap, five to a row on a phone. Once: liked, numbered in the
+            # order tapped (1 counts most); twice: to avoid; three times: neither. The taps fill in the two text
+            # fields, hidden while the swatches work, so what is saved is what typing it would save. A third customer,
+            # new, so that his first save rebuilds the plan from his colours.
+            who = "swatches-" + EMAIL
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            try:
+                phone = context.new_page()
+                # (The demo catalogue has one picture that is missing on purpose, to show the fallback.)
+                phone.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                         if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                phone.goto(base + "/signup", wait_until="networkidle")
+                phone.fill("input[name=email]", who)
+                phone.fill("input[name=password]", PASSWORD)
+                phone.click("button:has-text('Create account')")
+                phone.wait_for_url(base + "/outfits")
+                phone.goto(base + "/profile", wait_until="networkidle")
+                grid = phone.evaluate("""() => {
+                    const swatches = [...document.querySelectorAll('.swatch')];
+                    const top = Math.round(swatches[0].getBoundingClientRect().top);
+                    return {names: swatches.map(s => s.dataset.colour),
+                            firstRow: swatches.filter(s => Math.round(s.getBoundingClientRect().top) === top).length,
+                            smallest: Math.min(...swatches.map(s => Math.min(s.offsetWidth, s.offsetHeight))),
+                            colours: swatches.map(s => getComputedStyle(s.querySelector('i')).backgroundColor)};
+                }""")
+                assert grid["names"] == [c.label.lower() for c in colours.COLOURS.values()], f"the swatches: {grid['names']}"
+                assert grid["colours"] == ["rgb({}, {}, {})".format(*(int(c.hex[i:i + 2], 16) for i in (1, 3, 5)))
+                                           for c in colours.COLOURS.values()], "a swatch is not in the colour Capsule shows for it"
+                assert grid["firstRow"] == 5 and grid["smallest"] >= 44, f"on a phone the swatches are laid out as {grid}"
+                assert not phone.locator("input[name=liked]").is_visible() and not phone.locator("input[name=refused]").is_visible(), \
+                    "the text fields are still shown beside the swatches"
+
+                pick_colours(phone, ("navy", "olive"), ("black",))      # navy, olive, then black twice
+                for name in ("Navy: liked, first", "Olive: liked, second", "Black: avoided"):
+                    expect(phone.get_by_role("button", name=name, pressed=True), f"no swatch reads {name!r}").to_have_count(1)
+                numbers = [phone.locator(f".swatch[data-colour={c}] b").inner_text() for c in ("navy", "olive")]
+                assert numbers == ["1", "2"], f"navy and olive are numbered {numbers}"
+
+                # By keyboard: Tab goes through every swatch in turn, and Space changes the one with focus, which says
+                # what it is now.
+                phone.focus("#budget")
+                reached: list[str] = []
+                for _ in range(40):
+                    phone.keyboard.press("Tab")
+                    colour = phone.evaluate("() => document.activeElement.dataset.colour || null")
+                    if colour is None and reached:
+                        break
+                    if colour:
+                        reached.append(colour)
+                assert reached == grid["names"], f"Tab reached the swatches {reached}"
+                teal = phone.locator(".swatch[data-colour=teal]")
+                teal.focus()
+                said = []
+                for _ in range(3):
+                    phone.keyboard.press("Space")
+                    said.append([teal.get_attribute("aria-pressed"), phone.locator("[data-swatch-said]").inner_text()])
+                assert said == [["true", "Teal: liked, third"], ["true", "Teal: avoided"], ["false", "Teal"]], \
+                    f"Space on teal three times: {said}"
+
+                phone.click("button:has-text('Save profile')")
+                phone.wait_for_url(base + "/outfits")
+                phone.goto(base + "/profile", wait_until="networkidle")
+                saved = [phone.input_value("input[name=liked]"), phone.input_value("input[name=refused]")]
+                assert saved == ["navy, olive", "black"], f"saved as {saved}"
+                expect(phone.get_by_role("button", name="Navy: liked, first", pressed=True)).to_have_count(1)
+                phone.goto(base + "/slots", wait_until="networkidle")
+                palette = [" ".join(chip.split()) for chip in phone.locator(".palette .swatch-chip").all_inner_texts()]
+                assert "Olive accent" in palette, f"the plan's colours are {palette}: olive is not its accent"
+            finally:
+                context.close()
+
+            # Without JavaScript the swatches are not shown and the two text fields are typed in, as before.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, java_script_enabled=False)
+            try:
+                plain = context.new_page()
+                plain.goto(base + "/login", wait_until="networkidle")
+                plain.fill("input[name=email]", who)
+                plain.fill("input[name=password]", PASSWORD)
+                plain.click("button:has-text('Log in')")
+                plain.wait_for_load_state("networkidle")
+                plain.goto(base + "/profile", wait_until="networkidle")
+                assert not plain.locator("[data-swatches]").is_visible(), "without JavaScript the swatches show, doing nothing"
+                plain.fill("input[name=liked]", "olive, navy")
+                plain.fill("input[name=refused]", "black, pink")
+                plain.click("button:has-text('Save profile')")
+                plain.wait_for_load_state("networkidle")
+                plain.goto(base + "/profile", wait_until="networkidle")
+                typed = [plain.input_value("input[name=liked]"), plain.input_value("input[name=refused]")]
+                assert typed == ["olive, navy", "black, pink"], f"without JavaScript, typed colours were saved as {typed}"
+            finally:
+                context.close()
+
         def new_colours_rebuild_the_plan():
             # New colours and a new use rebuild the plan, although a piece was swapped inside an outfit
             # earlier: that swap is kept when the new plan has the same garment in the same colour.
@@ -917,7 +1269,7 @@ def run(base: str) -> None:
             notes = example_notes(page)
             assert len(notes) == 1 and notes[0].startswith("You said these sizes are yours; the rest are example values."), \
                 f"after 'These are my sizes' the Profile says of its example values: {notes}"
-            page.fill("input[name=liked]", "black, grey, white")
+            pick_colours(page, ("black", "grey", "white"))
             page.locator("input[name=use][value=office]").check(force=True)
             page.click("button:has-text('Save profile')")
             page.wait_for_url(base + "/outfits")
@@ -1156,6 +1508,92 @@ def run(base: str) -> None:
             context.close()
             assert not hidden, "hidden under the bars or off the screen while it had keyboard focus: " + "; ".join(hidden[:6])
 
+        def a_pieces_page_by_keyboard():
+            # On a piece's page the buttons stay where they are and keep keyboard focus: after 'Lock this choice' it is
+            # on the same button, now 'Unlock'; after 'Choose this' on the mark that replaces it, and the next Tab
+            # goes on through that option, not to the footer. What pasted links came to is said inside the 'Add a
+            # product by link' section the page comes back to, on the screen, with JavaScript on and off. The piece
+            # used is one Capsule picks (not the one swapped earlier), and it is left that way.
+            ACTIVE = "() => ({id: document.activeElement.id, text: document.activeElement.textContent.replace(/\\s+/g, ' ').trim()})"
+            # HTMX puts the new part of the page in at once and hooks up its buttons a moment later (its "settle", about
+            # 20 ms): a key pressed in between sends the form without HTMX. A person never presses that fast; the
+            # walk-through waits for it, as it waits for the new words.
+            SETTLED = "() => !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling')"
+            page.goto(base + "/", wait_until="networkidle")
+            pieces = [href for href in page.locator("a[href^='/slot/']").evaluate_all("as => as.map(a => a.getAttribute('href'))")
+                      if href.split("?")[0].split("#")[0].split("/")[2] != swapped.get("slot")]
+            for href in pieces:
+                page.goto(base + href.split("#")[0], wait_until="networkidle")
+                if page.locator("#slot-lock", has_text="Lock this choice").count() and page.locator("button[id^=choose-]").count():
+                    break
+            else:
+                raise AssertionError("no piece that Capsule picks, with another option to choose")
+            address = page.url
+            page.locator("#slot-lock").focus()
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#slot-lock:has-text('Unlock')")
+            page.wait_for_function(SETTLED)
+            page.wait_for_load_state("networkidle")
+            seen = page.evaluate(ACTIVE)
+            assert seen == {"id": "slot-lock", "text": "Unlock (back to automatic)"}, f"after Lock this choice focus is on {seen}"
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#slot-lock:has-text('Lock this choice')")
+            page.wait_for_function(SETTLED)
+            page.wait_for_load_state("networkidle")
+            seen = page.evaluate(ACTIVE)
+            assert seen == {"id": "slot-lock", "text": "Lock this choice"}, f"after Unlock focus is on {seen}"
+            choose = page.locator("button[id^=choose-]").first
+            option = choose.get_attribute("id")
+            choose.focus()
+            page.keyboard.press("Enter")
+            page.wait_for_selector(f"span#{option}")
+            page.wait_for_function(SETTLED)
+            page.wait_for_load_state("networkidle")
+            seen = page.evaluate(ACTIVE)
+            assert seen["id"] == option and seen["text"] in ("Current pick", "Chosen and locked"), \
+                f"after Choose this focus is on {seen}, not on the mark that replaced it"
+            page.keyboard.press("Tab")
+            inside = page.evaluate("id => document.activeElement.closest('.cand') === document.getElementById(id).closest('.cand')", option)
+            assert inside, f"the Tab after choosing leaves the option for {page.evaluate(ACTIVE)}"
+            page.locator("#slot-lock").focus()                     # back to what Capsule picks
+            page.keyboard.press("Enter")
+            page.wait_for_selector("#slot-lock:has-text('Lock this choice')")
+            page.wait_for_function(SETTLED)
+            page.wait_for_load_state("networkidle")
+
+            for javascript in (True, False):
+                context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True,
+                                              java_script_enabled=javascript)
+                try:
+                    phone = context.new_page()
+                    # (As on the main page: one picture of the demo catalogue is missing on purpose.)
+                    phone.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                             if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                    phone.goto(base + "/login", wait_until="networkidle")
+                    phone.fill("input[name=email]", EMAIL)
+                    phone.fill("input[name=password]", PASSWORD)
+                    phone.click("button:has-text('Log in')")
+                    phone.wait_for_load_state("networkidle")
+                    phone.goto(address, wait_until="networkidle")
+                    phone.fill("#add textarea[name=urls]", "https://shop.example.org/jumper")
+                    phone.locator("#add button", has_text="Add").click()
+                    phone.wait_for_load_state("networkidle")
+                    said = phone.evaluate("""() => {
+                        const bar = document.querySelector('#summary'), tabs = document.querySelector('nav.tabs');
+                        const top = bar && getComputedStyle(bar).position === 'sticky' ? bar.getBoundingClientRect().bottom : 0;
+                        const bottom = tabs && getComputedStyle(tabs).position === 'fixed' ? tabs.getBoundingClientRect().top : innerHeight;
+                        return [...document.querySelectorAll('main .flash')].map(m => {
+                            const b = m.getBoundingClientRect();
+                            return {words: m.textContent.trim(), inside: !!m.closest('#add'), status: m.getAttribute('role'),
+                                    shown: b.top >= top - 1 && b.bottom <= bottom + 1};
+                        });
+                    }""")
+                    assert said == [{"words": "Not added: “https://shop.example.org/jumper” is not a COS or Weekday link.",
+                                     "inside": True, "status": "status", "shown": True}], \
+                        f"with JavaScript {'on' if javascript else 'off'} the rejected link is answered: {said}"
+                finally:
+                    context.close()
+
         def delete_account():
             page.goto(base + "/account", wait_until="networkidle")
             page.locator("form[action$='/account/delete'] input[name=current]").fill(PASSWORD)
@@ -1258,8 +1696,11 @@ def run(base: str) -> None:
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
+                 ("the pop-up's top row never hides what has focus", pop_up_never_hides_the_focus),
+                 ("the page behind the pop-up stays put", the_page_behind_the_pop_up_stays_put),
                  ("arrows and arrow keys", arrows_move),
                  ("arrows for every mouse, your place kept on Back", arrows_for_every_mouse_and_your_place_kept),
+                 ("the outfit row by keyboard and screen reader", the_outfit_row_by_keyboard),
                  ("save an outfit and buy it", save_and_buy),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
@@ -1270,10 +1711,12 @@ def run(base: str) -> None:
                  ("the owner's store catalogues, owners only", owners_store_catalogues),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
+                 ("colours picked by tapping swatches", colours_by_tapping_swatches),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
                  ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),
                  ("the budget bar never hides what has focus", budget_bar_never_hides_the_focus),
+                 ("a piece's page by keyboard, links answered there", a_pieces_page_by_keyboard),
                  ("delete the account", delete_account)]
         for name, step in steps:
             known = len(failures)

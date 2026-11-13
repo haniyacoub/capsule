@@ -7,6 +7,7 @@ A fake browser session serves them, so everything from parsing to the saved
 catalogue is exercised.
 """
 import contextlib
+import html
 import io
 import json
 import re
@@ -436,7 +437,7 @@ class ByHand(unittest.TestCase):
         self.assertIsNone(manual.store_of("javascript:alert(1)"))
         results = manual.from_urls(["https://shop.example.org/jumper", "https://www.zara.com/de/de/x-p01234567.html"],
                                    self.slot)
-        self.assertEqual([(cand, note) for _, cand, note in results], [(None, "not a COS or Weekday link")] * 2)
+        self.assertEqual([(cand, note) for _, cand, note in results], [(None, "is not a COS or Weekday link")] * 2)
 
     def test_a_cos_link_is_not_opened_and_gives_what_the_link_says(self):
         link = COS + "/de-de/men/menswear/knitwear/jumpers/merino/product/brushed-merino-crew-neck-jumper-black-4100000902"
@@ -474,14 +475,62 @@ class ByHand(unittest.TestCase):
         self.client.post(f"/slot/{self.sid}/details", data={"candidate": "cos-4100000901", "clear": "1"})
         self.assertEqual(self.cand("cos-4100000901").score.fabric_source, "name")
 
+    def said(self, response, inside: str = "main") -> list[str]:
+        """The messages on the page a form's answer leads to (followed), in order: in <main>, or in one section."""
+        page = response.get_data(as_text=True)
+        where = re.search(r'<section class="card add" id="add">(.*?)</section>', page, re.S) if inside == "add" else None
+        part = where.group(1) if where else page.split("<main>", 1)[-1]
+        return [html.unescape(m) for m in re.findall(r'<p class="flash[^"]*" role="status">(.*?)</p>', part, re.S)]
+
     def test_nonsense_details_are_reported_not_saved(self):
-        r = self.client.post(f"/slot/{self.sid}/details", follow_redirects=True, data={
-            "candidate": "cos-4100000901", "composition": "very nice wool", "price": "cheap"})
-        self.assertIn("Couldn&#39;t read a composition".encode(), r.data)
-        self.assertIn("a price".encode(), r.data)
+        def details(**typed):
+            return self.client.post(f"/slot/{self.sid}/details", follow_redirects=True,
+                                    data={"candidate": "cos-4100000901", **typed})
+
+        # Nothing could be read: each problem is named, and nothing is said to be saved.
+        self.assertEqual(self.said(details(composition="very nice wool", price="cheap")), [
+            "Couldn't read the fabric “very nice wool”: write it as the label does, like “80% Wolle, 20% Polyamid”.",
+            "“cheap” isn't a price."])
         self.assertEqual(self.cand("cos-4100000901").score.fabric_source, "name")
+        self.assertFalse(self.cand("cos-4100000901").size.known)
+        # Part of it could: what was saved is named, and only that.
+        self.assertEqual(self.said(details(sizes="S, L", price="cheap")), ["“cheap” isn't a price.", "Saved the sizes."])
+        self.assertTrue(self.cand("cos-4100000901").size.known)
+        self.assertEqual(self.said(details(composition="100% Wolle", sizes="M", price="cheap")),
+                         ["“cheap” isn't a price.", "Saved the fabric and sizes."])
+        self.assertEqual(self.said(details(price="59")), ["Details saved."])
+        self.assertEqual(self.said(details()), ["Nothing to save yet: type the fabric, the sizes in stock or the price."])
+        self.assertEqual(self.said(details(clear="1")), ["Details cleared."])
         r = self.client.post(f"/slot/{self.sid}/details", data={"candidate": "nope"})
         self.assertEqual(r.status_code, 404)
+
+    def test_what_pasted_links_came_to_is_said_in_their_own_section(self):
+        # The page comes back to the "Add a product by link" section (#add), far down the page: the messages are
+        # there, not at the top of the page where nobody looking at the section would see them.
+        link = COS + "/de-de/men/knitwear/product/some-jumper-black-4100000902"
+        r = self.client.post(f"/slot/{self.sid}/import", data={"urls": f"https://shop.example.org/jumper\n{link}"})
+        self.assertTrue(r.headers["Location"].endswith("#add"), r.headers["Location"])
+        page = self.client.get(r.headers["Location"])
+        self.assertEqual(self.said(page, inside="add"), [
+            "Not added: “https://shop.example.org/jumper” is not a COS or Weekday link.",
+            "Added “Some jumper black”: only the link could be read — add the price, fabric and sizes under "
+            "“Add details”."])
+        before = page.get_data(as_text=True).split('id="add"')[0]
+        self.assertNotIn('class="flash', before, "a message about the links at the top of the page")
+        self.assertIn('<p class="flash bad" role="status">Not added: ', page.get_data(as_text=True))
+        nothing = self.client.post(f"/slot/{self.sid}/import", data={"urls": " "}, follow_redirects=True)
+        self.assertEqual(self.said(nothing, inside="add"), ["Paste at least one product link."])
+        long = "https://shop.example.org/" + "x" * 200
+        cut = self.client.post(f"/slot/{self.sid}/import", data={"urls": long}, follow_redirects=True)
+        self.assertEqual(self.said(cut, inside="add"), [f"Not added: “{long[:79]}…” is not a COS or Weekday link."])
+
+    def test_a_link_gives_the_products_name_without_its_article_number(self):
+        for link, name in ((COS + "/de-de/x/product/brushed-merino-jumper-black-4100000902", "Brushed merino jumper black"),
+                           (COS + "/de-de/x/product/brushed-merino-jumper-black-4100000902?colour=2", "Brushed merino jumper black"),
+                           ("https://www.weekday.com/de-de/p/stiefel-aus-leder-1234567001/", "Stiefel aus leder")):
+            [(_, cand, _)] = manual.from_urls([link], self.slot)
+            assert cand is not None
+            self.assertEqual(cand["name"], name, link)
 
     def test_only_your_own_items_can_be_removed(self):
         r = self.client.post(f"/slot/{self.sid}/remove", data={"candidate": "cos-4100000901"})
@@ -514,7 +563,7 @@ class ByHand(unittest.TestCase):
         html = self.client.get(f"/slot/{self.sid}").data.decode()
         self.assertIn("Add details", html)
         self.assertIn("Add a product by link", html)
-        self.assertIn("View at COS", html)
+        self.assertIn("Open at COS", html)
         self.assertNotIn("Demo data", html)
         self.assertIn("python -m wardrobe refresh --slot", self.client.get(
             f"/slot/{next(s['id'] for s in db.list_slots() if s['category'] == 'coat')}").data.decode())

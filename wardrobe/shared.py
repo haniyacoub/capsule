@@ -217,11 +217,13 @@ def _for_piece(pool: dict, slot: dict, collector: dict, refused: frozenset[str])
     return found
 
 
-def kept_for_its_lock(slot: dict, product: dict) -> bool:
-    """Whether a piece's product is among its options only because the piece is locked to it (see _for_piece):
-    its colour is one the customer refused, and the piece's own colour is not."""
+def kept_for_its_lock(slot: dict, *products: dict) -> bool:
+    """Whether one of these products of a piece is among its options only because the piece is (or was) locked to
+    it (see _for_piece): its colour is one the customer refused, and the piece's own colour is not. A product he
+    added himself by its link is his own option, whatever its colour."""
     refused = refused_colours()
-    return slot["colour"] not in refused and matching.refused(product.get("colour"), refused)
+    return slot["colour"] not in refused and any(
+        product.get("source") != "manual" and matching.refused(product.get("colour"), refused) for product in products)
 
 
 def refresh_customer() -> None:

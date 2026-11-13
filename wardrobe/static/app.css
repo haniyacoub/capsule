@@ -47,6 +47,7 @@
   /* Spacing, on a 4px grid, and the gutter: the space between the screen's edge and the content. */
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
   --gutter: 16px;                                  /* computers: 24px */
+  --form-w: 620px;                                 /* the widest a form on a card gets, and the words beside it */
   /* Corners: five values and no others (plus 50% for round things and 0 for square ones). */
   --r-img: 2px;           /* product photos, and the AI picture on computers */
   --r-ui: 6px;            /* cards, buttons, inputs, the cells of a segmented control */
@@ -358,7 +359,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .cand-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .colour-name { font-size: var(--t-s); color: var(--muted); margin-left: 4px; }
 .price { font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.cand h3 { font-size: var(--t-m); font-weight: 500; line-height: 1.3; margin: 3px 0; }
+.cand h2 { font-size: var(--t-m); font-weight: 500; line-height: 1.3; margin: 3px 0; }   /* each option's name: a heading under the piece's */
 .fabric { font-size: var(--t-s); color: var(--muted); }
 .est { font-size: var(--t-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--ok); background: var(--ok-bg); padding: 1px 6px; border-radius: var(--r-pill); white-space: nowrap; }
 .was { font-size: var(--t-s); font-weight: 400; color: var(--muted); margin-left: 4px; }
@@ -427,12 +428,15 @@ details.why summary::-webkit-details-marker { display: none; }
      row's edge shows whole. */
   margin: calc(-1 * var(--s-4)) calc(-1 * var(--gutter));
 }
-.reel:focus-visible { outline-offset: -3px; }   /* it runs to the screen's edges on a phone */
 .reel::-webkit-scrollbar { display: none; }
 .slide {
   flex: 0 0 100%; min-width: 0; scroll-snap-align: center; scroll-snap-stop: always;
   display: grid; gap: var(--s-3); align-content: start; padding: var(--s-4) var(--gutter);
 }
+/* An outfit takes keyboard focus itself only where the outfit you moved to has nothing like what had focus in the
+   one you left (app.js, 6a): a quiet ring in the edge colour of a field (3.3:1 on the page), inside the room the
+   slide pads back, around the whole outfit. */
+.slide:focus-visible { outline: 2px solid var(--field); outline-offset: calc(-1 * var(--s-2)); border-radius: var(--r-ui); }
 /* The stage: the outfit as a picture, 2 wide by 3 high, without a border. Square corners on a phone; on computers
    the photo radius (see "Wider screens"). On a phone the first screen shows the whole model, its price and the
    heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
@@ -508,8 +512,11 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 /* The line under the box: one line, 40px tall in every state (empty until there is a picture), so that nothing under
    it moves when the picture arrives. It never wraps: at the browser's standard text size its words show whole (at a
    larger one they end in '…'). Where the box is narrower than the half sentence and the two links (272px: on a
-   screen under about 760px tall, or under a message at the top), the line is 272px wide and reaches past the box
-   equally on both sides, by 61px each at most (the box is never under 150px), so it still fits a 320px phone. */
+   phone under about 760px tall, or 795px on Saved, whose lead line is longer, each about 24px more while the
+   starter banner shows and about 22px more while the budget bar has its line about missing pieces; on a computer
+   under about 710px tall, or 675px with the banner; or under a message at the top), the line is 272px wide and
+   reaches past the box equally on both sides, by 61px each at most (the box is never under 150px), so it still
+   fits a 320px phone. */
 .look-line {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
   width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
@@ -553,6 +560,7 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 }
 .spot .tip b { display: block; font-weight: 500; }
 .spot:hover .tip, .spot:focus-visible .tip { display: block; }
+.looks.hush .spot .tip { display: none; }   /* Escape hides them, until the next dot pointed at or focused (app.js, 6c) */
 /* Beside (or under) the stage: what the outfit is made of. */
 .about { width: min(100%, 460px); margin: 0 auto; }
 /* The outfit line: the title in the serif, then "1 / 12", the price and the heart, which go under the title together
@@ -588,7 +596,8 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
    outfit, 12px from the picture's left edge and from the list's right edge, centred on the picture's height. --pair
    is the outfit's width: the picture alone where the list is under it, the picture, the 32px between and the list
    (420px) from 760px. Where the outfit fills the row, they keep to the row's edges; in a window so narrow that they
-   reach the picture, they lie on its edge, over its band and dots (z-index). */
+   reach the picture, they lie on its edge, over its band and dots (z-index). They come before the row in the page
+   (the keyboard reaches them first) and the z-index keeps them over it, so a click lands on them, not on a slide. */
 .looks { --pair: var(--stage-w); }
 .reel-nav {
   display: none; position: absolute; z-index: 3; top: calc(var(--stage-w) * 3 / 4 - 44px / 2); width: 44px; height: 44px; padding: 0; border-radius: 50%;
@@ -601,7 +610,11 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
   .reel-nav { display: inline-flex; }
 }
 .reel-nav.next .ic { transform: rotate(180deg); }
-.reel-nav:disabled { opacity: .3; cursor: default; }
+/* At either end of the row (app.js, 6): faded, and pressing it does nothing. It keeps keyboard focus, so with focus
+   on it only its arrow fades, and the focus ring shows in full. */
+.reel-nav[aria-disabled="true"] { cursor: default; }
+.reel-nav[aria-disabled="true"]:not(:focus-visible) { opacity: .3; }
+.reel-nav[aria-disabled="true"]:focus-visible .ic { opacity: .3; }
 .save { display: flex; }
 /* The heart: a 44px target that takes no more room in the line than its 24px; its icon lines up with the list's edge. */
 .heart { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -10px -10px -10px 0; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 50%; }
@@ -619,22 +632,46 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 
 /* ── The pop-up for one piece (a sheet from the bottom on a phone) ───────── */
 /* While it is open the page behind it stays put: a swipe inside the sheet scrolls only the sheet, never the page
-   once the sheet's end is reached, and the page itself cannot scroll, keeping its scrollbar's room so that nothing
-   behind the sheet moves sideways on a computer. */
-html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
+   once the sheet's end is reached, and the page itself cannot scroll. Where scrollbars take room (a computer set to
+   always show them), that room is kept on every page, scrolling or not, so nothing behind the sheet moves sideways
+   when it opens or closes. */
+html { scrollbar-gutter: stable; }
+html:has(dialog[open]) { overflow: hidden; }
+/* --sheet-t and --sheet-x: the sheet's padding at the top and the sides, which its top row reaches over. */
 .sheet {
+  --sheet-t: var(--s-2); --sheet-x: var(--s-4);
   width: min(560px, 100%); max-width: 100%; max-height: min(88svh, 780px); margin: auto auto 0;
-  padding: var(--s-2) var(--s-4) calc(var(--s-5) + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  padding: var(--sheet-t) var(--sheet-x) calc(var(--s-5) + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   background: var(--surface); color: var(--ink); overflow-y: auto; overscroll-behavior: contain;
 }
 .sheet::backdrop { background: rgba(0, 0, 0, .45); }
-/* Close: a 44px target in the top corner, drawn as a smaller disc. The first line of the sheet (.piece-top) is as
-   tall and leaves it room. */
+/* The top row stays while the sheet scrolls: the piece's name on the sheet's ground, across its whole width, with
+   the rest scrolling away under it, and Close over its right end, where the name leaves it room. Close is a 44px
+   target drawn as a smaller disc, as far from the sheet's top as from its side. Neither moves when the sheet starts
+   to scroll: each sticks where it already is ('top' counts from inside the sheet's padding, so the row's is minus
+   that padding: the sheet's very top). */
 .sheet-close {
-  position: absolute; top: var(--s-2); right: var(--s-2); width: 44px; height: 44px; padding: var(--s-1);
+  position: sticky; top: 0; z-index: 2; display: block; width: 44px; height: 44px; padding: var(--s-1);
+  margin: 0 calc(var(--sheet-t) - var(--sheet-x)) -44px auto;   /* takes no room: the top row is under it */
   border: 0; border-radius: 50%; background: var(--soft) content-box; font-size: var(--t-xl); line-height: 1; cursor: pointer;
 }
-.piece-top { display: flex; align-items: center; min-height: 44px; padding-right: 44px; margin-bottom: var(--s-2); }
+.piece-top {
+  position: sticky; top: calc(-1 * var(--sheet-t)); z-index: 1; display: flex; align-items: center; min-height: calc(var(--sheet-t) + 44px);
+  margin: calc(-1 * var(--sheet-t)) calc(-1 * var(--sheet-x)) var(--s-2);
+  padding: var(--sheet-t) calc(var(--sheet-x) + 44px) 0 var(--sheet-x); background: var(--surface);
+}
+#piece-body { display: flow-root; }   /* the row's reach up over the padding is not merged into Close's margin */
+/* What gets keyboard focus in the sheet is scrolled into view below the top row, never under it (WCAG 2.4.11): the
+   room kept above it is the row's height and 12px more, as under the budget bar, so its focus ring shows whole. Set
+   on what scrolls under the row only, so that coming back to Close (in the row, always in view) leaves the sheet
+   where it is. */
+#piece-body * { scroll-margin-top: calc(var(--sheet-t) + 44px + var(--s-3)); }
+/* Once the sheet is scrolled, a hairline under the top row shows where the rest goes under it (in browsers that can
+   tie a style to scrolling; in others the row has no line). At rest there is none. */
+@supports (animation-timeline: scroll()) {
+  .piece-top { animation: sheet-scrolled linear both; animation-timeline: scroll(nearest); animation-range: 0 var(--s-2); }
+}
+@keyframes sheet-scrolled { to { box-shadow: 0 1px 0 var(--line); } }
 h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece you have: its name is the title */
 .piece-head { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
 .piece-head .pic { width: 104px; aspect-ratio: 3 / 4; }   /* 104 x 139 */
@@ -646,7 +683,9 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .quality { display: inline-flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); color: var(--muted); }
 .piece-facts .sizeline { margin-top: 0; }
 .piece-facts .sizeline .ex { color: var(--ok); font-weight: 500; }   /* in stock, but in our example size: a caution to act on */
-.piece-facts .sizeline a { padding: 3px 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px to tap */
+.piece-facts .sizeline a { padding: var(--s-1) 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
+.as-of { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.as-of span { white-space: nowrap; }   /* the date and time stay together */
 .piece-facts .size-notes { margin: 0; display: block; }
 .piece-facts .extlink { min-height: 40px; }
 .piece-state { display: flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); font-weight: 500; }
@@ -735,6 +774,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .card h1 { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin-bottom: 8px; }
 .card h2 { font-size: var(--t-l); margin-bottom: 10px; }
 .card.add { margin-top: 22px; }
+.card.add .flash { overflow-wrap: anywhere; }   /* what pasted links came to (a piece's page): a long link wraps, never widens the page */
 .card .sec { margin: 8px 0 0; font-size: var(--t-xs); }   /* a section label stays small inside a card too */
 #sizes { scroll-margin-top: calc(var(--s-8) * 2); }   /* "Change" by Your sizes lands here: well clear of the bar that sticks to the top */
 .card .demo { margin: 6px 0 4px; }
@@ -774,6 +814,40 @@ details[open] > summary .edit { visibility: hidden; }
 .check input { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); }
 .mini { display: inline-flex; align-items: center; gap: 4px; margin: 0 8px 2px 0; white-space: nowrap; }
 .mini i { width: 10px; height: 10px; }
+/* The colours on Profile, as swatches to tap (app.js, 14): five to a row on a phone, nine on a computer, each a button
+   with its name under it. Liked: an ink ring with a gap of the card's colour inside it, and its number in an ink disc at
+   the top right. Avoided: struck through by an ink line edged in the card's colour, so that the strike shows on the
+   palest swatch and on the darkest, in both themes, and AVOID under the name (its line is kept empty until then, so
+   nothing moves when a swatch is tapped). */
+.swatches, .typed-colours { display: grid; gap: var(--s-3); }
+.swatches[hidden], .typed-colours[hidden] { display: none; }
+.swatch-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-1) var(--s-2); }   /* the empty AVOID line spaces the rows */
+.swatch {
+  display: grid; justify-items: center; align-content: start; gap: var(--s-1); min-width: 0; margin: 0; padding: 0 0 var(--s-1);
+  border: 0; border-radius: var(--r-ui); background: none; color: var(--muted); cursor: pointer;
+  font-size: var(--t-s); line-height: var(--lh-s); text-align: center; -webkit-tap-highlight-color: transparent;
+}
+.swatch[aria-pressed=true] { color: var(--ink); }
+.swatch i {
+  position: relative; display: block; width: 40px; height: 40px; margin: var(--s-1); border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, .35);
+}
+.swatch b {
+  position: absolute; top: -10px; right: -12px; display: none; min-width: 22px; height: 22px; padding: 0 var(--s-1);
+  border: 2px solid var(--surface); border-radius: var(--r-pill); background: var(--ink); color: var(--surface);
+  font: 600 var(--t-s)/18px var(--font); font-variant-numeric: tabular-nums; font-style: normal;   /* 18px: the disc inside its edge */
+}
+.swatch small { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; visibility: hidden; }
+.swatch[data-state=like] i { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.swatch[data-state=like] b { display: block; }
+.swatch[data-state=avoid] i::after {
+  content: ""; position: absolute; top: -4px; bottom: -4px; left: 50%; width: 2px; margin-left: -1px;
+  background: var(--ink); box-shadow: 0 0 0 2px var(--surface); transform: rotate(-45deg);
+}
+.swatch[data-state=avoid] small { visibility: visible; }
+@media (min-width: 760px) {
+  .swatch-grid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+}
 
 /* ── Your model (Profile) and buying ─────────────────────────────────────── */
 .pick { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -788,7 +862,7 @@ details[open] > summary .edit { visibility: hidden; }
 .pick input:checked + span { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .pick input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* The model's words keep to the width of its form, so that no line runs across a computer's whole card. */
-#model > p { max-width: 620px; }
+#model > p { max-width: var(--form-w); }
 /* Your own photo starts a new part of the card. What happens to the photo is said before the box that agrees to it:
    the size of a hint, in ink, not faded; what to expect of the pictures comes after the button. */
 #photo .sec { margin-top: var(--s-5); }
@@ -973,7 +1047,7 @@ details[open] > summary .edit { visibility: hidden; }
   .thr { max-width: 430px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .card { padding: 20px; }
-  .card .form { max-width: 620px; }
+  .card .form { max-width: var(--form-w); }
   .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); margin-top: var(--s-8); }
   .shuffle { width: auto; padding: 0 var(--s-3); }
   .shuffle span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
@@ -987,8 +1061,7 @@ details[open] > summary .edit { visibility: hidden; }
   .collage, .look-pic { border-radius: var(--r-img); }
   .band { border-radius: var(--r-img) var(--r-img) 0 0; }
   .about { margin: 0; }
-  .sheet { margin: auto; padding: var(--s-3) var(--s-5) var(--s-5); border-radius: var(--r-sheet); }
-  .sheet-close { top: var(--s-3); right: var(--s-3); }
+  .sheet { --sheet-t: var(--s-3); --sheet-x: var(--s-5); margin: auto; padding: var(--sheet-t) var(--sheet-x) var(--s-5); border-radius: var(--r-sheet); }
   .hero { padding-top: var(--s-7); }
   .hero-cta .btn { width: auto; }
 }

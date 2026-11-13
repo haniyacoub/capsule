@@ -8,6 +8,10 @@ colour and picture. Whatever is still missing you type in on the piece's page.
 
 Only links to stores customers are offered are taken (programmes.py): a link
 to a store without a partner programme, such as Zara, is refused.
+
+What happened to each link is said to the customer after the product's name
+("Added “X”: only the link could be read …") or after the link itself ("Not
+added: “link” is not a COS or Weekday link."), so the notes below read on from those.
 """
 from __future__ import annotations
 
@@ -49,9 +53,11 @@ def _from_link_alone(url: str, store: str, slot: dict, known: list[dict]) -> tup
     if seen:
         cand = {k: v for k, v in seen.items() if k != "manual"}
         cand.update(slot_id=slot["id"], source="manual", url=url, collected_at=catalog.now_iso())
-        return cand, "taken from the last refresh (name, price, colour, picture)"
+        return cand, "its name, price, colour and picture were already in Capsule's product list"
 
-    words = re.sub(r"-?\d{7,13}$", "", slug).replace("-", " ").strip()
+    # The article number is not part of the name: COS ends a link "…-black-4100000902", Zara "…-p01234567"
+    # (without the "-p" too, the name of "stiefel-aus-leder-p01234567" would be "Stiefel aus leder p").
+    words = re.sub(r"(?:-p)?-?\d{7,13}$", "", slug).replace("-", " ").strip()
     cand = {
         "id": f"{store}-{sku}", "slot_id": slot["id"], "store": store,
         "name": words[:1].upper() + words[1:] if words else "Product", "slug": slug,
@@ -71,7 +77,7 @@ def from_urls(urls: list[str], slot: dict) -> list[tuple[str, dict | None, str]]
     for url in urls:
         store = store_of(url)
         if store is None:
-            results.append((url, None, f"not a {stores} link"))
+            results.append((url, None, f"is not a {stores} link"))
             continue
         stub, note = _from_link_alone(url, store, slot, known)
         results.append((url, stub, note))

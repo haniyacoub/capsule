@@ -1,7 +1,10 @@
 """Quality score, 0-100, with the working shown.
 
 All numbers come from config/scoring.toml. This file only does the arithmetic
-and writes down, line by line, how each number came about.
+and writes down, line by line, how each number came about. Those lines are what
+a customer reads under "How it's rated" on a piece's page, so they are in his
+words: a price is "in the usual range", and the brand part says plainly that the
+rating is Capsule's own.
 """
 from __future__ import annotations
 
@@ -34,6 +37,16 @@ class Score:
     @property
     def band(self) -> str:
         return "good" if self.total >= 75 else "ok" if self.total >= 55 else "poor"
+
+    @property
+    def note(self) -> str:
+        """The line under every breakdown: which part counts most (from the weights, so it stays true when they
+        change), and that the brand part is Capsule's own judgement, not a fact from the store."""
+        weights = sorted((p.weight for p in self.parts), reverse=True)
+        most = next(p for p in self.parts if p.weight == weights[0])
+        first = f"{most.label} counts most. " if len(weights) < 2 or weights[0] > weights[1] else ""
+        return first + ("The brand part is Capsule's own judgement of how well each store makes this kind of "
+                        "garment.")
 
     @property
     def fabric_text(self) -> str:
@@ -107,7 +120,8 @@ def _num(x: float) -> str:
 
 
 def _eur(x: float) -> str:
-    return f"{x:,.0f} €" if float(x).is_integer() else f"{x:,.2f} €"
+    """'89.95 €', with a space that never breaks: on a phone '130' and '€' stay on one line."""
+    return f"{x:,.0f}\u00a0€" if float(x).is_integer() else f"{x:,.2f}\u00a0€"
 
 
 def fabric_part(comp: list[tuple[str, float]], category: str, rules: dict) -> tuple[float, list[str]]:
@@ -157,7 +171,7 @@ def price_part(price: float, category: str, rules: dict) -> tuple[float, list[st
     band = cfg.get("bands", {}).get(category)
     plural = GARMENTS[category].plural if category in GARMENTS else category
     if not band:
-        return 70.0, [f"No price band configured for {plural} → neutral 70"]
+        return 70.0, [f"Capsule has no usual price range for {plural} yet → neutral 70"]
 
     low_score = float(cfg.get("score_when_suspicious", 40))
     high_score = float(cfg.get("score_when_steep", 55))
@@ -166,28 +180,32 @@ def price_part(price: float, category: str, rules: dict) -> tuple[float, list[st
     steep = float(band["steep_above"])
     fair = f"{_eur(fair_lo)}–{_eur(fair_hi)}"
 
+    # A low price counts against an option because it often means lower quality: said so, not hinted at.
     if fair_lo <= price <= fair_hi:
-        return 100.0, [f"{_eur(price)} is inside the fair band for {plural} ({fair})"]
+        return 100.0, [f"{_eur(price)} is in the usual range for {plural} ({fair})"]
     if price < fair_lo:
         if price <= cheap:
-            return low_score, [f"{_eur(price)} is suspiciously cheap for {plural} (under {_eur(cheap)})"]
+            return low_score, [f"{_eur(price)} is far below the usual {fair} for {plural}. Prices this low often "
+                               f"mean lower quality, so this counts against it."]
         score = low_score + (price - cheap) / (fair_lo - cheap) * (100 - low_score)
-        return score, [f"{_eur(price)} is below the fair band for {plural} ({fair})"]
+        return score, [f"{_eur(price)} is below the usual {fair} for {plural}. Prices this low often mean lower "
+                       f"quality, so this counts a little against it."]
     if price >= steep:
-        return high_score, [f"{_eur(price)} is steep for {plural} (over {_eur(steep)})"]
+        return high_score, [f"{_eur(price)} is far above the usual {fair} for {plural}, so this counts against it."]
     score = 100 - (price - fair_hi) / (steep - fair_hi) * (100 - high_score)
-    return score, [f"{_eur(price)} is above the fair band for {plural} ({fair})"]
+    return score, [f"{_eur(price)} is above the usual {fair} for {plural}, so this counts a little against it."]
 
 
 def brand_part(store: str, category: str, rules: dict) -> tuple[float, list[str]]:
     tiers = rules.get("brand", {}).get(store, {})
     plural = GARMENTS[category].plural if category in GARMENTS else category
     name = programmes.label(store)
+    # Capsule's own judgement of the store, and said to be: "Zara is rated 52" hid who rates it.
     if category in tiers:
         value = float(tiers[category])
-        return value, [f"{name} is rated {_num(value)} for {plural}"]
+        return value, [f"Capsule rates {name} {_num(value)}/100 for {plural}"]
     value = float(tiers.get("default", 50))
-    return value, [f"{name} has no rating for {plural} → its default {_num(value)}"]
+    return value, [f"Capsule rates {name} {_num(value)}/100 for {plural} (its rating for {name} in general)"]
 
 
 def score(candidate: dict, category: str, rules: dict | None = None) -> Score:

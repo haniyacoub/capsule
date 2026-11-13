@@ -43,6 +43,7 @@ window.addEventListener('pageshow', (e) => {
 
 // 6. Outfits: the arrows and the arrow keys move the reel one outfit at a time.
 //    (Swiping needs no code: the reel is a scrolling row that snaps, see app.css.)
+//    Keyboard focus and what a screen reader hears go with it (6a-6c below).
 //    The chips above the outfits scroll sideways in their own row on a narrow phone. A browser
 //    gives keyboard focus to a chip that is only partly in that row without scrolling it in, so
 //    its focus ring would be cut off: bring it in, clear of the edge by the row's scroll-padding.
@@ -80,34 +81,161 @@ if (reel) {
   // quick presses move two outfits instead of the second one being lost mid-scroll.
   let goal = null;
   let settled;
+
+  // 6a. The row by keyboard and screen reader.
+  //     Keyboard focus goes with the outfit on screen. When the row moves on while focus is inside another outfit
+  //     (on its 'Buy this outfit', say), focus moves to the same thing in the outfit now shown (its 'Buy this
+  //     outfit'), so that Enter acts on the outfit you see. Where that outfit has no such thing (no picture yet, so
+  //     no dots), focus goes to the outfit itself, which can take focus for that (tabindex -1: never by Tab).
+  //     preventScroll: the row slides as it would without this; the page does not jump.
+  slides.forEach((slide) => { slide.tabIndex = -1; });
+  const visible = (el) => el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+  const follow = (index) => {
+    const slide = slides[index];
+    const here = document.activeElement;
+    const from = here && reel.contains(here) ? here.closest('[data-slide]') : null;
+    if (!slide || !from || from === slide) return;
+    let twin = null;
+    if (here !== from && here.classList.length) {
+      const same = (root) => [...root.querySelectorAll(`${here.tagName}.${here.classList[0]}`)].filter(visible);
+      const theirs = same(slide);
+      twin = theirs[Math.min(same(from).indexOf(here), theirs.length - 1)] || null;
+    }
+    (twin || slide).focus({ preventScroll: true });
+  };
+  //     What a screen reader hears when the row comes to rest on another outfit ("Outfit 2 of 12, Office,
+  //     257.75 €"), and when the picture of the outfit on screen arrives ("Picture ready"): one sentence in the
+  //     page's one live region (base.html), only once the row is at rest, never while it scrolls.
+  const announce = document.getElementById('announce');
+  const say = (words) => {
+    if (!announce || !words) return;
+    // The same words again (a second picture of the same outfit) are only read out if the text changes.
+    announce.textContent = announce.textContent === words ? `${words}\u00a0` : words;   // a no-break space after them
+  };
+  const describe = (slide) => {
+    const title = slide.querySelector('.about-head h2');
+    const cost = slide.querySelector('.board-cost');
+    if (!title || !cost) return slide.textContent.replace(/\s+/g, ' ').trim();   // "That was 12 of 624. Show more outfits"
+    return `${slide.getAttribute('aria-label')}, ${title.firstChild.textContent.trim()}, ${cost.textContent.trim()}`;
+  };
+  let told = shown();     // the outfit the page opens on (or comes back to) is not announced: the page says it
+  const onScreen = () => slides[goal === null ? shown() : goal];    // the outfit on screen, or being moved to
+  //     Tab goes through the outfit on screen only. The things to press in the other outfits are taken out of the
+  //     Tab order (tabindex -1, their own tabindex kept in data-tab) and given back when their outfit is shown: at
+  //     once when an arrow or an arrow key moves the row, so a Tab pressed before it comes to rest already leads
+  //     into the outfit being moved to. So Tab from Next leads into the outfit you moved to, and Shift+Tab from
+  //     below the row back into it, never into outfit 1, which the browser would scroll back to. The other outfits
+  //     are not made inert: swiping, and a screen reader reading the whole row, work as before. What HTMX puts in
+  //     (a picture, the heart) is sorted the same way once it is in.
+  const pressable = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [tabindex]';
+  const tabInto = (current) => slides.forEach((slide) => slide.querySelectorAll(pressable).forEach((el) => {
+    if (slide === current) {
+      if (!('tab' in el.dataset)) return;
+      if (el.dataset.tab) el.setAttribute('tabindex', el.dataset.tab);
+      else el.removeAttribute('tabindex');
+      delete el.dataset.tab;
+    } else if (el.tabIndex >= 0) {
+      el.dataset.tab = el.getAttribute('tabindex') || '';
+      el.tabIndex = -1;
+    }
+  }));
+  tabInto(onScreen());
+  document.body.addEventListener('htmx:afterSettle', () => tabInto(onScreen()));
+
   const step = (direction) => {
     const from = goal === null ? shown() : goal;
     goal = Math.max(0, Math.min(slides.length - 1, from + direction));
     reel.scrollTo({ left: goal * reel.clientWidth, behavior: motion.matches ? 'auto' : 'smooth' });
     keep(goal);       // at once: 'Buy this outfit' may be pressed before the row has come to rest
+    tabInto(slides[goal]);    // at once too, for the same reason
+    follow(goal);
   };
+  // A single outfit has no arrows (outfits.html leaves them out): there is nowhere to move to.
+  // At either end of the row the arrow says it can go no further (aria-disabled, faded by app.css) and pressing it
+  // does nothing. It is not switched off (disabled): that would throw keyboard focus off the arrow you have just
+  // pressed to the page, and the next Tab would lead back to outfit 1. So both arrows stay Tab stops.
   const prev = document.querySelector('.reel-nav.prev');
   const next = document.querySelector('.reel-nav.next');
   const ends = () => {
-    prev.disabled = reel.scrollLeft < 8;
-    next.disabled = reel.scrollLeft > reel.scrollWidth - reel.clientWidth - 8;
+    if (!prev || !next) return;
+    prev.setAttribute('aria-disabled', String(reel.scrollLeft < 8));      // 'true' at the first outfit
+    next.setAttribute('aria-disabled', String(reel.scrollLeft > reel.scrollWidth - reel.clientWidth - 8));   // at the last
   };
-  prev.addEventListener('click', () => step(-1));
-  next.addEventListener('click', () => step(1));
+  if (prev && next) {
+    [[prev, -1], [next, 1]].forEach(([arrow, direction]) => arrow.addEventListener('click', () => {
+      if (arrow.getAttribute('aria-disabled') !== 'true') step(direction);
+    }));
+  }
   reel.addEventListener('scroll', () => {
     ends();
     clearTimeout(settled);
     settled = setTimeout(() => {      // the scroll has come to rest (after a swipe too)
       goal = null;
-      keep(shown());
+      const now = shown();
+      keep(now);
+      tabInto(slides[now]);
+      follow(now);
+      if (now !== told) {
+        told = now;
+        say(describe(slides[now]));
+      }
     }, 200);
   }, { passive: true });
   ends();
+  // The arrow keys anywhere on the page (not in a field, not with the pop-up open). With Alt, Ctrl, Cmd or Shift
+  // they are the browser's (Alt+← is Back). The row moves instead of the browser scrolling it by a few pixels.
   document.addEventListener('keydown', (e) => {
     if (document.querySelector('dialog[open]') || e.target.closest('input, select, textarea')) return;
-    if (e.key === 'ArrowLeft') step(-1);
-    if (e.key === 'ArrowRight') step(1);
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    step(e.key === 'ArrowLeft' ? -1 : 1);
   });
+
+  // 6b. When an outfit's picture box is replaced (its picture asked for, drawing, arrived), keyboard focus on what
+  //     was in the box ('See it worn', 'Draw again') falls to the page, and focus on a piece's photo under the box
+  //     is lost once the picture covers the photos. Then focus goes to the outfit's first dot, or to the outfit
+  //     itself until the picture, and its dots, are there. And the outfit on screen says when its picture is ready
+  //     (or why a new one was not drawn).
+  const isBox = (el) => el instanceof Element && el.matches('.look');
+  document.body.addEventListener('htmx:beforeSwap', (e) => {
+    const box = e.detail.target;
+    if (isBox(box) && box.closest('.stage').contains(document.activeElement)) box.dataset.focus = 'in';
+  });
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    const box = e.detail.target;
+    if (!isBox(box)) return;
+    const slide = box.closest('[data-slide]');
+    const ready = box.querySelector('.look-pic');
+    if (ready && slide === onScreen()) {
+      const why = box.querySelector('.look-msg');
+      say(why ? why.textContent.trim() : 'Picture ready');
+    }
+    if (box.dataset.focus !== 'in') return;
+    const here = document.activeElement;
+    const fell = !here || here === document.body || here === slide || (slide.contains(here) && !visible(here));
+    if (!fell) {      // focus is still on something you can see (a photo, before the picture comes): leave it there
+      delete box.dataset.focus;
+      return;
+    }
+    const dot = ready && [...slide.querySelectorAll('.spot')].find(visible);
+    if (dot) {
+      dot.focus({ preventScroll: true });
+      delete box.dataset.focus;
+    } else if (slide === onScreen()) {
+      slide.focus({ preventScroll: true });     // the outfit itself, while its picture is drawn
+    }
+  });
+
+  // 6c. Escape hides the dots' labels (the piece, its store and price), which show on hover and on focus, so that
+  //     they never stay over the picture against your will. They show again on the next dot pointed at or focused.
+  const looks = reel.closest('.looks');
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !document.querySelector('dialog[open]')) looks.classList.add('hush');
+  });
+  ['pointerover', 'focusin'].forEach((kind) => looks.addEventListener(kind, (e) => {
+    if (e.target.closest('.spot')) looks.classList.remove('hush');
+  }));
 
   // 7. AI pictures: an outfit that stays on screen for a moment has its picture drawn,
   //    by pressing its "See it worn" button for you. The page marks those buttons only
@@ -249,4 +377,66 @@ if (aboutYou) {
       e.preventDefault();
     }
   });
+}
+
+// 14. Profile: the colours as swatches to tap. Once: a colour you like, numbered in the order you tapped it (1 counts
+//     most, which is how the plan reads "most important first"). Twice: a colour to avoid. Three times: neither.
+//     The swatches only fill in About you's two text fields ("Colours you like", "Colours to avoid") with the colours'
+//     names, in the order tapped, so what is saved is exactly what typing them would save, and a tap counts as a
+//     change not yet saved (13). The fields are hidden while the swatches work; without JavaScript the swatches stay
+//     hidden and the fields are typed in.
+const swatchGrid = document.querySelector('[data-swatches]');
+if (swatchGrid) {
+  const swatchForm = swatchGrid.closest('form');
+  const likedField = swatchForm.elements.liked;
+  const avoidField = swatchForm.elements.refused;
+  const swatches = [...swatchGrid.querySelectorAll('[data-colour]')];
+  const said = swatchGrid.querySelector('[data-swatch-said]');
+  const known = swatches.map((swatch) => swatch.dataset.colour);       // the names, as the fields write them
+  const ordinals = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+  // What the page was loaded with (or what the browser kept in the fields): names, most important first.
+  const read = (field) => field.value.split(',').map((name) => name.trim().toLowerCase())
+    .filter((name, at, all) => known.includes(name) && all.indexOf(name) === at);
+  let liked = read(likedField);
+  let avoided = read(avoidField).filter((name) => !liked.includes(name));
+  // Each swatch shows its state (app.css draws it from data-state) and says it to a screen reader:
+  // "Navy: liked, first", "Black: avoided", or just "Olive".
+  const show = () => swatches.forEach((swatch) => {
+    const name = swatch.dataset.colour;
+    const place = liked.indexOf(name);
+    const label = swatch.querySelector('span').textContent;
+    let state = '';
+    let words = label;
+    if (place >= 0) {
+      state = 'like';
+      words = `${label}: liked, ${ordinals[place] || 'number ' + (place + 1)}`;
+    } else if (avoided.includes(name)) {
+      state = 'avoid';
+      words = `${label}: avoided`;
+    }
+    swatch.dataset.state = state;
+    swatch.setAttribute('aria-pressed', String(state !== ''));
+    swatch.setAttribute('aria-label', words);
+    swatch.querySelector('b').textContent = place >= 0 ? String(place + 1) : '';
+  });
+  swatchGrid.addEventListener('click', (e) => {
+    const swatch = e.target.closest('[data-colour]');
+    if (!swatch) return;
+    const name = swatch.dataset.colour;
+    if (liked.includes(name)) {                   // liked: now avoided, and the colours liked after it move up one
+      liked = liked.filter((other) => other !== name);
+      avoided.push(name);
+    } else if (avoided.includes(name)) {          // avoided: now neither
+      avoided = avoided.filter((other) => other !== name);
+    } else {                                      // neither: liked, after the ones liked before it
+      liked.push(name);
+    }
+    likedField.value = liked.join(', ');
+    avoidField.value = avoided.join(', ');
+    show();
+    said.textContent = swatch.getAttribute('aria-label');     // a screen reader hears the new state
+  });
+  show();
+  swatchGrid.hidden = false;
+  swatchForm.querySelector('[data-typed-colours]').hidden = true;
 }

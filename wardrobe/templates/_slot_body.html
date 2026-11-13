@@ -1,8 +1,12 @@
 {% from "_macros.html" import icon, pic, pill, store %}
 {% set sid = s.slot.id %}
-{% set here = {'slot_id': sid, 'view': 'slot', 'sort': sort} %}
+{# `way`: opened from an outfit, every button and link here keeps the way back to it (app.way_back). #}
+{% set here = dict(slot_id=sid, view='slot', sort=sort, **way) %}
 {% set fit_words = {'slim': 'Slim cut', 'relaxed': 'Relaxed cut', 'oversized': 'Oversized cut'} %}
 {% set demo = w.source == 'mock' %}
+{# Buttons that stay where they are keep one id in every state (Lock this choice / Unlock, I already own this / I don't
+   own this after all, Choose this / the "Current pick" mark that replaces it): HTMX gives keyboard focus back to the
+   element with the id that had it, so after a press focus stays put instead of falling to the page. #}
 
 <header class="slot-head">
   {# `focus`: the piece has just taken a new colour (app.slot_colour); the button pressed is gone, so focus comes here. #}
@@ -11,16 +15,17 @@
     {% if s.state == 'owned' %}
       You already own this, so it costs nothing and nothing is picked.
     {% elif s.state == 'locked' %}
-      <b>Locked.</b> The price level and slider will not change this choice.
+      <b>Locked:</b> kept when you change the price level or the minimum quality.
     {% elif s.chosen %}
-      Picked automatically: {% if w.mode == 'budget' %}what your budget allows here{% else %}the {{ MODES[w.mode]|lower }} option{% endif %}{% if w.threshold > 0 %} scoring {{ w.threshold }} or more{% endif %}. Choose another below to swap it in.
+      Picked for you: {% if w.mode == 'budget' %}what your budget allows here{% if w.threshold > 0 %}, rated {{ w.threshold }} or more{% endif %}
+      {%- else %}the {{ MODES[w.mode]|lower }} option{% if w.threshold > 0 %} rated {{ w.threshold }} or more{% endif %}{% endif %}. Choose another below to swap it in.
     {% else %}
       {{ s.note }}.
     {% endif %}
     {% if s.note and s.chosen and s.state != 'owned' %}<span class="note">{{ s.note }}.</span>{% endif %}
   </p>
   {# `plan_link`: a piece left out has one more way forward on its own page: the plan, where it can be recoloured or removed. #}
-  {% if s.offers or s.left_out %}{% set offer_args = {'view': 'slot', 'sort': sort} %}{% set plan_link = true %}{% include "_colour_offer.html" %}{% endif %}
+  {% if s.offers or s.left_out %}{% set offer_args = dict(view='slot', sort=sort, **way) %}{% set plan_link = true %}{% include "_colour_offer.html" %}{% endif %}
   {% if not cands and not demo and s.state != 'owned' %}
   {# The other way to fill an empty piece: the form at the bottom of this page. #}
   <p class="add-own">{% if production %}{{ 'Or add' if s.offers else 'Add' }} one you found yourself, by its link below.
@@ -29,25 +34,25 @@
   <div class="head-actions">
     {% if s.state == 'locked' %}
     <form method="post" action="{{ url_for('slot_lock', **here) }}" hx-post="{{ url_for('slot_lock', **here) }}">{{ csrf_field() }}
-      <button class="btn ghost small">{{ icon('unlock') }} Unlock (back to automatic)</button>
+      <button class="btn ghost small" id="slot-lock">{{ icon('unlock') }} Unlock (back to automatic)</button>
     </form>
     {% elif s.state == 'auto' and s.chosen %}
     <form method="post" action="{{ url_for('slot_lock', **here) }}" hx-post="{{ url_for('slot_lock', **here) }}">{{ csrf_field() }}
-      <button class="btn ghost small">{{ icon('lock') }} Lock this choice</button>
+      <button class="btn ghost small" id="slot-lock">{{ icon('lock') }} Lock this choice</button>
     </form>
     {% endif %}
     <form method="post" action="{{ url_for('slot_own', **here) }}" hx-post="{{ url_for('slot_own', **here) }}">{{ csrf_field() }}
-      <button class="btn ghost small">{{ icon('hanger') }} {{ 'I don’t own this after all' if s.state == 'owned' else 'I already own this' }}</button>
+      <button class="btn ghost small" id="slot-own">{{ icon('hanger') }} {{ 'I don’t own this after all' if s.state == 'owned' else 'I already own this' }}</button>
     </form>
   </div>
 </header>
 
 {% if cands %}
 <div class="sortbar">
-  <span>{{ s.cands|length }} candidates · {{ s.n_available }} in stock in your size</span>
+  <span>{{ s.cands|length }} option{{ '' if s.cands|length == 1 else 's' }} · {{ s.n_available }} in your size</span>
   <span class="chips">
-    <a class="chip-link{% if sort == 'price' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid) }}">By price</a>
-    <a class="chip-link{% if sort == 'score' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, sort='score') }}">By score</a>
+    <a class="chip-link{% if sort == 'price' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, **way) }}"{% if sort == 'price' %} aria-current="true"{% endif %}>By price</a>
+    <a class="chip-link{% if sort == 'score' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, sort='score', **way) }}"{% if sort == 'score' %} aria-current="true"{% endif %}>By quality</a>
   </span>
 </div>
 {% elif demo %}
@@ -62,13 +67,15 @@
     {{ pic(d.image_url, c.colour_hex, d.name, d.colour) }}
     <div class="cand-body">
       <div class="cand-top">
-        <span>{{ store(d.store) }} <span class="colour-name">{{ d.colour }}</span>{% if c.manual %} <span class="tag">added by you</span>{% endif %}</span>
+        <span>{{ store(d.store) }} <span class="colour-name" lang="de">{{ d.colour }}</span>{% if c.manual %} <span class="tag">added by you</span>{% endif %}</span>
         <span class="price">
           {% if c.price > 0 %}{{ c.price|eur }}{% else %}no price{% endif %}
-          {% if d.price_before and d.price_before > c.price %}<s class="was">{{ d.price_before|eur }}</s>{% endif %}
+          {% if d.price_before and d.price_before > c.price %}<s class="was"><span class="sr">was </span>{{ d.price_before|eur }}</s>{% endif %}
         </span>
       </div>
-      <h3>{{ d.name }}</h3>
+      {# The store's own name for the product, as the store wrote it (German): each option is a section under the
+         piece's name (h1), so a screen reader can jump from one to the next. #}
+      <h2 lang="de">{{ d.name }}</h2>
       <p class="fabric">{{ c.fabric }}{% if c.score.fabric_source in ('name', 'assumed') %} <span class="est">estimated</span>{% endif %}</p>
       <p class="sizeline">
         {% if not c.size.known %}{# said once, by the size note below #}
@@ -82,7 +89,8 @@
       {% endif %}
 
       <details class="why">
-        <summary>{{ pill(c.score) }} <u>Why this score</u></summary>
+        {# The words the piece's pop-up uses (_piece.html): "Quality 73", heard as "Quality 73 out of 100". #}
+        <summary><span class="quality">Quality {{ pill(c.score) }}<span class="sr"> out of 100</span></span> <u>How it's rated</u></summary>
         <div class="breakdown">
           {% for part in c.score.parts %}
           <div class="part">
@@ -90,10 +98,14 @@
             <ul>{% for line in part.lines %}<li>{{ line }}</li>{% endfor %}</ul>
           </div>
           {% endfor %}
-          <div class="part-head total"><span>Score</span><span>{{ c.score.total }} / 100</span></div>
+          <div class="part-head total"><span>Quality</span><span>{{ c.score.total }}/100</span></div>
+          <p class="muted">{{ c.score.note }}</p>
           {% if d.sizes_all %}
           <p class="allsizes"><span class="muted">Sizes:</span>
-            {% for label in d.sizes_all %}<span class="sz{% if label not in d.sizes_in_stock %} gone{% endif %}{% if label == c.size.label %} mine{% endif %}">{{ label }}</span>{% endfor %}
+            {#- A struck-out size is heard as sold out, and yours as yours: the look alone says nothing to a screen reader. #}
+            {% for label in d.sizes_all %}{% set gone = label not in d.sizes_in_stock %}{% set mine = label == c.size.label %}
+            <span class="sz{% if gone %} gone{% endif %}{% if mine %} mine{% endif %}">{{ label }}{% if mine %}<span class="sr">, your size</span>{% endif %}{% if gone %}<span class="sr">, sold out</span>{% endif %}</span>
+            {%- endfor %}
           </p>
           {% endif %}
         </div>
@@ -103,7 +115,7 @@
       {# What the store page didn't give can be typed in here; it is kept across refreshes. #}
       <details class="fill"{% if c.price <= 0 %} open{% endif %}>
         <summary><u>{{ 'Edit details' if d.manual else 'Add details' }}</u>{% if c.gaps %} <span class="muted">— missing: {{ c.gaps|join(', ') }}</span>{% endif %}</summary>
-        <form class="form compact" method="post" action="{{ url_for('slot_details', slot_id=sid, sort=sort) }}">{{ csrf_field() }}
+        <form class="form compact" method="post" action="{{ url_for('slot_details', slot_id=sid, sort=sort, **way) }}">{{ csrf_field() }}
           <input type="hidden" name="candidate" value="{{ c.id }}">
           <label class="field"><span>Fabric, as on the product page</span>
             <input type="text" name="composition" placeholder="80% Wolle, 20% Polyamid" value="{{ d.manual.composition_text if d.manual and d.manual.composition_text else '' }}"></label>
@@ -123,16 +135,16 @@
 
       <div class="cand-actions">
         {% if is_chosen %}
-          <span class="chosen-mark">{{ icon('check') }} {{ 'Chosen and locked' if s.state == 'locked' else 'Current pick' }}</span>
+          <span class="chosen-mark" id="choose-{{ c.id }}" tabindex="-1">{{ icon('check') }} {{ 'Chosen and locked' if s.state == 'locked' else 'Current pick' }}</span>
         {% elif c.price > 0 %}
           <form method="post" action="{{ url_for('slot_pick', **here) }}" hx-post="{{ url_for('slot_pick', **here) }}">{{ csrf_field() }}
             <input type="hidden" name="candidate" value="{{ c.id }}">
-            <button class="btn small"{% if not c.available and c.size.known %} title="Not in stock in your size — you can still choose it"{% endif %}>Choose this</button>
+            <button class="btn small" id="choose-{{ c.id }}"{% if not c.available and c.size.known %} title="Not in stock in your size — you can still choose it"{% endif %}>Choose this</button>
           </form>
         {% endif %}
-        <a class="extlink" href="{{ d.url|weblink }}" target="_blank" rel="noopener noreferrer">{{ 'Store home (demo item)' if demo else 'View at ' ~ STORES.get(d.store, d.store) }} {{ icon('ext') }}</a>
+        <a class="extlink" href="{{ d.url|weblink }}" target="_blank" rel="noopener noreferrer">{{ 'Store home (demo item)' if demo else 'Open at ' ~ STORES.get(d.store, d.store) }} {{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>
         {% if c.manual %}
-        <form method="post" action="{{ url_for('slot_remove', slot_id=sid) }}" data-confirm="Remove “{{ d.name }}” from this slot?">{{ csrf_field() }}
+        <form method="post" action="{{ url_for('slot_remove', slot_id=sid, **way) }}" data-confirm="Remove “{{ d.name }}” from this piece's options?">{{ csrf_field() }}
           <input type="hidden" name="candidate" value="{{ c.id }}">
           <button class="link danger">Remove</button>
         </form>
@@ -145,9 +157,13 @@
 
 <section class="card add" id="add">
   <h2>Add a product by link</h2>
+  {# What the links pasted here came to (app.slot_import) is said here, where the page lands (#add), not at its top. #}
+  {% for message in get_flashed_messages(category_filter=['import']) %}
+  <p class="flash{% if not message.startswith('Added') %} bad{% endif %}" role="status">{{ message }}</p>
+  {% endfor %}
   {# The stores customers are offered (programmes.py); a link to any other store is refused. #}
   <p class="muted small">Paste product page addresses from {{ store_names(STORES, 'or') }}, one per line. The page itself is not opened: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
-  <form class="form" method="post" action="{{ url_for('slot_import', slot_id=sid) }}">{{ csrf_field() }}
+  <form class="form" method="post" action="{{ url_for('slot_import', slot_id=sid, **way) }}">{{ csrf_field() }}
     <label class="field"><span>Product links</span>
       <textarea name="urls" rows="3" placeholder="https://www.cos.com/de-de/…/product/…-1234567890" autocapitalize="off" spellcheck="false"></textarea></label>
     <button class="btn small">Add</button>

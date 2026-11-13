@@ -1468,7 +1468,17 @@ class OwnerCatalogue(ProductionCase):
             got = [client.get(address), client.head(address), client.options(address),
                    client.get(address, headers=HX), client.post(address), client.post(address, data={"csrf_token": token}),
                    client.put(address, data={"csrf_token": token}), client.delete(address, headers={"X-CSRF-Token": token})]
-            return [(r.status_code, sorted(r.headers.items()), r.get_data()) for r in got]
+            return [(r.status_code, sorted(map(same_any_second, r.headers.items())), r.get_data()) for r in got]
+
+        def same_any_second(header):
+            # The log-in cookie is signed with the time to the second and carries its expiry date, so two answers a
+            # second apart differ there and nowhere else: compare its name and settings, not its value or date.
+            name, value = header
+            if name.lower() != "set-cookie":
+                return header
+            cookie, *settings_ = value.split(";")
+            kept = sorted(part.strip().lower() for part in settings_ if not part.strip().lower().startswith("expires"))
+            return name, cookie.split("=", 1)[0] + "; " + "; ".join(kept)
 
         for who, client in (("a visitor", visitor), ("a customer", ada)):
             for address in ("/stores", "/stores?store=musterhaus", "/stores/"):
