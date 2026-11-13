@@ -10,11 +10,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import composition, config
+from . import composition, config, programmes
 from .garments import GARMENTS
 from . import settings
-
-STORE_LABELS = {"cos": "COS", "weekday": "Weekday", "zara": "Zara"}
 
 
 @dataclass
@@ -202,7 +200,7 @@ def price_part(price: float, category: str, rules: dict) -> tuple[float, list[st
 def brand_part(store: str, category: str, rules: dict) -> tuple[float, list[str]]:
     tiers = rules.get("brand", {}).get(store, {})
     plural = GARMENTS[category].plural if category in GARMENTS else category
-    name = STORE_LABELS.get(store, store)
+    name = programmes.label(store)
     # Stilsmith's own judgement of the store, and said to be: "Zara is rated 52" hid who rates it.
     if category in tiers:
         value = float(tiers[category])

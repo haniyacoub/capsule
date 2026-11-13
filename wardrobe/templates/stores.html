@@ -2,7 +2,9 @@
 {# The owner's view of every listed store and its current catalogue (owner.py). It shows only rows of the products
    table, the products from the stores' own feeds, never the collector's snapshot. Owners only: anyone else gets
    "We can't find that page". Nothing here exports or downloads the data.
-   Two tables, the stores and their products. On a computer they are tables; on a phone each row is a card (app.css,
+   The stores come first, a table per network in the order to apply to them (the invented samples last), each with
+   its status and its programme's page as a link that opens in a new tab: the owner's checklist for applying.
+   Then the products. On a computer these are tables; on a phone each row is a card (app.css,
    "The owner's store catalogues"). The roles on the tables keep them tables for screen readers when a phone's
    layout changes how they are drawn (Safari otherwise drops them). The few cells that need a name on a phone carry
    it in .cell-label, which is not read out: the column's header already is.
@@ -18,23 +20,32 @@
 
 <h2 class="cat-h2" id="cat-stores-title">Stores</h2>
 {% if stores %}
+{% if progress %}<p class="cat-count">{{ progress }} Grouped by network, in the order to apply.</p>{% endif %}
+{% for group in groups %}
+<h3 class="cat-h3" id="cat-group-{{ group.key }}">{{ group.title }} <span class="cat-sub">{{ group.line }}</span></h3>
 <div class="card cat-card"><div class="cat-scroll">
-<table class="cat-table cat-stores" role="table" aria-labelledby="cat-stores-title">
+<table class="cat-table cat-stores" role="table" aria-labelledby="cat-group-{{ group.key }}">
+  <colgroup><col class="w-store"><col class="w-prog"><col class="w-status"><col class="w-count"><col class="w-date"><col class="w-date"><col></colgroup>
   <thead role="rowgroup"><tr role="row">
     <th scope="col" role="columnheader">Store</th>
-    <th scope="col" role="columnheader">Network</th>
+    <th scope="col" role="columnheader">Programme</th>
     <th scope="col" role="columnheader">Status</th>
     <th scope="col" role="columnheader" class="num-col">Products</th>
     <th scope="col" role="columnheader">Feed of</th>
     <th scope="col" role="columnheader">Imported</th>
-    <th scope="col" role="columnheader">State</th>
+    <th scope="col" role="columnheader">Notes</th>
   </tr></thead>
   <tbody role="rowgroup">
-  {% for s in stores %}
-  <tr role="row">
+  {% for s in group.stores %}
+  {# A store that never had a feed: its count and dates say nothing on a phone, so they are left out there (unfed) #}
+  <tr role="row" data-store="{{ s.key }}"{% if not s.products and not s.last_import_at %} class="unfed"{% endif %}>
     <th scope="row" role="rowheader" class="c-store"><span class="cat-name">{{ s.label }}</span> <span class="cat-sub">{{ s.key }}</span></th>
-    <td role="cell" class="c-net">{{ networks.get(s.network, "No programme") }}</td>
-    <td role="cell" class="c-status"><span class="tag st-{{ s.status }}">{{ s.status|capitalize }}</span></td>
+    <td role="cell" class="c-prog">
+      {%- if s.programme %}<span class="cat-prog">{{ s.programme }}</span>{% endif %}
+      {%- if s.programme and s.site %}<span aria-hidden="true"> · </span>{% endif %}
+      {%- if s.site %}<a class="cat-link" href="{{ s.rules.programme_page|weblink }}" target="_blank" rel="noopener noreferrer"><u>{{ s.site }}</u>{{ icon("ext") }}<span class="sr"> — programme of {{ s.label }} (opens in a new tab)</span></a>{% endif %}
+      {%- if not s.programme and not s.site %}<span class="muted" aria-hidden="true">–</span><span class="sr">none given</span>{% endif %}</td>
+    <td role="cell" class="c-status"><span class="tag st-{{ s.status }}">{{ statuses.get(s.status, s.status|capitalize) }}</span></td>
     <td role="cell" class="c-count num-col"><span class="cell-label" aria-hidden="true">· </span>{{ "{:,}".format(s.products) }}<span class="cell-label" aria-hidden="true"> {{ "product" if s.products == 1 else "products" }}</span></td>
     <td role="cell" class="c-feed"><span class="cell-label" aria-hidden="true">Feed of </span>{{ when(s.last_feed_update) }}</td>
     <td role="cell" class="c-import"><span class="cell-label" aria-hidden="true">Imported </span>{{ when(s.last_import_at) }}</td>
@@ -44,6 +55,7 @@
   </tbody>
 </table>
 </div></div>
+{% endfor %}
 {% else %}
 <p class="cat-empty">No stores yet. List them in config/feeds.toml, then run <code>python -m wardrobe stores sync</code>.</p>
 {% endif %}

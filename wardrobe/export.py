@@ -11,10 +11,8 @@ import io
 from dataclasses import dataclass, field
 from datetime import date
 
-from .scoring import STORE_LABELS
+from . import programmes
 from .selection import Wardrobe
-
-STORE_ORDER = ["cos", "weekday", "zara"]
 
 
 @dataclass
@@ -92,13 +90,14 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
         if s.note:
             notes.append(s.note + ".")
         store = c.data.get("store", "")
-        group = groups.setdefault(store, StoreGroup(store, STORE_LABELS.get(store, store or "Other")))
+        group = groups.setdefault(store, StoreGroup(store, programmes.label(store) if store else "Other"))
         group.lines.append(Line(
             slot=s.slot["name"], product=c.data.get("name", ""), colour=c.data.get("colour", ""),
             size=c.size_to_order, qty=s.qty if only is None else 1, unit_price=c.price,
             url=c.data.get("url", ""), notes=notes,
             image_url=c.data.get("image_url") or "", hex=c.colour_hex))
-    ordered = sorted(groups.values(), key=lambda g: STORE_ORDER.index(g.key) if g.key in STORE_ORDER else 99)
+    order = list(programmes.offered())       # the stores in the order config/stores.toml lists them
+    ordered = sorted(groups.values(), key=lambda g: order.index(g.key) if g.key in order else 99)
     total = w.total if only is None else round(sum(g.subtotal for g in ordered), 2)
     return ShoppingList(groups=ordered, owned=owned, missing=missing, total=total, budget=w.budget,
                         collected=w.collected, demo=w.source == "mock")

@@ -159,8 +159,10 @@ These block a launch, and most are yours rather than code:
      first, then apply to COS.
    - **Weekday** offers data feeds in EUR, by applying directly or through the
      Klarna Creator Platform or LTK (<https://www.weekday.com/en-dk/discount/affiliate>).
-   - **Zara**: no feed open to a service like this was found. Do not plan the
-     launch around it.
+   - **Zara**: no feed open to a service like this was found, so Stilsmith does
+     not offer it (`programme = "none"` in `config/stores.toml`; its products in
+     an older `store_catalog.json` are skipped, and customers who had them get
+     their pieces picked again, with one message on the Wardrobe page).
 
    Before building on a feed, get its terms in writing: does it list which
    sizes are in stock, and the fabric? May the pictures be shown, stored, or

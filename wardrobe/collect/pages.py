@@ -20,19 +20,6 @@ def next_data(html: str) -> dict:
         return {}
 
 
-def zara_payload(html: str) -> dict:
-    """The object Zara assigns to window.zara.viewPayload. {} if there is none."""
-    at = html.find("window.zara.viewPayload")
-    start = html.find("{", at) if at >= 0 else -1
-    if start < 0:
-        return {}
-    try:
-        payload, _ = json.JSONDecoder().raw_decode(html[start:])
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
 def blocks(html: str) -> list[dict]:
     """The page-building blocks of a COS or Weekday page."""
     found = next_data(html).get("props", {}).get("pageProps", {}).get("blocks", [])
@@ -62,8 +49,8 @@ def tidy_name(name: str) -> str:
     return " ".join(w if (i and w in _SMALL_WORDS) else _capitalise(w) for i, w in enumerate(words))
 
 
-# Phrases that deny a cut. Zara describes a straight leg as a "Passform, die weder schmaler noch
-# weiter wird" (neither narrower nor wider), which says nothing slim or wide about it. They are
+# Phrases that deny a cut. A store may describe a straight leg as a "Passform, die weder schmaler
+# noch weiter wird" (neither narrower nor wider), which says nothing slim or wide about it. They are
 # taken out before the cut words are looked for: "weder X noch Y", "neither X nor Y", and
 # "nicht", "kein…" or "not" with the word after it ("nicht zu weit" with the "zu" as well).
 _NEGATED = re.compile(

@@ -1,6 +1,8 @@
 """The owner's pages: what only the people who run Stilsmith see.
 
-    /stores      every listed store and its current catalogue, from the stores' own feeds (feeds/)
+    /stores      every listed store and its current catalogue, from the stores' own feeds (feeds/). The stores
+                 are grouped by network in the order to apply to them, each with its status ("Not applied yet")
+                 and its programme's page as a link: the owner's checklist for applying.
 
 Who is an owner. On your own machine (CAPSULE_ENV=local) you are: one person, no login. In
 production, an account marked in the database, with no setting to change and no restart:
@@ -24,6 +26,7 @@ import math
 import re
 import sys
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from flask import Blueprint, abort, current_app, render_template, request, url_for
 from werkzeug.exceptions import HTTPException
@@ -36,8 +39,12 @@ bp = Blueprint("owner", __name__)
 
 PER_PAGE = 100
 FILTERS = ("store", "category", "colour", "size", "q")      # what the page's address may carry, besides the page
-NETWORKS = {"awin": "Awin", "tradedoubler": "Tradedoubler", "rakuten": "Rakuten", "webgains": "Webgains",
-            "impact": "impact.com"}
+# The networks' names, in the order to apply to them (the research of 13 Nov 2026): Awin first, then Rakuten
+# (COS), then Tradedoubler, then the others. /stores groups the stores in this order.
+NETWORKS = {"awin": "Awin", "rakuten": "Rakuten", "tradedoubler": "Tradedoubler", "partnerize": "Partnerize",
+            "daisycon": "Daisycon", "webgains": "Webgains", "impact": "impact.com"}
+STATUS_WORDS = {"none": "Not applied yet", "applied": "Applied", "approved": "Approved", "refused": "Refused",
+                "ended": "Ended"}
 
 
 @bp.before_request
@@ -86,14 +93,62 @@ def stores():
         return url_for("owner.stores", **{k: v for k, v in values.items() if v not in (None, "", 1)})
 
     return render_template(
-        "stores.html", tab="account", stores=[{**s, "notes": notes(s)} for s in listed],
+        "stores.html", tab="account", stores=listed, groups=groups(listed), progress=progress(listed),
         products=products, total=total, every=sum(s["products"] for s in listed), page=page, pages=pages,
         first=(page - 1) * PER_PAGE + 1, asked=asked, filtered=bool(kept), choices=choices(listed, asked), link=link,
-        networks=NETWORKS, when=when, money=money, swatch=swatch, other_brand=other_brand)
+        networks=NETWORKS, statuses=STATUS_WORDS, when=when, money=money, swatch=swatch, other_brand=other_brand)
+
+
+def groups(listed: list[dict]) -> list[dict]:
+    """The stores by network, in the order to apply (NETWORKS), each network's by name; the invented samples last.
+    Each group: key, title, a line under it, and its stores, each with what to note and its programme line."""
+    real = [s for s in listed if not s["rules"].get("sample")]
+    found: list[tuple[str, str, str, list[dict]]] = []          # (key, title, line, stores)
+    for key, title in [*NETWORKS.items(), (None, "No network given")]:
+        stores = [s for s in real if s["network"] == key or (key is None and s["network"] not in NETWORKS)]
+        if stores:
+            found.append((key or "other", title, f"{len(stores)} store{'s' if len(stores) != 1 else ''}", stores))
+    samples = [s for s in listed if s["rules"].get("sample")]
+    if samples:
+        found.append(("samples", "Samples", "Invented stores for trying the importers, left out in production", samples))
+    return [{"key": key, "title": title, "line": line,
+             "stores": [{**s, "notes": notes(s), "programme": programme(s, key == "samples"),
+                         "site": site(s["rules"].get("programme_page"))}
+                        for s in sorted(stores, key=lambda s: s["label"].casefold())]}
+            for key, title, line, stores in found]
+
+
+def progress(listed: list[dict]) -> str:
+    """How far the applying has come, in a sentence: '29 stores with a partner programme: none applied for yet.'"""
+    real = [s for s in listed if not s["rules"].get("sample")]
+    if not real:
+        return ""
+    count = {status: sum(s["status"] == status for s in real) for status in STATUS_WORDS}
+    asked = len(real) - count["none"]
+    said = f"{len(real)} store{'s' if len(real) != 1 else ''} with a partner programme: "
+    if not asked:
+        return said + "none applied for yet."
+    parts = [f"{count[status]} {words}" for status, words in
+             (("applied", "waiting"), ("approved", "approved"), ("refused", "refused"), ("ended", "ended")) if count[status]]
+    return said + f"{asked} applied for ({', '.join(parts)})."
+
+
+def programme(store: dict, with_network: bool) -> str:
+    """'ID 11590', or for a sample (not grouped by network) 'Awin · ID 900001'."""
+    bits = [NETWORKS.get(store["network"], "")] if with_network else []
+    bits.append(f"ID {store['programme_id']}" if store["programme_id"] else "")
+    return " · ".join(bit for bit in bits if bit)
+
+
+def site(address: str | None) -> str:
+    """Whose page a link goes to, as its link reads: 'awin.com' for https://ui.awin.com/merchant-profile/11590."""
+    host = (urlsplit(address).hostname or "") if address else ""
+    return ".".join(host.split(".")[-2:])
 
 
 def notes(store: dict) -> list[tuple[str, str]]:
-    """What the owner should know about a store's feed, as (kind, words): kind is good, warn or bad."""
+    """What the owner should know about a store, as (kind, words): kind is good, warn, bad or info.
+    First its feed (failed, stale, products it should no longer have), then what the file says about it."""
     said = []
     if store["last_error"]:
         said.append(("bad", f"The last refresh failed: {store['last_error']}"))
@@ -106,6 +161,15 @@ def notes(store: dict) -> list[tuple[str, str]]:
                             f"Delete them: python -m wardrobe stores end {store['key']}"))
     if not said and store["status"] == "approved":
         said.append(("good", "Up to date"))
+    rules = store["rules"]
+    if rules.get("links_only"):
+        said.append(("warn", registry.LINKS_ONLY[:1].upper() + registry.LINKS_ONLY[1:]))
+    if rules.get("unconfirmed"):
+        said.append(("warn", f"Unconfirmed: {rules['unconfirmed']}"))
+    if rules.get("notes"):
+        said.append(("info", rules["notes"]))
+    if store["disclaimer"]:
+        said.append(("info", f"Required next to its name: “{store['disclaimer']}”"))
     return said
 
 

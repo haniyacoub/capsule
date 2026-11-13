@@ -1,28 +1,38 @@
-"""Manual import: you paste a product link, the tool extracts what it can.
+"""Manual import: you paste a product link, the tool takes what the link says.
 
-  * Zara serves product pages to the collector's browser, so a Zara link is
-    opened once and read in full (fabric, sizes, price, picture).
-  * COS and Weekday refuse automated browsers on product pages. Their links
-    are not opened at all. The tool takes what the link itself says (store,
-    product name, colour, article number) and, if that article was seen on a
-    category page during a refresh, copies its name, price, colour and picture.
-    Whatever is still missing you can type in on the piece's page.
+The page itself is never opened: COS and Weekday refuse automated browsers on
+product pages, and a server never opens a store's page at all. The tool takes
+what the link says (store, product name, colour, article number) and, if that
+article was seen on a category page during a refresh, copies its name, price,
+colour and picture. Whatever is still missing you type in on the piece's page.
+
+Only links to stores customers are offered are taken (programmes.py): a link
+to a store without a partner programme, such as Zara, is refused.
 
 What happened to each link is said to the customer after the product's name
-("Added “X”: read from the product page.") or after the link itself ("Not added:
-“link” is not a COS, Weekday or Zara link."), so the notes below read on from those.
+("Added “X”: only the link could be read …") or after the link itself ("Not
+added: “link” is not a COS or Weekday link."), so the notes below read on from those.
 """
 from __future__ import annotations
 
 import hashlib
 import re
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
-from .. import catalog
-from . import ADAPTERS, load_settings, pages, zara_candidate
-from .browser import Session
+from .. import catalog, programmes
+from . import load_settings, pages
 
-HOSTS = {"cos.com": "cos", "weekday.com": "weekday", "zara.com": "zara"}
+
+def hosts() -> dict[str, str]:
+    """{'cos.com': 'cos', 'weekday.com': 'weekday'}: the web addresses of the stores customers are offered,
+    from each store's `base` in config/stores.toml."""
+    cfg = load_settings()
+    out = {}
+    for key in programmes.offered():
+        host = urlsplit(str(cfg.get(key, {}).get("base", ""))).netloc.lower().removeprefix("www.")
+        if host:
+            out[host] = key
+    return out
 
 
 def store_of(url: str) -> str | None:
@@ -30,7 +40,7 @@ def store_of(url: str) -> str | None:
     if parts.scheme not in ("http", "https"):
         return None
     host = parts.netloc.lower().split(":")[0]
-    return next((key for domain, key in HOSTS.items() if host == domain or host.endswith("." + domain)), None)
+    return next((key for domain, key in hosts().items() if host == domain or host.endswith("." + domain)), None)
 
 
 def _from_link_alone(url: str, store: str, slot: dict, known: list[dict]) -> tuple[dict, str]:
@@ -60,48 +70,16 @@ def _from_link_alone(url: str, store: str, slot: dict, known: list[dict]) -> tup
     return cand, "only the link could be read — add the price, fabric and sizes under “Add details”"
 
 
-def from_urls(urls: list[str], slot: dict, allow_fetch: bool = True) -> list[tuple[str, dict | None, str]]:
-    """One (link, candidate or None, what happened) per pasted link.
-
-    With `allow_fetch` off (the public service) no page is ever opened: every
-    link is treated like a COS or Weekday link.
-    """
-    cfg = load_settings()
+def from_urls(urls: list[str], slot: dict) -> list[tuple[str, dict | None, str]]:
+    """One (link, candidate or None, what happened) per pasted link. No page is ever opened."""
     known = catalog.load().get("candidates", [])
+    stores = programmes.names(hosts().values(), last="or")
     results: list[tuple[str, dict | None, str]] = []
-    session: Session | None = None
-    try:
-        for url in urls:
-            store = store_of(url)
-            if store is None:
-                results.append((url, None, "is not a COS, Weekday or Zara link"))
-                continue
-            store_cfg, adapter = cfg[store], ADAPTERS[store]
-            if not allow_fetch or not store_cfg.get("product_pages") or not hasattr(adapter, "parse_product"):
-                stub, note = _from_link_alone(url, store, slot, known)
-                results.append((url, stub, note))
-                continue
-            try:
-                session = session or Session(cfg.get("collector", {}), log=lambda *_: None)
-                clean = url.split("?")[0]
-                detail = adapter.parse_product(session.fetch(store, store_cfg["base"], clean), store_cfg["base"])
-                colour_id = parse_qs(urlsplit(url).query).get("v1", [None])[0]   # the colour the link points at
-                read: dict | None = None
-                if detail:
-                    item = {"store": store, "sku": detail["sku"], "name": detail["name"],
-                            "slug": detail["slug"], "price": 0.0, "url": clean}
-                    read = zara_candidate(item, detail, slot, catalog.now_iso(),
-                                          product_id=colour_id, any_colour=True)
-                if read:
-                    read["source"] = "manual"
-                    results.append((url, read, "read from the product page"))
-                else:
-                    results.append((url, None, "is not a product page"))
-            except Exception as problem:  # noqa: BLE001 — refused, browser busy or missing, page gone…
-                stub, note = _from_link_alone(url, store, slot, known)
-                reason = (str(problem).splitlines() or [type(problem).__name__])[0][:120]
-                results.append((url, stub, f"the page could not be opened ({reason}); {note}"))
-    finally:
-        if session:
-            session.close()
+    for url in urls:
+        store = store_of(url)
+        if store is None:
+            results.append((url, None, f"is not a {stores} link"))
+            continue
+        stub, note = _from_link_alone(url, store, slot, known)
+        results.append((url, stub, note))
     return results

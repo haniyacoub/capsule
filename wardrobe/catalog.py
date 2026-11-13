@@ -5,10 +5,10 @@ Shape of the file:
     {
       "source": "mock" | "collected",
       "collected_at": "2026-11-11T15:00:00+01:00",
-      "stores": {"zara": {"status": "ok", "message": "…", "checked_at": "…"}},
+      "stores": {"weekday": {"status": "ok", "message": "…", "checked_at": "…"}},
       "candidates": [
         {
-          "id": "zara-01234567-800", "slot_id": "grey-merino-jumper", "store": "zara",
+          "id": "weekday-1234567001", "slot_id": "grey-merino-jumper", "store": "weekday",
           "name": "…", "slug": "…", "price": 69.95, "currency": "EUR",
           "colour": "Grau", "colour_hex": "#8d8f92",
           "composition_text": "Aussen: 100% wolle",
@@ -25,6 +25,10 @@ Shape of the file:
 `python -m wardrobe refresh` rewrites the collected candidates. Candidates you
 added by hand ("source": "manual") and details you typed in ("manual": {…})
 are kept.
+
+Only the products of stores customers are offered are ever read (programmes.py):
+a store without a partner programme is skipped, and left out when the
+catalogue is next saved.
 """
 from __future__ import annotations
 
@@ -32,7 +36,7 @@ import json
 import os
 from datetime import datetime
 
-from . import db, paths, settings
+from . import db, paths, programmes, settings
 
 _cache: tuple[int, dict] | None = None
 
@@ -45,7 +49,13 @@ def now_iso() -> str:
 
 
 def load() -> dict:
-    """The catalogue: the local file, or in production the signed-in customer's own."""
+    """The catalogue: the local file, or in production the signed-in customer's own, with only the products
+    of stores customers are offered (programmes.py)."""
+    return programmes.only_offered(stored())
+
+
+def stored() -> dict:
+    """The catalogue as it is stored, the products of every store in it: what the customer had until now."""
     global _cache
     if settings.PRODUCTION:
         data = db.get_catalog() or empty()

@@ -8,6 +8,11 @@ Syncing never deletes a store or its products: a store that is no longer in the 
 was, and is listed. Ending one is always a separate, explicit step, and it stays ended until it is
 reopened on purpose (`stores sync --reopen KEY`).
 
+The file lists every store the research of 13 Nov 2026 found with a partner programme for Germany,
+each with its programme page and what the owner should know (`notes`, and `unconfirmed` where the
+research could not confirm it): the owner's checklist for applying, shown on /stores. A store whose
+programme forbids keeping its data (`links_only = true`) is never imported, whatever its status.
+
 The sample stores in the file (sample = true) are invented, for trying the importers on your own
 machine; in production they are left out.
 """
@@ -16,15 +21,22 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
-from .. import config, db, settings
+from .. import config, db, programmes, settings
 from . import FORMATS
 
 STATUSES = ("none", "applied", "approved", "refused", "ended")
-NETWORKS = ("awin", "tradedoubler", "rakuten", "webgains", "impact")
+NETWORKS = programmes.NETWORKS          # awin, rakuten, tradedoubler, partnerize, daisycon, webgains, impact
 DEFAULT_REFRESH_HOURS = 24
+# Said wherever a links-only store comes up (`stores`, `feeds`, /stores): MR PORTER's terms forbid storing its site.
+LINKS_ONLY = "links only: its programme forbids storing its site, so nothing of it is imported"
 _KEY = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 _TEXT = ("label", "programme_id", "feed_location", "delivery_note", "disclaimer")
-_ALLOWED = {*_TEXT, "network", "status", "feed_format", "rules", "sample"}
+# For the owner, kept with the store's rules (the database's `rules` column) and shown on /stores:
+#   programme_page  the programme's page, a link for the owner (Stilsmith never opens it)
+#   unconfirmed     what the research could not confirm, e.g. "Germany"
+#   notes           what the research says about it: commission, what the programme requires
+_ABOUT = ("programme_page", "unconfirmed", "notes")
+_ALLOWED = {*_TEXT, *_ABOUT, "network", "status", "feed_format", "rules", "sample", "links_only"}
 
 
 def check(data: dict) -> None:
@@ -47,6 +59,15 @@ def check(data: dict) -> None:
             value = entry.get(name, "none" if name == "status" else None)
             if value is not None and value not in allowed:
                 raise config.ConfigError(f"{where}.{name} is {value!r}; it can be {' | '.join(allowed)}")
+        for name in _ABOUT:
+            if not isinstance(entry.get(name, ""), str):
+                raise config.ConfigError(f"{where}.{name} must be text")
+        if entry.get("programme_page") and not entry["programme_page"].strip().startswith("https://"):
+            raise config.ConfigError(f"{where}.programme_page must be an https address")
+        if not isinstance(entry.get("links_only", False), bool):
+            raise config.ConfigError(f"{where}.links_only is true or false")
+        if entry.get("links_only") and (entry.get("feed_location") or entry.get("feed_format")):
+            raise config.ConfigError(f"[{where}] is links only, so it has no feed: remove its feed_location and feed_format")
         hours = config.table(entry.get("rules", {}), f"{where}.rules").get("refresh_hours", DEFAULT_REFRESH_HOURS)
         if config.number(hours, f"{where}.rules.refresh_hours") <= 0:
             raise config.ConfigError(f"{where}.rules.refresh_hours must be more than 0")
@@ -65,6 +86,12 @@ def load(data: dict | None = None) -> dict[str, dict]:
                       feed_format=entry.get("feed_format"), rules=dict(entry.get("rules", {})))
         if entry.get("sample"):
             values["rules"]["sample"] = True
+        if entry.get("links_only"):
+            values["rules"]["links_only"] = True
+        for name in _ABOUT:                     # one line each: the file may break a long note over several
+            words = " ".join(entry.get(name, "").split())
+            if words:
+                values["rules"][name] = words
         out[key] = values
     return out
 
@@ -122,14 +149,17 @@ def table(now: datetime | None = None) -> list[str]:
     stores = db.list_stores()
     if not stores:
         return ["No stores yet. List them in config/feeds.toml, then run: python -m wardrobe stores sync"]
-    lines = [f"{'store':<16}{'status':<10}{'network':<14}{'products':>9}  {'feed of':<18}imported"]
+    wide = max(16, *(len(s["key"]) + 2 for s in stores))       # 'lounge-by-zalando' is 17 letters
+    lines = [f"{'store':<{wide}}{'status':<10}{'network':<14}{'products':>9}  {'feed of':<18}imported"]
     for s in stores:
-        lines.append(f"{s['key']:<16}{s['status']:<10}{s['network'] or '-':<14}{s['products']:>9}  "
+        lines.append(f"{s['key']:<{wide}}{s['status']:<10}{s['network'] or '-':<14}{s['products']:>9}  "
                      f"{_short(s['last_feed_update']):<18}{_short(s['last_import_at']):<18}".rstrip())
         if stale(s, now):
             lines.append(f"    STALE: {stale_words(s)}")
         if s["last_error"]:
             lines.append(f"    last refresh failed: {s['last_error']}")
+        if s["rules"].get("links_only"):
+            lines.append(f"    {LINKS_ONLY}")
     return lines
 
 

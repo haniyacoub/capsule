@@ -2,6 +2,8 @@
 {% block title %}Wardrobe · {{ site_name }}{% endblock %}
 {% block main %}
 <h1 class="sr">Your wardrobe</h1>
+{# Said once, the first time the page is opened after a store stopped being offered (shared.gone_message). #}
+{% if gone %}<p class="flash" role="status">{{ gone }}</p>{% endif %}
 {# The plan (/slots) has no tab of its own: this line leads to it. Pieces count like the bar's: a white tee ×2 is two. #}
 {% set n_pieces = w.slots|sum(attribute='qty') %}
 {% if w.slots %}<p class="lead plan-line">{{ n_pieces }} {{ 'piece' if n_pieces == 1 else 'pieces' }} in your plan · <a href="{{ url_for('slots_page') }}">Edit the plan</a></p>{% endif %}

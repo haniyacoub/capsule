@@ -917,7 +917,8 @@ details[open] > summary .edit { visibility: hidden; }
 .site-foot a { color: var(--muted); }
 
 /* ── The owner's store catalogues ────────────────────────────────────────── */
-/* Two tables in cards: the stores, then their products, with the filters between. From 960px they are tables,
+/* Tables in cards: the stores, one table per network (.cat-h3 names it), then their products, with the filters
+   between. From 960px they are tables,
    each in a box that scrolls sideways if a window is too narrow for every column (the page itself never does: the
    box is also where the hidden words inside it are placed, .sr; it reaches 4px past its table and pads that back,
    so focus rings show whole). Under 960px (phones, small tablets) each row is a card of its own: the header row is
@@ -925,6 +926,8 @@ details[open] > summary .edit { visibility: hidden; }
    out, as the header already is). Product photos are shown whole (contain), on the photo ground; where a photo is
    missing or does not load, the colour shows with a word (.pic.noimg, app.js). */
 .cat-h2 { font-size: var(--t-l); line-height: var(--lh-l); font-weight: 500; margin: var(--s-5) 0 var(--s-2); }
+.cat-h3 { font-size: var(--t-m); line-height: var(--lh-m); font-weight: 500; margin: var(--s-5) 0 var(--s-2); }
+.cat-h3 .cat-sub { display: inline; margin-left: var(--s-2); font-size: var(--t-s); font-weight: 400; }
 .card.cat-card { padding-top: 0; padding-bottom: 0; }
 .cat-scroll { position: relative; overflow-x: auto; margin: 0 calc(-1 * var(--s-1)); padding: 0 var(--s-1); }
 .cat-table { width: 100%; border-collapse: collapse; font-size: var(--t-s); line-height: var(--lh-s); }
@@ -940,13 +943,17 @@ details[open] > summary .edit { visibility: hidden; }
 .cat-sub { display: block; color: var(--muted); overflow-wrap: anywhere; }
 .cell-label { display: none; }
 .c-store .cat-sub, .c-feed, .c-import, .c-price { white-space: nowrap; }
-.c-state { min-width: 12em; }
+.c-state { min-width: 16em; }
+.cat-prog, .c-status .tag { white-space: nowrap; }
+.c-prog .cat-link { min-height: 24px; margin-top: 0; }   /* in line with the programme's ID, and still 24px to tap */
 .c-product { min-width: 14em; }
 .c-product .cat-name { margin-bottom: 2px; }
 .cat-note { display: block; overflow-wrap: anywhere; font-weight: 500; }
 .cat-note.good { color: var(--good); }
 .cat-note.warn { color: var(--ok); }
 .cat-note.bad { color: var(--poor); }
+.cat-note.info { font-weight: 400; }                 /* what the research says: plain text, under any warning */
+.cat-note + .cat-note { margin-top: var(--s-1); }
 .tag.st-approved { color: var(--good); }
 .tag.st-refused, .tag.st-ended { color: var(--poor); }
 .cat-pic { width: 64px; aspect-ratio: 4 / 5; }      /* 64 x 80 */
@@ -978,13 +985,17 @@ details[open] > summary .edit { visibility: hidden; }
   .cat-table th, .cat-table td { display: block; padding: 0; }
   .cell-label { display: inline; color: var(--muted); }
   .cat-table .num-col { text-align: left; padding-right: 0; }
-  /* A store: its name and status, then its network and products, its two dates, and what to know. */
+  /* A store: its name and status, then its programme and products, its two dates, and what to know. A store that
+     never had a feed (.unfed) has no count or dates to show. */
   .cat-stores tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s-1); padding: var(--s-3) 0; }
   .cat-stores .c-store { order: -3; flex: 1 1 auto; min-width: 0; }
   .cat-stores .c-store .cat-sub { display: inline; }
   .cat-stores .c-status { order: -2; flex: none; margin-left: auto; }
-  .cat-stores tr::before { content: ""; order: -1; flex-basis: 100%; height: 0; }   /* the network starts a new line */
-  .cat-stores .c-net, .cat-stores .c-count { color: var(--muted); }
+  .cat-stores tr::before { content: ""; order: -1; flex-basis: 100%; height: 0; }   /* the programme starts a new line */
+  .cat-stores .c-prog, .cat-stores .c-count { color: var(--muted); }
+  .cat-stores .c-prog .cat-link { min-height: 32px; }
+  .cat-stores tr.unfed :is(.c-count, .c-feed, .c-import) { display: none; }
+  .cat-stores colgroup { display: none; }
   .cat-stores .c-feed, .cat-stores .c-import, .cat-stores .c-state { flex-basis: 100%; }
   .cat-stores .c-state:has(.sr) { display: none; }      /* nothing to note: no empty line */
   /* A product: its photo beside its name and price, then colour, fabric, sizes in stock, date and link. */
@@ -999,6 +1010,16 @@ details[open] > summary .edit { visibility: hidden; }
   .cat-key { display: inline; margin-left: var(--s-2); }
   .c-sizes .allsizes { display: inline-flex; max-width: none; vertical-align: 1px; }
   .cat-link { margin-top: 0; }
+}
+/* From 960px the stores' tables share their columns' widths (all but the notes, which take the rest), so the
+   networks' tables line up one under the other; a window too narrow for them scrolls inside each box. */
+@media (min-width: 960px) {
+  .cat-stores { table-layout: fixed; min-width: 82em; }
+  .cat-stores .w-store { width: 15em; }
+  .cat-stores .w-prog { width: 14em; }
+  .cat-stores .w-status { width: 9.5em; }
+  .cat-stores .w-count { width: 7.5em; }
+  .cat-stores .w-date { width: 10em; }
 }
 @media (min-width: 1200px) {
   .card.cat-filters { grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 1fr)) minmax(0, .8fr) minmax(0, 1.3fr) auto; }

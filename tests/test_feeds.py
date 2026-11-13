@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 
-from wardrobe import config, db, owner, paths, settings
+from wardrobe import config, db, owner, paths, programmes, settings
 from wardrobe.__main__ import main
 from wardrobe.app import create_app
 from wardrobe.feeds import awin_csv, google, refresh, registry, rows, tradedoubler
@@ -489,13 +489,18 @@ class Importers(FeedCase):
 # ── the registry ──────────────────────────────────────────────────────────────
 
 class Registry(FeedCase):
-    def test_the_file_in_the_project_is_valid_and_its_stores_are_invented_samples(self):
+    def test_the_file_in_the_project_is_valid_and_its_samples_are_invented(self):
         stores = registry.load()
-        self.assertEqual(sorted(stores), ["kleiderwerk", "musterhaus", "nordfaden"])
-        for key, values in stores.items():
-            self.assertTrue(values["rules"]["sample"], key)
+        samples = {key: values for key, values in stores.items() if values["rules"].get("sample")}
+        self.assertEqual(sorted(samples), ["kleiderwerk", "musterhaus", "nordfaden"])
+        for key, values in samples.items():
             self.assertIn("(sample)", values["label"])
             self.assertTrue((paths.ROOT / values["feed_location"]).is_file(), key)
+        # Every other store is a real one: never called a sample, and with no feed yet (ProgrammeStores).
+        for key, values in stores.items():
+            if key not in samples:
+                self.assertNotIn("sample", values["label"].lower(), key)
+                self.assertIsNone(values["feed_location"], key)
 
     def test_the_example_of_a_real_store_is_valid_once_the_first_hash_of_each_line_is_removed(self):
         text = (paths.CONFIG_DIR / "feeds.toml").read_text(encoding="utf-8")
@@ -539,11 +544,13 @@ class Registry(FeedCase):
         self.assertEqual(db.list_stores(), [], "nothing was written")
 
     def test_the_samples_are_left_out_in_production(self):
+        samples = ("musterhaus", "nordfaden", "kleiderwerk")
         with mock.patch.object(settings, "PRODUCTION", True):
             said = registry.sync()
-            self.assertEqual(said, [f"{key}: an invented sample store, left out in production"
-                                    for key in ("musterhaus", "nordfaden", "kleiderwerk")])
-            self.assertEqual(db.list_stores(), [])
+            self.assertEqual([line for line in said if line.split(":")[0] in samples],
+                             [f"{key}: an invented sample store, left out in production" for key in samples])
+            self.assertEqual(sorted(s["key"] for s in db.list_stores()), sorted(set(registry.load()) - set(samples)),
+                             "the real stores, and no sample")
         registry.sync()                                          # synced on your own machine, then run in production
         with mock.patch.object(settings, "PRODUCTION", True):
             self.assertEqual(refresh.chosen(None, None), [])
@@ -616,12 +623,169 @@ class Registry(FeedCase):
         self.assertEqual(listing.count("STALE"), 1)
 
 
+# ── every store with a partner programme, from the research of 13 Nov 2026 ─────
+
+# The stores the research found with a programme for Germany, confirmed or probable, and their networks
+# (the owner's research notes, "The stores"). The owner may add more to config/feeds.toml: these must stay.
+PLAN_STORES = {
+    "otto": "awin", "breuninger": "awin", "peek-cloppenburg": "awin", "engelhorn": "awin",
+    "herrenausstatter": "awin", "just4men": "awin", "braun-hamburg": "awin", "tom-tailor": "awin",
+    "s-oliver": "awin", "suitsupply": "awin", "snipes": "awin", "lounge-by-zalando": "awin",
+    "cos": "rakuten", "weekday": "rakuten", "hm": "rakuten", "mango": "rakuten", "arket": "rakuten",
+    "pull-and-bear": "tradedoubler", "about-you": "tradedoubler", "bershka": "tradedoubler",
+    "massimo-dutti": "tradedoubler",
+    "tommy-hilfiger": "partnerize", "calvin-klein": "partnerize", "jack-and-jones": "partnerize",
+    "selected-homme": "partnerize", "mr-porter": "partnerize",
+    "levis": "daisycon", "carhartt-wip": "webgains", "end-clothing": "impact",
+}
+# Their ids in their networks, where the research gives one.
+PLAN_IDS = {"breuninger": "11590", "peek-cloppenburg": "14716", "engelhorn": "13759", "herrenausstatter": "11952",
+            "just4men": "11911", "braun-hamburg": "11864", "tom-tailor": "8617", "suitsupply": "10009",
+            "lounge-by-zalando": "13789", "pull-and-bear": "317285", "bershka": "304030", "massimo-dutti": "359442",
+            "levis": "19949"}
+# Those whose German programme, or what was said about it, could not be confirmed.
+PLAN_UNCONFIRMED = {"weekday", "breuninger", "hm", "mango", "arket", "about-you", "bershka", "massimo-dutti",
+                    "jack-and-jones", "selected-homme", "end-clothing"}
+# Stores with no open programme for Germany, or none found: never listed.
+NO_PROGRAMME = ("zara", "zalando", "uniqlo", "hugo boss", "marc o'polo", "asos", "scotch & soda", "manufactum")
+
+
+def the_file() -> dict:
+    """config/feeds.toml as written, without the sample stores."""
+    data = tomllib.loads((paths.CONFIG_DIR / "feeds.toml").read_text(encoding="utf-8"))
+    return {key: entry for key, entry in data["stores"].items() if not entry.get("sample")}
+
+
+@contextlib.contextmanager
+def no_connections():
+    """Any attempt to open a network connection, by any route, fails the test."""
+    refuse = AssertionError("a network connection was opened")
+    with mock.patch("socket.socket.connect", side_effect=refuse), \
+         mock.patch("socket.create_connection", side_effect=refuse), \
+         mock.patch("urllib.request.urlopen", side_effect=refuse):
+        yield
+
+
+class ProgrammeStores(FeedCase):
+    def test_every_store_with_a_programme_is_listed_with_its_network_and_programme_page(self):
+        listed = the_file()
+        self.assertLessEqual(set(PLAN_STORES), set(listed), "every store the research found with a programme")
+        stores = registry.load()
+        for key, network in PLAN_STORES.items():
+            store = stores[key]
+            self.assertEqual(store["network"], network, key)
+            self.assertEqual(store["programme_id"], PLAN_IDS.get(key), key)
+            self.assertEqual(store["status"], "none", f"{key}: not applied yet")
+            page = store["rules"]["programme_page"]
+            self.assertRegex(page, r"^https://[a-z0-9.-]+\.[a-z]+/", key)
+            if key in PLAN_IDS and any(host in page for host in ("awin.com", "tradedoubler.com", "daisycon.com")):
+                self.assertIn(PLAN_IDS[key], page, f"{key}: the page is its programme's own")
+            self.assertTrue(store["rules"]["notes"], f"{key}: what the research says about it")
+            self.assertEqual(bool(store["rules"].get("unconfirmed")), key in PLAN_UNCONFIRMED, key)
+            self.assertFalse(store["rules"].get("sample"), key)
+        # What the programmes require, said where the owner will read it.
+        notes = {key: stores[key]["rules"]["notes"] for key in PLAN_STORES}
+        self.assertIn("disclaimer", notes["peek-cloppenburg"])
+        self.assertIn("German", notes["lounge-by-zalando"])
+        self.assertTrue(stores["mr-porter"]["rules"]["links_only"])
+        self.assertIn("never import", notes["mr-porter"])
+        self.assertEqual([key for key, store in stores.items() if store["rules"].get("links_only")], ["mr-porter"])
+        # The samples stay, labelled as samples.
+        samples = {key: store for key, store in stores.items() if store["rules"].get("sample")}
+        self.assertEqual(sorted(samples), ["kleiderwerk", "musterhaus", "nordfaden"])
+
+    def test_no_store_has_a_feed_location_or_a_token_and_zara_is_not_listed(self):
+        # No programme has approved Stilsmith yet, so no store has a feed: no address, no format, no headers, and
+        # nothing secret or naming a secret. (When the first programme approves Stilsmith, its store gets a feed
+        # address naming its secrets in braces, never the secrets themselves: change this test then.)
+        listed = the_file()
+        for key, entry in listed.items():
+            self.assertNotEqual(entry.get("status"), "approved", key)
+            for name in ("feed_location", "feed_format"):
+                self.assertNotIn(name, entry, key)
+            self.assertNotIn("headers", entry.get("rules", {}), key)
+            self.assertNotIn("check_url", entry.get("rules", {}), key)
+            words = json.dumps(entry, ensure_ascii=False)
+            self.assertNotRegex(words, r"(?i)token|bearer|password|secret|api[_ -]?key|\{[A-Z_]+\}", key)
+        names = [f"{key} {entry['label']}".casefold() for key, entry in listed.items()]
+        for store in NO_PROGRAMME:
+            found = [name for name in names if store in name]
+            if store == "zalando":                          # only its outlet has a programme
+                self.assertEqual(found, ["lounge-by-zalando lounge by zalando"])
+            else:
+                self.assertEqual(found, [], f"{store} has no programme, so it is not listed")
+
+    def test_the_stores_customers_are_offered_are_listed_with_the_same_network(self):
+        offered = tomllib.loads((paths.CONFIG_DIR / "stores.toml").read_text(encoding="utf-8"))
+        listed = registry.load()
+        for key in programmes.offered():
+            self.assertEqual(listed[key]["network"], offered[key]["programme"], key)
+        self.assertNotIn("zara", listed)
+
+    def test_stores_sync_adds_them_and_nothing_is_fetched(self):
+        with no_connections():
+            said = self.cli("stores", "sync").splitlines()
+            self.assertLessEqual({f"{key}: added" for key in PLAN_STORES}, set(said))
+            self.assertEqual(len(said), len(registry.load()), "one line per store, nothing else to point out")
+            store = db.get_store("peek-cloppenburg")
+            self.assertEqual((store["label"], store["network"], store["programme_id"], store["status"]),
+                             ("Peek & Cloppenburg Düsseldorf", "awin", "14716", "none"))
+            self.assertEqual(store["rules"]["programme_page"], "https://ui.awin.com/merchant-profile/14716")
+            self.assertEqual(self.cli("stores", "sync").count(": unchanged"), len(registry.load()))
+            # Only the approved stores' feeds are fetched: the samples', from files on this computer.
+            said = self.cli("feeds")
+            self.assertNotIn("otto", said)
+            self.assertIn("musterhaus: 8 products imported", said)
+            with self.assertRaises(SystemExit) as refused:
+                self.cli("feeds", "--store", "otto")
+            self.assertIn("otto is 'none', not approved", str(refused.exception))
+            listing = self.cli("stores")
+            self.assertRegex(listing, r"\nmr-porter\s+none\s+partnerize\s+0  -")
+            self.assertRegex(listing, r"\nlounge-by-zalando  none\s+awin\s+0  -", "a long key keeps its own column")
+            self.assertLessEqual({line.split()[1] for line in listing.splitlines()[1:] if not line.startswith(" ")},
+                                 set(registry.STATUSES), "every store's status in its own column, after its key")
+            self.assertIn("    links only: its programme forbids storing its site, so nothing of it is imported", listing)
+        self.opener.assert_not_called()
+
+    def test_a_links_only_store_is_never_imported(self):
+        data = {"stores": {"shop": {"label": "Shop", "network": "partnerize", "status": "approved", "links_only": True}}}
+        self.assertEqual(registry.sync(data), ["shop: added"])
+        self.assertEqual(refresh.chosen(None, None), [], "not fetched with the approved stores")
+        for argv in (["feeds", "--store", "shop"], ["feeds", "--store", "shop", "--from", str(FEEDS / "musterhaus.jsonl")]):
+            with self.assertRaises(SystemExit) as refused:
+                self.cli(*argv)
+            self.assertIn("shop is links only: its programme forbids storing its site, so nothing of it is imported",
+                          str(refused.exception))
+        self.assertEqual(db.store_products("shop"), [])
+        for entry, words in [({"feed_location": "https://feeds.example.com/shop.csv"}, "links only, so it has no feed"),
+                             ({"feed_format": "google"}, "links only, so it has no feed"),
+                             ({"links_only": "yes"}, "stores.shop.links_only is true or false")]:
+            with self.assertRaises(config.ConfigError) as problem:
+                registry.load({"stores": {"shop": {**data["stores"]["shop"], **entry}}})
+            self.assertIn(words, str(problem.exception))
+
+    def test_what_the_file_says_for_the_owner_is_checked(self):
+        for entry, words in [({"programme_page": "http://example.com/x"}, "stores.x.programme_page must be an https address"),
+                             ({"programme_page": "javascript:alert(1)"}, "stores.x.programme_page must be an https address"),
+                             ({"notes": ["a", "b"]}, "stores.x.notes must be text"),
+                             ({"unconfirmed": True}, "stores.x.unconfirmed must be text"),
+                             ({"network": "zalando"}, "stores.x.network")]:
+            with self.assertRaises(config.ConfigError) as problem:
+                registry.load({"stores": {"x": {"label": "X", **entry}}})
+            self.assertIn(words, str(problem.exception))
+        loaded = registry.load({"stores": {"x": {"label": "X", "network": "daisycon", "notes": "One.\n  Two.",
+                                                 "programme_page": "https://example.com/p", "unconfirmed": "Germany"}}})
+        self.assertEqual(loaded["x"]["rules"], {"notes": "One. Two.", "programme_page": "https://example.com/p",
+                                                "unconfirmed": "Germany"})
+
+
 # ── importing, through the command line ───────────────────────────────────────
 
 class Importing(FeedCase):
     def test_sync_then_each_sample_format_imports_every_product(self):
         said = self.cli("stores", "sync")
-        self.assertEqual(said.splitlines(), ["musterhaus: added", "nordfaden: added", "kleiderwerk: added"])
+        self.assertEqual([line for line in said.splitlines() if line.split(":")[0] in ("musterhaus", "nordfaden", "kleiderwerk")],
+                         ["musterhaus: added", "nordfaden: added", "kleiderwerk: added"])
         for store, name, reader in (("musterhaus", "musterhaus.jsonl", google.read),
                                     ("musterhaus", "musterhaus.csv", google.read),
                                     ("musterhaus", "musterhaus.tsv", google.read),
@@ -1347,7 +1511,9 @@ class OwnerCatalogue(ProductionCase):
         page = unescape(page_text(olga.get("/stores").get_data(as_text=True)))
         self.assertIn("Store catalogues Products from the stores' own feeds, as of each store's feed date.", page)
         for store in db.list_stores():
-            line = (f"{store['label']} {store['key']} {owner.NETWORKS[store['network']]} Approved "
+            if not store["rules"].get("sample"):
+                continue                                  # the real stores: test_the_stores_are_grouped_by_network...
+            line = (f"{store['label']} {store['key']} {owner.NETWORKS[store['network']]} · ID {store['programme_id']} Approved "
                     f"· {store['products']} products Feed of {owner.when(store['last_feed_update'])} "
                     f"Imported {owner.when(store['last_import_at'])}")
             self.assertIn(line, page)
@@ -1365,6 +1531,59 @@ class OwnerCatalogue(ProductionCase):
         self.assertIn("Stale: the feed is older than its refresh hours plus a day", page)
         self.assertIn("No longer approved, yet its products are still here. "
                       "Delete them: python -m wardrobe stores end kleiderwerk", page)
+
+    def test_the_stores_are_grouped_by_network_as_the_owners_application_checklist(self):
+        olga = self.an_owner()
+        with no_connections():
+            html = olga.get("/stores").get_data(as_text=True)
+        page = unescape(page_text(html))
+        # The networks in the order to apply to them (Awin first, then Rakuten for COS, then Tradedoubler), the samples last.
+        self.assertEqual(re.findall(r'<h3 class="cat-h3" id="cat-group-([a-z]+)"', html),
+                         ["awin", "rakuten", "tradedoubler", "partnerize", "daisycon", "webgains", "impact", "samples"])
+        real = [key for key, values in registry.load().items() if not values["rules"].get("sample")]
+        self.assertIn(f"{len(real)} stores with a partner programme: none applied for yet. Grouped by network, in the order "
+                      "to apply.", page)
+        self.assertIn("Awin 12 stores", page)
+        self.assertIn("Samples Invented stores for trying the importers, left out in production", page)
+        rows = dict(re.findall(r'<tr role="row" data-store="([a-z0-9-]+)"[^>]*>(.*?)</tr>', html, re.DOTALL))
+        self.assertEqual(sorted(rows), sorted(s["key"] for s in db.list_stores()), "every store, once")
+        for key in PLAN_STORES:
+            store = db.get_store(key)
+            row = unescape(rows[key])
+            self.assertIn("Not applied yet", row, key)
+            self.assertIn(f'<a class="cat-link" href="{store["rules"]["programme_page"]}" target="_blank" '
+                          'rel="noopener noreferrer">', row, f"{key}: its programme page, in a new tab")
+            self.assertIn(f"programme of {store['label']} (opens in a new tab)", row, key)
+            if store["programme_id"]:
+                self.assertIn(f"ID {store['programme_id']}", page_text(row), key)
+            self.assertEqual("Unconfirmed: " in row, key in PLAN_UNCONFIRMED, key)
+        self.assertIn("disclaimer", rows["peek-cloppenburg"])
+        self.assertIn("Links only: its programme forbids storing its site, so nothing of it is imported", unescape(rows["mr-porter"]))
+        # Within a network, by name.
+        awin = html.split('id="cat-group-awin"')[1].split('class="cat-h3"')[0]
+        labels = [db.get_store(key)["label"] for key in re.findall(r'data-store="([a-z0-9-]+)"', awin)]
+        self.assertEqual(labels, sorted(labels, key=str.casefold))
+        self.assertEqual(len(labels), 12)
+        # Customers see nothing new: no store has a feed yet.
+        ada = self.member("ada@example.com")
+        for address in ("/", "/outfits", "/list", "/account", "/profile"):
+            text = ada.get(address).get_data(as_text=True)
+            for word in ("Breuninger", "Peek &amp; Cloppenburg", "Lounge by Zalando", "MR PORTER", "Not applied yet"):
+                self.assertNotIn(word, text, address)
+
+    def test_a_store_s_status_is_said_in_words(self):
+        olga = self.an_owner()
+        otto = {name: db.get_store("otto")[name] for name in db.STORE_SETTINGS}
+        for status, words in (("applied", "Applied"), ("refused", "Refused"), ("none", "Not applied yet")):
+            db.save_store("otto", {**otto, "status": status})
+            row = re.search(r'<tr role="row" data-store="otto"[^>]*>(.*?)</tr>', olga.get("/stores").get_data(as_text=True), re.DOTALL)
+            self.assertIn(f'<span class="tag st-{status}">{words}</span>', row.group(1), status)
+        page = unescape(page_text(olga.get("/stores").get_data(as_text=True)))
+        self.assertIn("stores with a partner programme: none applied for yet.", page)
+        db.save_store("otto", {**otto, "status": "applied"})
+        db.save_store("breuninger", {**{name: db.get_store("breuninger")[name] for name in db.STORE_SETTINGS}, "status": "refused"})
+        page = unescape(page_text(olga.get("/stores").get_data(as_text=True)))
+        self.assertIn("stores with a partner programme: 2 applied for (1 waiting, 1 refused).", page)
 
     def test_filtering_by_store_colour_size_category_and_words_narrows_the_list(self):
         olga = self.an_owner()
@@ -1398,7 +1617,7 @@ class OwnerCatalogue(ProductionCase):
         # count is in the stores' table just above, so its option is its name alone (and fits its box).
         page = olga.get("/stores?store=nordfaden&colour=navy").get_data(as_text=True)
         self.assertIn('<option value="nordfaden" selected>Nordfaden (sample)</option>', page)
-        self.assertIn("Nordfaden (sample) nordfaden Awin Approved · 5 products", unescape(page_text(page)))
+        self.assertIn("Nordfaden (sample) nordfaden Awin · ID 900002 Approved · 5 products", unescape(page_text(page)))
         self.assertEqual(re.findall(r'<option value="(\w+)">', page.split('name="store"')[1].split("</select>")[0]),
                          ["kleiderwerk", "musterhaus"], "every other store with products is offered")
         self.assertIn('<option value="navy" selected>Navy (2)</option>', page)

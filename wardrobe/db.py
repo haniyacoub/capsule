@@ -117,14 +117,15 @@ SCHEMA_FEEDS = """
 CREATE TABLE IF NOT EXISTS stores (     -- copied from config/feeds.toml by `python -m wardrobe stores sync`
     key              TEXT PRIMARY KEY,  -- short name for the command line, e.g. 'musterhaus'
     label            TEXT NOT NULL,     -- the store's name as people read it
-    network          TEXT,              -- awin | tradedoubler | rakuten | webgains | impact, NULL = no programme
+    network          TEXT,              -- awin | rakuten | tradedoubler | partnerize | daisycon | webgains | impact
     programme_id     TEXT,              -- the store's id in its network, e.g. an Awin advertiser id
     status           TEXT NOT NULL DEFAULT 'none',   -- none | applied | approved | refused | ended
     feed_format      TEXT,              -- google | awin_csv | tradedoubler_json
     feed_location    TEXT,              -- address or file, {NAMES} in it are read from environment variables
     delivery_note    TEXT,              -- shown next to prices later, e.g. 'Versand 4,95 EUR'
     disclaimer       TEXT,              -- text the programme requires next to its name
-    rules            TEXT NOT NULL DEFAULT '{}',     -- JSON: refresh hours, delete on exit, images, answers
+    rules            TEXT NOT NULL DEFAULT '{}',     -- JSON: refresh hours, delete on exit, images, answers,
+                                        -- links only, and for the owner its programme page and notes
     last_feed_update TEXT,              -- when the feed itself last changed
     last_import_at   TEXT,              -- when its products were last imported here
     last_download_at TEXT,              -- when its feed last began to download (Tradedoubler counts downloads)

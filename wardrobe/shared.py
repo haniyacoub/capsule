@@ -11,6 +11,12 @@ colour, keyword matches first, cheapest first.
 copies what your last refresh collected into that list. A licensed product
 feed would be loaded into the same file. Whether a list may be shown to the
 public is a question of the stores' permission, not of this code.
+
+Only the products of stores customers are offered are read from the list
+(programmes.py): a store without a partner programme, such as Zara, stays in the
+file and is skipped. When a store stops being offered, every customer's products
+are rebuilt without it, and his pieces that were picked from it are picked again
+(refresh_customer).
 """
 from __future__ import annotations
 
@@ -20,12 +26,12 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from . import capsule, catalog, colours, config, db, paths, settings
+from . import capsule, catalog, colours, config, db, paths, programmes, settings
 from . import profile as profile_mod
 from .collect import matching, pages
 
 POOL_NAME = "store_catalog.json"
-_cache: tuple[int, dict] | None = None
+_cache: tuple[int, frozenset[str], dict] | None = None     # (the file's time, the stores offered, the list)
 # (the list, the colours on offer per garment and set of refused colours)
 _offers: tuple[dict, dict[tuple[str, frozenset[str]], dict[str, list[dict]]]] | None = None
 
@@ -35,22 +41,26 @@ _offers: tuple[dict, dict[tuple[str, frozenset[str]], dict[str, list[dict]]]] | 
 #   fit2: "weder schmaler noch weiter" (a straight leg) is no longer read as a slim cut.
 #   refused: a product in a colour the customer refused is no longer among his options, but for what he chose
 #            himself (see _for_piece).
+# The stores customers are offered are part of the revision too (see revision): a store that gains or loses its
+# place makes every customer's products be rebuilt once, without a new REVISION.
 REVISION = "refused"
 
 
 def load() -> dict | None:
-    """The shared list in this service's data folder, or None if nothing was published."""
+    """The shared list in this service's data folder, with only the products of stores customers are offered
+    (programmes.py), or None if nothing was published. The file itself is never changed."""
     global _cache
     path = paths.DATA_DIR / POOL_NAME
     try:
         mtime = path.stat().st_mtime_ns
     except FileNotFoundError:
         return None
-    if _cache and _cache[0] == mtime:
-        return _cache[1]
+    offered = frozenset(programmes.offered())
+    if _cache and _cache[:2] == (mtime, offered):
+        return _cache[2]
     with path.open(encoding="utf-8") as f:
-        pool = _corrected(json.load(f))
-    _cache = (mtime, pool)
+        pool = programmes.only_offered(_corrected(json.load(f)))
+    _cache = (mtime, offered, pool)
     return pool
 
 
@@ -67,8 +77,9 @@ def _corrected(pool: dict) -> dict:
 
 
 def revision(pool: dict) -> str:
-    """Which publication of the list, read with which corrections, a customer's products come from."""
-    return f"{pool.get('published_at')}#{REVISION}"
+    """Which publication of the list, read with which corrections and for which stores, a customer's products
+    come from: '2026-11-11T17:55:27+01:00#refused#cos,weekday'."""
+    return f"{pool.get('published_at')}#{REVISION}#{','.join(sorted(programmes.offered()))}"
 
 
 def _collected(cat: dict) -> dict[str, dict]:
@@ -216,12 +227,77 @@ def kept_for_its_lock(slot: dict, *products: dict) -> bool:
 
 
 def refresh_customer() -> None:
-    """Rebuild the signed-in customer's candidates if the shared list changed since they last got it,
-    or is now read with a correction they have not had yet (a new REVISION)."""
+    """Rebuild the signed-in customer's candidates if the shared list changed since they last got it, or is now
+    read with a correction they have not had yet (a new REVISION), or for other stores (see revision)."""
     pool = load()
     if pool is None or db.get_setting("pool") == revision(pool):
         return
+    gone = _stores_gone()
     built = build_catalog(db.list_slots(), catalog.load())
     if built:
         catalog.save(built)
         db.set_setting("pool", revision(pool))
+        if gone:
+            _picked_again(gone)
+
+
+# ── a store that is no longer offered ─────────────────────────────────────────
+
+GONE_SETTING = "stores_gone"     # what the Wardrobe page says once, after a store went (see gone_message)
+
+
+def _stores_gone() -> dict[str, list[str]] | None:
+    """Before a customer's products are rebuilt: the stores among them that are no longer offered (programmes.py),
+    and his pieces that were picked from them. Those are unlocked here, so that the rebuilt products pick them
+    again: a piece locked to such a product, by "Lock this choice" or a product he chose himself, is automatic
+    again. Owned pieces are not touched. None when no store went, or when he was on the demo data (invented
+    products, which the real ones replace in any case)."""
+    stored = catalog.stored()
+    if stored.get("source") != "collected":
+        return None
+    gone = {c["store"] for c in stored.get("candidates", []) if c.get("store")} - set(programmes.offered())
+    if not gone:
+        return None
+    from . import selection        # here: selection itself builds on this module
+
+    before = selection.build(catalogue=stored)      # the pieces as he saw them until now
+    picked = [view.slot["id"] for view in before.slots
+              if view.state != "owned" and view.chosen and view.chosen.data.get("store") in gone]
+    their_ids = {c.get("id") for c in stored.get("candidates", []) if c.get("store") in gone}
+    for slot in db.list_slots():
+        if slot["locked"] and slot["pick"] in their_ids:
+            db.update_slot(slot["id"], locked=False, pick=None)
+            if slot["id"] not in picked and not slot["owned"]:
+                picked.append(slot["id"])
+    return {"stores": sorted(gone), "pieces": picked}
+
+
+def _picked_again(gone: dict[str, list[str]]) -> None:
+    """After the rebuild: note for the Wardrobe page what went, how many pieces were picked again, and how many of
+    those have nothing to pick now."""
+    if not gone["pieces"]:
+        return
+    from . import selection
+
+    now = selection.build()
+    empty = sum(1 for view in now.slots if view.slot["id"] in gone["pieces"] and view.chosen is None)
+    db.set_setting(GONE_SETTING, {"stores": gone["stores"], "pieces": len(gone["pieces"]), "empty": empty})
+
+
+def gone_message(keep: bool = False) -> str:
+    """The one plain message about stores that are no longer offered, once (or "" when there is none): "Zara has
+    no partner programme, so Stilsmith no longer shows its products: 17 pieces were picked again." The Wardrobe page
+    shows it the first time it is opened after the change; `keep` leaves it to be shown again."""
+    note = db.get_setting(GONE_SETTING)
+    if not isinstance(note, dict) or not note.get("pieces"):
+        return ""
+    if not keep:
+        db.set_setting(GONE_SETTING, None)
+    stores, n, empty = note.get("stores", []), int(note["pieces"]), int(note.get("empty") or 0)
+    has = "has" if len(stores) == 1 else "have"
+    its = "its" if len(stores) == 1 else "their"
+    words = (f"{programmes.names(stores)} {has} no partner programme, so {settings.SITE_NAME} no longer shows "
+             f"{its} products: {n} {'piece was' if n == 1 else 'pieces were'} picked again")
+    if empty:
+        words += f", and {empty} {'has' if empty == 1 else 'have'} nothing in {settings.SITE_NAME}'s product list yet"
+    return words + "."
