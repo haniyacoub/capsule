@@ -376,14 +376,14 @@ class PublishedListReadAgain(unittest.TestCase):
                          "the published file itself is left as it is")
 
     def test_every_customer_gets_the_corrected_cut_once(self):
-        # A customer whose products were built from this list before the correction: the jeans say "Slim cut".
+        # A customer whose products were built from this list before the correction: the jeans say "Fit: slim".
         jeans = {**self.product("weekday-0100000140", "slim", STRAIGHT_FIT_JEANS["weekday-0100000140"]),
                  "slot_id": "indigo-jeans"}
         catalog.save({"source": "collected", "collected_at": "2026-11-11T17:00:18+01:00", "stores": {},
                       "pool": self.PUBLISHED, "candidates": [jeans]})
         db.set_setting("pool", self.PUBLISHED)
         before = selection.build().get("indigo-jeans").chosen
-        self.assertTrue(any(note.startswith("Slim cut") for note in before.check.notes), before.check.notes)
+        self.assertTrue(before.check.fit.startswith("slim"), before.check.fit)
 
         with mock.patch.object(shared, "build_catalog", wraps=shared.build_catalog) as rebuild:
             shared.refresh_customer()
@@ -393,7 +393,8 @@ class PublishedListReadAgain(unittest.TestCase):
         after = selection.build().get("indigo-jeans")
         self.assertEqual({c.id: c.data["fit"] for c in after.cands},
                          {"weekday-0100000140": "regular", "weekday-0100000240": "regular"})
-        self.assertFalse([note for note in after.chosen.check.notes if "Slim" in note], after.chosen.check.notes)
+        self.assertEqual(after.chosen.check.fit, "", "a regular cut says nothing about the fit")
+        self.assertFalse([note for note in after.chosen.check.notes if "lim" in note], after.chosen.check.notes)
 
     def test_a_new_customer_starts_on_the_corrected_list(self):
         built = shared.build_catalog(db.list_slots(), None)

@@ -1,8 +1,7 @@
-{% from "_macros.html" import icon, pic, pill, store %}
+{% from "_macros.html" import by, fabric_fit, icon, pic %}
 {% set sid = s.slot.id %}
 {# `way`: opened from an outfit, every button and link here keeps the way back to it (app.way_back). #}
 {% set here = dict(slot_id=sid, view='slot', sort=sort, **way) %}
-{% set fit_words = {'slim': 'Slim cut', 'relaxed': 'Relaxed cut', 'oversized': 'Oversized cut'} %}
 {% set demo = w.source == 'mock' %}
 {# Buttons that stay where they are keep one id in every state (Lock this choice / Unlock, I already own this / I don't
    own this after all, Choose this / the "Current pick" mark that replaces it): HTMX gives keyboard focus back to the
@@ -70,31 +69,35 @@
   <li class="cand{% if is_chosen %} chosen{% endif %}{% if not c.available %} out{% endif %}" id="cand-{{ c.id }}">
     {{ pic(d.image_url, c.colour_hex, d.name, d.colour) }}
     <div class="cand-body">
+      {# What every card says, in the same order (_macros.html): the store and the quality beside the price, then the
+         store's name for the product in English where every word is known (english.py), with the original and its
+         colour under it in small print, as the store wrote them (German); then the fabric and the fit. Each option is
+         a section under the piece's name (h1), so a screen reader can jump from one to the next. #}
       <div class="cand-top">
-        <span>{{ store(d.store) }} <span class="colour-name" lang="de">{{ d.colour }}</span>{% if c.manual %} <span class="tag">added by you</span>{% endif %}</span>
+        <span class="by">{{ by(d.store, c.score) }}{% if c.manual %} <span class="tag">added by you</span>{% endif %}</span>
         <span class="price">
           {% if c.price > 0 %}{{ c.price|eur }}{% else %}no price{% endif %}
           {% if d.price_before and d.price_before > c.price %}<s class="was"><span class="sr">was </span>{{ d.price_before|eur }}</s>{% endif %}
         </span>
       </div>
-      {# The store's own name for the product, as the store wrote it (German): each option is a section under the
-         piece's name (h1), so a screen reader can jump from one to the next. #}
-      <h2 lang="de">{{ d.name }}</h2>
-      <p class="fabric">{{ c.fabric }}{% if c.score.fabric_source in ('name', 'assumed') %} <span class="est">estimated</span>{% endif %}</p>
+      {% set en = d.name|english %}
+      <h2 lang="{{ 'en' if en else 'de' }}">{{ en or d.name }}</h2>
+      <p class="orig">{% if en %}<span lang="de">{{ d.name }}</span>&nbsp;<span aria-hidden="true">·</span> {% endif %}<span class="colour-name" lang="de">{{ d.colour }}</span></p>
+      {{ fabric_fit(c) }}
+      {% if c.size.known %}{# sizes not checked: said once, by the size note below #}
       <p class="sizeline">
-        {% if not c.size.known %}{# said once, by the size note below #}
-        {% elif c.available %}<span class="yes">Your size: {{ c.size.text }}</span>
+        {% if c.available %}<span class="yes">Your size: {{ c.size.text }}</span>
         {% elif c.size.label %}<span class="no">Your size: {{ c.size.text }}</span>
         {% else %}<span class="no">{{ c.size.text }}</span>{% endif %}
-        {% if d.fit in fit_words %}<span class="tag">{{ fit_words[d.fit] }}</span>{% endif %}
       </p>
+      {% endif %}
       {% if c.check.notes %}
       <ul class="size-notes">{% for note in c.check.notes %}<li>{{ icon('flag') }} {{ note }}</li>{% endfor %}</ul>
       {% endif %}
 
       <details class="why">
-        {# The words the piece's pop-up uses (_piece.html): "Quality 73", heard as "Quality 73 out of 100". #}
-        <summary><span class="quality">Quality {{ pill(c.score) }}<span class="sr"> out of 100</span></span> <u>How it's rated</u></summary>
+        {# The quality is said beside the store above; here is how it comes about. #}
+        <summary><u>How it's rated</u></summary>
         <div class="breakdown">
           {% for part in c.score.parts %}
           <div class="part">

@@ -29,6 +29,7 @@ from werkzeug.exceptions import HTTPException, NotFound
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
                owner, person, programmes, selection, shared, tryon)
 from . import profile as profile_mod
+from . import english
 from . import settings as conf
 from .onboarding import ensure_setup
 from .config import ConfigError
@@ -277,6 +278,7 @@ def create_app() -> Flask:
     app.jinja_env.lstrip_blocks = True
     app.jinja_env.filters["eur"] = eur
     app.jinja_env.filters["weblink"] = weblink
+    app.jinja_env.filters["english"] = english.name      # a store's German product name in English, or None
     app.jinja_env.globals.update(
         nav=NAV, GARMENTS=GARMENTS, COLOURS=colours.COLOURS, ALPHA=ALPHA,
         USES=profile_mod.USES, MODES=selection.MODES, OCCASIONS=outfits.OCCASIONS,

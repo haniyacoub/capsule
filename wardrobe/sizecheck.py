@@ -1,8 +1,8 @@
 """Size check: what to look at before ordering this item in your size.
 
-It never blocks anything. It adds short notes to an item:
+It never blocks anything. It says how the item is cut, the "Fit:" line of every card ("oversized, runs large. Size
+down for a regular fit."), and adds short notes:
 
-  * the cut is described as oversized or slim;
   * you are between two sizes — by the store's chart (if you entered your
     chest or waist on the Profile page), with a half shoe size, or with a
     trouser length the item doesn't come in;
@@ -28,6 +28,11 @@ ONE_LENGTH = {"coat", "blazer", "trousers", "chinos", "shirt", "overshirt"}   # 
 class Check:
     usual: str                                   # your size in your own terms: "M", "32/32", "43"
     notes: list[str] = field(default_factory=list)
+    fit: str = ""            # the words after "Fit:": "relaxed", or for a cut to act on "slim, sits close to the body."
+    fit_flag: bool = False   # an oversized or slim cut: something to act on (a size up or down), said as a caution
+
+# The cut in plain words, after "Fit:". A regular cut has nothing to say.
+FITS = {"oversized": "oversized, runs large.", "slim": "slim, sits close to the body.", "relaxed": "relaxed"}
 
 
 def _number(value) -> float | None:
@@ -67,17 +72,16 @@ def check(data: dict, size: SizeStatus, profile: dict, category: str, charts: di
     result = Check(usual=usual_size(profile, category, store, charts))
     notes = result.notes
 
-    # 1. The cut
+    # 1. The cut: "Fit: oversized, runs large. Size down for a regular fit."
     height, weight = _number(profile.get("height_cm")), _number(profile.get("weight_kg"))
     bmi = weight / (height / 100) ** 2 if height and weight else None
     fit = data.get("fit")
+    result.fit, result.fit_flag = FITS.get(fit or "", ""), fit in ("oversized", "slim")
     if fit == "oversized":
-        extra = " On a slim build it will look bigger still: consider one size down." \
-            if bmi and bmi <= float(limits.get("slim_build_bmi", 21.5)) else " Size down if you want a regular fit."
-        notes.append("Oversized cut — it runs large on purpose." + extra)
-    elif fit == "slim":
-        extra = " Consider one size up." if bmi and bmi >= float(limits.get("broad_build_bmi", 26)) else ""
-        notes.append("Slim cut — it sits close to the body." + extra)
+        result.fit += " On a slim build it looks bigger still: consider one size down." \
+            if bmi and bmi <= float(limits.get("slim_build_bmi", 21.5)) else " Size down for a regular fit."
+    elif fit == "slim" and bmi and bmi >= float(limits.get("broad_build_bmi", 26)):
+        result.fit += " Consider one size up."
 
     # 2. The store's chart against your measurements
     if group == "tops" and (chest := _number(profile.get("chest_cm"))) and body.get("tops"):

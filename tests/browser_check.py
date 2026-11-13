@@ -573,9 +573,11 @@ def run(base: str) -> None:
         def swap_from_the_popup():
             choose = page.locator("#piece-body .swap li:not(.out) button", has_text="Choose")
             assert choose.count() > 0, "nothing to swap for"
-            wanted = page.locator("#piece-body .swap li:not(.out) b").nth(0).inner_text()
+            # The store's own name for the option (lang=de: under its English name where there is one), which is
+            # what the outfit's list of pieces shows.
+            wanted = page.locator("#piece-body .swap li:not(.out)").nth(0).locator("[lang=de]").first.inner_text()
             swapped.update(choose.nth(0).evaluate("b => ({slot: b.form.getAttribute('action').split('/')[2], "
-                                                  "product: b.closest('li').querySelector('b').textContent.trim()})"))
+                                                  "product: b.closest('li').querySelector('[lang=de]').textContent.trim()})"))
             choose.nth(0).click()
             page.wait_for_url("**/outfits?at=**")
             page.wait_for_load_state("networkidle")
@@ -598,7 +600,7 @@ def run(base: str) -> None:
             assert page.locator(f"{first} .piece-row").count() == before - 1, "the piece is still there"
 
         def the_piece_pop_up_on_a_phone():
-            # Tapping a dot on a phone (390 x 844): the pop-up is named by the product, says 'Quality' next to the
+            # Tapping a dot on a phone (390 x 844): the pop-up is named by the piece, says 'Quality' next to the
             # number and what each option costs next to the piece, and shows the quick changes to this outfit ('In
             # this outfit') on its first screen. Swiping inside it never moves the page behind it, and its close
             # button is a 44px target. 'Compare all N options' leads to the piece's page, whose way back returns to
@@ -621,7 +623,7 @@ def run(base: str) -> None:
             spot.tap()
             other.wait_for_selector("dialog#piece[open] #piece-title")
             sheet = other.locator("dialog#piece")
-            expect(sheet, "the pop-up is not named by the product").to_have_accessible_name(
+            expect(sheet, "the pop-up is not named by the piece").to_have_accessible_name(
                 other.locator("#piece-title").inner_text().strip())
             said = other.locator("#piece-body").inner_text()
             assert re.search(r"Quality\s+\d+", said), f"no 'Quality' next to the number: {said[:200]!r}"
@@ -693,6 +695,72 @@ def run(base: str) -> None:
             (coat.first if coat.count() else other.locator(f"{first} .piece-row").first).click()
             other.wait_for_selector("dialog#piece[open] #piece-title")
             other.wait_for_load_state("networkidle")
+
+        def a_pieces_card_reads_the_same_everywhere():
+            # A piece's card says the same lines in the same order in the pop-up, on its Wardrobe card, on its own page
+            # and on Buy: the store and 'Quality 73/100', the store's name for the product in English (lang=en) with its
+            # own words under it (lang=de, smaller, or on a card where the English is already 13px, greyer), 'Fabric: …'
+            # and 'Fit: …'. Every line inside its card, on a phone (light) and a computer (dark). The piece: the first
+            # of the first outfit whose name the word list knows and whose cut is said.
+            LINES = """root => {
+                const box = root.getBoundingClientRect(), lines = {};
+                const found = {by: root.querySelector('.by'), en: root.querySelector('[lang=en]'),
+                               orig: root.querySelector('[lang=de]:not(.colour-name)'),
+                               fabric: root.querySelector('.fabric'), fit: root.querySelector('.fit')};
+                for (const [kind, el] of Object.entries(found)) {
+                    if (!el) { lines[kind] = null; continue; }
+                    const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+                    lines[kind] = {text: el.textContent.replace(/\\s+/g, ' ').trim(), top: Math.round(r.top),
+                                   size: parseFloat(cs.fontSize), colour: cs.color, shown: r.width > 0 && r.height > 0,
+                                   inside: r.left >= box.left - 1 && r.right <= box.right + 1};
+                }
+                return {lines, wide: document.documentElement.scrollWidth};
+            }"""
+            ORDER = ["by", "en", "orig", "fabric", "fit"]
+            for width, height, scheme in ((390, 844, "light"), (1280, 800, "dark")):
+                phone = width < 760
+                context, other = logged_in_on(browser, viewport={"width": width, "height": height}, color_scheme=scheme,
+                                              is_mobile=phone, has_touch=phone)
+                other.goto(base + "/outfits", wait_until="networkidle")
+                rows, place = other.locator(f"{first} .piece-row"), {}
+                for i in range(rows.count()):
+                    rows.nth(i).click()
+                    other.wait_for_selector("dialog#piece[open] #piece-title")
+                    other.wait_for_load_state("networkidle")
+                    if other.locator("#piece-body .piece-facts [lang=en]").count() and other.locator("#piece-body .fit").count():
+                        place["pop-up"] = other.locator("#piece-body .piece-facts").evaluate(LINES)
+                        break
+                    other.locator("dialog#piece .sheet-close").click()
+                    other.wait_for_selector("dialog#piece:not([open])", state="attached")
+                assert place, "no piece of the first outfit has an English name and a cut to tell"
+                name = other.locator("#piece-title").inner_text().strip()
+                slot = other.locator("#piece-body a[href^='/slot/']").first.get_attribute("href").split("?")[0].split("/")[2]
+                sig = re.search(r"at=([^&]+)", rows.nth(i).get_attribute("hx-get")).group(1)
+                other.goto(base + "/", wait_until="networkidle")
+                place["Wardrobe"] = other.locator(f"#card-{slot} .slot-text").evaluate(LINES)
+                other.goto(base + f"/slot/{slot}", wait_until="networkidle")
+                place["piece page"] = other.locator(".cand.chosen .cand-body").evaluate(LINES)
+                other.goto(base + f"/outfits/buy?at={sig}", wait_until="networkidle")
+                line = other.locator("li.buy").filter(has=other.locator(".buy-slot", has_text=re.compile("^" + re.escape(name))))
+                assert line.count() == 1, f"{name!r} is not one line on Buy"
+                place["Buy"] = line.locator(".buy-main").evaluate(LINES)
+                context.close()
+                said = {}
+                for where, seen in place.items():
+                    assert seen["wide"] <= width + 1, f"at {width}px the {where} is wider than the screen"
+                    lines = seen["lines"]
+                    assert all(lines[k] and lines[k]["shown"] for k in ORDER), f"at {width}px the {where} leaves out a line: {lines}"
+                    tops = [lines[k]["top"] for k in ORDER]
+                    assert tops == sorted(tops) and len(set(tops)) == len(tops), \
+                        f"at {width}px the {where} says its lines in another order: {dict(zip(ORDER, tops))}"
+                    assert all(lines[k]["inside"] for k in ORDER), f"at {width}px a line runs out of the {where}'s card: {lines}"
+                    en, orig = lines["en"], lines["orig"]
+                    assert orig["size"] < en["size"] or (orig["size"] == en["size"] == 13 and orig["colour"] != en["colour"]), \
+                        f"at {width}px the {where}'s original name is not in small print: {orig} under {en}"
+                    for k in ORDER:
+                        said.setdefault(k, {})[where] = lines[k]["text"]
+                for k in ORDER:
+                    assert len(set(said[k].values())) == 1, f"at {width}px the four places say the {k} line differently: {said[k]}"
 
         def pop_up_never_hides_the_focus():
             # The pop-up's top row (the piece's name and Close) stays while the sheet scrolls, and what has keyboard
@@ -1330,7 +1398,7 @@ def run(base: str) -> None:
             if lock.count():            # the new plan has the swapped piece: its product and lock stay
                 assert "Kept your 1 hand-picked piece" in said, f"the message does not count the kept piece: {said!r}"
                 assert lock.get_attribute("aria-pressed") == "true", "the kept piece is no longer locked"
-                card = page.locator(f"#card-{swapped['slot']} .item").inner_text()
+                card = page.locator(f"#card-{swapped['slot']} .item[lang=de]").inner_text()   # the store's own words
                 assert swapped["product"] in card, f"the kept piece shows {card!r}, not {swapped['product']!r}"
             else:
                 assert "Not kept: " in said, f"the swapped piece is gone and the message does not say so: {said!r}"
@@ -1739,6 +1807,7 @@ def run(base: str) -> None:
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
+                 ("a piece's card reads the same in four places", a_pieces_card_reads_the_same_everywhere),
                  ("the pop-up's top row never hides what has focus", pop_up_never_hides_the_focus),
                  ("the page behind the pop-up stays put", the_page_behind_the_pop_up_stays_put),
                  ("arrows and arrow keys", arrows_move),

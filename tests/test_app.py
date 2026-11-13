@@ -8,7 +8,7 @@ from pathlib import Path
 
 from markupsafe import escape
 
-from wardrobe import capsule, catalog, colours, config, db, export, outfits, paths, selection, shared
+from wardrobe import capsule, catalog, colours, config, db, english, export, outfits, paths, selection, shared
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app, eur, weblink
 
@@ -220,13 +220,26 @@ class APiecesPageInPlainWords(AppCase):
         by_quality = self.client.get(f"/slot/{sid}?sort=score").data.decode()
         self.assertIn('href="/slot/%s?sort=score" aria-current="true">By quality</a>' % sid, by_quality)
         self.assertEqual(by_quality.count('aria-current="true"'), 1, "one way of sorting is the current one")
-        # Each option is a section under the piece: its name, as the store wrote it, is a heading one level down.
+        # Each option is a section under the piece: its name is a heading one level down, in English where every
+        # word is known, with the store's own words (German) under it in small print; otherwise the store's own.
         self.assertEqual(re.findall(r"<h3", page), [])
-        self.assertEqual(len(re.findall(r'<h2 lang="de">', page)), n)
+        self.assertEqual(len(re.findall(r'<h2 lang="(?:en|de)">', page)), n)
+        translated = 0
+        for c in coat.cands:
+            said = english.name(c.data["name"])
+            if said:
+                translated += 1
+                self.assertIn(f'<h2 lang="en">{escape(said)}</h2>', page)
+                self.assertIn(f'<p class="orig"><span lang="de">{escape(c.data["name"])}</span>', page)
+            else:
+                self.assertIn(f'<h2 lang="de">{escape(c.data["name"])}</h2>', page)
+        self.assertTrue(translated, "the demo coats have names the word list knows")
         self.assertEqual(page.count('<span class="colour-name" lang="de">'), n)
-        # Quality is named, as in the pop-up, and how it is rated is shown with the working.
+        # Quality is named beside the store, as on every card ("Quality 73/100", heard as "Quality 73 out of 100"),
+        # and how it is rated is shown with the working.
         self.assertEqual(page.count("Quality <span class=\"pill"), n)
-        self.assertEqual(page.count('<span class="sr"> out of 100</span></span> <u>How it\'s rated</u>'), n)
+        self.assertEqual(page.count('<span class="of" aria-hidden="true">/100</span></span><span class="sr"> out of 100</span>'), n)
+        self.assertEqual(page.count("<summary><u>How it's rated</u></summary>"), n)
         self.assertIn(f"Quality {coat.cands[0].score.total}/100", text)
         self.assertIn("Stilsmith rates ", text)
         self.assertEqual(text.count("Fabric counts most. The brand part is Stilsmith's own judgement of how well "
@@ -819,8 +832,14 @@ class BuyingInYourSizes(AppCase):
                 self.assertIn(swatch, html_line)
                 if line.image_url:
                     self.assertIn(f'<img src="{escape(line.image_url)}"', html_line)
+                # The link is the product's name in English where every word is known, the store's own (German)
+                # under it in small print; otherwise the store's own.
+                said = english.name(line.product)
                 self.assertIn(f'<a class="buy-product" href="{escape(weblink(line.url))}" target="_blank" '
-                              f'rel="noopener noreferrer"><span lang="de">{escape(line.product)}</span>', html_line)
+                              f'rel="noopener noreferrer"><span lang="{"en" if said else "de"}">'
+                              f'{escape(said or line.product)}</span>', html_line)
+                if said:
+                    self.assertIn(f'<span class="orig" lang="de">{escape(line.product)}</span>', html_line)
                 self.assertIn(f'Colour: <span lang="de">{escape(line.colour)}</span> · Size: <b>{escape(line.size)}</b>',
                               html_line)
         # Both kinds were checked: the demo data has products with a photo and one without (the Weekday chinos).

@@ -244,7 +244,7 @@ class AWardrobeInTheShapesOf11Nov(AppCase):
         others = [c for c in w.get(sid).cands if c.id != w.get(sid).chosen.id][:6]
         self.assertEqual(len(rows), len(others))
         for row, cand in zip(rows, others):
-            said = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", row)).split())
+            said = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", row)).split()).lower()   # a line of its own: "Sizes not checked"
             self.assertEqual("sizes not checked" in said, not cand.size.known, said)
             self.assertEqual("not in your size" in said, not cand.available, said)
 
