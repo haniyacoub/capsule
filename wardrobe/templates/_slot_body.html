@@ -18,7 +18,7 @@
       <b>Locked:</b> kept when you change the price level or the minimum quality.
     {% elif s.chosen %}
       Picked for you: {% if w.mode == 'budget' %}what your budget allows here{% if w.threshold > 0 %}, rated {{ w.threshold }} or more{% endif %}
-      {%- else %}the {{ MODES[w.mode]|lower }} option{% if w.threshold > 0 %} rated {{ w.threshold }} or more{% endif %}{% endif %}. Choose another below to swap it in.
+      {%- else %}the {{ MODES[w.mode]|lower }} option{% if s.chosen.size.known %} in your size{% endif %}{% if w.threshold > 0 %} rated {{ w.threshold }} or more{% endif %}{% endif %}. Choose another below to swap it in.
     {% else %}
       {{ s.note }}.
     {% endif %}
@@ -49,7 +49,11 @@
 
 {% if cands %}
 <div class="sortbar">
-  <span>{{ s.cands|length }} option{{ '' if s.cands|length == 1 else 's' }} · {{ s.n_available }} in your size</span>
+  {# Only what is known: options whose store gave no sizes (COS) are not counted as in your size. "0 in your size"
+     is left out where every option is one of those: "3 options · 3 with sizes not checked". #}
+  <span>{{ s.cands|length }} option{{ '' if s.cands|length == 1 else 's' }}
+    {%- if s.n_in_your_size or s.n_not_checked < s.cands|length %} · {{ s.n_in_your_size }} in your size{% endif %}
+    {%- if s.n_not_checked %} · {{ s.n_not_checked }} with sizes not checked{% endif %}</span>
   <span class="chips">
     <a class="chip-link{% if sort == 'price' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, **way) }}"{% if sort == 'price' %} aria-current="true"{% endif %}>By price</a>
     <a class="chip-link{% if sort == 'score' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, sort='score', **way) }}"{% if sort == 'score' %} aria-current="true"{% endif %}>By quality</a>

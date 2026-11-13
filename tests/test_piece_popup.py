@@ -8,7 +8,7 @@ same outfit. It is named by the product's name, and while the sizes are still ou
 import html
 import re
 
-from wardrobe import catalog, db, outfits, selection
+from wardrobe import catalog, db, outfits, programmes, selection
 
 from .test_app import HX, AppCase
 
@@ -87,16 +87,22 @@ class PiecePopUp(AppCase):
         self.assertIn(notes[0], self.read(self.popup(outfit, coat.view.slot["id"])))
 
     def test_no_sizes_from_the_store_is_said_once(self):
-        # A product whose store gave no sizes: the size line says to check, and the note saying the same is left out.
+        # A piece whose options all come without sizes (as COS's did): the size line says, with the store's name, that
+        # the sizes were not checked and where to look, and the note saying the same is left out.
         outfit, top = self.outfit_with("top")
-        sid, cand = top.view.slot["id"], top.view.chosen.id
+        sid = top.view.slot["id"]
         catalog.update(lambda cat: [c.update(sizes_all=[], sizes_in_stock=[]) for c in cat["candidates"]
-                                    if c.get("slot_id") == sid and c.get("id") == cand])
+                                    if c.get("slot_id") == sid])
         view = selection.build().get(sid)
         self.assertFalse(view.chosen.size.known)
-        said = self.read(self.popup(outfit, sid))
-        self.assertIn("Check that your size is in stock", said)
+        store = programmes.label(view.chosen.data["store"])
+        page = self.popup(outfit, sid)
+        said = self.read(page)
+        self.assertIn(f'<span class="unk">Sizes not checked at {store}: look on its page before you buy</span>', page)
+        self.assertEqual(said.count("Sizes not checked at"), 1, said)
         self.assertNotIn("gave no sizes", said)
+        self.assertNotIn("Your size", said, "nothing is said to be in your size")
+        self.assertNotIn('#sizes">Change', page, "no size is said, so there is no example size to change here")
 
     def test_the_day_of_the_prices_and_stock_sits_with_the_size_line(self):
         # "In stock" holds as of the day the products were collected: that day is said right under the size line, on

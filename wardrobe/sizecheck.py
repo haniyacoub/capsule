@@ -8,7 +8,7 @@ It never blocks anything. It adds short notes to an item:
     trouser length the item doesn't come in;
   * the store's chart puts you in a different size from the one you entered;
   * the garment comes in one length and you are notably tall or short;
-  * the store gave no size information at all.
+  * the store gave no size information at all, so your size was not checked.
 
 The charts and thresholds are in config/size_charts.toml.
 """
@@ -114,7 +114,7 @@ def check(data: dict, size: SizeStatus, profile: dict, category: str, charts: di
         elif height <= float(limits.get("short_up_to_cm", 170)):
             notes.append(f"Comes in one length and you are {height:g} cm: it may run long.")
 
-    # 5. No size information at all
+    # 5. No size information at all: "Sizes not checked at COS: look on its page before you buy."
     if not size.known:
-        notes.append("The store page gave no sizes: check that yours is in stock.")
+        notes.append(sizes.not_checked(store) + ".")
     return result

@@ -211,8 +211,11 @@ class APiecesPageInPlainWords(AppCase):
         text = html.unescape(page_words(page))
         for jargon in ("candidate", "slot", "score", "re-propose", "Why this"):
             self.assertNotIn(jargon, text.lower(), f"the piece's page says {jargon!r}")
-        self.assertIn(f"{n} options · {coat.n_available} in your size", text)
-        self.assertIn("Picked for you: the cheapest option rated 70 or more. Choose another below to swap it in.", text)
+        # Every demo option has its sizes, so none is "with sizes not checked" (test_size_picks: one that is not).
+        self.assertIn(f"{n} options · {coat.n_in_your_size} in your size By price", text)
+        self.assertEqual(coat.n_not_checked, 0)
+        self.assertIn("Picked for you: the cheapest option in your size rated 70 or more. Choose another below to swap "
+                      "it in.", text)
         self.assertIn('href="/slot/%s" aria-current="true">By price</a>' % sid, page)
         by_quality = self.client.get(f"/slot/{sid}?sort=score").data.decode()
         self.assertIn('href="/slot/%s?sort=score" aria-current="true">By quality</a>' % sid, by_quality)

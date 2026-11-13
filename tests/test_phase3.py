@@ -64,8 +64,11 @@ class SizeCheck(unittest.TestCase):
         self.assertEqual(notes("tee", height_cm=195), [], "a tee's length is not flagged")
 
     def test_missing_size_information_is_said_out_loud(self):
+        # Truthfully: nobody opened the store's product page, so the sizes were not checked, at a store named.
         unknown = sizes.SizeStatus(True, None, "unknown", known=False)
-        self.assertTrue(any("gave no sizes" in n for n in notes(size=unknown)))
+        self.assertEqual(notes(size=unknown)[-1], "Sizes not checked at COS: look on its page before you buy.")
+        self.assertEqual(notes(store="weekday", size=unknown)[-1],
+                         "Sizes not checked at Weekday: look on its page before you buy.")
 
     def test_the_likely_label_when_a_store_gives_no_sizes(self):
         for store, category, expected in [("cos", "tee", "M"), ("cos", "coat", "M / 48"), ("cos", "trousers", "48"),

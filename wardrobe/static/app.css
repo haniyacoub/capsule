@@ -366,7 +366,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .sizeline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--t-s); margin-top: 5px; }
 .sizeline .yes { color: var(--good); font-weight: 500; }
 .sizeline .no { color: var(--poor); font-weight: 500; }
-.sizeline .unk { color: var(--muted); }
+.sizeline .unk { color: var(--ok); font-weight: 500; }   /* sizes not checked at the store: a caution to act on */
 .size-notes { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
 .size-notes .ic { width: 13px; height: 13px; vertical-align: -2px; }
 details.why { margin-top: 6px; font-size: var(--t-s); }

@@ -493,9 +493,9 @@ def create_app() -> Flask:
             abort(404)
         sort = request.args.get("sort", "price")
         if sort == "score":
-            cands = sorted(view.cands, key=lambda c: (not c.available, -c.score.total, c.price))
+            cands = sorted(view.cands, key=lambda c: (c.size.rank, -c.score.total, c.price))
         else:
-            sort, cands = "price", view.cands   # already: in stock first, then by price
+            sort, cands = "price", view.cands   # already: in your size first (sizes.SizeStatus.rank), then by price
         return {"s": view, "cands": cands, "sort": sort, "way": way_back()}
 
     # ── Wardrobe ──────────────────────────────────────────────────────────────

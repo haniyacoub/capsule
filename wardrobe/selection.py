@@ -13,6 +13,10 @@ Rules, in order:
        best for budget   the wardrobe as a whole: every slot starts on its
                          cheapest option and the rest of the budget goes to
                          upgrades, best value first (see fit_budget below)
+     "In stock in your size" first: a candidate whose store gave no sizes (COS)
+     is considered only when none known to be in your size reaches the minimum
+     quality. One known to be sold out in your size, or not made in it, is never
+     picked automatically; it stays on the piece's page, marked, to choose by hand.
 """
 from __future__ import annotations
 
@@ -131,7 +135,18 @@ class SlotView:
 
     @property
     def n_available(self) -> int:
+        """Options that may be picked: in stock in your size, or with sizes not checked."""
         return sum(1 for c in self.cands if c.available)
+
+    @property
+    def n_in_your_size(self) -> int:
+        """Options known to be in stock in your size."""
+        return sum(1 for c in self.cands if c.size.rank == sizes.IN_YOUR_SIZE)
+
+    @property
+    def n_not_checked(self) -> int:
+        """Options whose store gave no sizes, so nobody knows whether yours is in stock."""
+        return sum(1 for c in self.cands if c.size.rank == sizes.NOT_CHECKED)
 
 
 @dataclass
@@ -263,13 +278,20 @@ def at_level(pool: list[Cand], mode: str) -> Cand:
     return max((c for c in ranked if c.price == price), key=lambda c: c.score.total)
 
 
+def in_your_size_first(pool: list[Cand]) -> list[Cand]:
+    """The candidates of `pool` known to be in stock in your size, or, when there are none, all of `pool` (those
+    whose sizes were not checked). `pool` never holds one known to be sold out in your size or not made in it."""
+    return [c for c in pool if c.size.rank == sizes.IN_YOUR_SIZE] or pool
+
+
 def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tuple[Cand | None, str | None, bool]:
     """The automatic pick for a slot: (candidate, note, is_warning). `colour` is the piece's colour, in
     words ('black'), for the note on a piece the product list has nothing for."""
     if not cands:
         return None, (f"Not in {settings.SITE_NAME}'s product list in {colour} yet" if colour
                       else f"Not in {settings.SITE_NAME}'s product list yet"), True
-    # An item without a price has no place on the price ladder: it is never picked automatically.
+    # An item without a price has no place on the price ladder: it is never picked automatically. Nor is one known
+    # to be sold out in your size or not made in it (c.available is False); one whose sizes were not checked may be.
     available = [c for c in cands if c.available and c.price > 0]
     if not available:
         if any(c.available for c in cands):     # in your size, but no price: one added by its link has none yet
@@ -277,9 +299,12 @@ def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tu
         return None, "Nothing in stock in your size", True
     good = [c for c in available if c.score.total >= threshold]
     if not good:
-        best = max(available, key=lambda c: (c.score.total, -c.price))
+        pool = in_your_size_first(available)
+        best = max(pool, key=lambda c: (c.score.total, -c.price))
+        if len(pool) < len(available):      # options whose sizes were not checked were passed over
+            return best, f"Nothing reaches {threshold} — this is the best in your size", True
         return best, f"Nothing reaches {threshold} — this is the best available", True
-    return at_level(good, mode), None, False
+    return at_level(in_your_size_first(good), mode), None, False
 
 
 # ── best for budget: the wardrobe as a whole ──────────────────────────────────
@@ -391,7 +416,8 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         if slot["category"] not in GARMENTS:
             continue  # a garment type that no longer exists
         cands = [_cand(c, slot, profile, rules, charts) for c in grouped.get(slot["id"], [])]
-        cands.sort(key=lambda c: (not c.available, c.price, -c.score.total))
+        # In your size first, then sizes not checked, then sold out or not made in your size; each by price.
+        cands.sort(key=lambda c: (c.size.rank, c.price, -c.score.total))
         view = SlotView(slot=slot, garment=GARMENTS[slot["category"]],
                         colour=colours.get(slot["colour"]), cands=cands)
 
@@ -483,12 +509,13 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
 def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
     """Best for budget, for this wardrobe: (the pick per free slot, whether it fits, what it all costs).
 
-    The slots it may move are the automatic ones that have candidates reaching the minimum quality.
-    Everything else (owned, locked, a best-available fallback) is money already spent.
+    The slots it may move are the automatic ones that have candidates reaching the minimum quality, and each
+    moves among those in your size first, as a price level does (choose). Everything else (owned, locked, a
+    best-available fallback) is money already spent.
     """
     free = [(view, [c for c in view.cands if c.available and c.price > 0 and c.score.total >= wardrobe.threshold])
             for view in wardrobe.slots if view.state == "auto"]
-    free = [(view, pool) for view, pool in free if pool]
+    free = [(view, in_your_size_first(pool)) for view, pool in free if pool]
     moving = {view.slot["id"]: min(pool, key=lambda c: (c.price, -c.score.total)) for view, pool in free}
     spent = sum(view.cost for view in wardrobe.slots if view.slot["id"] not in moving)
     # How much each slot is worn is judged with every free slot on its cheapest candidate, whatever

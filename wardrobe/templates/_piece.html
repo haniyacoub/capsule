@@ -19,16 +19,18 @@
     <p class="fabric">{{ c.fabric }}{% if c.score.fabric_source in ('name', 'assumed') %} <span class="est">estimated</span>{% endif %}</p>
     {# While the sizes are still the example's (profile.sizes_unconfirmed), the size is said to be ours, as on Buy
        this outfit and the shopping list, with the way to change it: in stock, that is a caution (amber), not yet a
-       yes (green). Sold out or not made in it stays red. #}
+       yes (green). Sold out or not made in it stays red. A store that gave no sizes (COS) is named: "Sizes not
+       checked at COS: look on its page before you buy" (sizes.not_checked), a caution too, and with no size said
+       there is no example size to change. #}
     <p class="sizeline">
-      {% if not c.size.known %}<span class="unk">Check that your size is in stock</span>
+      {% if not c.size.known %}<span class="unk">{{ c.size.text }}</span>
       {% else %}<span class="{{ 'no' if not c.available else 'ex' if example_sizes else 'yes' }}">{% if c.size.label %}Your size: {% endif %}{{ c.size.text }}{% if example_sizes %} (example&nbsp;size){% endif %}</span>{% endif %}
-      {% if example_sizes %}<a href="{{ url_for('profile_page') }}#sizes">Change<span class="sr"> your sizes</span></a>{% endif %}
+      {% if example_sizes and c.size.known %}<a href="{{ url_for('profile_page') }}#sizes">Change<span class="sr"> your sizes</span></a>{% endif %}
     </p>
     {# The day the prices and stock were collected, right under what it qualifies: "in stock" is as of then. #}
     <p class="as-of">Prices and stock as of <span>{{ w.collected }}</span></p>
-    {# The first thing to know about the fit (sizecheck: the cut comes first). "The store page gave no sizes", always
-       the last note, is left out: the size line above says it already. #}
+    {# The first thing to know about the fit (sizecheck: the cut comes first). "Sizes not checked at …", always the
+       last note, is left out: the size line above says it already. #}
     {% set notes = c.check.notes if c.size.known else c.check.notes[:-1] %}
     {% if notes %}<p class="size-notes">{{ icon('flag') }} {{ notes[0] }}</p>{% endif %}
     <a class="extlink" href="{{ c.data.url|weblink }}" target="_blank" rel="noopener noreferrer">Open at {{ STORES.get(c.data.store, c.data.store) }} {{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>
@@ -73,7 +75,7 @@
     {{ pic(o.data.image_url, o.colour_hex) }}
     <span class="swap-text">
       <b lang="de">{{ o.data.name }}</b>
-      <span>{{ store(o.data.store) }} <span class="sr">Quality </span>{{ pill(o.score) }}{% if not o.available %} · not in your size{% endif %}</span>
+      <span>{{ store(o.data.store) }} <span class="sr">Quality </span>{{ pill(o.score) }}{% if not o.available %} · not in your size{% elif not o.size.known %} · sizes not checked{% endif %}</span>
       <span class="swap-price">
         {% if o.price > 0 %}{{ o.price|eur }}{% else %}no price{% endif %}
         {% if o.price > 0 and c and c.price > 0 %}{% set cents = ((o.price - c.price) * 100)|round|int %}
