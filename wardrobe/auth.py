@@ -272,8 +272,9 @@ def change_password():
 @bp.get("/account/export")
 def export_data():
     data = db.export_user()
-    data["your_photo"] = ("stored: see it, replace it or delete it on the Profile page" if person.photo()
-                          else "none stored")
+    # Said as the Account page says it ("your photo and the pictures made from it"): the two are kept and go together.
+    data["your_photo"] = ("stored, with the pictures made from it; see the photo, or delete it and them, "
+                          "on the Profile page" if person.photo() else "none stored")
     body = json.dumps(data, ensure_ascii=False, indent=2)
     return Response(body, mimetype="application/json",
                     headers={"Content-Disposition": "attachment; filename=capsule-my-data.json"})

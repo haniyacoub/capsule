@@ -3,17 +3,22 @@
 {% block main %}
 {% from "_macros.html" import icon, slot_fields %}
 <p class="crumb"><a href="{{ url_for('wardrobe') }}">{{ icon('back') }} Wardrobe</a></p>
+{# Counted as the budget bar and the Wardrobe page count: a white tee ×2 is two pieces. #}
 {% set pieces = w.slots|sum(attribute='qty') %}
+{% set colours = w.slots|map(attribute='slot.colour')|unique|list|length %}
+{% set uses = {'everyday': 'Planned for everyday wear.', 'office': 'Planned for the office.', 'both': 'Planned for everyday and the office.'} %}
 <section class="card">
   <h1>Your plan</h1>
-  <p class="muted">{{ w.slots|length }} slots, {{ pieces }} pieces. Each slot is one thing to find in the stores, so shape this list before any data is collected: rename, recolour, remove or add.</p>
+  <p class="muted">{% if pieces %}{{ pieces }} piece{{ '' if pieces == 1 else 's' }} in {{ colours }} colour{{ '' if colours == 1 else 's' }}, planned from your profile.
+    Change anything: rename, recolour, remove or add. Your wardrobe and outfits update straight away.
+    {%- else %}No pieces in your plan yet. Add one below, or start over from your profile.{% endif %}</p>
   <div class="palette">
     {% for role, c in palette %}
     <span class="swatch-chip"><i style="background:{{ c.hex }}"></i>{{ c.label }} <small>{{ role|lower }}</small></span>
     {% endfor %}
   </div>
-  <p class="muted small">Proposed from your profile ({{ USES[profile.use]|lower }} use). Trousers and shoes stay neutral so nearly every top works with every pair of trousers; the accent colour appears on a top layer or two.</p>
-  <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Replace the whole slot list with a fresh proposal from your profile? Your edits, locks and “already own” marks will be lost.">{{ csrf_field() }}
+  <p class="muted small">{{ uses.get(profile.use, '') }} Trousers and shoes stay neutral so nearly every top works with every pair of trousers; the accent colour appears on a top layer or two.</p>
+  <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, locked choices and pieces marked as yours are lost.">{{ csrf_field() }}
     <button class="btn ghost small">Start over from my profile</button>
   </form>
 </section>
@@ -35,8 +40,8 @@
           {{ slot_fields(s.slot) }}
           <button class="btn small">Save</button>
         </form>
-        <form method="post" action="{{ url_for('slots_delete', slot_id=s.slot.id) }}" data-confirm="Remove “{{ s.slot.name }}” from the capsule?">{{ csrf_field() }}
-          <button class="link danger">Remove this slot</button>
+        <form method="post" action="{{ url_for('slots_delete', slot_id=s.slot.id) }}" data-confirm="Remove “{{ s.slot.name }}” from your plan?">{{ csrf_field() }}
+          <button class="link danger">Remove this piece</button>
         </form>
       </div>
     </details>
@@ -46,10 +51,10 @@
 {% endfor %}
 
 <section class="card add">
-  <h2>Add a slot</h2>
+  <h2>Add a piece</h2>
   <form class="form" method="post" action="{{ url_for('slots_add') }}">{{ csrf_field() }}
     {{ slot_fields() }}
-    <button class="btn small">Add slot</button>
+    <button class="btn small">Add piece</button>
   </form>
 </section>
 {% endblock %}

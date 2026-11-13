@@ -110,6 +110,34 @@ class Scoring(unittest.TestCase):
         self.assertEqual(steep, 55)
         self.assertTrue(40 < between < 100)
 
+    def test_the_working_is_said_in_plain_words(self):
+        # A price below the usual range counts against an option, and the breakdown says why instead of calling it
+        # "suspiciously cheap"; the brand part says that the rating is Capsule's own.
+        def price_line(price):
+            return scoring.price_part(price, "tee", self.rules)[1][0].replace("\u00a0", " ")   # "12 €" never splits
+
+        self.assertEqual(price_line(25), "25 € is in the usual range for T-shirts (12 €–40 €)")
+        self.assertNotIn(" €", scoring.price_part(25, "tee", self.rules)[1][0], "an amount and its € never split")
+        self.assertEqual(price_line(10), "10 € is below the usual 12 €–40 € for T-shirts. Prices this low often mean "
+                                         "lower quality, so this counts a little against it.")
+        self.assertEqual(price_line(5), "5 € is far below the usual 12 €–40 € for T-shirts. Prices this low often mean "
+                                        "lower quality, so this counts against it.")
+        self.assertEqual(price_line(50), "50 € is above the usual 12 €–40 € for T-shirts, so this counts a little "
+                                         "against it.")
+        self.assertEqual(price_line(90), "90 € is far above the usual 12 €–40 € for T-shirts, so this counts against it.")
+        self.assertEqual(scoring.brand_part("zara", "knit", self.rules)[1], [
+            f"Capsule rates Zara {self.rules['brand']['zara']['knit']}/100 for knitwear"])
+        rated = self.score("zara", 49.95, "100 % Merinowolle", "knit")
+        self.assertEqual(rated.note, "Fabric counts most. The brand part is Capsule's own judgement of how well each "
+                                     "store makes this kind of garment.")
+        evenly = {**self.rules, "weights": {"fabric": 1, "brand": 1, "price": 1}}
+        self.assertEqual(scoring.score({"store": "zara", "price": 49.95}, "knit", evenly).note,
+                         "The brand part is Capsule's own judgement of how well each store makes this kind of garment.",
+                         "with every part weighing the same, none is said to count most")
+        said = " ".join(line for part in rated.parts for line in part.lines)
+        for word in ("suspicious", "fair band", "steep", "is rated"):
+            self.assertNotIn(word, said)
+
     def test_parts_add_up_to_the_total(self):
         s = self.score("cos", 275, "80 % Wolle, 20 % Polyamid", "coat")
         self.assertAlmostEqual(sum(p.weight for p in s.parts), 1.0)
@@ -124,7 +152,7 @@ class Scoring(unittest.TestCase):
         upper_only = self.score("zara", 69.95, "Schnitt: 100% kuhleder", "sneakers")
         self.assertEqual(whole_label.total, upper_only.total, "its nylon tongue does not pull the score down")
         self.assertEqual(whole_label.fabric_text, "100% leather")
-        self.assertEqual(whole_label.parts[0].lines, upper_only.parts[0].lines, "'Why this score' shows the upper only")
+        self.assertEqual(whole_label.parts[0].lines, upper_only.parts[0].lines, "'How it's rated' shows the upper only")
 
 
 class Sizes(unittest.TestCase):

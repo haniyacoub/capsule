@@ -6,7 +6,11 @@
     are not opened at all. The tool takes what the link itself says (store,
     product name, colour, article number) and, if that article was seen on a
     category page during a refresh, copies its name, price, colour and picture.
-    Whatever is still missing you can type in on the slot page.
+    Whatever is still missing you can type in on the piece's page.
+
+What happened to each link is said to the customer after the product's name
+("Added “X”: read from the product page.") or after the link itself ("Not added:
+“link” is not a COS, Weekday or Zara link."), so the notes below read on from those.
 """
 from __future__ import annotations
 
@@ -39,9 +43,11 @@ def _from_link_alone(url: str, store: str, slot: dict, known: list[dict]) -> tup
     if seen:
         cand = {k: v for k, v in seen.items() if k != "manual"}
         cand.update(slot_id=slot["id"], source="manual", url=url, collected_at=catalog.now_iso())
-        return cand, "taken from the last refresh (name, price, colour, picture)"
+        return cand, "its name, price, colour and picture were already in Capsule's product list"
 
-    words = re.sub(r"-?\d{7,13}$", "", slug).replace("-", " ").strip()
+    # The article number is not part of the name: COS ends a link "…-black-4100000902", Zara "…-p01234567"
+    # (without the "-p" too, the name of "stiefel-aus-leder-p01234567" would be "Stiefel aus leder p").
+    words = re.sub(r"(?:-p)?-?\d{7,13}$", "", slug).replace("-", " ").strip()
     cand = {
         "id": f"{store}-{sku}", "slot_id": slot["id"], "store": store,
         "name": words[:1].upper() + words[1:] if words else "Product", "slug": slug,
@@ -67,7 +73,7 @@ def from_urls(urls: list[str], slot: dict, allow_fetch: bool = True) -> list[tup
         for url in urls:
             store = store_of(url)
             if store is None:
-                results.append((url, None, "not a COS, Weekday or Zara link"))
+                results.append((url, None, "is not a COS, Weekday or Zara link"))
                 continue
             store_cfg, adapter = cfg[store], ADAPTERS[store]
             if not allow_fetch or not store_cfg.get("product_pages") or not hasattr(adapter, "parse_product"):
@@ -89,7 +95,7 @@ def from_urls(urls: list[str], slot: dict, allow_fetch: bool = True) -> list[tup
                     read["source"] = "manual"
                     results.append((url, read, "read from the product page"))
                 else:
-                    results.append((url, None, "that page is not a product page"))
+                    results.append((url, None, "is not a product page"))
             except Exception as problem:  # noqa: BLE001 — refused, browser busy or missing, page gone…
                 stub, note = _from_link_alone(url, store, slot, known)
                 reason = (str(problem).splitlines() or [type(problem).__name__])[0][:120]

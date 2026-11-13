@@ -1,10 +1,13 @@
-{# The heart under an outfit. Posting swaps this form for its other state. #}
+{# The heart under an outfit. Posting swaps this form for its other state. The button keeps its id through the swap,
+   so keyboard focus stays on it (HTMX puts focus back on the element with the same id). A screen reader always
+   hears "Save outfit", with pressed or not pressed for whether it is saved (aria-pressed); the tooltip says what a
+   tap does now. #}
 {% set key = o.key if o is defined else key %}
 {% set is_saved = o.saved if o is defined else saved %}
 <form class="save" method="post" action="{{ url_for('outfits_save') }}" hx-post="{{ url_for('outfits_save') }}" hx-target="this" hx-swap="outerHTML">{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
-  <button class="heart{% if is_saved %} on{% endif %}" aria-pressed="{{ 'true' if is_saved else 'false' }}" title="{{ 'Saved — tap to remove' if is_saved else 'Save this outfit' }}">
+  <button class="heart{% if is_saved %} on{% endif %}" id="save-{{ key }}" aria-pressed="{{ 'true' if is_saved else 'false' }}" title="{{ 'Saved — tap to remove' if is_saved else 'Save this outfit' }}">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="{{ 'currentColor' if is_saved else 'none' }}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>
-    <span class="sr">{{ 'Saved' if is_saved else 'Save' }}</span>
+    <span class="sr">Save outfit</span>
   </button>
 </form>

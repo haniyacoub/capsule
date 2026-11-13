@@ -1,8 +1,9 @@
 {# The pop-up for one piece of an outfit (outfits.html opens it from a dot or a row). `s` is the piece, `sig` the
-   outfit it was opened from. First what it is: the product with its price, store, quality, fabric, your size and
-   how it fits. Then the quick changes to this one outfit, which are easy to undo ("In this outfit"), so that on a
-   phone they are on the pop-up's first screen. Then other products for the piece, which change every outfit, and
-   the way to compare them all on the piece's own page, which leads back to this outfit. #}
+   outfit it was opened from. First what it is: the product with its price, store, quality, fabric, your size (with
+   the day the prices and stock are from) and how it fits. Then the quick changes to this one outfit, which are easy
+   to undo ("In this outfit"), so that on a phone they are on the pop-up's first screen. Then other products for the
+   piece, which change every outfit, and the way to compare them all on the piece's own page, which leads back to
+   this outfit. #}
 {% from "_macros.html" import icon, pic, pill, store %}
 {% set c = s.chosen if s.state != 'owned' else none %}
 {% set back = {'from': 'outfit', 'at': sig, 'occasion': occasion or none} %}
@@ -24,6 +25,8 @@
       {% else %}<span class="{{ 'no' if not c.available else 'ex' if example_sizes else 'yes' }}">{% if c.size.label %}Your size: {% endif %}{{ c.size.text }}{% if example_sizes %} (example&nbsp;size){% endif %}</span>{% endif %}
       {% if example_sizes %}<a href="{{ url_for('profile_page') }}#sizes">Change<span class="sr"> your sizes</span></a>{% endif %}
     </p>
+    {# The day the prices and stock were collected, right under what it qualifies: "in stock" is as of then. #}
+    <p class="as-of">Prices and stock as of <span>{{ w.collected }}</span></p>
     {# The first thing to know about the fit (sizecheck: the cut comes first). "The store page gave no sizes", always
        the last note, is left out: the size line above says it already. #}
     {% set notes = c.check.notes if c.size.known else c.check.notes[:-1] %}
@@ -98,4 +101,4 @@
 <p class="muted small sheet-more">No other option for this piece yet. <a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id, **back) }}#add">Add one you found yourself</a></p>
 {% endif %}
 
-<p class="muted small sheet-foot">In {{ worn }} of the {{ n_outfits }} outfits your pieces make.{% if c %} Price and stock as of {{ w.collected }}.{% endif %}</p>
+<p class="muted small sheet-foot">In {{ worn }} of the {{ n_outfits }} outfits your pieces make.</p>

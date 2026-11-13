@@ -98,6 +98,23 @@ class PiecePopUp(AppCase):
         self.assertIn("Check that your size is in stock", said)
         self.assertNotIn("gave no sizes", said)
 
+    def test_the_day_of_the_prices_and_stock_sits_with_the_size_line(self):
+        # "In stock" holds as of the day the products were collected: that day is said right under the size line, on
+        # the pop-up's first screen, in the words used everywhere else, and not again at the pop-up's end.
+        outfit, coat = self.outfit_with("outer")
+        when = selection.build().collected
+        page = self.popup(outfit, coat.view.slot["id"])
+        said = self.read(page)
+        self.assertIn(f"Prices and stock as of {when}", said)
+        self.assertEqual(said.count("as of"), 1, said)
+        self.assertLess(said.index("Your size"), said.index("Prices and stock as of"))
+        self.assertLess(said.index("Prices and stock as of"), said.index("Open at"))
+        self.assertRegex(page, r'(?s)<p class="sizeline">.*?</p>\s*<p class="as-of">Prices and stock as of <span>'
+                         + re.escape(html.escape(when)) + "</span></p>")
+        foot = re.search(r'<p class="muted small sheet-foot">(.*?)</p>', page, re.S)
+        self.assertIsNotNone(foot)
+        self.assertNotIn("as of", foot.group(1))
+
     def test_example_sizes_are_said_until_they_are_confirmed(self):
         outfit, coat = self.outfit_with("outer")
         page = self.popup(outfit, coat.view.slot["id"])
@@ -136,7 +153,7 @@ class PiecePopUp(AppCase):
         said = self.read(page)
         self.assertIn("You have this", said)
         self.assertNotIn("Swap it for", said)
-        self.assertNotIn("Price and stock as of", said)
+        self.assertNotIn("stock as of", said)      # no product, so no day for its price and stock
 
     def test_compare_all_options_leads_to_the_piece_page_and_back_to_the_same_outfit(self):
         outfit, coat = self.outfit_with("outer")
@@ -158,6 +175,78 @@ class PiecePopUp(AppCase):
         self.assertIn(f'id="outfit-{outfit.key}"', outfits_page)
         self.assertLess(outfits_page.index(f'id="outfit-{outfit.key}"'), outfits_page.index("2 / "), "not the first outfit")
         self.assertIn("occasion=office", back.group(1))
+
+    def test_without_javascript_the_piece_page_keeps_its_way_back_to_the_outfit(self):
+        """Without JavaScript every button on a piece page posts a plain form and the page comes back. Opened from an
+        outfit, it comes back with its way back to that outfit and the Outfits tab lit: after choosing, locking,
+        unlocking, marking it owned, adding a product by its link, typing in details or removing one, and sorting."""
+        outfit, coat = self.outfit_with("outer")
+        sid = coat.view.slot["id"]
+        link = re.search(r'<a class="link" href="([^"]+)">Compare all', self.popup(outfit, sid, occasion="office"))
+        assert link is not None
+        opened = html.unescape(link.group(1))
+        crumb = r'<p class="crumb"><a href="([^"]+)">.*?</svg> Back to the outfit</a></p>'
+        first = re.search(crumb, self.client.get(opened).data.decode(), re.S)
+        assert first is not None
+        expected_back = html.unescape(first.group(1))       # the outfit the pop-up was opened from (the test above)
+        self.assertIn(f"at={outfit.sig}", expected_back)
+        self.assertIn("occasion=office", expected_back)
+
+        def way_back(address: str) -> str:
+            """The piece page at this address, after checking it still leads back to the same outfit."""
+            self.assertTrue(address.startswith(f"/slot/{sid}?"), address)
+            page = self.client.get(address).data.decode()
+            back = re.search(crumb, page, re.S)
+            self.assertIsNotNone(back, f"{address} lost its way back to the outfit")
+            assert back is not None
+            self.assertEqual(html.unescape(back.group(1)), expected_back, address)
+            self.assertIn('<a href="/outfits" class="on" aria-current="page">Outfits</a>', page, address)
+            return page
+
+        def action(page: str, button: str) -> str:
+            """Where the form whose button says `button` posts to."""
+            found = re.search(rf'<form[^>]*? action="([^"]+)"[^>]*>(?:(?!</form>).)*?{button}', page, re.S)
+            self.assertIsNotNone(found, f"no form with a button saying {button!r}")
+            assert found is not None
+            return html.unescape(found.group(1))
+
+        def plain_post(page: str, button: str, **data) -> str:
+            """Press the button with JavaScript off (no HX-Request header): the page it comes back to."""
+            response = self.client.post(action(page, button), data=data)
+            self.assertEqual(response.status_code, 302, button)
+            return way_back(response.headers["Location"])
+
+        page = way_back(opened)
+        assert coat.view.chosen is not None
+        other = next(c for c in coat.view.cands if c.id != coat.view.chosen.id and c.price > 0)
+        page = plain_post(page, rf'<input type="hidden" name="candidate" value="{other.id}">\s*<button[^>]*>Choose this',
+                          candidate=other.id)
+        self.assertEqual(self.view(sid).chosen.id, other.id)
+        page = plain_post(page, "Unlock")
+        self.assertEqual(self.view(sid).state, "auto")
+        page = plain_post(page, "Lock this choice")
+        self.assertEqual(self.view(sid).state, "locked")
+        page = plain_post(page, "I already own this")
+        page = plain_post(page, "I don’t own this after all")
+        self.assertEqual(self.view(sid).state, "locked")
+        page = plain_post(page, ">Add<", urls="")                                    # nothing pasted: said, and back
+        page = plain_post(page, ">Add<", urls="https://www.cos.com/de-de/x/product/another-coat-1234567890")
+        self.assertIn("added by you", page)
+        added = re.search(r'name="candidate" value="([^"]+)">\s*<button class="link danger">Remove', page)
+        assert added is not None
+        # "Add details" is not shown on demo data: its form posts to the page's own address arguments, as the others.
+        details = opened.replace(f"/slot/{sid}?", f"/slot/{sid}/details?sort=price&")
+        response = self.client.post(details, data={"candidate": added.group(1), "price": "120"})
+        self.assertEqual(response.status_code, 302)
+        way_back(response.headers["Location"])
+        page = plain_post(page, rf'value="{added.group(1)}">\s*<button class="link danger">Remove', candidate=added.group(1))
+        self.assertNotIn("added by you", page)
+        for sort in ("By price", "By quality"):         # links, not forms: sorting keeps the way back too
+            sorting = re.search(rf'<a class="chip-link[^"]*" href="([^"]+)"[^>]*>{sort}</a>', page)
+            assert sorting is not None
+            way_back(html.unescape(sorting.group(1)))
+        self.assertIn(f'action="/slot/{sid}/pick?view=slot&amp;sort=score&amp;from=outfit', self.client.get(
+            html.unescape(sorting.group(1))).data.decode(), "sorted, its buttons keep the way back")
 
     def test_the_piece_page_on_its_own_still_belongs_to_the_wardrobe(self):
         _, coat = self.outfit_with("outer")

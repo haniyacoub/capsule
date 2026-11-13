@@ -114,7 +114,7 @@ To go back to the invented demo data: `python -m wardrobe mock --yes`.
 ## Edit the scoring rules
 
 Open [config/scoring.toml](config/scoring.toml), change a number, save, reload
-the page. No restart. Each candidate's "Why this score" shows the result.
+the page. No restart. Each option's "How it's rated", on a piece's page, shows the result.
 
 The score is a weighted average of three parts, all in that file:
 
@@ -127,7 +127,8 @@ The score is a weighted average of three parts, all in that file:
 `[weights]` sets how much each part counts. `[fabric.adjustments]` holds the
 "mostly synthetic" penalty and the wool-rich bonus. `[fabric.name_guess]` controls
 the estimate used when a store gives no composition. If you make a typo, the app
-shows a page naming the file and the problem instead of crashing.
+shows a page naming the file and the problem instead of crashing (on a live site
+the page is Capsule's own error page and the file and line are in the log).
 
 ## Price levels
 

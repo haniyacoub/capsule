@@ -98,7 +98,7 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
     return not conf.PRODUCTION and any(s["id"] not in filled and not s["owned"] for s in slots)
 
 
-REFRESH_HINT = "Slots without candidates fill up at the next “python -m wardrobe refresh”."
+REFRESH_HINT = "Pieces with nothing to buy fill up at the next “python -m wardrobe refresh”."
 
 
 def plan_edited(before: dict) -> bool:
@@ -466,11 +466,24 @@ def create_app() -> Flask:
         doesn't stop the profile from rebuilding the plan: the rebuild keeps them.)"""
         w = selection.build()
         if not request.headers.get("HX-Request"):   # plain form post (no JavaScript)
-            return redirect(url_for("slot_page", slot_id=slot_id) if request.args.get("view") == "slot"
+            return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) if request.args.get("view") == "slot"
                             else url_for("wardrobe"))
         if request.args.get("view") == "slot":
             return fragment("_slot_body.html", w, **slot_context(w, slot_id))
         return fragment("_wardrobe_body.html", w)
+
+    def way_back() -> dict:
+        """A piece's page opened from an outfit's pop-up ("Compare all 3 options") has ?from=outfit&at=<the
+        outfit>&occasion=<its filter> in its address: its way back leads to that outfit, and the Outfits tab stays
+        lit. These are those address arguments, checked (an occasion that is not one is left out), or {} for a
+        page that is part of the Wardrobe. The page's buttons and links carry them, and so does every answer that
+        sends the browser back to the page: any button pressed without JavaScript, and adding, completing or
+        removing a product by hand (those forms always post plainly)."""
+        at = request.args.get("at", "")[:400] if request.args.get("from") == "outfit" else ""
+        if not at:
+            return {}
+        occasion = request.args.get("occasion", "")
+        return {"from": "outfit", "at": at, **({"occasion": occasion} if occasion in outfits.OCCASIONS else {})}
 
     def slot_context(w: selection.Wardrobe, slot_id: str) -> dict:
         view = w.get(slot_id)
@@ -481,7 +494,7 @@ def create_app() -> Flask:
             cands = sorted(view.cands, key=lambda c: (not c.available, -c.score.total, c.price))
         else:
             sort, cands = "price", view.cands   # already: in stock first, then by price
-        return {"s": view, "cands": cands, "sort": sort}
+        return {"s": view, "cands": cands, "sort": sort, "way": way_back()}
 
     # ── Wardrobe ──────────────────────────────────────────────────────────────
 
@@ -515,11 +528,10 @@ def create_app() -> Flask:
     @app.get("/slot/<slot_id>")
     def slot_page(slot_id: str):
         w = selection.build()
-        # Opened from an outfit's pop-up ("Compare all 3 options", ?from=outfit&at=<the outfit>): its way back leads
-        # to that outfit, and the Outfits tab stays lit. Otherwise it is part of the Wardrobe.
-        at = request.args.get("at", "")[:400] if request.args.get("from") == "outfit" else ""
-        occasion = request.args.get("occasion", "")
-        back = url_for("outfits_page", at=at, occasion=occasion if occasion in outfits.OCCASIONS else None) if at else ""
+        # Opened from an outfit's pop-up: its way back leads to that outfit (see way_back). Otherwise it is part of
+        # the Wardrobe.
+        way = way_back()
+        back = url_for("outfits_page", at=way["at"], occasion=way.get("occasion")) if way else ""
         return page("slot.html", w=w, tab="outfits" if back else "wardrobe", back=back, **slot_context(w, slot_id))
 
     @app.post("/slot/<slot_id>/pick")
@@ -527,12 +539,15 @@ def create_app() -> Flask:
         view = selection.build().get(slot_id)
         cand_id = request.form.get("candidate", "")
         wanted = next((c for c in view.cands if c.id == cand_id), None) if view else None
-        if wanted is None:
+        if view is None or wanted is None:
             abort(404)
         if wanted.price <= 0:           # an item without a price would silently make the wardrobe cheaper
             abort(409, "That item has no price yet. Add its price on the piece's page first.")
+        before = next((c for c in view.cands if c.id == view.slot["pick"]), None) if view.slot["locked"] else None
         # Choosing by hand locks the choice, so the price level can't undo it.
         db.update_slot(slot_id, pick=cand_id, locked=True, owned=False)
+        if conf.PRODUCTION and before and before.id != cand_id and shared.kept_for_its_lock(view.slot, before.data):
+            sync_catalog()      # the product it was locked to, in a colour he refused since, was kept only for that
         if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
             return redirect(url_for("outfits_page", at=request.form["outfit"][:400],
                                     occasion=request.form.get("occasion") or None))
@@ -545,8 +560,10 @@ def create_app() -> Flask:
             abort(404)
         if view.slot["locked"]:
             db.update_slot(slot_id, locked=False, pick=None)       # back to automatic
-            if conf.PRODUCTION and view.chosen and shared.kept_for_its_lock(view.slot, view.chosen.data):
-                sync_catalog()      # a product kept only for its lock, in a colour he refused since, goes with it
+            # Any option kept only for a lock, in a colour he refused since, goes with it: the product it is locked
+            # to, or one it was locked to before he chose another (as choosing did before it rebuilt, see slot_pick).
+            if conf.PRODUCTION and shared.kept_for_its_lock(view.slot, *(c.data for c in view.cands)):
+                sync_catalog()
         elif view.chosen is not None:
             db.update_slot(slot_id, locked=True, pick=view.chosen.id)  # freeze what's showing
         return after_slot_change(slot_id)
@@ -580,7 +597,7 @@ def create_app() -> Flask:
         w = selection.build()
         on_its_page = request.args.get("view") == "slot"
         if not request.headers.get("HX-Request"):          # plain form post (no JavaScript)
-            return redirect(url_for("slot_page", slot_id=slot_id) if on_its_page
+            return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) if on_its_page
                             else url_for("wardrobe") + f"#card-{slot_id}")
         # The button that was pressed is gone from the new view, so keyboard focus moves to the piece itself.
         if on_its_page:     # that page is named after the piece: HTMX takes the <title> into the tab
@@ -592,7 +609,9 @@ def create_app() -> Flask:
 
     @app.post("/slot/<slot_id>/import")
     def slot_import(slot_id: str):
-        """Manual import: pasted product links become candidates (see collect/manual.py)."""
+        """Manual import: pasted product links become candidates (see collect/manual.py). What each link came to
+        is said inside the "Add a product by link" section the page comes back to (#add), not at the top of the
+        page, far above it: those messages have their own kind, "import" (_slot_body.html, base.html)."""
         from .collect import manual
 
         slot = db.get_slot(slot_id)
@@ -600,8 +619,8 @@ def create_app() -> Flask:
             abort(404)
         links = [u for u in re.split(r"\s+", request.form.get("urls", "")) if u][:8]
         if not links:
-            flash("Paste at least one product link.")
-            return redirect(url_for("slot_page", slot_id=slot_id) + "#add")
+            flash("Paste at least one product link.", "import")
+            return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
         # On a server no browser is ever opened: only what the link itself says is taken.
         results = manual.from_urls(links, slot, allow_fetch=not conf.PRODUCTION)
 
@@ -613,8 +632,9 @@ def create_app() -> Flask:
                     cat["candidates"].append(cand)
         catalog.update(add)
         for link, cand, note in results:
-            flash(f"{cand['name'] if cand else link}: {note}.")
-        return redirect(url_for("slot_page", slot_id=slot_id) + "#add")
+            shown = link if len(link) <= 80 else link[:79] + "…"
+            flash(f"Added “{cand['name']}”: {note}." if cand else f"Not added: “{shown}” {note}.", "import")
+        return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
 
     @app.post("/slot/<slot_id>/details")
     def slot_details(slot_id: str):
@@ -624,12 +644,15 @@ def create_app() -> Flask:
         if catalog.find(catalog.load(), slot_id, cand_id) is None:
             abort(404)
         typed: dict = {}
+        problems = 0
         fabric = " ".join(form.get("composition", "").split())
         if fabric:
             if composition.parse(fabric):
                 typed["composition_text"] = fabric
             else:
-                flash(f"Couldn't read a composition from “{fabric}” — write it like “80% Wolle, 20% Polyamid”.")
+                problems += 1
+                flash(f"Couldn't read the fabric “{fabric[:60]}”: write it as the label does, like “80% Wolle, "
+                      f"20% Polyamid”.")
         sizes_given = [s for s in re.split(r"[,;\s]+", form.get("sizes", "").strip()) if s]
         price_text = form.get("price", "").replace("€", "").replace(",", ".").strip()
         try:
@@ -638,6 +661,7 @@ def create_app() -> Flask:
                 raise ValueError
         except (ValueError, OverflowError):
             price = None
+            problems += 1
             flash(f"“{form.get('price', '')[:20]}” isn't a price.")
 
         def change(cat: dict) -> None:
@@ -655,8 +679,18 @@ def create_app() -> Flask:
             if form.get("clear") == "1":
                 cand.pop("manual", None)
         catalog.update(change)
-        flash("Details cleared." if form.get("clear") == "1" else "Details saved.")
-        return redirect(url_for("slot_page", slot_id=slot_id, sort=request.args.get("sort", "price")))
+        # Said only of what was saved: after "“cheap” isn't a price." a bare "Details saved." would be untrue.
+        saved = [word for key, word in (("composition_text", "fabric"), ("sizes_in_stock", "sizes"), ("price", "price"))
+                 if key in typed]
+        if form.get("clear") == "1":
+            flash("Details cleared.")
+        elif saved and not problems:
+            flash("Details saved.")
+        elif saved:                                         # "Saved the sizes." / "Saved the fabric and sizes."
+            flash("Saved the " + (", ".join(saved[:-1]) + " and " if len(saved) > 1 else "") + saved[-1] + ".")
+        elif not problems:
+            flash("Nothing to save yet: type the fabric, the sizes in stock or the price.")
+        return redirect(url_for("slot_page", slot_id=slot_id, sort=request.args.get("sort", "price"), **way_back()))
 
     @app.post("/slot/<slot_id>/remove")
     def slot_remove(slot_id: str):
@@ -670,8 +704,8 @@ def create_app() -> Flask:
             db.update_slot(slot_id, locked=False, pick=None)
         catalog.update(lambda cat: cat.__setitem__("candidates", [
             c for c in cat["candidates"] if not (c.get("slot_id") == slot_id and c.get("id") == cand_id)]))
-        flash(f"Removed “{cand['name']}”.")
-        return redirect(url_for("slot_page", slot_id=slot_id))
+        flash(f"Removed “{cand['name']}” from this piece's options.")
+        return redirect(url_for("slot_page", slot_id=slot_id, **way_back()))
 
     # ── Outfits ───────────────────────────────────────────────────────────────
 
@@ -887,7 +921,7 @@ def create_app() -> Flask:
         db.add_slot(slot)
         db.set_setting("plan_edited", True)     # a profile change no longer rebuilds the plan by itself
         needs_refresh = sync_catalog()
-        flash(f"Added “{slot['name']}”." + (f" {REFRESH_HINT}" if needs_refresh else ""))
+        flash(f"Added “{slot['name']}” to your plan." + (f" {REFRESH_HINT}" if needs_refresh else ""))
         return redirect(url_for("slots_page") + f"#slot-{slot['id']}")
 
     @app.post("/slots/<slot_id>/save")
@@ -915,7 +949,7 @@ def create_app() -> Flask:
         db.delete_slot(slot_id)
         db.set_setting("plan_edited", True)
         sync_catalog()
-        flash(f"Removed “{slot['name']}”.")
+        flash(f"Removed “{slot['name']}” from your plan.")
         return redirect(url_for("slots_page"))
 
     @app.post("/slots/repropose")
@@ -924,9 +958,11 @@ def create_app() -> Flask:
         db.replace_slots(slots)
         db.set_setting("plan_edited", False)    # from scratch: profile changes rebuild it again
         needs_refresh = sync_catalog()
-        flash(f"Capsule re-proposed from your profile: {len(slots)} slots." + (f" {REFRESH_HINT}" if needs_refresh else ""))
+        pieces = sum(int(s.get("qty") or 1) for s in slots)       # a white tee ×2 is two pieces, as on the page
+        flash(f"Started over from your profile: your plan has {pieces} {'piece' if pieces == 1 else 'pieces'}."
+              + (f" {REFRESH_HINT}" if needs_refresh else ""))
         for line in unmatched:
-            flash(f"Couldn't tell what kind of garment “{line}” is — add it as a slot by hand.")
+            flash(f"Couldn't tell what kind of garment “{line}” is: add it to your plan by hand.")
         return redirect(url_for("slots_page"))
 
     # ── Profile ───────────────────────────────────────────────────────────────
@@ -941,7 +977,7 @@ def create_app() -> Flask:
             model = person.load()
             return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model,
                         model_words=person.describe(model)[0] or rules["text"]["model"],
-                        looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the image service",
+                        looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
                         # The one note while the answers are still the example's: the sizes may already be his
@@ -1016,7 +1052,7 @@ def create_app() -> Flask:
         elif request.form.get("agree") != "on":
             chosen = looks.service()
             flash(f"Not saved. Tick the box to confirm that this is you, that you're 18 or over and that the photo "
-                  f"may be sent to {chosen.label if chosen else 'the image service'}.", "photo")   # as the box says
+                  f"may be sent to {chosen.label if chosen else 'the AI service'}.", "photo")   # as the box says
         else:
             problem = person.save_photo(data)
             if problem is None:
