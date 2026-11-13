@@ -47,9 +47,11 @@ Both cost money and need your name on them, so they are yours to set up.
    everyone. `INVITE_CODE` in `deploy/app.env` does that: the landing page is
    public, creating an account needs the code, and the link to hand out is
    `https://your-domain/signup?code=<the code>`. The app refuses to start on
-   the example's placeholder. For a second lock in front of the whole site,
-   add the hostname under Access in Cloudflare Zero Trust and allow only the
-   email addresses you invite.
+   the example's placeholder. To keep the whole site private, landing page
+   included (a trial before the Impressum and the product data are ready),
+   set `SITE_PASSWORD` in `deploy/app.env`: every page then first asks for it.
+   For a second lock in front of the whole site, add the hostname under Access
+   in Cloudflare Zero Trust and allow only the email addresses you invite.
 5. **Give it products.** On your own machine, `python -m wardrobe publish
    ./out` writes `out/store_catalog.json`; copy it to the server and into the
    app's data: `docker compose -f deploy/compose.yaml cp store_catalog.json app:/data/`.

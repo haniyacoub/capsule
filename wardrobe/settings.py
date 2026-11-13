@@ -38,6 +38,10 @@ TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "0") or 0)
 SESSION_DAYS = int(os.environ.get("SESSION_DAYS", "30") or 30)
 INVITE_CODE = os.environ.get("INVITE_CODE", "").strip()      # empty: anybody may create an account
 MIN_INVITE_CODE_LENGTH = 8
+# A private trial on the internet: when set, every page (the landing page too) first asks for this password, so
+# nothing is public. Empty: the site is open as usual.
+SITE_PASSWORD = os.environ.get("SITE_PASSWORD", "").strip()
+MIN_SITE_PASSWORD_LENGTH = 12
 
 # Keys of the image services. Secrets: they come from the environment only, never from a file in the project.
 UNUSABLE_KEYS: list[str] = []      # names of keys that are set but cannot be keys
@@ -93,3 +97,10 @@ def check() -> None:
                else f"use at least {MIN_INVITE_CODE_LENGTH} characters") + ".\n"
             "Make one with:  python -c \"import secrets; print(secrets.token_urlsafe(9))\"\n"
             "(or leave INVITE_CODE out to let anybody create an account)")
+    if SITE_PASSWORD and (len(SITE_PASSWORD) < MIN_SITE_PASSWORD_LENGTH or SITE_PASSWORD.startswith(PLACEHOLDER)):
+        raise SystemExit(
+            "SITE_PASSWORD would keep nobody out: "
+            + ("it is still the example's placeholder" if SITE_PASSWORD.startswith(PLACEHOLDER)
+               else f"use at least {MIN_SITE_PASSWORD_LENGTH} characters") + ".\n"
+            "Make one with:  python -c \"import secrets; print(secrets.token_urlsafe(12))\"\n"
+            "(or leave SITE_PASSWORD out to open the site)")
