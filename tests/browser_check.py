@@ -9,7 +9,8 @@ stand-in for the image service (nothing is sent anywhere and nothing is billed),
 what a new customer would: signs up and lands on the starter outfits (a banner where the budget bar would be,
 the whole picture above the tab bar on three phones), changes the price level, watches an outfit's picture
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
-page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, opens a piece on a phone
+page on a phone jumping), opens a piece from its dot, swaps it (said over the outfit, with Undo, which puts back the
+product and its lock state), leaves a layer off (said, with 'Put it back'), opens a piece on a phone
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
 comparing all options to the same outfit), tabs up and down a pop-up that scrolls (nothing with keyboard focus
 hidden under its top row), sees that with scrollbars shown the page behind the pop-up does not move sideways,
@@ -570,32 +571,111 @@ def run(base: str) -> None:
             assert page.locator("#piece-body h2").inner_text().strip(), "an empty pop-up"
             assert "outfits your pieces make" in page.locator("#piece-body").inner_text()
 
+        def said_over_the_outfits(where_page) -> str:
+            """The words of the line over the outfits that says what a change did (outfits.html), as read."""
+            line = where_page.locator("main > .said")
+            assert line.count() == 1, f"no line says what changed: {where_page.locator('main > .flash').all_inner_texts()}"
+            return " ".join(line.first.evaluate("el => el.textContent").replace("\xa0", " ").split())
+
         def swap_from_the_popup():
+            # 'Choose' in the pop-up changes the piece in every outfit and locks it. The page it comes back to says so
+            # over the outfit: the piece, the new product and its price, the old price, and Undo. The picture of the
+            # outfit before the change is never shown over it. Undo brings back the product it had and its lock state
+            # (an automatic piece is automatic again, as its Wardrobe card shows). Then it is chosen again, for the
+            # steps after this one. On a short phone the line is whole on the first screen, with the outfit's picture
+            # box still above the tab bar, under the starter banner too.
             choose = page.locator("#piece-body .swap li:not(.out) button", has_text="Choose")
             assert choose.count() > 0, "nothing to swap for"
             wanted = page.locator("#piece-body .swap li:not(.out) b").nth(0).inner_text()
             swapped.update(choose.nth(0).evaluate("b => ({slot: b.form.getAttribute('action').split('/')[2], "
                                                   "product: b.closest('li').querySelector('b').textContent.trim()})"))
+            was = page.evaluate("""() => { const body = document.querySelector('#piece-body'), text = el => el.textContent.trim();
+                const option = body.querySelector('.swap li:not(.out) form').closest('li');
+                return {piece: text(body.querySelector('.piece-slot')), name: text(body.querySelector('#piece-title')),
+                        price: text(body.querySelector('.piece-cost b')), locked: !!body.querySelector('.piece-state'),
+                        new_price: option.querySelector('.swap-price').firstChild.textContent.trim()}; }""")
+            was = {key: value.replace("\xa0", " ") if isinstance(value, str) else value for key, value in was.items()}
+            earlier = page.evaluate("s => { const i = document.querySelector(s); return i && i.getAttribute('src'); }",
+                                    f"{first} .look-pic img")
             choose.nth(0).click()
             page.wait_for_url("**/outfits?at=**")
             page.wait_for_load_state("networkidle")
+            changed_at = page.url
             names = page.locator(f"{first} .piece-text span").all_inner_texts()
             explained = page.locator(".flash").all_inner_texts()
             assert wanted in names or explained, f"{wanted!r} is not in the outfit and nothing says why"
+            line = said_over_the_outfits(page)
+            assert line == (f"{was['piece']} changed in all your outfits: {wanted}, {was['new_price']} (was {was['price']}). "
+                            "It stays when you change the price level. Undo"), f"after Choose the line over the outfit reads {line!r}"
+            now = page.evaluate("s => { const i = document.querySelector(s); return i && i.getAttribute('src'); }",
+                                f"{first} .look-pic img")
+            assert not earlier or now != earlier, "the picture of the outfit before the change is shown over the changed one"
+
+            context, other = logged_in_on(browser, viewport={"width": 390, "height": 664}, is_mobile=True, has_touch=True)
+            other.goto(changed_at, wait_until="networkidle")
+            other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")  # (invented products)
+            seen = other.evaluate("""() => { const box = el => el.getBoundingClientRect();
+                const line = box(document.querySelector('main > .said')), undo = document.querySelector('main > .said button');
+                return {top: line.top, bottom: line.bottom, starter: !!document.querySelector('.starter'),
+                        stage: box(document.querySelector('#reel .slide:first-child .stage')).bottom,
+                        tabs: box(document.querySelector('nav.tabs')).top,
+                        target: parseFloat(getComputedStyle(undo, '::after').height)}; }""")
+            context.close()
+            assert 0 <= seen["top"] and seen["bottom"] <= seen["tabs"] and seen["stage"] <= seen["tabs"] + 0.5, \
+                f"at 390 x 664 the line after Choose is not whole on the first screen, or the picture runs under the tab bar: {seen}"
+            assert seen["target"] >= 44, f"Undo is a {seen['target']}px tall target"
+
+            with page.expect_navigation(url="**/outfits?at=**"):     # (the address it leaves matches that too)
+                page.locator("main > .said button", has_text="Undo").click()
+            page.wait_for_load_state("networkidle")
+            names = page.locator(f"{first} .piece-text span").all_inner_texts()
+            assert was["name"] in names, f"after Undo the outfit shows {names}, not {was['name']!r}"
+            again = page.evaluate("s => { const i = document.querySelector(s); return i && i.getAttribute('src'); }",
+                                  f"{first} .look-pic img")
+            assert not earlier or again == earlier, f"after Undo the outfit's picture is {again}, not its own {earlier}"
+            back = " ".join(page.locator("main > .said").first.inner_text().replace("\xa0", " ").split())
+            assert back.startswith(f"{was['piece']}: back to {was['name']}, {was['price']}, in all your outfits."), \
+                f"after Undo the line reads {back!r}"
+            page.goto(base + "/", wait_until="networkidle")
+            lock = page.locator(f"#lock-{swapped['slot']}").get_attribute("aria-pressed")
+            assert lock == ("true" if was["locked"] else "false"), \
+                f"after Undo the piece is {'locked' if lock == 'true' else 'automatic'}; it was {'locked' if was['locked'] else 'automatic'}"
+
+            page.goto(changed_at.split("&changed=")[0], wait_until="networkidle")      # chosen again: the steps after build on it
+            page.locator(f"{first} .piece-row[hx-get*='slot={swapped['slot']}&']").evaluate("row => row.click()")
+            page.wait_for_selector("dialog#piece[open] #piece-title")
+            page.wait_for_load_state("networkidle")
+            with page.expect_navigation(url="**/outfits?at=**"):
+                page.evaluate("""wanted => [...document.querySelectorAll('#piece-body .swap li')]
+                    .find(li => li.querySelector('b').textContent.trim() === wanted).querySelector('form button').click()""", wanted)
+            page.wait_for_load_state("networkidle")
+            assert said_over_the_outfits(page).startswith(f"{was['piece']} changed in all your outfits: {wanted}, ")
 
         def leave_a_layer_off():
             # An outfit with a coat or jacket: the wardrobe page lists them first, so their slot leads its address.
+            # Leaving it off shows the outfit without it, said over it with 'Put it back', which shows it with it.
             page.goto(base + "/outfits?n=60", wait_until="networkidle")
             slide = page.locator("#reel .slide:has(.piece-row:nth-child(1))").filter(has=page.locator(".pieces li:nth-child(5)")).first
             rows = slide.locator(".piece-row")
             before = rows.count()
+            outer = rows.nth(0).locator(".piece-text b").inner_text()
             rows.nth(0).evaluate("row => row.click()")
             page.wait_for_selector("dialog#piece[open]")
             off = page.locator("#piece-body a", has_text="Leave the")
             assert off.count() == 1, "a five-piece outfit whose first piece cannot be left off"
+            label = re.fullmatch(r"Leave the (.+) off", off.inner_text().strip()).group(1)
             off.click()
+            page.wait_for_url("**/outfits?at=**")
             page.wait_for_load_state("networkidle")
             assert page.locator(f"{first} .piece-row").count() == before - 1, "the piece is still there"
+            line = said_over_the_outfits(page)
+            assert line == f"Showing this outfit without the {label}. Put it back", f"after leaving it off the line reads {line!r}"
+            with page.expect_navigation(url="**/outfits?at=**"):
+                page.locator("main > .said a", has_text="Put it back").click()
+            page.wait_for_load_state("networkidle")
+            rows = page.locator(f"{first} .piece-row")
+            assert rows.count() == before and rows.nth(0).locator(".piece-text b").inner_text() == outer, \
+                f"'Put it back' shows {rows.count()} pieces, the first {rows.nth(0).locator('.piece-text b').inner_text()!r}, not {outer!r}"
 
         def the_piece_pop_up_on_a_phone():
             # Tapping a dot on a phone (390 x 844): the pop-up is named by the product, says 'Quality' next to the

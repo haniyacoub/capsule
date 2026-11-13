@@ -217,6 +217,17 @@ def _for_piece(pool: dict, slot: dict, collector: dict, refused: frozenset[str])
     return found
 
 
+def brought_back_by_a_lock(slot: dict, product_id: str) -> dict | None:
+    """The product of the shared list that a lock to `product_id` keeps among this piece's options (see _for_piece),
+    whatever its colour, or None: what Undo after Choose puts back when the product chosen before went because only
+    its lock kept it (app.slot_pick, app.slot_restore)."""
+    pool = load()
+    if pool is None or not product_id:
+        return None
+    collector = config.load("stores.toml").get("collector", {})
+    return next((c for c in candidates_for(pool, slot, collector) if c["id"] == product_id), None)
+
+
 def kept_for_its_lock(slot: dict, *products: dict) -> bool:
     """Whether one of these products of a piece is among its options only because the piece is (or was) locked to
     it (see _for_piece): its colour is one the customer refused, and the piece's own colour is not. A product he

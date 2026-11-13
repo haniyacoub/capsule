@@ -16,6 +16,30 @@
 {% block main %}
 {% from "_macros.html" import icon, pic %}
 <h1 class="sr">Outfits</h1>
+{% if said %}
+{# What a change just made from an outfit did, in words, with the way back (app.py, change_said), where the other
+   messages of a page show (.flash). After Choose: the piece, its new product and price, the old price, and that the
+   price level no longer changes it, with Undo (a form: it changes the piece again). After leaving a piece off or
+   wearing another in its place: a link to the outfit as it was. #}
+<div class="flash said{{ ' short' if said.kind != 'changed' }}" role="status">
+  {% if said.kind == 'changed' %}{% set v = said.view %}
+  {{ v.slot.name }} changed in all your outfits: <span lang="de">{{ v.chosen.data.name }}</span>, {{ v.chosen.price|eur }}{% if said.was_price %} (was {{ said.was_price|eur }}){% endif %}. It stays when you change the price level.
+  {% if said.undo %}
+  <form method="post" action="{{ url_for('slot_restore', slot_id=v.slot.id) }}">{{ csrf_field() }}
+    <input type="hidden" name="was" value="{{ said.was }}">
+    <input type="hidden" name="was_locked" value="{{ said.was_locked }}">
+    <input type="hidden" name="outfit" value="{{ said.at }}">
+    <input type="hidden" name="occasion" value="{{ occasion }}">
+    <button>Undo</button>
+  </form>
+  {% endif %}
+  {% elif said.kind == 'left' %}
+  Showing this outfit without the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Put it back</a>
+  {% else %}
+  Wearing the {{ said.new.slot.name|lower }} instead of the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Undo</a>
+  {% endif %}
+</div>
+{% endif %}
 
 {# One piece of an outfit, as something to tap. In today's outfits it opens the
    pop-up (see _piece.html); in a saved outfit it goes to the product page, unless
