@@ -1,6 +1,6 @@
-"""Which stores Capsule offers its customers: only stores with a partner (affiliate) programme.
+"""Which stores Stilsmith offers its customers: only stores with a partner (affiliate) programme.
 
-A store's products are shown to customers only if the store runs a partner programme that Capsule can join:
+A store's products are shown to customers only if the store runs a partner programme that Stilsmith can join:
 that is the legal way to use its catalogue (product feeds, links that earn a commission). config/stores.toml
 says it for each store, in one line:
 
@@ -22,7 +22,7 @@ from collections.abc import Iterator, Mapping
 from . import config
 
 NONE = "none"
-# The networks that run partner programmes for the stores Capsule may use (PRODUCTION.md, "Before customers").
+# The networks that run partner programmes for the stores Stilsmith may use (PRODUCTION.md, "Before customers").
 NETWORKS = ("awin", "rakuten", "tradedoubler", "partnerize", "daisycon", "webgains", "impact")
 SETTINGS = "collector"      # the one table in config/stores.toml that is not a store
 

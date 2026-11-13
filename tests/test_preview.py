@@ -89,6 +89,7 @@ class Preview(unittest.TestCase):
                     time.sleep(0.2)
             text = said.read_text()
             self.assertIn(ADDRESS, text)
+            self.assertIn("Stilsmith is on the internet for as long as this window stays open", text)
             invitation = re.search(re.escape(ADDRESS) + r"/signup\?code=([\w-]{8,})", text)
             self.assertIsNotNone(invitation, text)
             code = invitation.group(1)

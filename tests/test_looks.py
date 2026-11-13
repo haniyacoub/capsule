@@ -492,7 +492,7 @@ class PicturesOff(AppCase):
         text = words(self.client.get("/profile").data.decode())
         self.assertIn("it is used once a key for the AI service is set", text)
         self.assertIn("Your photo goes to the AI service each time a picture of you is drawn", text)
-        self.assertIn("I agree to Capsule sending this photo to the AI service to draw pictures of me", text)
+        self.assertIn("I agree to Stilsmith sending this photo to the AI service to draw pictures of me", text)
         self.client.post("/profile/photo", data={"photo": (io.BytesIO(PHOTO), "me.jpg")},
                          content_type="multipart/form-data")      # the box not ticked
         text = words(self.client.get("/profile").data.decode())
@@ -1126,7 +1126,7 @@ class TheModel(WithPictures, AppCase):
             self.assertIn(fact, said)
         self.assertIn('<a href="/legal/privacy">privacy policy</a>', said, "a link to the privacy page")
         box = re.search(r'<label class="check">(.*?)</label>', form, re.S).group(1)
-        self.assertIn(f"This is me, I'm 18 or over, and I agree to Capsule sending this photo to {service}", box)
+        self.assertIn(f"This is me, I'm 18 or over, and I agree to Stilsmith sending this photo to {service}", box)
         self.assertIn('aria-describedby="photo-facts"', box, "a screen reader hears the facts with the box")
         self.assertLess(form.index("photo-facts"), form.index('type="file"'), "the facts are not before the file field")
         self.assertLess(form.index('type="file"'), form.index('name="agree"'), "the box is not after the file field")

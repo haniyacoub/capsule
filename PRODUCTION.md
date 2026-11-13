@@ -1,4 +1,4 @@
-# Capsule as a public service
+# Stilsmith as a public service
 
 **Status: foundation, not launch-ready.** The app can now run for many
 customers, each with their own account and data. What it cannot yet do is show
@@ -58,7 +58,7 @@ All through environment variables (documented in `wardrobe/settings.py`).
 | --- | --- | --- |
 | `CAPSULE_ENV` | yes | `production` |
 | `SECRET_KEY` | yes | at least 32 random characters; signs the login cookie. Changing it logs everyone out |
-| `SITE_URL` | yes | public address, e.g. `https://capsule.example`. With `https://` the cookie is marked Secure |
+| `SITE_URL` | yes | public address, e.g. `https://stilsmith.example`. With `https://` the cookie is marked Secure |
 | `WARDROBE_DATA_DIR` | yes | folder for the database, on a disk that survives restarts |
 | `TRUSTED_PROXY_HOPS` | usually `1` | number of reverse proxies in front, so addresses and https are read correctly |
 | `SMTP_URL`, `MAIL_FROM` | for resets | `smtp://user:password@host:587` (or `smtps://…:465`) |
@@ -159,7 +159,7 @@ These block a launch, and most are yours rather than code:
      first, then apply to COS.
    - **Weekday** offers data feeds in EUR, by applying directly or through the
      Klarna Creator Platform or LTK (<https://www.weekday.com/en-dk/discount/affiliate>).
-   - **Zara**: no feed open to a service like this was found, so Capsule does
+   - **Zara**: no feed open to a service like this was found, so Stilsmith does
      not offer it (`programme = "none"` in `config/stores.toml`; its products in
      an older `store_catalog.json` are skipped, and customers who had them get
      their pieces picked again, with one message on the Wardrobe page).

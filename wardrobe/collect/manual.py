@@ -45,6 +45,7 @@ def store_of(url: str) -> str | None:
 
 def _from_link_alone(url: str, store: str, slot: dict, known: list[dict]) -> tuple[dict, str]:
     """What a link says by itself, plus anything a refresh already saw for that article."""
+    from ..settings import SITE_NAME            # the product's name, for the note below
     slug = urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
     slug = re.sub(r"\.html$", "", slug)
     number = re.search(r"(\d{7,13})$", slug) or re.search(r"p(\d{8})", slug)
@@ -53,7 +54,7 @@ def _from_link_alone(url: str, store: str, slot: dict, known: list[dict]) -> tup
     if seen:
         cand = {k: v for k, v in seen.items() if k != "manual"}
         cand.update(slot_id=slot["id"], source="manual", url=url, collected_at=catalog.now_iso())
-        return cand, "its name, price, colour and picture were already in Capsule's product list"
+        return cand, f"its name, price, colour and picture were already in {SITE_NAME}'s product list"
 
     # The article number is not part of the name: COS ends a link "…-black-4100000902", Zara "…-p01234567"
     # (without the "-p" too, the name of "stiefel-aus-leder-p01234567" would be "Stiefel aus leder p").

@@ -8,7 +8,7 @@
 <div class="grid">
   {% for s in items %}
   {% set c = s.chosen %}
-  {# The link's aria-label stands in for all it holds, so its note ('Not in Capsule's product list in black yet') is pointed at, to be read out too. #}
+  {# The link's aria-label stands in for all it holds, so its note ('Not in Stilsmith's product list in black yet') is pointed at, to be read out too. #}
   {% set noted = s.note and s.state != 'owned' %}
   <article class="slot is-{{ s.state }}{% if s.warn %} has-warn{% endif %}" id="card-{{ s.slot.id }}">
     <a class="slot-main" href="{{ url_for('slot_page', slot_id=s.slot.id) }}" aria-label="{{ s.slot.name }}: see all options"{% if noted %} aria-describedby="note-{{ s.slot.id }}"{% endif %}{% if focus == s.slot.id %} autofocus{% endif %}>

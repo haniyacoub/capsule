@@ -1,4 +1,4 @@
-"""The owner's pages: what only the people who run Capsule see.
+"""The owner's pages: what only the people who run Stilsmith see.
 
     /stores      every listed store and its current catalogue, from the stores' own feeds (feeds/). The stores
                  are grouped by network in the order to apply to them, each with its status ("Not applied yet")
@@ -12,11 +12,11 @@ production, an account marked in the database, with no setting to change and no 
     python -m wardrobe owner list
 
 Anyone else who asks for an owner's page, signed in or not, gets exactly what an address that does
-not exist gets: Capsule's "We can't find that page". Nothing says the page is there, and only an
+not exist gets: Stilsmith's "We can't find that page". Nothing says the page is there, and only an
 owner's Account page links to it.
 
 The catalogue shows only rows of the `products` table: products from the feeds the stores'
-affiliate programmes license, never the collector's snapshot. It is for running Capsule, so there is
+affiliate programmes license, never the collector's snapshot. It is for running Stilsmith, so there is
 no export and no download (Awin, for one, limits the data to the purpose of its agreement).
 """
 from __future__ import annotations
@@ -175,7 +175,7 @@ def notes(store: dict) -> list[tuple[str, str]]:
 
 def choices(listed: list[dict], asked: dict[str, str]) -> dict[str, list[tuple[str, str, int]]]:
     """What each filter offers, as (value, words, how many products): the stores with products, the feeds' own
-    categories, Capsule's colours (and 'not recognised') and the sizes the feeds say are in stock. A value asked
+    categories, Stilsmith's colours (and 'not recognised') and the sizes the feeds say are in stock. A value asked
     for that no product has (any more) is offered too, with 0, so that the filter shows what the list is."""
     found = db.product_choices()
     named = {key: n for key, n in found["colours"]}
@@ -242,7 +242,8 @@ def swatch(colour_key: str | None) -> str:
 # ── the command line: python -m wardrobe owner ... (added in __main__.py) ────
 
 def add_commands(sub) -> None:
-    p_owner = sub.add_parser("owner", help="the accounts that run Capsule and see the owner's pages (/stores)")
+    p_owner = sub.add_parser("owner", help=f"the accounts that run {settings.SITE_NAME} and see the owner's pages "
+                                           "(/stores)")
     p_owner.set_defaults(func=list_owners)
     what = p_owner.add_subparsers(title="what to do (without one: list them)")
     p_add = what.add_parser("add", help="mark an account as an owner (sign up on the site first)")

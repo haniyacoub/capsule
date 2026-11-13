@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════════════════
-#  The stores whose product feeds Capsule may use, and how to fetch each feed
+#  The stores whose product feeds Stilsmith may use, and how to fetch each feed
 #
 #  A store's product feed is licensed by its affiliate programme to approved
 #  partners only. List a store here when you apply, and change its status as
@@ -14,7 +14,7 @@
 #  is listed below, grouped by network in the order to apply: Awin first, then
 #  Rakuten (COS), then Tradedoubler, then the others. None has been applied to yet.
 #  The owner's page /stores shows them the same way, with each programme's page as
-#  a link: it doubles as the checklist for applying. Capsule never opens those pages.
+#  a link: it doubles as the checklist for applying. Stilsmith never opens those pages.
 #  Stores with no programme (Zara, the main Zalando shop, Uniqlo, Hugo Boss, Marc
 #  O'Polo, ASOS, Scotch & Soda, Manufactum) are not listed.
 #
@@ -154,7 +154,7 @@ network        = "awin"
 programme_id   = "13789"
 status         = "none"
 programme_page = "https://ui.awin.com/merchant-profile/13789"
-notes          = """Outlet only. It excludes sites that are not in German, so apply once Capsule is in
+notes          = """Outlet only. It excludes sites that are not in German, so apply once Stilsmith is in
                     German. 12% for new customers, 4% for existing ones, 30 days. The main Zalando
                     shop has no open programme."""
 
@@ -359,7 +359,7 @@ delivery_note = "Versand 3,95 €"
 rules         = { refresh_hours = 12, delete_on_exit = true }
 
 
-# ── A store, once its programme approves Capsule ────────────────────────────
+# ── A store, once its programme approves Stilsmith ────────────────────────────
 # For a store listed above: set its status, and add the feed lines below to it.
 # For another store: copy the lines below, remove the first # of each one, and fill them in.
 #

@@ -10,13 +10,14 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .. import config, db
+from .. import config, db, settings
 from . import refresh, registry
 
 
 def add(sub) -> None:
     """Add `stores` and `feeds` to the commands of `python -m wardrobe`."""
-    p_stores = sub.add_parser("stores", help="the stores whose product feeds Capsule may use (config/feeds.toml)")
+    p_stores = sub.add_parser("stores", help=f"the stores whose product feeds {settings.SITE_NAME} may use "
+                                             "(config/feeds.toml)")
     p_stores.set_defaults(func=list_stores)
     what = p_stores.add_subparsers(title="what to do (without one: list them)")
     p_sync = what.add_parser("sync", help="copy config/feeds.toml into the database (never deletes products)")

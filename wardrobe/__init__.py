@@ -1,4 +1,4 @@
-"""Capsule — a wardrobe builder for COS and Weekday: stores with a partner programme.
+"""Stilsmith — a wardrobe builder for COS and Weekday: stores with a partner programme.
 
 Module map (each file does one job):
 

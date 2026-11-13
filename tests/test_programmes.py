@@ -187,8 +187,8 @@ class AccountsThatHadZara(ProductionCase):
             self.assertIn("zara", before or {c["store"] for c in catalog.load()["candidates"]}, "the account had Zara")
 
         first = html.unescape(self.ada.get("/").get_data(as_text=True))
-        self.assertIn("Zara has no partner programme, so Capsule no longer shows its products: 4 pieces were picked "
-                      "again, and 1 has nothing in Capsule's product list yet.", first)
+        self.assertIn("Zara has no partner programme, so Stilsmith no longer shows its products: 4 pieces were picked "
+                      "again, and 1 has nothing in Stilsmith's product list yet.", first)
         self.assertEqual(first.lower().count("zara"), 1, "the message is the only place Zara is named")
 
         # Every option is from a store with a programme; each piece Zara filled has the best of the rest.
@@ -259,12 +259,12 @@ class AccountsThatHadZara(ProductionCase):
     def test_the_message_counts_in_plain_words(self):
         with db.as_user(self.user_id("ada@example.com")):
             db.set_setting(shared.GONE_SETTING, {"stores": ["zara"], "pieces": 1, "empty": 0})
-            self.assertEqual(shared.gone_message(keep=True), "Zara has no partner programme, so Capsule no longer "
+            self.assertEqual(shared.gone_message(keep=True), "Zara has no partner programme, so Stilsmith no longer "
                                                             "shows its products: 1 piece was picked again.")
             db.set_setting(shared.GONE_SETTING, {"stores": ["weekday", "zara"], "pieces": 2, "empty": 2})
-            self.assertEqual(shared.gone_message(), "Weekday and Zara have no partner programme, so Capsule no longer "
+            self.assertEqual(shared.gone_message(), "Weekday and Zara have no partner programme, so Stilsmith no longer "
                                                     "shows their products: 2 pieces were picked again, and 2 have "
-                                                    "nothing in Capsule's product list yet.")
+                                                    "nothing in Stilsmith's product list yet.")
             self.assertEqual(shared.gone_message(), "", "said once")
 
 

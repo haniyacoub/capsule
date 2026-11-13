@@ -8,7 +8,7 @@
     python -m wardrobe publish ./data-production   give your own or an invite-only service the collected products
     python -m wardrobe looks                  are the AI pictures of outfits switched on?
     python -m wardrobe looks --test           draw one sample picture, to check the key (costs one picture)
-    python -m wardrobe stores [sync | end KEY]    the stores whose feeds Capsule may use (config/feeds.toml)
+    python -m wardrobe stores [sync | end KEY]    the stores whose feeds Stilsmith may use (config/feeds.toml)
     python -m wardrobe feeds [--store KEY] [--from FILE]   import the approved stores' product feeds (feeds/)
     python -m wardrobe owner [add EMAIL | remove EMAIL]    who sees the owner's pages, such as /stores (owner.py)
 """
@@ -76,7 +76,7 @@ def serve(args: argparse.Namespace) -> None:
 
     if port != args.port:
         print(f"\n  Port {args.port} is busy, using {port} instead.")
-    print(f"\n  Capsule is running:  http://127.0.0.1:{port}")
+    print(f"\n  {settings.SITE_NAME} is running:  http://127.0.0.1:{port}")
     try:
         from . import looks
         print(f"  AI pictures:         {looks.status()[1]}")
@@ -205,7 +205,10 @@ def rebuild_mock(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="python -m wardrobe", description="Capsule wardrobe builder")
+    from . import settings
+
+    parser = argparse.ArgumentParser(prog="python -m wardrobe",
+                                     description=f"{settings.SITE_NAME}, a capsule wardrobe builder")
     parser.set_defaults(func=serve, lan=False, port=8000)
     sub = parser.add_subparsers(title="commands")
 

@@ -7,7 +7,7 @@
 
 Production also needs:
     SECRET_KEY               long random string that signs the session cookie (required)
-    SITE_URL                 public address, e.g. https://capsule.example (used in emails)
+    SITE_URL                 public address, e.g. https://stilsmith.example (used in emails)
 and optionally:
     WARDROBE_DATA_DIR        where the database lives (default: ./data)
     SMTP_URL                 smtp://user:password@host:587 — without it, emails are only logged
@@ -29,11 +29,15 @@ import os
 MODE = os.environ.get("CAPSULE_ENV", "local").strip().lower()
 PRODUCTION = MODE == "production"
 
-SITE_NAME = "Capsule"
+# The product's name, in one place: every page's title, the wordmark, the emails, error pages, the site password's
+# sign-in box and the command line's messages take it from here. The web manifest (static/app.webmanifest) is a
+# plain file: a test checks that it says the same. Names inside the code, such as the package `wardrobe` and
+# CAPSULE_ENV, keep the product's old name on purpose (README.md).
+SITE_NAME = "Stilsmith"
 SITE_URL = os.environ.get("SITE_URL", "http://127.0.0.1:8000").rstrip("/")
 SECRET_KEY = os.environ.get("SECRET_KEY", "")
 SMTP_URL = os.environ.get("SMTP_URL", "")
-MAIL_FROM = os.environ.get("MAIL_FROM", "Capsule <no-reply@localhost>")
+MAIL_FROM = os.environ.get("MAIL_FROM", f"{SITE_NAME} <no-reply@localhost>")
 TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "0") or 0)
 SESSION_DAYS = int(os.environ.get("SESSION_DAYS", "30") or 30)
 INVITE_CODE = os.environ.get("INVITE_CODE", "").strip()      # empty: anybody may create an account

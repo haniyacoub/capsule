@@ -1,10 +1,10 @@
 {% extends "_public.html" %}
-{% block title %}Create account · Capsule{% endblock %}
+{% block title %}Create account · {{ site_name }}{% endblock %}
 {% block main %}
 <section class="card auth">
   <h1>Create your account</h1>
   {# By invitation, one paragraph: two muted lines one under the other would read as one broken paragraph. #}
-  <p class="muted">{% if invite %}Capsule is open by invitation for now. You need the code you were given. {% endif %}Free. No card. Delete your account and everything in it at any time.</p>
+  <p class="muted">{% if invite %}{{ site_name }} is open by invitation for now. You need the code you were given. {% endif %}Free. No card. Delete your account and everything in it at any time.</p>
   <form class="form" method="post" action="{{ url_for('auth.signup') }}">{{ csrf_field() }}
     {% if invite %}
     <label class="field"><span>Invitation code</span>
@@ -18,6 +18,6 @@
   </form>
   {# The privacy policy is information, not terms: nobody "accepts" it. 18 or over: Google's terms for its AI models
      rule out a service meant for, or likely to be used by, people under 18. #}
-  <p class="muted small">By creating an account you agree to the <a href="{{ url_for('legal_page', name='terms') }}">terms of use</a> and confirm you are 18 or over. How Capsule uses your data: <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>. Already have one? <a href="{{ url_for('auth.login') }}">Log in</a></p>
+  <p class="muted small">By creating an account you agree to the <a href="{{ url_for('legal_page', name='terms') }}">terms of use</a> and confirm you are 18 or over. How {{ site_name }} uses your data: <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>. Already have one? <a href="{{ url_for('auth.login') }}">Log in</a></p>
 </section>
 {% endblock %}

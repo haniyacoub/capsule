@@ -34,7 +34,8 @@ class SitePassword(ProductionCase):
             for headers in ({}, basic("wrong password"), basic(PASSWORD[:-1]), {"Authorization": "Bearer " + PASSWORD}):
                 answer = visitor.get(address, headers=headers)
                 self.assertEqual(answer.status_code, 401, (address, headers))
-                self.assertIn('Basic realm="', answer.headers["WWW-Authenticate"])
+                self.assertIn('Basic realm="Stilsmith (private)"', answer.headers["WWW-Authenticate"])
+                self.assertEqual(answer.get_data(as_text=True), "Stilsmith is private for now.\n")
                 self.assertEqual(answer.headers["Cache-Control"], "no-store")
                 self.assertNotIn(b"<html", answer.data.lower(), address)
         self.assertEqual(visitor.post("/signup", data={"email": "eve@example.com", "password": "x" * 12}).status_code,

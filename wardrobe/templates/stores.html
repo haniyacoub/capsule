@@ -10,7 +10,7 @@
    it in .cell-label, which is not read out: the column's header already is.
    The stores' words (names, colours, fabrics, categories) come from German feeds: marked lang="de". #}
 {% from "_macros.html" import icon %}
-{% block title %}Store catalogues · Capsule{% endblock %}
+{% block title %}Store catalogues · {{ site_name }}{% endblock %}
 {% block head %}<meta name="robots" content="noindex">{% endblock %}
 {% block summary %}{% endblock %}
 {% block notices %}{% endblock %}
@@ -118,7 +118,7 @@
     </th>
     <td role="cell" class="c-colour"><span class="cell-label" aria-hidden="true">Colour: </span>
       {%- if p.colour %}<span lang="de">{{ p.colour }}</span>{% else %}<span class="muted">not given</span>{% endif %}
-      <span class="cat-key">{% if p.colour_key %}<i class="dot" style="background:{{ hex }}"></i><span class="sr">Capsule's colour: </span>{{ COLOURS[p.colour_key].label }}{% else %}not recognised{% endif %}</span></td>
+      <span class="cat-key">{% if p.colour_key %}<i class="dot" style="background:{{ hex }}"></i><span class="sr">{{ site_name }}'s colour: </span>{{ COLOURS[p.colour_key].label }}{% else %}not recognised{% endif %}</span></td>
     <td role="cell" class="c-fabric"><span class="cell-label" aria-hidden="true">Fabric: </span>
       {%- if p.material %}<span lang="de">{{ p.material }}</span>{% else %}<span class="muted">not given</span>{% endif %}</td>
     <td role="cell" class="c-sizes">
