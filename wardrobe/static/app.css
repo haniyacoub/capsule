@@ -186,6 +186,25 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 /* A field scrolled into view brings its label, just above it, along. */
 .field > :is(input, select, textarea) { scroll-margin-top: calc(var(--t-s) * var(--lh-m) + var(--s-1)); }
 
+/* ── Starter banner (Outfits, until the profile is saved) ────────────────── */
+/* A new customer's outfits are the starter ones: this strip says whose they are and leads to the Profile page to make
+   them his. It stands where the budget bar would (a budget he never set says nothing yet), the same strip on the page's
+   ground with a hairline under it. Its height is --bar-h, which sizes the picture on a phone (see .stage): app.js sets
+   it to the banner's real height, whatever its words wrap to. Until then (and without JavaScript) these values hold:
+   three lines of words beside the button on a phone, one line on a computer. */
+:root:has(.starter) { --bar-h: calc(3 * var(--t-s) * var(--lh-s) + 2 * var(--s-2) + 1px); }
+.starter { background: var(--bg); border-bottom: 1px solid var(--line); }
+.starter-in {
+  display: flex; align-items: center; gap: var(--s-3); max-width: 1240px; margin: 0 auto;
+  padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l);
+}
+.starter p { flex: 0 1 auto; min-width: 0; font-size: var(--t-s); line-height: var(--lh-s); text-wrap: pretty; }
+.starter .btn { flex: none; white-space: nowrap; }
+@media (min-width: 760px) {
+  :root:has(.starter) { --bar-h: calc(40px + 2 * var(--s-2) + 1px); }   /* the button (.btn.small) sets the height */
+  .starter-in { gap: var(--s-4); }
+}
+
 /* ── Notices ─────────────────────────────────────────────────────────────── */
 .demo { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); background: var(--ok-bg); border-radius: var(--r-ui); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-3); }
 /* A status line: what just happened (saved, swapped, rebuilt). */
@@ -764,6 +783,13 @@ details[open] > summary .edit { visibility: hidden; }
 .pick span i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(128, 128, 128, .4); }
 .pick input:checked + span { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .pick input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* The model's words keep to the width of its form, so that no line runs across a computer's whole card. */
+#model > p { max-width: 620px; }
+/* Your own photo starts a new part of the card. What happens to the photo is said before the box that agrees to it:
+   the size of a hint, in ink, not faded; what to expect of the pictures comes after the button. */
+#photo .sec { margin-top: var(--s-5); }
+.photo-facts { font-size: var(--t-s); line-height: var(--lh-s); }
+.photo-note { margin-top: var(--s-2); }
 .me { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; align-items: start; margin: 10px 0 14px; }
 .me img { width: 96px; height: 128px; object-fit: cover; border-radius: var(--r-img); border: 1px solid var(--line); }
 .me p { font-size: var(--t-m); }

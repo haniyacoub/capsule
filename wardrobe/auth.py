@@ -133,8 +133,8 @@ def _throttled(email: str) -> bool:
 
 @bp.route("/signup", methods=["GET", "POST"])
 def signup():
-    if g.user:
-        return redirect(url_for("wardrobe"))
+    if g.user:                                  # already has an account: his outfits
+        return redirect(url_for("outfits_page"))
     invite = bool(settings.INVITE_CODE)         # by invitation: the form also asks for the code
     # HEAD (link checkers, "curl -I") is answered like GET here and below, never as a form that was sent.
     if request.method in ("GET", "HEAD"):
@@ -160,8 +160,9 @@ def signup():
     assert user is not None
     start_session(user)
     ensure_setup()
-    flash("Welcome. Start with your sizes, colours and budget — the capsule is built from them.")
-    return redirect(url_for("profile_page"))
+    # Straight to the starter outfits on the model, drawn already and shared, so they show at once. The banner at
+    # their top says whose they are and leads to the Profile page to make them his (outfits.html): no form first.
+    return redirect(url_for("outfits_page"))
 
 
 @bp.route("/login", methods=["GET", "POST"])

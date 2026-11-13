@@ -3,10 +3,8 @@
 {% block main %}
 <section class="card auth">
   <h1>Create your account</h1>
-  {% if invite %}
-  <p class="muted">Capsule is open by invitation for now. You need the code you were given.</p>
-  {% endif %}
-  <p class="muted">Free. No card. Delete your account and everything in it at any time.</p>
+  {# By invitation, one paragraph: two muted lines one under the other would read as one broken paragraph. #}
+  <p class="muted">{% if invite %}Capsule is open by invitation for now. You need the code you were given. {% endif %}Free. No card. Delete your account and everything in it at any time.</p>
   <form class="form" method="post" action="{{ url_for('auth.signup') }}">{{ csrf_field() }}
     {% if invite %}
     <label class="field"><span>Invitation code</span>

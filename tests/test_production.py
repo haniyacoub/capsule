@@ -3,6 +3,7 @@ import html
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from wardrobe import catalog, config, db, mail, paths, selection, settings, shared
+from wardrobe import profile as profile_mod
 from wardrobe.app import create_app, eur
 
 PASSWORD = "correct horse battery"
@@ -404,6 +406,7 @@ class SaysWhatReallyHappens(ProductionCase):
             self.assertIn(what, kept)
             self.assertIn(what, deleted)
         self.assertIn("the pictures made from it", deleted)
+        self.assertIn("your photo and the pictures made from it (see or delete them on Profile).", kept)
         self.assertIn('href="/profile#photo">Profile</a>', page, "where to see or delete the photo")
         text = self.said(page)
         self.assertIn("Logged in as ada@example.com.", text)
@@ -429,8 +432,8 @@ class SaysWhatReallyHappens(ProductionCase):
         from werkzeug.http import parse_date
 
         text = self.said(self.app.test_client().get("/legal/privacy").get_data(as_text=True))
-        for fact in ("Network (IP) addresses: of each attempt to create an account, whether or not it succeeds, "
-                     "kept for 1 hour",
+        for fact in ("Network (IP) addresses: of each attempt to create an account with a valid email address and "
+                     "password, whether or not it then succeeds, kept for 1 hour",
                      "of each wrong password, with the email address that was tried, kept for 24 hours",
                      "The times you asked for a picture are kept for 48 hours",
                      f"keep you logged in for {settings.SESSION_DAYS} days after your last visit",
@@ -465,6 +468,12 @@ class SaysWhatReallyHappens(ProductionCase):
         refused = self.post(self.app.test_client(), "/signup", email="ada@example.com", password=PASSWORD)
         self.assertEqual(refused.status_code, 400)
         self.assertIn("already an account", refused.get_data(as_text=True))
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM signups WHERE ip = ?", ("127.0.0.1",)).fetchone()[0], 2)
+        # ...and only attempts with a valid email address and password, as the outline says: these two are not kept.
+        for email, password in (("not an address", PASSWORD), ("eve@example.com", "short")):
+            refused = self.post(self.app.test_client(), "/signup", email=email, password=password)
+            self.assertEqual(refused.status_code, 400, email)
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM signups WHERE ip = ?", ("127.0.0.1",)).fetchone()[0], 2)
 
@@ -566,6 +575,86 @@ class OutfitsIsHome(ProductionCase):
         for page in (rebuilt, kept):
             for gone in self.GONE:
                 self.assertNotIn(gone, page)
+
+
+class StartsOnTheOutfits(ProductionCase):
+    """A new customer is shown the starter outfits on the model first, not a long form of someone else's values.
+    A banner over them says whose they are and leads to the Profile page, which has one note about the example
+    values; the first save there brings the budget bar back."""
+
+    STARTER = re.compile(r'<section class="starter"[^>]*>(.*?)</section>', re.S)
+    EXAMPLE_FORM = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
+                    "budget": "1500", "liked": "navy, grey, white, olive", "refused": "", "use": "both", "shoes": "on",
+                    "outerwear": "on", "owned": ""}
+
+    @staticmethod
+    def example_notes(page: str) -> list[str]:
+        """Every paragraph on the page that speaks of example values, as the customer reads it."""
+        main = page.split("<main>", 1)[1].split("</main>", 1)[0]
+        return [text for text in (words(p) for p in re.findall(r"<p[^>]*>.*?</p>", main, re.S)) if "example" in text.lower()]
+
+    def test_signing_up_opens_the_starter_outfits_with_one_way_to_make_them_yours(self):
+        ada = self.app.test_client()
+        signed_up = self.post(ada, "/signup", email="ada@example.com", password=PASSWORD)
+        self.assertEqual((signed_up.status_code, signed_up.headers["Location"]), (302, "/outfits"))
+        with ada.session_transaction() as session:
+            self.assertNotIn("_flashes", session, "no welcome message to read before the outfits")
+        page = ada.get("/outfits").data.decode()
+        starter = self.STARTER.search(page)
+        self.assertIsNotNone(starter, "no starter banner over a new customer's outfits")
+        self.assertEqual(words(starter.group(1)),
+                         "Starter outfits for a man of 180 cm, size M, who likes navy, grey, white and olive. Make them mine")
+        self.assertIn("180\xa0cm, size\xa0M,", starter.group(1), "'180 cm' and 'size M' split over two lines")
+        self.assertIn('<a class="btn ghost small" href="/profile">Make them mine</a>', starter.group(1))
+        self.assertLess(page.index('class="starter"'), page.index('class="toolbar"'), "the banner is above the outfits")
+        self.assertNotIn('id="summary"', page, "no budget bar for a budget the customer never set")
+        self.assertNotIn('class="flash"', page)
+        for url in ("/", "/list", "/profile"):          # only the outfits trade the bar for the banner
+            self.assertIn('id="summary"', ada.get(url).data.decode(), url)
+            self.assertNotIn('class="starter"', ada.get(url).data.decode(), url)
+        again = ada.get("/signup")
+        self.assertEqual((again.status_code, again.headers["Location"]), (302, "/outfits"), "already has an account")
+
+    def test_the_banner_is_said_from_the_example_values_never_typed(self):
+        ada = self.member("ada@example.com")
+        with mock.patch.dict(profile_mod.EXAMPLE, {"height_cm": 176, "top_size": "L", "liked": ["black", "stone"]}):
+            banner = words(self.STARTER.search(ada.get("/outfits").data.decode()).group(1))
+        self.assertTrue(banner.startswith("Starter outfits for a man of 176 cm, size L, who likes black and stone."), banner)
+
+    def test_the_first_profile_save_shows_the_outfits_with_the_budget_bar_back(self):
+        ada = self.member("ada@example.com")
+        saved = self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "budget": "900"})     # the budget alone, changed
+        self.assertEqual(saved.headers["Location"], "/outfits", "the note promised the outfits after saving")
+        page = ada.get("/outfits").data.decode()
+        self.assertNotIn('class="starter"', page, "the banner stays after the profile was saved")
+        self.assertIn('id="summary"', page)
+        self.assertIn(f"of </span><a href=\"/profile#budget\" title=\"Change your budget\"><b>{eur(900)}</b>", page)
+        self.assertIn('<p class="flash" role="status">Profile saved.</p>', page)
+        self.assertEqual(self.example_notes(ada.get("/profile").data.decode()), [], "no note about example values left")
+
+    def test_a_new_accounts_profile_has_one_note_about_the_example_values(self):
+        ada = self.member("ada@example.com")
+        self.assertEqual(self.example_notes(ada.get("/profile").data.decode()),
+                         ["These are example values. Change them to yours and save: your plan is rebuilt around them, "
+                          "then you see the outfits."])
+        # "These are my sizes" on Buy this outfit or the shopping list: the note no longer calls the sizes examples.
+        self.post(ada, "/profile/sizes-ok")
+        notes = self.example_notes(ada.get("/profile").data.decode())
+        self.assertEqual(len(notes), 1, notes)
+        self.assertTrue(notes[0].startswith("You said these sizes are yours; the rest are example values."), notes)
+        # A plan edited on the plan page is not rebuilt by a save: the note doesn't promise it, and leads to the plan.
+        with db.as_user(self.user_id("ada@example.com")):
+            first = db.list_slots()[0]
+        self.post(ada, f"/slots/{first['id']}/save", name="My own name", category=first["category"],
+                  colour=first["colour"], qty=str(first["qty"]))
+        page = ada.get("/profile").data.decode()
+        notes = self.example_notes(page)
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("Your plan stays as you edited it", notes[0])
+        self.assertNotIn("rebuilt around them", notes[0])
+        self.assertIn('on <a href="/slots">the plan page</a>.</p>', page)
+        saved = self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "liked": "black, grey"})
+        self.assertEqual(saved.headers["Location"], "/profile", "the edited plan stays, as the note said")
 
 
 class Isolation(ProductionCase):
@@ -716,6 +805,61 @@ class ErrorPages(ProductionCase):
         self.assertIn("That changed in the meantime That outfit no longer exists — reload the page.",
                       unescape(words(gone.get_data(as_text=True))))
 
+    def test_every_error_page_leads_a_customer_back_to_the_outfits(self):
+        # Whatever went wrong, the way home for someone logged in is Capsule's home, the outfits: also when the request
+        # is refused before anything else is looked at (a form sent from another website).
+        ada = self.member("ada@example.com")
+        with mock.patch("wardrobe.selection.build", side_effect=ValueError("a crash")):
+            crash = ada.get("/outfits")
+        answers = {
+            400: ada.post("/settings", data={"mode": "cheapest"}),
+            403: ada.post("/settings", data={"mode": "cheapest", "csrf_token": self.token(ada)},
+                          headers={"Origin": "https://evil.example"}),
+            404: ada.get("/no-such-page"),
+            405: ada.get("/logout"),
+            409: self.post(ada, "/outfits/save", key="no-such-outfit"),
+            500: crash,
+            501: self.post(ada, "/outfits/tryon", key="any"),
+        }
+        for code, response in answers.items():
+            page = response.get_data(as_text=True)
+            self.assertEqual(response.status_code, code)
+            home = [("/outfits", "Capsule"), ("/outfits", "Go to your outfits"), *self.LEGAL]
+            self.assertEqual(self.links(page), home, code)
+        # Capsule's own words, not the code's: no file names.
+        tryon = unescape(words(answers[501].get_data(as_text=True)))
+        self.assertIn("Not available yet Trying outfits on yourself isn't built yet.", tryon)
+        self.assertNotIn(".py", tryon)
+
+    def test_a_config_file_with_a_typo_shows_capsules_own_page_and_tells_only_the_log(self):
+        # The file's name, its line and the TOML reader's words are for whoever runs Capsule: in production they go to
+        # the log, and visitors and customers see the page for any fault on Capsule's side. (On your own machine the
+        # page names the file and the line: test_app.py, EditingTheRules.)
+        ada = self.member("ada@example.com")
+        with tempfile.TemporaryDirectory() as folder:
+            shutil.copytree(config.CONFIG_DIR, Path(folder) / "config")
+            scoring = Path(folder) / "config" / "scoring.toml"
+            typed = scoring.read_text(encoding="utf-8").replace("[weights]", "[weights", 1)     # a bracket left out
+            scoring.write_text(typed, encoding="utf-8")
+            with mock.patch.object(config, "CONFIG_DIR", Path(folder) / "config"), \
+                    self.assertLogs(self.app.logger, "ERROR") as log:
+                config._cache.clear()
+                try:
+                    with self.assertRaises(config.ConfigError) as typo:
+                        config.load("scoring.toml")
+                    response = ada.get("/outfits")
+                finally:
+                    config._cache.clear()
+        page = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("Something went wrong on our side It's not you. Try again in a minute. Go to your outfits",
+                      unescape(words(page)))
+        detail = str(typo.exception)
+        self.assertIn("config/scoring.toml has a syntax error", detail)
+        for secret in (detail, detail.split(": ", 1)[1], "scoring.toml", "config/", "needs fixing"):
+            self.assertNotIn(secret, unescape(page))
+        self.assertIn(detail, "\n".join(log.output), "the operator finds the detail in the log")
+
 
 class CapsulesOwnFiles(ProductionCase):
     """The stylesheet, the scripts and the fonts are kept by browsers for a year without asking again, so moving between
@@ -754,6 +898,50 @@ class CapsulesOwnFiles(ProductionCase):
         self.assertEqual((again.status_code, again.headers.get("Cache-Control")), (304, self.YEAR))
         # Every page still renews the login cookie, so a customer's login is counted from the last visit.
         self.assertIn("session=", ada.get("/outfits").headers.get("Set-Cookie", ""))
+
+    def test_the_icon_browsers_ask_for_by_themselves_carries_no_cookie(self):
+        # /favicon.ico is one of Capsule's own files, the same for everyone: no account is looked up for it, and it
+        # neither sets the login cookie nor says "Vary: Cookie" (a shared cache keeps neither).
+        ada = self.member("ada@example.com")
+        with mock.patch("wardrobe.db.get_user", side_effect=AssertionError("an account was looked up")):
+            for who, client in (("a visitor", self.app.test_client()), ("a customer", ada)):
+                for ask in (client.get, client.head):
+                    response = ask("/favicon.ico")
+                    said = f"{ask.__name__.upper()} /favicon.ico for {who}"
+                    self.assertEqual((response.status_code, response.mimetype), (200, "image/x-icon"), said)
+                    self.assertNotIn("Set-Cookie", response.headers, said)
+                    self.assertNotIn("cookie", response.headers.get("Vary", "").lower(), said)
+                    response.close()
+
+    def test_the_version_is_worked_out_once_per_start(self):
+        # Looking at every file under static/ takes about half a millisecond, and one click on a price level renders
+        # eight templates. In production the files don't change while Capsule runs (an update restarts it), so their
+        # version is worked out once, at the start: no page looks at the files again. The next start sees an edit.
+        # (On your own machine an edit shows at once: test_app.py.)
+        from wardrobe.app import _asset_version
+        with tempfile.TemporaryDirectory() as folder, mock.patch("wardrobe.app.ROOT", Path(folder)):
+            css = Path(folder) / "wardrobe/static/app.css"
+            css.parent.mkdir(parents=True)
+            css.write_text("body {}")
+            self.app = create_app()
+            ada, visitor = self.member("ada@example.com"), self.app.test_client()
+            started = self.versioned(ada.get("/outfits").get_data(as_text=True))["app.css"]
+            css.write_text("body { color: red }")               # an edit while it runs
+            with mock.patch("wardrobe.app._asset_version", side_effect=AssertionError("the files were looked at")):
+                pages = [ada.get("/outfits"), ada.get("/list"), ada.get("/profile"), visitor.get("/"),
+                         visitor.get("/no-such-page")]
+                click = self.post(ada, "/settings", headers=HX, mode="cheap")
+                stylesheet = ada.get(started)
+            self.assertEqual([p.status_code for p in pages], [200, 200, 200, 200, 404])
+            self.assertEqual(click.status_code, 200, "a price-level click")
+            for response in pages:
+                self.assertEqual(self.versioned(response.get_data(as_text=True))["app.css"], started)
+            self.assertEqual(stylesheet.headers.get("Cache-Control"), self.YEAR, "the address the pages name")
+            stylesheet.close()
+            self.app = create_app()                             # the next start
+            restarted = self.versioned(self.app.test_client().get("/").get_data(as_text=True))["app.css"]
+            self.assertNotEqual(restarted, started)
+            self.assertEqual(restarted, f"/static/app.css?v={_asset_version()}")
 
     def test_an_address_is_never_kept_with_a_file_it_did_not_name(self):
         from wardrobe.app import _asset_version
@@ -836,7 +1024,11 @@ class ByInvitation(ProductionCase):
     def test_the_pages_say_so(self):
         visitor = self.app.test_client()
         self.assertIn(b"by invitation", visitor.get("/").data)
-        self.assertIn(b'name="code"', visitor.get("/signup").data)
+        signup = visitor.get("/signup").get_data(as_text=True)
+        self.assertIn('name="code"', signup)
+        # One paragraph: two lines one under the other, with no space between them, read as one broken paragraph.
+        self.assertIn('<p class="muted">Capsule is open by invitation for now. You need the code you were given. '
+                      'Free. No card. Delete your account and everything in it at any time.</p>', signup)
 
     def test_no_account_without_the_code(self):
         for attempt in ({}, {"code": ""}, {"code": "by-invitation-2025"}, {"code": CODE.upper()}):
