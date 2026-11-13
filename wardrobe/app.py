@@ -284,6 +284,8 @@ def create_app() -> Flask:
         ink_on=colours.ink_on, level_hints=selection.HINTS,
         # The stores customers are offered, {key: name}, and their names in a sentence (programmes.py).
         STORES=programmes.OFFERED, store_names=programmes.names,
+        # What a customer added to a piece from a store that is no longer offered, listed on its page (_set_aside.html).
+        set_aside_for=catalog.set_aside,
     )
     bootstrap()
 
@@ -545,8 +547,7 @@ def create_app() -> Flask:
             cands = sorted(view.cands, key=lambda c: (not c.available, -c.score.total, c.price))
         else:
             sort, cands = "price", view.cands   # already: in stock first, then by price
-        return {"s": view, "cands": cands, "sort": sort, "way": way_back(),
-                "set_aside": catalog.set_aside(slot_id)}    # from a store no longer offered (_set_aside.html)
+        return {"s": view, "cands": cands, "sort": sort, "way": way_back()}
 
     # ── Wardrobe ──────────────────────────────────────────────────────────────
 
@@ -871,10 +872,11 @@ def create_app() -> Flask:
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved),
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
-                    looks_on=looks_on, said=said,
+                    looks_on=looks_on,
                     # Until the profile is saved, the starter banner stands where the budget bar would: a budget
                     # the customer never set says nothing yet. Saving the profile brings the bar back.
                     starter=starter_line() if prof["example"] else "",
+                    said=said,      # what a change just made from an outfit did, over the outfits (change_said)
                     auto=looks_on and looks.load_rules()["pictures"]["auto"] and not looks.held_off())
 
     @app.get("/outfits/piece")

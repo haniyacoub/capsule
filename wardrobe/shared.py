@@ -260,27 +260,45 @@ def refresh_customer() -> None:
 GONE_SETTING = "stores_gone"     # what the Wardrobe page says once, after a store went (see gone_message)
 
 
+def _offered_when_built() -> set[str] | None:
+    """The stores that were offered when the customer's products were last built from the list: the end of the
+    revision they were built from (see revision), {'cos', 'weekday'} from
+    '2026-11-11T17:55:27+01:00#refused#cos,weekday'. None when it does not say: built before the stores were part
+    of the revision, when every store was offered."""
+    built_from = db.get_setting("pool")
+    if not isinstance(built_from, str) or built_from.count("#") < 2:
+        return None
+    return {key for key in built_from.rsplit("#", 1)[1].split(",") if key}
+
+
 def _stores_gone() -> dict[str, list[str]] | None:
-    """Before a customer's products are rebuilt: the stores among them that are no longer offered (programmes.py),
-    and his pieces that were picked from them. Those are unlocked here, so that the rebuilt products pick them
-    again: a piece locked to such a product, by "Lock this choice" or a product he chose himself (one he added by
-    its link too: that is set aside, see catalog.set_aside), is automatic again. A piece he owns stays owned, and
-    is not among the pieces picked again (nothing is picked for it), but if it was locked to such a product, that
-    lock goes too, so that the product is not his choice should he say he does not own it after all. None when
-    no store went, or when he was on the demo data (invented products, which the real ones replace in any
-    case)."""
+    """Before a customer's products are rebuilt: the stores that went since they were last built (offered then, not
+    now: programmes.py) and that he had products from, and his pieces that were picked from them. Those are
+    unlocked here, so that the rebuilt products pick them again: a piece locked to such a product, by "Lock this
+    choice" or a product he chose himself (one he added by its link too: that is set aside, see catalog.set_aside),
+    is automatic again. A piece he owns stays owned, and is not among the pieces picked again (nothing is picked for
+    it), but if it was locked to such a product, that lock goes too, so that the product is not his choice should
+    he say he does not own it after all. None when no store went since, or when he was on the demo data (invented
+    products, which the real ones replace in any case).
+
+    What he added from a store that went before that is kept, set aside, but it is not counted again: that store
+    went then and was said then, so a later publication of the list says nothing, and a store that goes later is
+    named alone."""
     stored = catalog.stored()
     if stored.get("source") != "collected":
         return None
-    gone = {c["store"] for c in stored.get("candidates", []) if c.get("store")} - set(programmes.offered())
+    then = _offered_when_built()
+    # What he saw until now: the products of the stores offered when his products were last built.
+    had = [c for c in stored.get("candidates", []) if then is None or c.get("store") in then]
+    gone = {c["store"] for c in had if c.get("store")} - set(programmes.offered())
     if not gone:
         return None
     from . import selection        # here: selection itself builds on this module
 
-    before = selection.build(catalogue=stored)      # the pieces as he saw them until now
+    before = selection.build(catalogue={**stored, "candidates": had})      # the pieces as he saw them until now
     picked = [view.slot["id"] for view in before.slots
               if view.state != "owned" and view.chosen and view.chosen.data.get("store") in gone]
-    their_ids = {c.get("id") for c in stored.get("candidates", []) if c.get("store") in gone}
+    their_ids = {c.get("id") for c in had if c.get("store") in gone}
     for slot in db.list_slots():
         if slot["locked"] and slot["pick"] in their_ids:
             db.update_slot(slot["id"], locked=False, pick=None)
