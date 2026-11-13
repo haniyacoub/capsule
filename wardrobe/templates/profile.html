@@ -49,13 +49,27 @@
     <label class="field"><span>For the whole wardrobe (EUR)</span>
       <input type="number" id="budget" name="budget" min="0" inputmode="numeric" value="{{ profile.budget }}"></label>
 
-    <h2 class="sec">Colours</h2>
-    {# Colour names, not words of a sentence: a phone's autocorrect and spell check would only get in the way. #}
-    <label class="field"><span>Colours you like <small>(most important first, separated by commas)</small></span>
-      <input type="text" name="liked" value="{{ colour_names(profile.liked) }}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
-    <label class="field"><span>Colours to avoid</span>
-      <input type="text" name="refused" value="{{ colour_names(profile.refused) }}" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. yellow, pink"></label>
-    <p class="muted small">Recognised: {% for c in COLOURS.values() %}<span class="mini"><i style="background:{{ c.hex }}"></i>{{ c.label|lower }}</span>{% endfor %}</p>
+    <h2 class="sec" id="colours-label">Colours</h2>
+    {# Every colour Capsule knows as a swatch to tap, in its own colour (the one the plan and the pictures show).
+       app.js (14) shows them and hides the two fields below, which the taps fill in: what is saved is the same text a
+       customer could type. Without JavaScript the swatches stay hidden and the fields are typed in. #}
+    <div class="swatches" data-swatches hidden>
+      <p class="muted small" id="swatch-help">Tap a colour once to like it, twice to avoid it, three times to clear it. The colours you like are numbered in the order you tap them: 1 counts most.</p>
+      <div class="swatch-grid" role="group" aria-labelledby="colours-label" aria-describedby="swatch-help">
+        {% for c in COLOURS.values() %}
+        <button type="button" class="swatch" data-colour="{{ c.label|lower }}" aria-pressed="false"><i style="background:{{ c.hex }}"><b aria-hidden="true"></b></i><span>{{ c.label }}</span><small aria-hidden="true">avoid</small></button>
+        {% endfor %}
+      </div>
+      <p class="sr" role="status" data-swatch-said></p>
+    </div>
+    <div class="typed-colours" data-typed-colours>
+      {# Colour names, not words of a sentence: a phone's autocorrect and spell check would only get in the way. #}
+      <label class="field"><span>Colours you like <small>(most important first, separated by commas)</small></span>
+        <input type="text" name="liked" value="{{ colour_names(profile.liked) }}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+      <label class="field"><span>Colours to avoid</span>
+        <input type="text" name="refused" value="{{ colour_names(profile.refused) }}" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. yellow, pink"></label>
+      <p class="muted small">Recognised: {% for c in COLOURS.values() %}<span class="mini"><i style="background:{{ c.hex }}"></i>{{ c.label|lower }}</span>{% endfor %}</p>
+    </div>
 
     <h2 class="sec" id="use-label">What do you dress for?</h2>
     <div class="seg" role="radiogroup" aria-labelledby="use-label">
@@ -91,7 +105,7 @@
      left on "Any" beside chosen ones is not described at all, so there the AI decides. #}
   <p class="muted">Choose who wears your outfits in the AI pictures. With everything on “Any”, it is our standard model: a man of average build. Once you choose something, whatever is still on “Any” is up to the AI.</p>
   {% if not looks_on %}
-  <p class="demo"><b>AI pictures are switched off.</b> You can set the model up now; it is used once a key for the image service is set (README, “AI pictures of outfits”).</p>
+  <p class="demo"><b>AI pictures are switched off.</b> You can set the model up now; it is used once a key for the AI service is set (README, “AI pictures of outfits”).</p>
   {% endif %}
   <form class="form" method="post" action="{{ url_for('profile_model') }}">{{ csrf_field() }}
     {% for group, entry in groups.items() %}

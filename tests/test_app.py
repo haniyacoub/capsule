@@ -382,6 +382,38 @@ class SlotsAndProfile(AppCase):
         for jargon in ("slot", "size check", "Colours I ", "comma-separated", "What it is for", "Trousers "):
             self.assertNotIn(jargon, about)
 
+    def test_the_colours_are_swatches_to_tap_that_fill_the_same_two_fields(self):
+        # Every colour Capsule knows is a swatch to tap, in the colour the plan and the pictures show for it, named as
+        # the two text fields name it. The page sends the swatches hidden: app.js shows them, so that without
+        # JavaScript the fields are typed in as before.
+        page = self.client.get("/profile").data.decode()
+        about = page[page.index('<form class="form" id="about-you"'):]
+        about = about[:about.index("</form>")]
+        self.assertIn('<div class="swatches" data-swatches hidden>', about, "the swatches are not left to the script to show")
+        swatches = re.findall(r'<button type="button" class="swatch" data-colour="([^"]+)" aria-pressed="false">'
+                              r'<i style="background:(#[0-9a-f]{6})">', about)
+        self.assertEqual(swatches, [(c.label.lower(), c.hex) for c in colours.COLOURS.values()])
+        self.assertEqual(len(swatches), 25)
+        self.assertIn('role="group" aria-labelledby="colours-label"', about, "the swatches are named by their heading")
+        self.assertIn('role="status"', about, "nothing tells a screen reader what a tap did")
+        typed = about[about.index("data-typed-colours"):]
+        self.assertNotIn("hidden", typed[:typed.index(">")], "without JavaScript the text fields would be hidden too")
+        self.assertIn('name="liked" value="navy, grey, white, olive"', typed, "the example's colours, as the swatches read them")
+
+        # What the swatches write after tapping navy, olive, then black twice is saved as typing it would be.
+        form = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
+                "budget": "1500", "liked": "navy, olive", "refused": "black", "use": "both", "shoes": "on",
+                "outerwear": "on"}
+        self.client.post("/profile", data=form)
+        prof = profile_mod.load()
+        self.assertEqual((prof["liked"], prof["refused"]), (["navy", "olive"], ["black"]))
+        self.assertEqual(capsule.build_palette(prof["liked"], prof["refused"])["accent"], "olive")
+        self.assertIn(("Accent", colours.get("olive")), capsule.palette_summary(prof), "the plan's accent is not olive")
+        self.assertIn("olive", {s["colour"] for s in db.list_slots()}, "no olive piece in the rebuilt plan")
+        page = self.client.get("/profile").data.decode()
+        self.assertIn('name="liked" value="navy, olive"', page)
+        self.assertIn('name="refused" value="black"', page)
+
     def test_budget_change_alone_keeps_everything(self):
         s = self.first("coat")
         current = profile_mod.load()

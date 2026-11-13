@@ -959,7 +959,7 @@ def create_app() -> Flask:
             model = person.load()
             return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model,
                         model_words=person.describe(model)[0] or rules["text"]["model"],
-                        looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the image service",
+                        looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
                         # The one note while the answers are still the example's: the sizes may already be his
@@ -1034,7 +1034,7 @@ def create_app() -> Flask:
         elif request.form.get("agree") != "on":
             chosen = looks.service()
             flash(f"Not saved. Tick the box to confirm that this is you, that you're 18 or over and that the photo "
-                  f"may be sent to {chosen.label if chosen else 'the image service'}.", "photo")   # as the box says
+                  f"may be sent to {chosen.label if chosen else 'the AI service'}.", "photo")   # as the box says
         else:
             problem = person.save_photo(data)
             if problem is None:

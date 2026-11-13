@@ -127,7 +127,8 @@ The score is a weighted average of three parts, all in that file:
 `[weights]` sets how much each part counts. `[fabric.adjustments]` holds the
 "mostly synthetic" penalty and the wool-rich bonus. `[fabric.name_guess]` controls
 the estimate used when a store gives no composition. If you make a typo, the app
-shows a page naming the file and the problem instead of crashing.
+shows a page naming the file and the problem instead of crashing (on a live site
+the page is Capsule's own error page and the file and line are in the log).
 
 ## Price levels
 

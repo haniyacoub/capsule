@@ -47,6 +47,7 @@
   /* Spacing, on a 4px grid, and the gutter: the space between the screen's edge and the content. */
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
   --gutter: 16px;                                  /* computers: 24px */
+  --form-w: 620px;                                 /* the widest a form on a card gets, and the words beside it */
   /* Corners: five values and no others (plus 50% for round things and 0 for square ones). */
   --r-img: 2px;           /* product photos, and the AI picture on computers */
   --r-ui: 6px;            /* cards, buttons, inputs, the cells of a segmented control */
@@ -775,6 +776,40 @@ details[open] > summary .edit { visibility: hidden; }
 .check input { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); }
 .mini { display: inline-flex; align-items: center; gap: 4px; margin: 0 8px 2px 0; white-space: nowrap; }
 .mini i { width: 10px; height: 10px; }
+/* The colours on Profile, as swatches to tap (app.js, 14): five to a row on a phone, nine on a computer, each a button
+   with its name under it. Liked: an ink ring with a gap of the card's colour inside it, and its number in an ink disc at
+   the top right. Avoided: struck through by an ink line edged in the card's colour, so that the strike shows on the
+   palest swatch and on the darkest, in both themes, and AVOID under the name (its line is kept empty until then, so
+   nothing moves when a swatch is tapped). */
+.swatches, .typed-colours { display: grid; gap: var(--s-3); }
+.swatches[hidden], .typed-colours[hidden] { display: none; }
+.swatch-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-1) var(--s-2); }   /* the empty AVOID line spaces the rows */
+.swatch {
+  display: grid; justify-items: center; align-content: start; gap: var(--s-1); min-width: 0; margin: 0; padding: 0 0 var(--s-1);
+  border: 0; border-radius: var(--r-ui); background: none; color: var(--muted); cursor: pointer;
+  font-size: var(--t-s); line-height: var(--lh-s); text-align: center; -webkit-tap-highlight-color: transparent;
+}
+.swatch[aria-pressed=true] { color: var(--ink); }
+.swatch i {
+  position: relative; display: block; width: 40px; height: 40px; margin: var(--s-1); border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, .35);
+}
+.swatch b {
+  position: absolute; top: -10px; right: -12px; display: none; min-width: 22px; height: 22px; padding: 0 var(--s-1);
+  border: 2px solid var(--surface); border-radius: var(--r-pill); background: var(--ink); color: var(--surface);
+  font: 600 var(--t-s)/18px var(--font); font-variant-numeric: tabular-nums; font-style: normal;   /* 18px: the disc inside its edge */
+}
+.swatch small { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; visibility: hidden; }
+.swatch[data-state=like] i { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.swatch[data-state=like] b { display: block; }
+.swatch[data-state=avoid] i::after {
+  content: ""; position: absolute; top: -4px; bottom: -4px; left: 50%; width: 2px; margin-left: -1px;
+  background: var(--ink); box-shadow: 0 0 0 2px var(--surface); transform: rotate(-45deg);
+}
+.swatch[data-state=avoid] small { visibility: visible; }
+@media (min-width: 760px) {
+  .swatch-grid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+}
 
 /* ── Your model (Profile) and buying ─────────────────────────────────────── */
 .pick { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -789,7 +824,7 @@ details[open] > summary .edit { visibility: hidden; }
 .pick input:checked + span { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .pick input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* The model's words keep to the width of its form, so that no line runs across a computer's whole card. */
-#model > p { max-width: 620px; }
+#model > p { max-width: var(--form-w); }
 /* Your own photo starts a new part of the card. What happens to the photo is said before the box that agrees to it:
    the size of a hint, in ink, not faded; what to expect of the pictures comes after the button. */
 #photo .sec { margin-top: var(--s-5); }
@@ -953,7 +988,7 @@ details[open] > summary .edit { visibility: hidden; }
   .thr { max-width: 430px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .card { padding: 20px; }
-  .card .form { max-width: 620px; }
+  .card .form { max-width: var(--form-w); }
   .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); margin-top: var(--s-8); }
   .shuffle { width: auto; padding: 0 var(--s-3); }
   .shuffle span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
