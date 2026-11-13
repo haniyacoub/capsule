@@ -1,14 +1,15 @@
-"""The collector: fills data/catalog.json from the three stores.
+"""The collector: fills data/catalog.json from COS and Weekday.
 
     python -m wardrobe refresh                     every slot, every store
-    python -m wardrobe refresh --store zara        one store
+    python -m wardrobe refresh --store cos         one store
     python -m wardrobe refresh --slot white-tee    one slot
 
 For each slot it reads the category page(s) listed for that garment type in
-config/stores.toml, shortlists the products that fit (matching.py) and, where
-the store serves them, opens each shortlisted product page for fabric and
-sizes. The politeness rules — real browser, robots.txt, pauses, stop at the
-first refusal — live in browser.py.
+config/stores.toml and shortlists the products that fit (matching.py). Product
+pages are never opened: both stores refuse them to automated browsers. Only
+stores with a partner programme are collected (programmes.py): Zara has none,
+and its reader was removed. The politeness rules — real browser, robots.txt,
+pauses, stop at the first refusal — live in browser.py.
 
 For your own machine and for testing only. Run it by hand, never on a
 schedule (no cron job, timer or start-up call: nothing in deploy/ or the
@@ -19,12 +20,12 @@ refuses to run in production mode.
 """
 from __future__ import annotations
 
-from .. import catalog, colours, config, db
-from . import cos, matching, pages, weekday, zara
+from .. import catalog, colours, config, db, programmes
+from . import cos, matching, pages, weekday
 from .browser import Blocked, BrowserClosed, LimitReached, NotAllowed, PageMissing, Session
 
-ADAPTERS = {"cos": cos, "weekday": weekday, "zara": zara}
-STORE_ORDER = ["cos", "weekday", "zara"]
+ADAPTERS = {"cos": cos, "weekday": weekday}
+STORE_ORDER = ["cos", "weekday"]
 
 
 def load_settings() -> dict:
@@ -35,9 +36,9 @@ def _eur(value: float) -> str:
     return f"{value:,.0f} €" if float(value).is_integer() else f"{value:,.2f} €"
 
 
-def _candidate(item: dict, slot: dict, stamp: str, **fields) -> dict:
-    """A catalogue entry from a category-page product, plus whatever a product page added."""
-    cand = {
+def _candidate(item: dict, slot: dict, stamp: str) -> dict:
+    """A catalogue entry from a product on a category page."""
+    return {
         "id": f"{item['store']}-{item['sku']}",
         "slot_id": slot["id"],
         "store": item["store"],
@@ -58,59 +59,16 @@ def _candidate(item: dict, slot: dict, stamp: str, **fields) -> dict:
         "source": "collected",
         "collected_at": stamp,
     }
-    cand.update(fields)
-    return cand
-
-
-def zara_candidate(item: dict, detail: dict, slot: dict, stamp: str, colour_name: str | None = None,
-                   product_id: str | None = None, any_colour: bool = False) -> dict | None:
-    """One colour of a Zara product as a candidate.
-
-    The colour is chosen by `product_id` (the "v1" number in a pasted link),
-    else by the name shortlisted on the category page, else by what suits the
-    slot best. With `any_colour` a product is accepted even if no colour suits.
-    """
-    options = detail.get("colours") or []
-    chosen = None
-    if product_id:
-        chosen = next((c for c in options if str(c.get("product_id")) == str(product_id)), None)
-    if chosen is None and colour_name:
-        chosen = next((c for c in options if c["name"].strip().lower() == colour_name.strip().lower()), None)
-    if chosen is None and options:
-        level, best = max(((matching.colour_level(slot, c["name"], c.get("hex")), c) for c in options),
-                          key=lambda pair: pair[0])
-        if level or any_colour:
-            chosen = best
-    if chosen is None or chosen.get("price") is None:
-        return None
-    description = chosen.get("description", "")
-    link = f"{detail['url']}?v1={chosen['product_id']}" if chosen.get("product_id") else detail["url"]
-    return _candidate(
-        item, slot, stamp,
-        id=f"zara-{detail.get('sku') or item['sku']}-{chosen['id']}",
-        name=detail.get("name") or item["name"],
-        price=chosen["price"],
-        colour=chosen["name"],
-        colour_hex=chosen.get("hex") if colours.is_hex(chosen.get("hex")) else None,
-        composition_text=detail.get("composition_text", ""),
-        description=description,
-        fit=pages.fit_from(f"{detail.get('name', '')} {description}"),
-        sizes_all=chosen["sizes_all"],
-        sizes_in_stock=chosen["sizes_in_stock"],
-        image_url=chosen.get("image_url") or item.get("image_url", ""),
-        url=link,
-    )
 
 
 def collect_slot(session: Session, key: str, store: dict, slot: dict, settings: dict,
                  limit: int, found: list[dict], log) -> None:
-    """Candidates for one slot from one store, appended to `found` as they come."""
+    """Candidates for one slot from one store's category pages, appended to `found`."""
     adapter, base = ADAPTERS[key], store["base"]
     rules = store["garments"][slot["category"]]
     stamp = catalog.now_iso()
     items: dict[str, dict] = {}
     shortlist: list[tuple[dict, dict]] = []
-    enough = limit + (2 if store.get("product_pages") else 0)   # a few spares: some turn out sold out
 
     for path in rules["pages"]:
         url: str | None = base + path
@@ -128,41 +86,19 @@ def collect_slot(session: Session, key: str, store: dict, slot: dict, settings: 
             for item in adapter.parse_listing(html, base):
                 items.setdefault(item["sku"], item)
             shortlist = matching.shortlist(list(items.values()), slot, rules, settings)
-            if len(shortlist) >= enough:
+            if len(shortlist) >= limit:
                 break
             url = pages.next_page_url(html, url)
-        if len(shortlist) >= enough:
+        if len(shortlist) >= limit:
             break
-
-    if not store.get("product_pages"):
-        found.extend(_candidate(item, slot, stamp) for item, _ in shortlist[:limit])
-        return
-
-    visits = 0
-    for item, colour in shortlist:
-        if len(found) >= limit or visits >= limit + 3:
-            break
-        visits += 1
-        try:
-            html = session.fetch(key, base, item["url"])
-        except (NotAllowed, PageMissing):
-            continue
-        detail = adapter.parse_product(html, base)
-        cand = zara_candidate(item, detail, slot, stamp, colour_name=colour.get("name")) if detail else None
-        if not cand or not cand["sizes_in_stock"] or cand["id"] in {c["id"] for c in found}:
-            continue
-        # The product page can name the item differently from the category page
-        # ("… mit Streifen"), so the garment rules are applied once more.
-        if matching.fits_type(cand, rules, slot, settings.get("skip_words", [])):
-            found.append(cand)
+    found.extend(_candidate(item, slot, stamp) for item, _ in shortlist[:limit])
 
 
 def collect_store(session: Session, key: str, store: dict, slots: list[dict], settings: dict,
                   limit: int, log) -> dict:
     """Everything one store offers for the given slots. Returns that store's status entry."""
     label = store.get("label", key)
-    gives = "name, price, colour, picture, sizes in stock and fabric" if store.get("product_pages") \
-        else ADAPTERS[key].LISTING_GIVES
+    gives = ADAPTERS[key].LISTING_GIVES
     state, message, filled, total = "ok", "", 0, 0
     log(f"\n{label}")
     try:
@@ -199,7 +135,7 @@ def refresh(store_keys: list[str] | None = None, slot_ids: list[str] | None = No
     """Collect and save. Returns {store: status}."""
     cfg = load_settings()
     settings = cfg.get("collector", {})
-    keys = [k for k in STORE_ORDER if k in cfg and (not store_keys or k in store_keys)]
+    keys = [k for k in STORE_ORDER if k in cfg and programmes.is_offered(k) and (not store_keys or k in store_keys)]
     all_slots = db.list_slots()
     slots = [s for s in all_slots if not slot_ids or s["id"] in slot_ids]
     slots = [s for s in slots if not s["owned"]]          # nothing to buy for what you own

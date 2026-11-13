@@ -1,9 +1,14 @@
 # Capsule
 
-A local web app for building a men's capsule wardrobe from COS, Weekday and Zara
+A local web app for building a men's capsule wardrobe from COS and Weekday
 (German sites, EUR). It proposes the slots, collects candidates from the stores,
 scores them, picks an item per slot at the price level you choose, shows the
 outfits they make one at a time, checks sizes and writes the shopping list.
+
+Only stores with a partner (affiliate) programme are offered: each store in
+[config/stores.toml](config/stores.toml) has a `programme` line, and a store
+whose programme is `"none"` is never shown or collected. Zara has none, so it
+is not offered.
 
 Run as described here, everything stays on this computer: no accounts, no
 cloud, no paid APIs. There is one exception, and it is off until you switch it
@@ -57,7 +62,7 @@ stops a web page elsewhere from talking to it through your browser.
 
 ```bash
 python -m wardrobe refresh                      # every slot, every store: 20 to 30 minutes
-python -m wardrobe refresh --store zara         # one store
+python -m wardrobe refresh --store cos          # one store
 python -m wardrobe refresh --slot white-tee     # one slot (ids are shown when you mistype one)
 python -m wardrobe refresh --max 3              # fewer candidates per slot, faster
 ```
@@ -67,8 +72,7 @@ never on a schedule, and never as the source for the public site, which is to
 use the stores' licensed product feeds ([PRODUCTION.md](PRODUCTION.md#before-customers)).
 
 A Chrome window opens and reads, for each slot, only the category pages listed
-for that garment type in [config/stores.toml](config/stores.toml) (and, for Zara,
-each shortlisted product page, for fabric and sizes). It is slow on
+for that garment type in [config/stores.toml](config/stores.toml). It is slow on
 purpose: one page at a time, a few seconds apart. Leave the window alone and keep
 working. The result goes to `data/catalog.json` with the collection time; the
 app shows it on the next page load.
@@ -77,7 +81,6 @@ What each store gives:
 
 | Store | Collected | Not collected |
 | --- | --- | --- |
-| Zara | name, price, colour, picture, sizes in stock, fabric | nothing |
 | Weekday | name, price, colour, picture, sizes in stock | fabric |
 | COS | name, price, colour, picture | fabric, sizes in stock |
 
@@ -92,7 +95,7 @@ How it behaves:
 - It uses a normal, visible Chrome with its own profile (`data/browser-profile`).
   Nothing about the browser is disguised. Headless browsers are refused outright.
 - It reads each store's `robots.txt` first and skips anything disallowed. Search
-  pages are disallowed at all three, which is why it uses category pages.
+  pages are disallowed at both, which is why it uses category pages.
 - The first refusal, captcha or error from a store ends that store for the run.
   Nothing is retried. What was collected up to there is kept.
 - Category addresses change when a store reorganises its menu. If the refresh
@@ -102,9 +105,10 @@ How it behaves:
 
 On any slot's page:
 
-- **Add a product by link**: paste product addresses. Zara pages are read in
-  full. COS and Weekday links are not opened; the tool takes what the link says
-  and, if that article was seen during a refresh, its name, price and picture.
+- **Add a product by link**: paste COS or Weekday product addresses. The pages
+  are not opened; the tool takes what the link says and, if that article was
+  seen during a refresh, its name, price and picture. Links to a store that is
+  not offered are refused.
 - **Add details** on a candidate: type the fabric as printed on the product page
   ("80% Wolle, 20% Polyamid"), the sizes in stock, or a price. These win over
   collected data and survive the next refresh.
@@ -121,7 +125,7 @@ The score is a weighted average of three parts, all in that file:
 | Part | What to edit | Example |
 | --- | --- | --- |
 | Fabric | `[fabric.fibres]` is the value of each fibre; `[fabric.by_category.<garment>]` overrides it per garment | make polyester hurt more in trousers: lower `polyester` under `[fabric.by_category.trousers]` |
-| Brand | `[brand.cos]`, `[brand.weekday]`, `[brand.zara]`: 0–100 per garment type | trust Weekday more for knitwear: raise `knit` under `[brand.weekday]` |
+| Brand | `[brand.cos]`, `[brand.weekday]`: 0–100 per garment type | trust Weekday more for knitwear: raise `knit` under `[brand.weekday]` |
 | Price | `[price.bands.<garment>]`: the fair price band | accept pricier coats: raise the upper `fair` value and `steep_above` under `[price.bands.coat]` |
 
 `[weights]` sets how much each part counts. `[fabric.adjustments]` holds the
@@ -149,7 +153,7 @@ config value. Under each choice is what the whole wardrobe would cost with it.
 - **Minimum quality**: only candidates scoring at least this are lined up at
   all. 0 means anything goes.
 
-"Top" is the dearest option these three stores sell for a slot; none of them is
+"Top" is the dearest option these stores sell for a slot; none of them is
 a luxury brand. To rename a level, change its label in `MODES` at the top of
 `wardrobe/selection.py`.
 
@@ -268,6 +272,14 @@ python -m wardrobe stores end musterhaus    # a programme ended: all its product
 - Stores are listed in [config/feeds.toml](config/feeds.toml) with their network,
   status, feed format and address. Secrets never go there: an address names
   them, `{AWIN_API_TOKEN}`, and they are read from environment variables.
+- Every store found with a partner programme for Germany (research of 13 Nov
+  2026: OTTO, Breuninger, P&C, COS, Pull&Bear, Levi's and 23 more) is listed
+  there, not applied to yet, with its programme's page and notes (what is
+  unconfirmed, what the programme requires). `/stores` shows them grouped by
+  network in the order to apply, so it doubles as the checklist for applying.
+  A store whose programme forbids keeping its data (`links_only = true`, MR
+  PORTER) is never imported. Stores with no programme (Zara, the main Zalando
+  shop, Uniqlo, Hugo Boss and others) are not listed.
 - Formats: Google Shopping (Awin's product API as JSON Lines, Webgains and others
   as CSV or TSV), Awin's standard CSV and Tradedoubler's JSON. Rakuten's files
   come in a later round.
@@ -347,8 +359,7 @@ To start over, stop the app and delete the `data/` folder.
   item in stock with a warning, so the total stays meaningful.
 - **"In stock"** means in stock in your size from the Profile page, translated
   to each store's own labels with the tables in `config/size_charts.toml` (there,
-  a W32 waist is `32/32` on jeans, `48` in COS and Weekday trousers and `42` at
-  Zara).
+  a W32 waist is `32/32` on jeans and `48` in COS and Weekday trousers).
 - **Outfit rules** are the constants at the top of `wardrobe/outfits.py`.
 - **A true virtual try-on** (the actual garments, from their product photos, on
   you) is not built. The hook is `wardrobe/tryon.py`: set a provider there and

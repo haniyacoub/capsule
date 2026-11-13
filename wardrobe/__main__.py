@@ -3,7 +3,7 @@
     python -m wardrobe                        start the app on this computer only
     python -m wardrobe serve --lan            also reachable from your phone on the home network
     python -m wardrobe refresh                collect store data by hand, for this computer only (see collect/)
-    python -m wardrobe refresh --store zara --slot white-tee     only part of it
+    python -m wardrobe refresh --store cos --slot white-tee      only part of it
     python -m wardrobe mock                   go back to the invented demo catalogue
     python -m wardrobe publish ./data-production   give your own or an invite-only service the collected products
     python -m wardrobe looks                  are the AI pictures of outfits switched on?
@@ -100,8 +100,8 @@ def serve(args: argparse.Namespace) -> None:
 
 # What `python -m wardrobe refresh --help` says above its options.
 COLLECTOR_IS_PRIVATE = (
-    "Reads COS, Weekday and Zara category pages (and Zara's product pages for fabric and sizes) in a visible "
-    "Chrome window and keeps what it finds on this computer. For your own machine and for testing only: run "
+    "Reads COS and Weekday category pages in a visible Chrome window (never their product pages) and keeps "
+    "what it finds on this computer. For your own machine and for testing only: run "
     "it by hand, never on a schedule (no cron job, timer or start-up call), and never use what it collects as "
     "the source for the public site. The public site is to use the stores' licensed product feeds "
     "(PRODUCTION.md, \"Before customers\"). It refuses to run in production mode."
@@ -130,8 +130,8 @@ def refresh(args: argparse.Namespace) -> None:
     names = [settings[k].get("label", k) for k in STORE_ORDER if not args.store or k in args.store]
     wanted = len(args.slot) or sum(1 for s in slots.values() if not s["owned"])
     print(f"Collecting {wanted} slot{'s' if wanted != 1 else ''} from {', '.join(names)}.\n"
-          "A Chrome window opens and reads the stores' category pages (and Zara's product pages)\n"
-          "one at a time, with a few seconds between pages, so this is slow on purpose — a full\n"
+          "A Chrome window opens and reads the stores' category pages one at a time,\n"
+          "with a few seconds between pages, so this is slow on purpose — a full\n"
           "run takes 20 to 30 minutes.\n"
           "Leave that window alone; you can keep using the computer. Ctrl+C stops and keeps\n"
           "what has been collected so far.")
@@ -216,7 +216,8 @@ def main(argv: list[str] | None = None) -> None:
 
     p_refresh = sub.add_parser("refresh", help="collect store data by hand, for this computer only (never scheduled)",
                                description=COLLECTOR_IS_PRIVATE)
-    p_refresh.add_argument("--store", action="append", default=[], choices=["cos", "weekday", "zara"],
+    from .collect import STORE_ORDER
+    p_refresh.add_argument("--store", action="append", default=[], choices=STORE_ORDER,
                            help="only this store (repeatable)")
     p_refresh.add_argument("--slot", action="append", default=[], metavar="SLOT_ID",
                            help="only this slot, e.g. white-tee (repeatable)")

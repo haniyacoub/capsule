@@ -124,12 +124,16 @@ def chosen(store_key: str | None, from_file: str | None) -> list[dict]:
     if from_file and not store_key:
         raise FeedError("--from needs --store: which store's file is it?")
     if not store_key:
-        return [s for s in db.list_stores() if s["status"] == "approved" and not _left_out(s)]
+        return [s for s in db.list_stores()
+                if s["status"] == "approved" and not _left_out(s) and not s["rules"].get("links_only")]
     store = db.get_store(store_key)
     if store is None:
         raise FeedError(f"There is no store called {store_key!r}. The stores: python -m wardrobe stores")
     if _left_out(store):
         raise FeedError(f"{store_key} is an invented sample store, left out in production")
+    # A programme that forbids keeping its site's data (MR PORTER's): its products are shown as live links only.
+    if store["rules"].get("links_only"):
+        raise FeedError(f"{store_key} is {registry.LINKS_ONLY}")
     if store["status"] == "ended":
         raise FeedError(f"{store_key} has ended: its products were deleted and stay deleted. If its programme "
                         f"takes Capsule back: python -m wardrobe stores sync --reopen {store_key}")

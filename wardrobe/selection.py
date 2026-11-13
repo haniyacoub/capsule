@@ -27,7 +27,7 @@ from . import profile as profile_mod
 from .garments import GARMENTS, SECTIONS, Garment
 
 # The price levels, cheapest first. To rename one, change its label here.
-# "Top" is the dearest option these stores sell for a slot; none of the three is a luxury brand.
+# "Top" is the dearest option these stores sell for a slot; none of them is a luxury brand.
 MODES = {"cheapest": "Cheapest", "cheap": "Cheap", "medium": "Medium", "expensive": "Expensive", "top": "Top",
          "budget": "Best for budget"}
 # Where each level sits between the cheapest (0) and the most expensive (1) candidate of a slot.
@@ -374,10 +374,11 @@ def _controls() -> tuple[str, int]:
     return mode, int(DEFAULT_THRESHOLD if threshold is None else threshold)
 
 
-def build(profile: dict | None = None) -> Wardrobe:
-    """Everything the pages show, computed fresh from the files on disk."""
+def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrobe:
+    """Everything the pages show, computed fresh from the files on disk (or from `catalogue`, a catalogue as it was
+    stored: what a customer saw before a store stopped being offered, see shared.refresh_customer)."""
     profile = profile or profile_mod.load()
-    cat = catalog_mod.load()
+    cat = catalog_mod.load() if catalogue is None else catalogue
     mode, threshold = _controls()
     rules = scoring.load_rules()
     charts = sizes.load_charts()

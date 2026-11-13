@@ -235,25 +235,6 @@ sneakers   = 50
 shoes      = 50
 boots      = 50
 
-[brand.zara]         # scores up on the trend pieces: overshirts and jackets
-default    = 55
-overshirt  = 70
-jacket     = 70
-blazer     = 62
-coat       = 58
-shirt      = 58
-polo       = 58
-trousers   = 58
-chinos     = 58
-jeans      = 58
-tee        = 55
-longsleeve = 55
-knit       = 52
-cardigan   = 52
-sneakers   = 55
-shoes      = 52
-boots      = 52
-
 
 # ── Price sanity ──────────────────────────────────────────────────────────────
 # Per garment type, in EUR:

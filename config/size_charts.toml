@@ -115,6 +115,9 @@ XXL = [118, 126]
 "56" = [99, 104]
 
 # ── Zara ──────────────────────────────────────────────────────────────────────
+# Zara is not offered (no partner programme: config/stores.toml), so no product
+# is ever checked against these tables. They are kept for its sizes' arithmetic
+# in the tests, and for the day it is offered.
 [zara.tops]
 "44" = ["XS"]
 "46" = ["S"]

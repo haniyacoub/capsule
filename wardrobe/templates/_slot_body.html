@@ -161,14 +161,11 @@
   {% for message in get_flashed_messages(category_filter=['import']) %}
   <p class="flash{% if not message.startswith('Added') %} bad{% endif %}" role="status">{{ message }}</p>
   {% endfor %}
-  {% if production %}
-  <p class="muted small">Paste product page addresses from COS, Weekday or Zara, one per line. The page itself is not opened: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
-  {% else %}
-  <p class="muted small">Paste product page addresses from COS, Weekday or Zara, one per line. Zara pages are read in full. COS and Weekday don't show product pages to automated browsers, so only what the link says is taken; add the rest under “Add details”.</p>
-  {% endif %}
+  {# The stores customers are offered (programmes.py); a link to any other store is refused. #}
+  <p class="muted small">Paste product page addresses from {{ store_names(STORES, 'or') }}, one per line. The page itself is not opened: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
   <form class="form" method="post" action="{{ url_for('slot_import', slot_id=sid, **way) }}">{{ csrf_field() }}
     <label class="field"><span>Product links</span>
-      <textarea name="urls" rows="3" placeholder="https://www.zara.com/de/de/…-p01234567.html" autocapitalize="off" spellcheck="false"></textarea></label>
+      <textarea name="urls" rows="3" placeholder="https://www.cos.com/de-de/…/product/…-1234567890" autocapitalize="off" spellcheck="false"></textarea></label>
     <button class="btn small">Add</button>
   </form>
 </section>

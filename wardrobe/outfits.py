@@ -139,6 +139,13 @@ def snapshot(outfit: Outfit) -> list[dict]:
     return out
 
 
+def no_longer_offered(piece: dict) -> dict:
+    """A saved outfit's piece from a store customers are no longer offered (programmes.py), as the Saved page shows
+    it: the piece it filled, in its colour and at what it cost, without the store, its product, photo or link."""
+    piece.update(gone=True, name=piece.get("slot_name") or "", store_name="", store="", image_url="", url="")
+    return piece
+
+
 def with_roles(pieces: list[dict]) -> list[dict]:
     """Fill in "role" on pieces saved before it existed."""
     for piece, role in zip(pieces, roles([p.get("layer", "") for p in pieces])):
