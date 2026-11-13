@@ -2,7 +2,8 @@
 #  AI pictures of outfits ("looks")
 #
 #  On the Outfits page an image service draws each outfit on a model, from a
-#  written description of the pieces. It is off until a key is set:
+#  written description of the pieces, in a studio or, when a customer taps
+#  one, another scene (see [scenes]). It is off until a key is set:
 #
 #      export OPENAI_API_KEY="sk-…"      (from platform.openai.com), or
 #      export GEMINI_API_KEY="…"         (from aistudio.google.com)
@@ -46,15 +47,49 @@ per_customer_per_day = 10    # each customer of a public service
 # The model, for anyone who has not put their own together on the Profile page.
 model = "an adult male fashion model with an average build"
 
-# How the picture is taken. {model} is replaced by the description of the model.
-scene = "A full-length studio photograph for a menswear lookbook: {model}, standing upright in a relaxed, natural pose, facing the camera, arms loosely at the sides. The whole figure is in frame from head to shoes, centred, with a little space above the head and below the shoes. Plain light-grey studio background, soft even daylight, realistic fabric textures and true colours."
+# How the picture is taken. {model} is replaced by the description of the model;
+# {photograph} and {setting} by the words of the scene (see [scenes] below).
+scene = "A full-length {photograph} for a menswear lookbook: {model}, standing upright in a relaxed, natural pose, facing the camera, arms loosely at the sides. The whole figure is in frame from head to shoes, centred, with a little space above the head and below the shoes. {setting}, realistic fabric textures and true colours."
 
 # Used instead when someone uploaded their own photo. {body} is replaced by the
 # height and build they chose, if any.
-scene_with_photo = "A full-length studio photograph for a menswear lookbook. The model is the person in the attached photo: keep their face, hair, skin tone and apparent age exactly as they are, and ignore the clothes and the background of the photo. {body}They stand upright in a relaxed, natural pose, facing the camera, arms loosely at the sides. The whole figure is in frame from head to shoes, centred, with a little space above the head and below the shoes. Plain light-grey studio background, soft even daylight, realistic fabric textures and true colours."
+scene_with_photo = "A full-length {photograph} for a menswear lookbook. The model is the person in the attached photo: keep their face, hair, skin tone and apparent age exactly as they are, and ignore the clothes and the background of the photo. {body}They stand upright in a relaxed, natural pose, facing the camera, arms loosely at the sides. The whole figure is in frame from head to shoes, centred, with a little space above the head and below the shoes. {setting}, realistic fabric textures and true colours."
 
 # What must not appear.
 avoid = "No bag, hat, scarf, gloves, glasses or jewellery unless listed above. No text, logos, labels or watermarks anywhere in the picture. One person only, no props."
+
+
+# Where the picture is taken: the "Scene" choice under each outfit's picture,
+# in this order. The studio is the one shown first and the only one drawn by
+# itself; the others are drawn only when a customer taps them. Each scene is a
+# picture of its own: billed like any picture, counted in the limits under
+# [pictures], and kept for that outfit and scene, so tapping it again (or going
+# back to Studio) costs nothing.
+#
+# The words describe the place and the light only, never the person or the
+# clothes: the model, the pose and the framing stay the same in every scene
+# (the dots rely on that). New words for a scene mean new pictures in it.
+# Leave the studio's words as they are: every picture drawn so far was asked
+# for with them, and changing them would draw all of those again.
+[scenes.studio]
+label      = "Studio"
+photograph = "studio photograph"
+setting    = "Plain light-grey studio background, soft even daylight"
+
+[scenes.street]
+label      = "Street"
+photograph = "photograph taken on location"
+setting    = "Outdoors on a quiet city street with stone buildings and a wide pavement, the background softly out of focus, in soft overcast daylight"
+
+[scenes.library]
+label      = "Library"
+photograph = "photograph taken on location"
+setting    = "Indoors in a quiet library with tall wooden bookshelves, the background softly out of focus, in warm soft light from tall windows"
+
+[scenes.cafe]
+label      = "Café"
+photograph = "photograph taken on location"
+setting    = "Indoors in a small, calm café with wooden tables and a large window, the background softly out of focus, in soft natural window light"
 
 
 # Where the dot for each piece sits on the picture: [from the left %, from the top %].

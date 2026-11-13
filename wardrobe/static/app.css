@@ -441,11 +441,14 @@ details.why summary::-webkit-details-marker { display: none; }
    the photo radius (see "Wider screens"). On a phone the first screen shows the whole model, its price and the
    heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
    the budget bar (--bar-h) and 302px: the header, the chips and the lead line above the picture (150px), the line
-   under it (40px), the outfit line and the tab bar below. The picture is never under 240px wide; on a shorter
-   screen it then ends just above the tab bar, and the outfit line follows below. Its width is kept as --stage-w, so
-   that the arrows can be placed beside the picture (see .reel-nav). */
+   under it (40px), the outfit line and the tab bar below; and --scenes-h, the scenes under the line (see .scenes),
+   where there are any. The picture is never under 240px wide; on a shorter screen it then ends just above the tab
+   bar, and the outfit line follows below. Its width is kept as --stage-w, so that the arrows can be placed beside
+   the picture (see .reel-nav). */
 .looks { --told: 0px; --least: 240px; --lead-more: 0px; }
-.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--lead-more) - var(--told)) * 2 / 3))); }
+.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--scenes-h) - var(--lead-more) - var(--told)) * 2 / 3))); }
+.looks { --scenes-h: 0px; }
+.looks:has(.scenes) { --scenes-h: 40px; }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
    room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
@@ -512,9 +515,9 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 /* The line under the box: one line, 40px tall in every state (empty until there is a picture), so that nothing under
    it moves when the picture arrives. It never wraps: at the browser's standard text size its words show whole (at a
    larger one they end in '…'). Where the box is narrower than the half sentence and the two links (272px: on a
-   phone under about 760px tall, or 795px on Saved, whose lead line is longer, each about 24px more while the
+   phone under about 800px tall, or 835px on Saved, whose lead line is longer, each about 24px more while the
    starter banner shows and about 22px more while the budget bar has its line about missing pieces; on a computer
-   under about 710px tall, or 675px with the banner; or under a message at the top), the line is 272px wide and
+   under about 750px tall, or 715px with the banner; or under a message at the top), the line is 272px wide and
    reaches past the box equally on both sides, by 61px each at most (the box is never under 150px), so it still
    fits a 320px phone. */
 .look-line {
@@ -538,6 +541,22 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .look-links .link { display: inline-flex; align-items: center; padding: 0; font-size: var(--t-s); }   /* each the line's 40px tall */
 .look-msg { color: var(--ok); }
 p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--s-1); }   /* why a new version was not drawn */
+/* The scenes under the line (config/looks.toml [scenes]): Studio, Street, Library, Café as one row of equal cells on
+   a --soft track, as wide as the line above it and 40px tall in every state (--scenes-h gives the picture's room for
+   it). The scene shown is filled with ink, like any choice of one of several. Each cell is the row's whole height, a
+   finger-sized target; a 2px inner ring in the track's colour draws the track around the filled one. */
+.scenes {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
+  background: var(--soft); border-radius: var(--r-track);
+}
+.scenes button {
+  min-width: 0; height: 40px; padding: 0 var(--s-1); border: 0; border-radius: var(--r-track); background: none;
+  font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; color: var(--muted); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .15s ease-out, background-color .15s ease-out;
+}
+.scenes [aria-pressed="false"]:hover { color: var(--ink); }   /* the one shown keeps its page-colour words */
+.scenes [aria-pressed="true"] { background: var(--ink); color: var(--bg); box-shadow: inset 0 0 0 2px var(--soft); cursor: default; }
 .spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--ink); animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* The dots on the AI picture: one per piece, placed by config/looks.toml. */
@@ -628,6 +647,7 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
   .reel { scroll-behavior: auto; }
   .spin { animation: none; }
   .look-pic { transition: none; }
+  .scenes button { transition: none; }
 }
 
 /* ── The pop-up for one piece (a sheet from the bottom on a phone) ───────── */
@@ -1059,8 +1079,9 @@ details[open] > summary .edit { visibility: hidden; }
   .reel { margin: calc(-1 * var(--s-4)) 0; }   /* the 16px of room for focus rings stays (see .reel) */
   .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: var(--s-6); padding: var(--s-4) 60px; }
   /* The picture beside the pieces, as tall as the screen allows below the budget bar (--bar-h), the header, the
-     chips and the lead line, with the line under it (210px), less any message's room (see .looks). */
-  .looks { --stage-w: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--told)) * 2 / 3))); }
+     chips and the lead line, with the line under it (210px) and the scenes under that (--scenes-h), less any
+     message's room (see .looks). */
+  .looks { --stage-w: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--scenes-h) - var(--told)) * 2 / 3))); }
   .looks { --pair: calc(var(--stage-w) + var(--s-6) + 420px); }   /* the picture, the gap and the list: the slide's columns */
   .stage { margin: 0; }
   .collage, .look-pic { border-radius: var(--r-img); }

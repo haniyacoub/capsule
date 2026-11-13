@@ -764,6 +764,7 @@ def create_app() -> Flask:
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved),
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
                     looks_on=looks_on,
+                    scenes=looks.scenes() if looks_on else [],     # the studio picture first; the others on a tap
                     # Until the profile is saved, the starter banner stands where the budget bar would: a budget
                     # the customer never set says nothing yet. Saving the profile brings the bar back.
                     starter=starter_line() if prof["example"] else "",
@@ -801,8 +802,8 @@ def create_app() -> Flask:
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
 
-    def look_fragment(outfit_key: str, look: looks.Look | None) -> str:
-        return render_template("_look.html", key=outfit_key, look=look,
+    def look_fragment(outfit_key: str, look: looks.Look | None, scene: str) -> str:
+        return render_template("_look.html", key=outfit_key, look=look, scene=scene, scenes=looks.scenes(),
                                auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off())
 
     @app.post("/outfits/look")
@@ -814,12 +815,13 @@ def create_app() -> Flask:
             (fav["pieces"] for fav in db.list_saved() if fav["key"] == key), None)
         if pieces is None:
             abort(409, "That outfit no longer exists — reload the page.")
-        look = looks.request(pieces, again=request.form.get("again") == "1")
+        scene = looks.scene_named(request.form.get("scene"))     # a scene tapped under the picture; else the studio
+        look = looks.request(pieces, again=request.form.get("again") == "1", scene=scene)
         if look is None:
             abort(404)                      # AI pictures are switched off
         if not request.headers.get("HX-Request"):
             return redirect(request.referrer or url_for("outfits_page"))
-        return look_fragment(key, look)
+        return look_fragment(key, look, scene)
 
     @app.get("/outfits/look/<look_key>")
     def outfits_look_state(look_key: str):
@@ -828,7 +830,8 @@ def create_app() -> Flask:
         if look is None:
             abort(404)
         outfit_key = request.args.get("outfit", "")
-        return look_fragment(outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else "", look)
+        return look_fragment(outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else "", look,
+                             looks.scene_named(request.args.get("scene")))
 
     @app.get("/looks/<name>")
     def look_image(name: str):

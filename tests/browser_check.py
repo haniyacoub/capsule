@@ -70,7 +70,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, imagegen  # noqa: E402
+from wardrobe import colours, imagegen, looks  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
@@ -560,6 +560,91 @@ def run(base: str) -> None:
                 f"the first outfit's picture is not fetched first, or has no size: {top}"
             assert all(img["lazy"] for img in fetched if not img["first"]), f"another outfit's picture is not fetched lazily: {fetched}"
             context.close()
+
+        def scenes_for_the_picture():
+            # Under each outfit's picture, the scenes: Studio, Street, Library, Café. The studio is the picture drawn by
+            # itself; another scene is drawn only when it is tapped: one more picture, asked for in that scene's words
+            # with the person and the pieces word for word as in the studio, shown in the same box (the drawing said
+            # inside it), with that scene pressed and keyboard focus kept on it. Back to the studio, its picture is
+            # there at once and nothing is drawn again. On a phone and a computer, light and dark, the row lies under
+            # the line under the picture, whole on the screen, four cells 40px tall with their words whole and readable
+            # (4.5:1) whether pressed or not; on a phone the outfit's title, price and heart still end above the tab bar.
+            row = f"{first} .scenes"
+            page.goto(base + "/outfits", wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            studio = page.get_attribute(f"{first} .look-pic img", "src")
+            labels = page.locator(f"{row} button").all_inner_texts()
+            assert labels == ["Studio", "Street", "Library", "Café"], f"the scenes under the picture are {labels}"
+            assert page.locator(f"{row} [aria-pressed=true]").all_inner_texts() == ["Studio"], "the studio is not the scene shown"
+            assert page.get_attribute(row, "role") == "group" and page.get_attribute(row, "aria-label") == "Scene", \
+                "the scenes are not one group named 'Scene' for screen readers"
+            elsewhere = [scene["setting"] for name, scene in looks.load_rules()["scenes"].items() if name != looks.STUDIO]
+            assert not any(words in sent["prompt"] for sent in asked for words in elsewhere), "a scene was drawn without being tapped"
+            before = len(asked)
+            page.focus(f"{row} button:has-text('Street')")              # by keyboard
+            page.keyboard.press("Enter")
+            page.wait_for_selector(f"{first} .look-bar.wait")
+            status = drawing_status(page)
+            assert status["inside"] and status["words"].startswith("Drawing this outfit"), \
+                f"while the Street picture is drawn, the picture's box does not say so: {status}"
+            page.wait_for_function("([s, old]) => { const i = document.querySelector(s + ' .look-pic img');"
+                                   " return i && i.getAttribute('src') !== old && i.complete; }", arg=[first, studio])
+            shows(f"{first} .look-pic img", "the Street picture")
+            labelled(page, "1280 x 860, Street")
+            assert page.locator(f"{row} [aria-pressed=true]").all_inner_texts() == ["Street"], "Street is not shown as pressed"
+            focused = page.evaluate("() => document.activeElement.id")
+            assert focused.startswith("scene-") and focused.endswith("-street"), f"keyboard focus left Street for {focused!r}"
+            assert page.locator(f"{first} .spot").count() == page.locator(f"{first} .piece-row").count(), "a dot per piece"
+            assert len(asked) == before + 1, f"tapping Street asked for {len(asked) - before} pictures"
+            street = asked[-1]["prompt"]
+            assert looks.load_rules()["scenes"]["street"]["setting"] in street and "studio" not in street.lower(), \
+                "the Street picture was not asked for in the street"
+            assert any(sent["prompt"].split("\n", 1)[1] == street.split("\n", 1)[1] for sent in asked[:before]), \
+                "the Street picture's pieces and what to avoid are not word for word the studio picture's"
+            page.click(f"{row} button:has-text('Studio')")
+            page.wait_for_function("([s, src]) => { const i = document.querySelector(s + ' .look-pic img');"
+                                   " return i && i.getAttribute('src') === src; }", arg=[first, studio])
+            assert len(asked) == before + 1 and not page.locator(f"{first} .look-bar.wait").count(), \
+                "going back to the studio drew its picture again"
+
+            for width, height, touch in ((390, 844, True), (1280, 860, False)):
+                for scheme in ("light", "dark"):
+                    context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=touch,
+                                                  has_touch=touch, color_scheme=scheme)
+                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.wait_for_selector(f"{first} .look-pic img")
+                    other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                    seen = other.evaluate("""s => {
+                        const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
+                        const row = slide.querySelector('.scenes'), r = box(row), line = box(slide.querySelector('.look-line'));
+                        const rgb = c => c.match(/[\\d.]+/g).slice(0, 4).map(Number);
+                        const lum = c => { const [r, g, b] = rgb(c).slice(0, 3).map(v => { v /= 255;
+                            return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+                        const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+                        const ground = getComputedStyle(row).backgroundColor;
+                        const cells = [...row.querySelectorAll('button')].map(b => {
+                            const style = getComputedStyle(b), own = style.backgroundColor;
+                            const bg = rgb(own)[3] === 0 ? ground : own;
+                            return {words: b.textContent.trim(), height: box(b).height, whole: b.scrollWidth <= b.clientWidth,
+                                    contrast: Math.round(ratio(style.color, bg) * 100) / 100};
+                        });
+                        const meta = [...slide.querySelectorAll('.about-head h2, .count, .board-cost, .heart')].map(el => box(el).bottom);
+                        return {cells, left: r.left, right: r.right, top: r.top, under: Math.abs(r.top - line.bottom) < 1,
+                                same_width: Math.abs(r.width - line.width) < 1, screen: innerWidth,
+                                line_end: Math.max(...meta), tabs: box(document.querySelector('nav.tabs')).top,
+                                page: document.documentElement.scrollWidth};
+                    }""", first)
+                    where = f"{width} x {height}, {scheme}"
+                    assert seen["under"] and seen["same_width"] and 0 <= seen["left"] and seen["right"] <= seen["screen"], \
+                        f"{where}: the scenes are not right under the line under the picture, whole on the screen: {seen}"
+                    assert seen["page"] <= width, f"{where}: the page is {seen['page']}px wide"
+                    for cell in seen["cells"]:
+                        assert cell["height"] >= 40 and cell["whole"] and cell["contrast"] >= 4.5, \
+                            f"{where}: the scene {cell['words']!r} is under 40px tall, cut off or hard to read: {cell}"
+                    if touch:
+                        assert seen["line_end"] <= seen["tabs"], \
+                            f"{where}: with the scenes, the outfit's title, price and heart end under the tab bar: {seen}"
+                    context.close()
 
         def dot_opens_the_piece():
             spot = page.locator(f"{first} .spot").nth(0)
@@ -1736,6 +1821,7 @@ def run(base: str) -> None:
                  ("the picture of an outfit arrives by itself", picture_arrives),
                  ("the starter outfits fit three phones", starter_outfits_fit_a_phone),
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
+                 ("scenes: another drawn on a tap, the studio kept", scenes_for_the_picture),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),

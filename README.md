@@ -239,6 +239,13 @@ Things to know:
   `auto = false` in [config/looks.toml](config/looks.toml) to draw only when
   you press "See it worn". `per_day` in the same file caps how many are started
   in 24 hours.
+- **Scenes:** under each picture, Studio, Street, Library and Café. The studio
+  picture is the one drawn by itself; another scene is drawn only when you tap
+  it. Each scene is a picture of its own: billed and counted in `per_day` like
+  any other, and kept, so switching back and forth costs nothing. The scenes
+  and their words are under `[scenes]` in `config/looks.toml`. The words
+  describe the place and the light only: the model, the pose and the clothes
+  stay the same, and so do the dots.
 - The same file holds the service and model names, the picture quality, the
   wording sent to the service, and where the dots sit on the picture.
 - The services rename their models every few months. If pictures stop with
