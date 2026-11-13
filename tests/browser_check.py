@@ -600,6 +600,12 @@ def run(base: str) -> None:
                 touch.send("Input.synthesizeScrollGesture", {"x": 195, "y": int(box["y"] + box["height"] - 60), "xDistance": 0,
                                                             "yDistance": -300, "speed": 1200, "gestureSourceType": "touch"})
                 other.wait_for_timeout(300)
+            # Some headless browsers (GitHub's, for one) ignore a synthesized touch swipe inside a dialog: the sheet
+            # does not move at all. Then it is scrolled to its end directly, so the promise below (scrolled to its end,
+            # the close button stays at its top) is still checked, never skipped.
+            if other.evaluate("() => { const s = document.querySelector('dialog#piece'); return s.scrollTop === 0 && s.scrollHeight > s.clientHeight }"):
+                other.evaluate("() => { const s = document.querySelector('dialog#piece'); s.scrollTop = s.scrollHeight }")
+                other.wait_for_timeout(300)
             # Swiped to its end, the sheet keeps its close button where it was: at its top, whole and on top.
             kept = other.evaluate("""() => {
                 const sheet = document.querySelector('dialog#piece'), s = sheet.getBoundingClientRect();
