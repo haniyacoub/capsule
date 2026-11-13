@@ -670,12 +670,13 @@ def run(base: str) -> None:
             # Under a finished picture, "See it move": a button on the picture, at its top right, clear of every dot.
             # Tapped, it says what a video is and how many are left today ("1 video left today") next to the button that
             # makes one, which has keyboard focus; nothing is made until that is pressed. While the video is made the
-            # picture's box says so; then the video lies over the picture, labelled 'AI video', plays once and rests on
-            # its last frame, with keyboard focus on it and "Video ready" said once. Dragging across it, or the arrow
-            # keys, turn the model (a slider, its value in degrees) without moving on to another outfit; "Play again"
-            # plays it from the start; "Picture" brings back the picture and its dots. Reloaded, playing it again is
-            # free. The customer's one video a day is then used: another outfit says "No videos left today: more
-            # tomorrow" and offers nothing to press. Nothing below the picture moves at any point.
+            # picture's box says so (and "Making the video" is said once); then the video lies over the picture,
+            # labelled 'AI video', plays once and rests on its last frame, with keyboard focus on it and "Video ready"
+            # said once. Dragging across it, or the arrow keys, turn the model (a slider, its value in degrees) without
+            # moving on to another outfit; "Play again" plays it from the start; "Show picture" brings back the picture
+            # and its dots. Reloaded, playing it again is free. The customer's one video a day is then used: another
+            # outfit says "No videos left today: more tomorrow", which a screen reader hears with its only button,
+            # Close. Nothing below the picture moves at any point.
             page.goto(base + "/outfits", wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             geometry = """s => { const slide = document.querySelector(s), box = el => el && el.getBoundingClientRect();
@@ -710,6 +711,7 @@ def run(base: str) -> None:
                         inside: b.top >= p.top - .5 && b.bottom <= p.bottom + .5 && b.left >= p.left - .5 && b.right <= p.right + .5}; }""", first)
             assert status["words"].startswith("Making the video") and status["inside"], \
                 f"while the video is made the picture's box does not say so: {status}"
+            page.wait_for_function("() => document.getElementById('announce').textContent === 'Making the video'")
             page.wait_for_selector(f"{first} .vid.on")
             page.wait_for_function("s => { const v = document.querySelector(s + ' .vid-clip'); return v.currentTime > 0.3; }",
                                    arg=first)
@@ -724,7 +726,7 @@ def run(base: str) -> None:
                         scenes: box(slide.querySelector('.scenes')).top, title: box(slide.querySelector('.about-head')).top}; }""", first)
             assert seen["muted"] and seen["same_box"] and seen["chip"] == "AI video" and seen["chip_on"], \
                 f"the video does not lie over the picture, muted and labelled 'AI video': {seen}"
-            assert seen["dots"] == 0 and seen["line_under"] and seen["line"] == "Drag to turn Play again Picture", \
+            assert seen["dots"] == 0 and seen["line_under"] and seen["line"] == "Drag to turn Play again Show picture", \
                 f"while the video shows, the dots stay or its own line is not where the picture's was: {seen}"
             assert seen["focus"] == "slider" and seen["heard"] == "Video ready", f"focus or what is heard: {seen}"
             assert (seen["scenes"], seen["title"]) == (before["scenes"], before["title"]), \
@@ -757,7 +759,7 @@ def run(base: str) -> None:
                                    arg=first)
             page.click(f"{first} [data-vid-close]")
             assert not page.locator(f"{first} .vid.on").count() and page.locator(f"{first} .spot:visible").count() > 0, \
-                "'Picture' did not bring back the picture and its dots"
+                "'Show picture' did not bring back the picture and its dots"
             assert page.evaluate("() => document.activeElement.classList.contains('vid-pill')"), "focus is not back on 'See it move'"
 
             page.reload(wait_until="networkidle")
@@ -776,6 +778,11 @@ def run(base: str) -> None:
             used = page.inner_text(f"{second} .vid-bar.ask")
             assert "No videos left today: more tomorrow" in used and "Make the video" not in used, \
                 f"with the day's video used, another outfit offers {used!r}"
+            heard = page.evaluate("""() => { const button = document.activeElement;
+                const words = (button.getAttribute('aria-describedby') || '').split(' ').map(id => document.getElementById(id));
+                return {button: button.textContent.trim(), described: words.map(w => w ? w.textContent : '').join(' ')}; }""")
+            assert heard["button"] == "Close" and "No videos left today: more tomorrow" in heard["described"], \
+                f"a screen reader is not told that no videos are left: {heard}"
             page.keyboard.press("Enter")                    # its one button, with keyboard focus: Close
             page.wait_for_selector(f"{second} .vid-pill")
             assert len(made) == 1

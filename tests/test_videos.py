@@ -12,7 +12,9 @@ import shutil
 import sqlite3
 import subprocess
 import unittest
+import urllib.error
 from contextlib import closing, redirect_stdout
+from email.message import Message
 from pathlib import Path
 from unittest import mock
 
@@ -154,7 +156,7 @@ class SeeItMove(WithVideos, AppCase):
         for wanted in ('role="slider"', 'tabindex="0"', 'aria-valuemin="0"', 'aria-valuemax="360"', 'aria-valuenow="0"',
                        'aria-valuetext="0 degrees"', 'aria-label="Drag to turn the model"'):
             self.assertIn(wanted, slider)
-        for wanted in ("Drag to turn", "Play again", "Picture"):
+        for wanted in ("Drag to turn", "Play again", "Show picture"):
             self.assertIn(wanted, said(ready))
         clip = re.search(r'<video class="vid-clip"[^>]*>', ready).group(0)
         for wanted in ("muted", "playsinline", 'preload="none"', f'poster="/looks/{look.file}"'):
@@ -164,6 +166,37 @@ class SeeItMove(WithVideos, AppCase):
         self.assertIn("data-vid-open", page)
         self.assertNotIn("data-play", page)
         self.assertEqual(len(self.made), 1)
+
+    def test_the_bands_words_are_heard_on_each_of_its_buttons_close_too(self):
+        # Whichever of the band's buttons has keyboard focus, a screen reader hears the band's words with it: also
+        # "No videos left today: more tomorrow" with Close, the only button left then.
+        outfit, look = self.picture()
+        described = f'aria-describedby="vid-said-{outfit.key}"'
+        offer = self.part(outfit, look, ask="1")
+        buttons = re.findall(r"<button[^>]*>.*?</button>", offer, re.S)
+        self.assertEqual([said(button) for button in buttons], ["Make the video", "Not now"])
+        for button in buttons:
+            self.assertIn(described, button)
+        self.with_video_rules(per_day=0)
+        used = self.part(outfit, look, ask="1")
+        buttons = re.findall(r"<button[^>]*>.*?</button>", used, re.S)
+        self.assertEqual([said(button) for button in buttons], ["Close"])
+        self.assertIn(described, buttons[0])
+        words = used[used.index(f'<span id="vid-said-{outfit.key}">'):used.index("<button")]
+        self.assertIn("No videos left today: more tomorrow.", said(words))
+
+    def test_a_video_whose_file_has_gone_is_made_again(self):
+        outfit, look = self.picture()
+        self.make(outfit, look)
+        for clip in videos.folder().glob("*.mp4"):                  # its folder emptied, say
+            clip.unlink()
+        self.assertIn("Make the video", self.part(outfit, look, ask="1"))
+        shown = self.make(outfit, look)
+        self.assertEqual(len(self.made), 2, "made again, not 'being made' for ever")
+        self.assertIn("data-play", shown)
+        self.assertEqual(fetched(self.client, re.search(r'src="(/videos/[^"]+)"', shown).group(1)), 200)
+        self.make(outfit, look)
+        self.assertEqual(len(self.made), 2, "and then kept, as before")
 
     def test_asking_again_costs_nothing_and_the_file_is_served_in_parts(self):
         outfit, look = self.picture()
@@ -288,6 +321,24 @@ class TurnFile(WithVideos, AppCase):
         self.assertEqual(len(self.videos_on_disk()), 2)
         address = re.search(r'src="(/videos/[^"]+-turn\.mp4)"', drag).group(1)
         self.assertEqual(fetched(self.client, address), 200)
+
+    def test_a_lost_clip_is_made_again_and_its_old_turn_goes(self):
+        def ffmpeg(command, **options):
+            Path(command[-1]).write_bytes(CLIP[:5000])
+            return subprocess.CompletedProcess(command, 0)
+
+        with mock.patch.object(videos, "_ffmpeg", lambda: "/usr/bin/ffmpeg"), \
+                mock.patch.object(videos.subprocess, "run", ffmpeg):
+            self.made_video()
+            old_turn = next(name for name in self.videos_on_disk() if name.endswith("-turn.mp4"))
+            (videos.folder() / old_turn.replace("-turn", "")).unlink()       # the clip has gone, its turn not
+            later = videos.time.time() + 30                                 # made again later, under new names
+            with mock.patch.object(videos.time, "time", lambda: later):
+                shown = self.made_video()
+        self.assertEqual(len(self.made), 2)
+        self.assertIn("vid-drag", shown)
+        self.assertNotIn(old_turn, self.videos_on_disk(), "the old turn is not left behind")
+        self.assertEqual(len(self.videos_on_disk()), 2)
 
     def test_without_ffmpeg_the_clip_itself_is_dragged(self):
         shown = self.made_video()
@@ -453,6 +504,58 @@ class VideosForCustomers(WithVideos, ProductionCase):
             self.assertEqual(con.execute("SELECT COUNT(*) FROM video_requests").fetchone()[0], 3,
                              "deleting an account does not hand back the day's total")
 
+    def upload(self, client):
+        client.post("/profile/photo", content_type="multipart/form-data", data={
+            "photo": (io.BytesIO(PHOTO), "me.jpg"), "agree": "on", "csrf_token": self.token(client)})
+
+    def test_the_date_kept_with_a_photo_is_that_of_the_words_shown(self):
+        ada = self.member("ada@example.com")
+        self.assertIn("to make videos of them when I ask", said(ada.get("/profile").data.decode()))
+        self.upload(ada)
+        self.assertEqual(json.loads(ada.get("/account/export").data)["settings"]["photo_consent"], videos.CONSENT)
+        bob = self.member("bob@example.com")
+        with mock.patch.object(videos, "service", lambda: None):        # videos off: the words say nothing of them
+            self.assertNotIn("videos", said(bob.get("/profile").data.decode()))
+            self.upload(bob)
+        self.assertEqual(json.loads(bob.get("/account/export").data)["settings"]["photo_consent"], "2026-11-12")
+        self.assertEqual(videos.CONSENT, "2026-11-13")
+
+    def test_a_photo_added_before_the_words_about_videos_needs_a_tick_first(self):
+        ada = self.member("ada@example.com")
+        with mock.patch.object(videos, "service", lambda: None):        # videos were off when she added it
+            self.upload(ada)
+        key, look = self.picture_of(ada)                                # drawn from her photo
+        offer = ada.get(f"/outfits/video?look={look}&outfit={key}&ask=1").data.decode()
+        box = re.search(r'<label class="check">(.*?)</label>', offer, re.S).group(1)
+        self.assertIn("I agree to Stilsmith sending this picture of me to Google to make the video.", said(box))
+        for wanted in ('name="agree"', "required", f'aria-describedby="vid-said-{key}"'):
+            self.assertIn(wanted, box)
+        self.assertLess(offer.index('name="agree"'), offer.index("Make the video"), "the box comes first")
+        not_ticked = said(self.make(ada, key, look))                   # sent without it (no browser stops that)
+        self.assertIn("tick the box to agree to it going to Google first", not_ticked)
+        self.assertEqual((self.made, db.video_requests(0)), ([], 0), "nothing sent, nothing counted")
+        ticked = self.post(ada, "/outfits/video", headers=HX, look=look, outfit=key, agree="on").data.decode()
+        self.assertIn("data-play", ticked)
+        self.assertEqual(len(self.made), 1)
+        kept = json.loads(ada.get("/account/export").data)["settings"]
+        self.assertEqual((kept["photo_consent"], kept["video_consent"]["words"]), ("2026-11-12", videos.CONSENT),
+                         "what she agreed to, and when, in her copy of her data")
+        with mock.patch.object(videos, "allowance", lambda: 5):
+            other, second = self.picture_of(ada, 1)
+            self.assertNotIn("I agree", self.offer(ada, other, second), "asked once for this photo")
+            bob = self.member("bob@example.com")                        # no photo: nothing to agree to
+            bob_key, bob_look = self.picture_of(bob, 2)
+            self.assertNotIn("I agree", self.offer(bob, bob_key, bob_look))
+            # A new photo added while videos are off again: her tick was for the photo before it.
+            with mock.patch.object(videos, "service", lambda: None), \
+                    mock.patch.object(db, "now_iso", lambda: "2099-01-01T00:00:00+01:00"):
+                self.upload(ada)
+            key, look = self.picture_of(ada, 3)
+            self.assertIn("I agree to Stilsmith sending this picture of me", self.offer(ada, key, look))
+            self.upload(ada)                                            # added with the words about videos: no box
+            key, look = self.picture_of(ada, 4)
+            self.assertNotIn("I agree", self.offer(ada, key, look))
+
     def test_a_refused_video_of_someones_photo_says_why_plainly(self):
         ada = self.member("ada@example.com")
         ada.post("/profile/photo", content_type="multipart/form-data", data={
@@ -486,6 +589,7 @@ class VideosForCustomers(WithVideos, ProductionCase):
         self.assertIn("AI videos of outfits", privacy)
         self.assertIn("the outfit's AI picture is sent to Google's video model", privacy)
         self.assertIn("deleted with it: when you delete the photo or your account", privacy)
+        self.assertIn("A picture drawn from your photo goes to Google only once you have agreed to it", privacy)
 
     def test_the_videos_need_a_login_and_the_pages_token(self):
         ada = self.member("ada@example.com")
@@ -548,6 +652,28 @@ class GoogleVideoModel(unittest.TestCase):
         self.assertEqual(len(self.sent), 3, "the key never goes to another server")
         self.assertIn("another server", caught.exception.detail)
 
+    def test_a_video_handed_over_from_googles_storage_is_followed_once_without_the_key(self):
+        uri = "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media"
+        storage = "https://storage.googleapis.com/some-bucket/abc.mp4?signature=made-up"
+        self.answers += [self.answer({"type": "video", "uri": uri}), (302, storage.encode()), (200, CLIP)]
+        self.assertEqual(videogen.make(self.service, PICTURE, "Turn."), CLIP)
+        self.assertEqual([sent["url"] for sent in self.sent[1:]], [uri, storage])
+        self.assertEqual(self.sent[1]["headers"]["x-goog-api-key"], "AIza-test-key-123456")
+        self.assertNotIn("x-goog-api-key", self.sent[2]["headers"], "the key goes only to Google's own address")
+        self.assertIsNone(self.sent[2]["body"])
+        self.answers += [self.answer({"type": "video", "uri": uri}), (307, b"/download/abc.mp4"), (200, CLIP)]
+        self.assertEqual(videogen.make(self.service, PICTURE, "Turn."), CLIP)
+        self.assertEqual(self.sent[5]["url"], "https://generativelanguage.googleapis.com/download/abc.mp4")
+        for elsewhere in (b"https://elsewhere.example/abc.mp4", b"http://storage.googleapis.com/abc.mp4",
+                          b"https://storage.googleapis.com.example/abc.mp4", b""):
+            self.answers += [self.answer({"type": "video", "uri": uri}), (302, elsewhere)]
+            asked = len(self.sent)
+            with self.assertRaises(imagegen.DrawError, msg=elsewhere) as caught:
+                videogen.make(self.service, PICTURE, "Turn.")
+            self.assertEqual(len(self.sent), asked + 2, f"{elsewhere!r} was followed")
+            self.assertEqual(caught.exception.kind, "busy")
+            self.assertFalse(caught.exception.free, "Google made the video: it is not handed back as free")
+
     def test_refusals_and_problems_are_told_apart(self):
         cases = [
             ((400, json.dumps({"error": {"code": 400, "status": "INVALID_ARGUMENT", "message": "x"}}).encode()), "request"),
@@ -571,6 +697,22 @@ class GoogleVideoModel(unittest.TestCase):
         self.answers.append(self.answer({"type": "video", "data": base64.b64encode(CLIP).decode()}))
         videogen.make(self.service, PICTURE, "Turn.")
         self.assertEqual(len(self.sent), 1, "one request, through imagegen._send")
+
+
+class Redirects(unittest.TestCase):
+    def test_a_redirect_is_not_followed_and_its_address_is_handed_back(self):
+        # urllib reports a redirect that the opener does not follow as an error with the new address in its headers.
+        headers = Message()
+        headers["Location"] = "https://storage.googleapis.com/some-bucket/abc.mp4"
+        opener = mock.Mock()
+        opener.open.side_effect = urllib.error.HTTPError(
+            "https://generativelanguage.googleapis.com/v1beta/files/abc", 302, "Found", headers, None)
+        with mock.patch.object(imagegen, "_opener", opener):
+            answer = imagegen._send("https://generativelanguage.googleapis.com/v1beta/files/abc",
+                                    {"x-goog-api-key": "AIza-test-key-123456"}, None)
+        self.assertEqual(answer, (302, b"https://storage.googleapis.com/some-bucket/abc.mp4"))
+        self.assertEqual(opener.open.call_count, 1, "once: not followed")
+        self.assertEqual(opener.open.call_args[0][0].get_method(), "GET")
 
 
 class VideoSettings(WithVideos, AppCase):

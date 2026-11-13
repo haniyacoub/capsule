@@ -72,6 +72,13 @@ SAY = {
 }
 CLOSED = "Videos are not available at the moment."
 NONE_LEFT = "No videos left today: more tomorrow"
+TICK_FIRST = "Not made. This picture is drawn from your photo: tick the box to agree to it going to Google first."
+
+# The date of the words about videos that a customer agrees to before a picture drawn from his photo goes to Google
+# for a video: in the photo's box on Profile (profile.html; app.py stores the date as photo_consent with the photo)
+# or, for a photo added before those words, in the box of the video's band (_video.html; stored as video_consent,
+# with the photo it is about). Give it a new date whenever those words change.
+CONSENT = "2026-11-13"
 
 
 # ── settings ──────────────────────────────────────────────────────────────────
@@ -101,7 +108,7 @@ def fingerprint(chosen: videogen.Service, text: str, picture: str) -> str:
 @dataclass
 class Video:
     key: str
-    status: str                  # working | ready | failed | limit
+    status: str                  # working | ready | failed | limit | consent (the band's box not ticked)
     file: str | None = None      # the clip's name under /videos/
     turn: str | None = None      # the turn with every frame a keyframe, for dragging (None: drag the clip itself)
     message: str = ""            # why it failed or cannot be made
@@ -202,11 +209,29 @@ def left_words(number: int) -> str:
     return f"{number} video{'' if number == 1 else 's'} left today"
 
 
+# ── a picture of the customer's photo: his agreement first ───────────────────
+
+def consented() -> bool:
+    """Whether the signed-in customer agreed that pictures drawn from his photo may go to Google for videos: when
+    he added the photo (the words of CONSENT's date, or later ones), or since then, in the video's band."""
+    if str(db.get_setting("photo_consent") or "") >= CONSENT:
+        return True
+    later = db.get_setting("video_consent")
+    return (isinstance(later, dict) and str(later.get("words", "")) >= CONSENT
+            and later.get("photo_added") == db.get_setting("photo_added"))    # for this photo, not an earlier one
+
+
+def needs_consent(look: looks.Look) -> bool:
+    """Whether making this picture's video needs the customer's agreement first (see consented)."""
+    row = db.look_rows([look.key]).get(look.key) or {}
+    return row.get("user_id") is not None and not consented()
+
+
 # ── asking for a video ────────────────────────────────────────────────────────
 
-def request(look: looks.Look) -> Video | None:
+def request(look: looks.Look, agreed: bool = False) -> Video | None:
     """Start making the video of this picture, or say where it stands. None while videos are off or the
-    picture is not ready.
+    picture is not ready. `agreed`: the customer ticked the band's box (needs_consent).
 
     Asking twice never pays twice: a finished video is returned as it is, and one being made is left alone.
     A new one takes one of the day's videos, apart from the pictures' allowance.
@@ -216,9 +241,17 @@ def request(look: looks.Look) -> Video | None:
         return None
     text = (rules() or {})["text"]
     key = fingerprint(chosen, text, look.file)
-    video = get(key)
+    row = db.video_rows([key]).get(key)
+    video = _view(row)
     if video and video.status in ("working", "ready"):
         return video
+    # A video whose file has gone (its folder was emptied, say) is made again, like one never made.
+    lost = row["file"] if row and row["file"] and row["user_id"] in (None, db.uid()) else None
+    if needs_consent(look):
+        if not agreed:
+            return Video(key, "consent", message=TICK_FIRST)
+        db.set_setting("video_consent", {"words": CONSENT, "photo_added": db.get_setting("photo_added"),
+                                         "at": db.now_iso()})
     limits, now = rules() or {}, time.time()
     ticket, used_up = db.take_video_ticket(now - 24 * 3600, limits["per_day"], allowance())
     if not ticket:
@@ -226,7 +259,9 @@ def request(look: looks.Look) -> Video | None:
         return Video(key, "limit", message=NONE_LEFT + "." + hint)
     picture_row = db.look_rows([look.key]).get(look.key) or {}
     owner = picture_row.get("user_id")             # a picture of someone's own photo: the video is theirs too
-    if db.start_video(key, look.file, chosen.tag, owner, now - STALE_SECONDS):
+    if db.start_video(key, look.file, chosen.tag, owner, now - STALE_SECONDS, lost=lost):
+        if lost and row and row["turn"]:
+            _unlink([row["turn"]])                  # the turn of the lost clip, if it is still there
         try:
             picture = (looks.folder() / look.file).read_bytes()
         except OSError:                          # drawn again a moment ago: nothing was sent, nothing counts

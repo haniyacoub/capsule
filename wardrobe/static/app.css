@@ -563,13 +563,13 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
    focus ring is white inside a dark one, so it shows on any picture. */
 .vid-pill {
   position: absolute; top: var(--s-2); right: var(--s-2); z-index: 2;
-  display: inline-flex; align-items: center; gap: var(--s-1); height: 32px; padding: 0 var(--s-3) 0 10px;
+  display: inline-flex; align-items: center; gap: var(--s-1); height: var(--s-6); padding: 0 var(--s-3) 0 var(--s-2);
   border: 0; border-radius: var(--r-pill); background: rgba(27, 27, 26, .72); color: #fff; cursor: pointer;
   font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; white-space: nowrap;
   transition: background-color .15s ease-out;
 }
 .vid-pill .ic { width: 14px; height: 14px; fill: currentColor; }
-.vid-pill::after { content: ""; position: absolute; inset: -8px 0; }   /* 48px tall to a finger (44px under 300px) */
+.vid-pill::after { content: ""; position: absolute; inset: calc(-1 * var(--s-2)) 0; }   /* 48px tall to a finger (44px under 300px) */
 .vid-pill:hover { background: rgba(27, 27, 26, .9); }
 .vid-pill:focus-visible { outline: 2px solid #1b1b1a; outline-offset: 2px; box-shadow: 0 0 0 2px #fff; }
 /* On a picture under 300px wide (a phone under about 800px tall) the head reaches nearer the top right corner: the
@@ -608,6 +608,10 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
    "Not now" in white and as tall as the white button beside it. */
 .vid-bar .link { display: inline-flex; align-items: center; min-height: 40px; padding: 0; color: #fff; }
 .vid-bar b { font-weight: 600; }
+/* A picture drawn from the customer's photo, whose photo was added before the words about videos: his agreement first,
+   a box to tick on a line of its own, above the button. */
+.vid-bar .check { flex: 1 1 100%; gap: var(--s-2); min-height: 40px; }
+.vid-bar .check input { accent-color: #fff; }
 .spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--ink); animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* The dots on the AI picture: one per piece, placed by config/looks.toml. */

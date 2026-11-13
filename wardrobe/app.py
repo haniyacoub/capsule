@@ -54,7 +54,9 @@ PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_ima
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
 # The date of the words a customer agrees to when he uploads his photo (the box on Profile, profile.html). It is
 # stored with the photo, so it is known which words he agreed to. Give it a new date whenever those words change.
-PHOTO_CONSENT = "2026-11-13"
+# While videos are on, the box's words also say that pictures of him go to Google for videos: those words are
+# dated videos.CONSENT, and that date is stored instead.
+PHOTO_CONSENT = "2026-11-12"
 
 
 def bootstrap() -> None:
@@ -852,9 +854,10 @@ def create_app() -> Flask:
 
     def video_fragment(outfit_key: str, look: looks.Look, video: videos.Video | None, asking: bool = False,
                        play: bool = False) -> str:
-        offer = asking or (video is not None and video.status in ("failed", "limit"))
+        offer = asking or (video is not None and video.status in ("failed", "limit", "consent"))
         return render_template("_video.html", key=outfit_key, look=look, video=video, asking=asking, play=play,
                                left=videos.left() if offer else None, left_words=videos.left_words,
+                               needs_ok=offer and videos.needs_consent(look),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
 
     @app.get("/outfits/video")
@@ -871,7 +874,7 @@ def create_app() -> Flask:
     def outfits_video_make():
         """Make the video of an outfit's picture (or say why not)."""
         look, outfit_key = video_look()
-        video = videos.request(look)
+        video = videos.request(look, agreed=request.form.get("agree") == "on")    # the band's box, where it has one
         if not request.headers.get("HX-Request"):
             return redirect(request.referrer or url_for("outfits_page"))
         return video_fragment(outfit_key, look, video, play=video is not None and video.status == "ready")
@@ -1121,7 +1124,9 @@ def create_app() -> Flask:
         else:
             problem = person.save_photo(data)
             if problem is None:
-                db.set_setting("photo_consent", PHOTO_CONSENT)      # beside photo_added: which words he agreed to
+                # Beside photo_added: which words he agreed to (with the videos' words while videos are on).
+                videos_shown = looks.service() is not None and videos.service() is not None    # as profile_page
+                db.set_setting("photo_consent", videos.CONSENT if videos_shown else PHOTO_CONSENT)
                 looks.forget_pictures_of(db.uid())      # those showed the previous photo
             flash(f"Not saved. {problem}" if problem
                   else "Photo saved. Pictures drawn from now on show you.", "photo")

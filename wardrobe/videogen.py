@@ -22,16 +22,18 @@ in Google's own package (google-genai 3.3.0, read for this, not installed):
                          "content": [{"type": "video", "mime_type": "video/mp4", "data": "…"}]}]}
 
 The clip may come as "data" (the file itself) or as a "uri" on Google's server,
-which is then fetched with the same key. Making one takes about 40 seconds to two
-minutes. When Google says no, imagegen.DrawError carries what kind of problem it
-is (the same kinds as for a picture) and Google's own words.
+which is then fetched with the same key; where that address hands the file over
+from Google's storage (a redirect), the storage's address is followed once,
+without the key. Making one takes about 40 seconds to two minutes. When Google
+says no, imagegen.DrawError carries what kind of problem it is (the same kinds as
+for a picture) and Google's own words.
 """
 from __future__ import annotations
 
 import base64
 import json
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from . import imagegen
 from .imagegen import DrawError
@@ -41,6 +43,7 @@ ASPECT_RATIO = "9:16"                # portrait, like a phone held upright
 RESOLUTION = "720p"
 TIMEOUT = 300                        # seconds: a clip takes up to two minutes, and its answer is a few megabytes
 GOOGLE_HOST = "generativelanguage.googleapis.com"
+STORAGE = (".googleapis.com", ".googleusercontent.com")   # where Google hands over a file it kept (a redirect)
 
 
 @dataclass(frozen=True)
@@ -103,11 +106,20 @@ def make(service: Service, picture: bytes, prompt: str) -> bytes:
 
 
 def _fetch(service: Service, uri: str) -> bytes:
-    """A clip Google kept on its own server: fetched with the key, only from Google's address."""
+    """A clip Google kept on its own server: fetched with the key, only from Google's address. If that address
+    hands it over from Google's storage (a redirect, as Google's own examples expect: curl -L), the storage's
+    address is followed once, over HTTPS and without the key. The clip is paid for by then, so this matters."""
     parts = urlsplit(uri)
     if parts.scheme != "https" or parts.hostname != GOOGLE_HOST:
         raise DrawError("empty", f"Google gave the video's address on another server ({parts.hostname})")
     status, body = imagegen._send(uri, {"x-goog-api-key": service.key}, None, timeout=TIMEOUT)
+    if status in imagegen.REDIRECTS:
+        location = body.decode("latin-1").strip()
+        there = urlsplit(urljoin(uri, location))
+        host = there.hostname or ""
+        if not location or there.scheme != "https" or not (host == GOOGLE_HOST or host.endswith(STORAGE)):
+            raise DrawError("busy", f"the video's address led to another server ({host or 'none'})")
+        status, body = imagegen._send(there.geturl(), {}, None, timeout=TIMEOUT)
     if status != 200 or not body:
         raise DrawError("busy", f"the video could not be fetched from Google (status {status})")
     return body

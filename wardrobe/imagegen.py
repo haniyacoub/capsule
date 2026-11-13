@@ -240,15 +240,23 @@ _opener = urllib.request.build_opener(urllib.request.ProxyHandler(urllib.request
                                       _NoRedirect)
 
 
+REDIRECTS = (301, 302, 303, 307, 308)
+
+
 def _send(url: str, headers: dict[str, str], body: bytes | None, timeout: float = TIMEOUT) -> tuple[int, bytes]:
     """One HTTPS POST (a GET without a `body`: fetching a video, videogen.py). Returns the status and the bytes
-    of the answer."""
+    of the answer. A redirect is not followed (the key travels in a header): its answer is the address it points
+    to, for the caller to judge (videogen.py follows one to Google's storage, without the key)."""
     host = url.split("/")[2]
     request = urllib.request.Request(url, data=body, headers={"User-Agent": AGENT, **headers},
                                      method="GET" if body is None else "POST")
     try:
         answer = _opener.open(request, timeout=timeout)
-    except urllib.error.HTTPError as refusal:        # an answer with an error status
+    except urllib.error.HTTPError as refusal:        # an answer with an error status, or a redirect
+        if refusal.code in REDIRECTS:
+            with refusal:                            # its own body is not wanted
+                where = refusal.headers.get("Location") if refusal.headers else None
+                return refusal.code, (where or "").encode("latin-1")
         return refusal.code, refusal.read(1024 * 1024)
     except urllib.error.URLError as problem:         # it could not be reached: nothing was sent, nothing drawn
         raise DrawError("busy", f"{host} could not be reached: {type(problem.reason).__name__}", free=True) from None

@@ -446,8 +446,8 @@ if (swatchGrid) {
 //     muted (with "reduce motion" asked for in the device's settings it does not play by itself, and shows its last
 //     frame), rests on its last frame, and is then turned by dragging sideways across it or with the arrow keys: a
 //     slider, its value in degrees (a drag across the whole picture is one full turn). "Play again" plays it from
-//     the start; "Picture" goes back to the picture and its dots. Dragging uses the turn kept with every frame a
-//     keyframe (.vid-drag) where there is one, else the clip itself (its first data-turn-seconds).
+//     the start; "Show picture" goes back to the picture and its dots. Dragging uses the turn kept with every frame
+//     a keyframe (.vid-drag) where there is one, else the clip itself (its first data-turn-seconds).
 {
   const still = window.matchMedia('(prefers-reduced-motion: reduce)');
   const STEP = 15;                  // degrees per arrow key; Page Up and Page Down turn a quarter
@@ -567,20 +567,31 @@ if (swatchGrid) {
   }, true);
 
   // What HTMX puts in. A video that has just been made plays (data-play) and, on the outfit on screen, is announced
-  // in the page's one live region. Keyboard focus that was in the part that was replaced goes to what took its place:
-  // the button that makes the video, the video itself, "See it move", or the outfit while the video is made.
+  // in the page's one live region ("Video ready"); so is the start of its making ("Making the video"), once, not
+  // at each of the few seconds' asks that follow. Keyboard focus that was in the part that was replaced goes to what
+  // took its place: the box to tick or the button that makes the video (the band's words describe both), the video
+  // itself, "See it move", or the outfit while the video is made.
   const isVid = (el) => el instanceof Element && el.matches('.look-vid');
+  const tell = (words) => {
+    const announce = document.getElementById('announce');    // the same words again are read out only if they change
+    if (announce) announce.textContent = announce.textContent === words ? `${words}\u00a0` : words;
+  };
   document.body.addEventListener('htmx:beforeSwap', (e) => {
     const box = e.detail.target;
-    if (isVid(box) && (box.contains(document.activeElement) || document.activeElement === box.closest('[data-slide]'))) {
+    if (!isVid(box)) return;
+    if (box.contains(document.activeElement) || document.activeElement === box.closest('[data-slide]')) {
       box.dataset.focus = 'in';
     }
+    box.dataset.making = box.querySelector('.vid-bar.wait') ? 'was' : '';
   });
   document.body.addEventListener('htmx:afterSwap', (e) => {
     const box = e.detail.target;
     if (!isVid(box)) return;
     const focus = box.dataset.focus === 'in';
+    const wasMaking = box.dataset.making === 'was';
     delete box.dataset.focus;
+    delete box.dataset.making;
+    if (box.querySelector('.vid-bar.wait') && !wasMaking) tell('Making the video');
     const vid = box.querySelector('[data-vid][data-play]');
     if (vid) {
       // It plays where it can be seen: on the outfit on screen. On another one (swiped away meanwhile) the picture
@@ -594,12 +605,11 @@ if (swatchGrid) {
         return;
       }
       open(vid, focus);
-      const announce = document.getElementById('announce');    // the same words again are read out only if they change
-      if (announce) announce.textContent = announce.textContent === 'Video ready' ? 'Video ready\u00a0' : 'Video ready';
+      tell('Video ready');
       return;
     }
     if (!focus) return;
-    const next = box.querySelector('.vid-bar button, .vid-pill');
+    const next = box.querySelector('.vid-bar input[type="checkbox"], .vid-bar button, .vid-pill');
     if (next) next.focus({ preventScroll: true });
     else if (box.closest('[data-slide]')) box.closest('[data-slide]').focus({ preventScroll: true });
   });

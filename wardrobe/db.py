@@ -784,18 +784,21 @@ def video_rows(keys: list[str]) -> dict[str, dict]:
     return {r["key"]: dict(r) for r in rows}
 
 
-def start_video(key: str, picture: str, service: str, owner: int | None, stale_before: float) -> bool:
+def start_video(key: str, picture: str, service: str, owner: int | None, stale_before: float,
+                lost: str | None = None) -> bool:
     """Claim the making of one video. True for exactly one caller: a new video, or another try after a
-    failure or after an attempt that died (making since before `stale_before`)."""
+    failure or after an attempt that died (making since before `stale_before`), or a video made again whose
+    file `lost` has gone (only the first caller still finds that name in its row)."""
     now = time.time()
     with connect() as con:
         cur = con.execute("INSERT OR IGNORE INTO videos (key, picture, user_id, status, started_at, service) "
                           "VALUES (?, ?, ?, 'working', ?, ?)", (key, picture, owner, now, service))
         if cur.rowcount == 1:
             return True
-        cur = con.execute("UPDATE videos SET status = 'working', started_at = ?, error = NULL, service = ? "
-                          "WHERE key = ? AND file IS NULL AND (status = 'failed' OR started_at < ?)",
-                          (now, service, key, stale_before))
+        cur = con.execute("UPDATE videos SET status = 'working', started_at = ?, error = NULL, service = ?, "
+                          "file = NULL, turn = NULL "
+                          "WHERE key = ? AND ((file IS NULL AND (status = 'failed' OR started_at < ?)) OR file = ?)",
+                          (now, service, key, stale_before, lost))
         return cur.rowcount == 1
 
 

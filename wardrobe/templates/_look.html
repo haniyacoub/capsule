@@ -46,6 +46,14 @@
        {%- if first %} fetchpriority="high"{% else %} loading="lazy"{% endif %} decoding="async">
   <span class="ai-chip">AI picture</span>
 </div>
+{# Before the line in the page's order, so that Tab reaches "See it move" (at the picture's top right) before the
+   line's links. On screen nothing changes: its button and band lie over the picture, and its own line (while the
+   video shows) stands where the picture's line is, which is then hidden. #}
+{% if videos_on %}
+<div class="look-vid" id="vid-{{ key }}" data-look="{{ look.key }}" hx-target="this" hx-swap="innerHTML">
+  {%- with video = video if video and video.status in ('ready', 'working') else none, asking = false, play = false, left = none %}{% include "_video.html" %}{% endwith -%}
+</div>
+{% endif %}
 <form class="look-bar look-line" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}">{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
   <input type="hidden" name="again" value="1">
@@ -57,11 +65,6 @@
     <button class="link">Draw again</button>
   </span>
 </form>
-{% if videos_on %}
-<div class="look-vid" id="vid-{{ key }}" data-look="{{ look.key }}" hx-target="this" hx-swap="innerHTML">
-  {%- with video = video if video and video.status in ('ready', 'working') else none, asking = false, play = false, left = none %}{% include "_video.html" %}{% endwith -%}
-</div>
-{% endif %}
 {{ scene_row }}
 {% if look.message %}<p class="look-msg">{{ look.message }}</p>{% endif %}
 {% else %}

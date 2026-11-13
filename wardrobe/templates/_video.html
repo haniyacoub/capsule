@@ -7,9 +7,14 @@
    ("1 video left today"), next to the button that makes one: nothing is spent by one stray tap. While it is made,
    the band says so and asks every few seconds (`wait`). A video that is ready lies over the picture: it plays once
    (`play`, app.js 15), rests on its last frame, and is turned by dragging across it or with the arrow keys (a
-   slider, its value in degrees). Its own line, in place of the picture's, offers "Play again" and "Picture" (back
-   to the picture and its dots). Reloaded, the page shows the picture again, with "See it move" to play the video
-   for free. #}
+   slider, its value in degrees). Its own line, in place of the picture's, offers "Play again" and "Show picture"
+   (back to the picture and its dots). Reloaded, the page shows the picture again, with "See it move" to play the
+   video for free.
+
+   The band's words describe both of its buttons (aria-describedby), so a screen reader hears them, "No videos left
+   today: more tomorrow" too, on whichever button has keyboard focus. `needs_ok`: the picture is drawn from the
+   customer's photo and he has not yet agreed to its going to Google for a video (his photo was added before those
+   words, videos.CONSENT): the band asks him to tick a box first, once. #}
 {% from "_macros.html" import icon %}
 {% set here = url_for('outfits_video', look=look.key, outfit=key or None) %}
 {% if video and video.status == 'ready' %}
@@ -31,7 +36,7 @@
     <span class="look-note">{{ icon('turn') }} Drag to turn</span>
     <span class="look-links">
       <button class="link" type="button" data-vid-again>Play again</button>
-      <button class="link" type="button" data-vid-close>Picture</button>
+      <button class="link" type="button" data-vid-close>Show picture</button>
     </span>
   </p>
 </div>
@@ -40,7 +45,7 @@
   <span class="spin" aria-hidden="true"></span>
   <span>Making the video · about a minute</span>
 </p>
-{% elif asking or (video and video.status in ('failed', 'limit')) %}
+{% elif asking or (video and video.status in ('failed', 'limit', 'consent')) %}
 {% set failed = video and video.status == 'failed' %}
 <form class="vid-bar band ask" method="post" action="{{ url_for('outfits_video_make') }}" hx-post="{{ url_for('outfits_video_make') }}">{{ csrf_field() }}
   <input type="hidden" name="look" value="{{ look.key }}">
@@ -50,8 +55,11 @@
     {%- else %}An 8-second AI video: the model turns round once, then poses.{% endif %}
     {%- if left is not none and not (video and video.status == 'limit') %} <b>{{ left_words(left) }}.</b>{% endif -%}
   </span>
+  {% if left and needs_ok %}
+  <label class="check"><input type="checkbox" name="agree" required aria-describedby="vid-said-{{ key }}"> <span>I agree to {{ site_name }} sending this picture of me to Google to make the video.</span></label>
+  {% endif %}
   {% if left %}<button class="btn small" aria-describedby="vid-said-{{ key }}">{{ 'Try again' if failed else 'Make the video' }}</button>{% endif %}
-  <button class="link" type="button" hx-get="{{ here }}">{{ 'Not now' if left else 'Close' }}</button>
+  <button class="link" type="button" hx-get="{{ here }}" aria-describedby="vid-said-{{ key }}">{{ 'Not now' if left else 'Close' }}</button>
 </form>
 {% else %}
 <button class="vid-pill" type="button" hx-get="{{ url_for('outfits_video', look=look.key, outfit=key or None, ask=1) }}">{{ icon('play') }}<span>See it move</span></button>

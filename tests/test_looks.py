@@ -25,6 +25,7 @@ from unittest import mock
 from markupsafe import escape
 
 from wardrobe import catalog, config, db, imagegen, looks, outfits, paths, person, selection, settings, shared
+from wardrobe import videos
 from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
 from wardrobe.app import PHOTO_CONSENT
@@ -1323,7 +1324,8 @@ class TheModel(WithPictures, AppCase):
         self.assertIsNone(db.get_setting("photo_consent"))
         self.upload(agree="on")
         self.assertEqual(db.get_setting("photo_consent"), PHOTO_CONSENT)
-        self.assertEqual(PHOTO_CONSENT, "2026-11-13", "the date of the box's words on Profile (videos added)")
+        self.assertIsNone(videos.service(), "videos are off here: the box's words say nothing of them")
+        self.assertEqual(PHOTO_CONSENT, "2026-11-12", "the date of the box's words on Profile (with videos: test_videos)")
         self.assertIsNotNone(db.get_setting("photo_added"), "beside when the photo was added")
         self.assertEqual(db.export_user()["settings"]["photo_consent"], PHOTO_CONSENT, "in his copy of his data too")
 
