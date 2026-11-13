@@ -257,8 +257,9 @@ label          = "Calvin Klein"
 network        = "partnerize"
 status         = "none"
 programme_page = "https://affi.io/m/calvin-klein"
-notes          = """Listed as "Calvin Klein DE". 5%, 30 days. It forbids CSS activity (comparison
-                    shopping services). A product feed is not verified."""
+notes          = """Listed as "Calvin Klein DE". 5%, 30 days. Its terms forbid "CSS activity" (not
+                    explained in the research: ask the programme whether a styling site counts). A
+                    product feed is not verified."""
 
 [stores.jack-and-jones]
 label          = "Jack & Jones"

@@ -70,7 +70,7 @@ bomber      = ["bomber"]
 # until you add it by hand (slot page → "Add details").
 [cos]
 label         = "COS"
-programme     = "rakuten"      # COS's programme covers Germany
+programme     = "rakuten"      # Germany is listed; it recruits "content creators", which may not cover a styling site (PLAN.md, medium confidence)
 base          = "https://www.cos.com"
 
 [cos.garments.coat]
