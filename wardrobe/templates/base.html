@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
-  <title>{% block title %}Capsule{% endblock %}</title>
+  <title>{% block title %}{{ site_name }}{% endblock %}</title>
   {# A page's own lines for the head, such as the landing page's description for search results. #}
   {% block head %}{% endblock %}
   {# The icon: icon.svg where the browser can draw it; favicon.ico (48 px) for the others and for search
@@ -34,7 +34,7 @@
   <p id="announce" class="sr" role="status" aria-live="polite"></p>
   <header class="top">
     {# The wordmark leads home: the outfits for a customer (and on your own machine), the website for a visitor. #}
-    <a class="brand" href="{{ url_for('outfits_page') if user or not production else url_for('wardrobe') }}">Capsule</a>
+    <a class="brand" href="{{ url_for('outfits_page') if user or not production else url_for('wardrobe') }}">{{ site_name }}</a>
     {% block nav %}
     <nav class="tabs" aria-label="Sections">
       {% for key, label, endpoint in nav %}

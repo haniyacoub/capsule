@@ -1,4 +1,4 @@
-# Capsule as a public service
+# Stilsmith as a public service
 
 **Status: foundation, not launch-ready.** The app can now run for many
 customers, each with their own account and data. What it cannot yet do is show
@@ -58,7 +58,7 @@ All through environment variables (documented in `wardrobe/settings.py`).
 | --- | --- | --- |
 | `CAPSULE_ENV` | yes | `production` |
 | `SECRET_KEY` | yes | at least 32 random characters; signs the login cookie. Changing it logs everyone out |
-| `SITE_URL` | yes | public address, e.g. `https://capsule.example`. With `https://` the cookie is marked Secure |
+| `SITE_URL` | yes | public address, e.g. `https://stilsmith.example`. With `https://` the cookie is marked Secure |
 | `WARDROBE_DATA_DIR` | yes | folder for the database, on a disk that survives restarts |
 | `TRUSTED_PROXY_HOPS` | usually `1` | number of reverse proxies in front, so addresses and https are read correctly |
 | `SMTP_URL`, `MAIL_FROM` | for resets | `smtp://user:password@host:587` (or `smtps://…:465`) |

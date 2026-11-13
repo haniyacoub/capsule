@@ -1,4 +1,4 @@
-"""Capsule — a local wardrobe builder for COS, Weekday and Zara.
+"""Stilsmith — a local wardrobe builder for COS, Weekday and Zara.
 
 Module map (each file does one job):
 

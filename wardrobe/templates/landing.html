@@ -1,5 +1,5 @@
 {% extends "_public.html" %}
-{% block title %}Capsule — a small wardrobe that works together{% endblock %}
+{% block title %}{{ site_name }} — a small wardrobe that works together{% endblock %}
 {# What search results and shared links show under the title. Like the lead below, it promises a model
    only while AI pictures are on (and the lead offers "you" as the model only while photos may be uploaded). #}
 {% block head %}
@@ -8,13 +8,13 @@
 {% block main %}
 <section class="hero">
   <h1>A small wardrobe where everything goes with everything.</h1>
-  <p class="hero-lead">Capsule plans a men's wardrobe of about 18 pieces in one colour palette, picks the <span>best-value</span> real product for each from three <span>high-street</span> stores, and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}.</p>
+  <p class="hero-lead">{{ site_name }} plans a men's wardrobe of about 18 pieces in one colour palette, picks the <span>best-value</span> real product for each from three <span>high-street</span> stores, and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}.</p>
   <p class="hero-cta"><a class="btn" href="{{ url_for('auth.signup') }}">Create a free account</a></p>
-  <p class="hero-note">Free. You buy straight from the stores, in your sizes. Capsule never takes payment.</p>
+  <p class="hero-note">Free. You buy straight from the stores, in your sizes. {{ site_name }} never takes payment.</p>
   {% if invite %}
   <p class="hero-note">Open by invitation for now: creating an account needs an invitation code.</p>
   {% endif %}
-  {# The picture goes here: one AI picture of Capsule's generic model (never a customer's face), with its
+  {# The picture goes here: one AI picture of Stilsmith's generic model (never a customer's face), with its
      "AI picture" label, once one drawn by the real service has been approved. Until then the page is
      words only: no drawings, no stock photos, nothing from the stores. #}
 </section>
@@ -22,7 +22,7 @@
 <ol class="steps">
   <li>
     <h2><span class="step-n">1</span> Tell us what you wear</h2>
-    <p>Your sizes, the colours you like and avoid, and your budget. Capsule plans 15 to 20 pieces that all go together, and you can change any of them.</p>
+    <p>Your sizes, the colours you like and avoid, and your budget. {{ site_name }} plans 15 to 20 pieces that all go together, and you can change any of them.</p>
   </li>
   <li>
     <h2><span class="step-n">2</span> See every outfit{% if looks_on %} on a model{% endif %}</h2>
@@ -30,7 +30,7 @@
   </li>
   <li>
     <h2><span class="step-n">3</span> Buy it, store by store</h2>
-    <p>Pick a price level from Cheapest to Top, or let Capsule fit everything to your budget. Every option's quality is rated on fabric, brand and price, with the working shown.</p>
+    <p>Pick a price level from Cheapest to Top, or let {{ site_name }} fit everything to your budget. Every option's quality is rated on fabric, brand and price, with the working shown.</p>
   </li>
 </ol>
 {% endblock %}

@@ -848,12 +848,12 @@ class Importing(FeedCase):
         self.assertIn("8 products imported", self.cli("feeds", "--store", "musterhaus", "--from", str(FEEDS / "musterhaus.csv")),
                       "an invented sample store's file may be tried whatever its status")
         self.assertNotIn("musterhaus", self.cli("feeds"), "only approved stores are fetched")
-        # A real store's file is not licensed until its programme has approved Capsule: nothing of it is kept.
+        # A real store's file is not licensed until its programme has approved Stilsmith: nothing of it is kept.
         for status in ("none", "applied", "refused"):
             db.save_store("real", a_store(status=status))
             with self.assertRaises(SystemExit) as refused:
                 self.cli("feeds", "--store", "real", "--from", str(FEEDS / "musterhaus.jsonl"))
-            self.assertEqual(str(refused.exception), f"real is {status!r}, not approved: Capsule takes a store's products "
+            self.assertEqual(str(refused.exception), f"real is {status!r}, not approved: Stilsmith takes a store's products "
                                                      "only once its programme has approved it, so no file of it is imported either")
             self.assertEqual(db.store_products("real"), [], status)
         db.save_store("real", a_store(status="approved"))

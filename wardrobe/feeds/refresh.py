@@ -63,7 +63,7 @@ TIMEOUT = 60                   # seconds without an answer before a download giv
 DEFAULT_MAX_MB = 300           # a bigger feed is refused; rules.max_mb in config/feeds.toml allows more
 MOST_GONE = 0.5                # an import that would remove more than this share of a store's products ...
 FEW_PRODUCTS = 10              # ... of a store with at least this many is refused, unless --force (_refuse_most_gone)
-AGENT = "Capsule feed import"
+AGENT = f"{settings.SITE_NAME} feed import"
 
 # The networks' own limits.
 # Awin's product API: "no more than 5 requests per minute", so one request every 12 seconds:
@@ -132,12 +132,12 @@ def chosen(store_key: str | None, from_file: str | None) -> list[dict]:
         raise FeedError(f"{store_key} is an invented sample store, left out in production")
     if store["status"] == "ended":
         raise FeedError(f"{store_key} has ended: its products were deleted and stay deleted. If its programme "
-                        f"takes Capsule back: python -m wardrobe stores sync --reopen {store_key}")
-    # Products come only from a programme that has approved Capsule: its feed is licensed, a file
+                        f"takes {settings.SITE_NAME} back: python -m wardrobe stores sync --reopen {store_key}")
+    # Products come only from a programme that has approved Stilsmith: its feed is licensed, a file
     # of it before then is not. An invented sample store's file may be tried whatever its status.
     if store["status"] != "approved" and not (from_file and store["rules"].get("sample")):
-        raise FeedError(f"{store_key} is {store['status']!r}, not approved: Capsule takes a store's products "
-                        "only once its programme has approved it"
+        raise FeedError(f"{store_key} is {store['status']!r}, not approved: {settings.SITE_NAME} takes a store's "
+                        "products only once its programme has approved it"
                         + (", so no file of it is imported either" if from_file else ""))
     return [store]
 

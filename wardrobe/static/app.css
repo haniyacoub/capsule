@@ -1,4 +1,4 @@
-/* Capsule — one stylesheet, phone first. Wider screens are handled by the
+/* Stilsmith — one stylesheet, phone first. Wider screens are handled by the
    few @media blocks; colours are variables so dark mode is one block. */
 
 /* ── Typefaces ───────────────────────────────────────────────────────────────
@@ -326,7 +326,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .slot-actions form + form .act { border-top: 1px solid var(--line); }
 .act.on { background: var(--soft); color: var(--ink); font-weight: 600; }
 .act:disabled { opacity: .35; cursor: default; }
-/* A piece the product list has nothing for: the colours Capsule has its garment in, one tap each, or why it
+/* A piece the product list has nothing for: the colours Stilsmith has its garment in, one tap each, or why it
    stays out (_colour_offer.html). On a card the row runs under the piece and its two buttons. */
 .offer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
 .offer form { display: flex; }
@@ -884,6 +884,11 @@ details[open] > summary .edit { visibility: hidden; }
 .account-link { font-size: var(--t-s); font-weight: 500; color: var(--muted); text-decoration: none; padding: 8px 2px; }
 .account-link.on { color: var(--ink); }
 .public-nav { display: flex; gap: 8px; }
+/* On a 320px phone the wordmark, "Log in" and "Create account" fit on one line each only with a little less room
+   inside the two buttons (they are still 40px tall and wider than 44px). */
+@media (max-width: 359.98px) {
+  .public-nav .btn.small { padding: 0 10px; }
+}
 /* The landing page: words only, until one approved AI picture joins them. */
 .hero { padding: var(--s-5) 0 0; text-align: center; }
 .hero h1 { font: 400 var(--t-3xl)/var(--lh-3xl) var(--display); font-synthesis: none; max-width: 16em; margin: 0 auto; text-wrap: balance; }

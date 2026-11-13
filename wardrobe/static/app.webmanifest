@@ -1,6 +1,6 @@
 {
-  "name": "Capsule",
-  "short_name": "Capsule",
+  "name": "Stilsmith",
+  "short_name": "Stilsmith",
   "description": "A small wardrobe where everything goes with everything.",
   "start_url": "/outfits",
   "display": "standalone",

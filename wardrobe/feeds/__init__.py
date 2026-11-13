@@ -1,4 +1,4 @@
-"""The store feeds: products from the stores whose affiliate programmes license Capsule their feed.
+"""The store feeds: products from the stores whose affiliate programmes license Stilsmith their feed.
 
 This is separate from the collector (collect/, `python -m wardrobe refresh`), which reads store
 pages on the owner's own machine. Nothing here reads a store's pages, and nothing here comes from

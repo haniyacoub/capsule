@@ -130,7 +130,7 @@ def refused_colours() -> frozenset[str]:
 
 
 def colours_on_offer(category: str, refused: frozenset[str] = frozenset()) -> dict[str, list[dict]]:
-    """The colours Capsule has a garment in: for each colour, the products a piece of that garment in
+    """The colours Stilsmith has a garment in: for each colour, the products a piece of that garment in
     that colour is offered. Each colour is tried with candidates_for, the matching that fills every
     piece, so a colour listed here really fills one. The colours most of the products are named in
     come first: where two colours reach the same products ('white' and 'ecru' both reach an ecru

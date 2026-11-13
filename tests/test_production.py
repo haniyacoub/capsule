@@ -1,15 +1,17 @@
 """Production mode: customer accounts, isolation between customers, and the guards around them."""
 import html
+import io
 import json
 import os
 import re
+import runpy
 import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import closing
+from contextlib import closing, redirect_stdout
 from html import unescape
 from pathlib import Path
 from unittest import mock
@@ -84,7 +86,7 @@ class PublicSite(ProductionCase):
         self.assertEqual(visitor.get("/healthz").get_json(), {"status": "ok"})
 
     def test_the_typefaces_come_from_this_site_with_their_licences(self):
-        # Fetching fonts from Google's servers is unlawful in Germany (LG München, 2022). Capsule serves its
+        # Fetching fonts from Google's servers is unlawful in Germany (LG München, 2022). Stilsmith serves its
         # two typefaces itself, each with its open licence next to it, and its stylesheet asks no other site.
         visitor = self.app.test_client()
         for name in ("instrument-sans-latin-wght-normal.woff2", "instrument-serif-latin-400-normal.woff2"):
@@ -145,8 +147,8 @@ class PublicSite(ProductionCase):
             create_app()
         self.assertIn("placeholder", str(stop.exception))
 
-    def test_the_landing_page_says_what_capsule_is_in_plain_words(self):
-        # A stranger gives the page a few seconds. It says who Capsule is for, in the customer's words rather than
+    def test_the_landing_page_says_what_stilsmith_is_in_plain_words(self):
+        # A stranger gives the page a few seconds. It says who Stilsmith is for, in the customer's words rather than
         # the planner's; it has one way to log in (the header's) and no drawings from the demo data; search results
         # and shared links get a description. AI pictures are off here (no key), so no model is promised.
         page = self.app.test_client().get("/").get_data(as_text=True)
@@ -156,7 +158,7 @@ class PublicSite(ProductionCase):
             self.assertNotIn(planner, text.lower())
         self.assertEqual(text.count("Log in"), 1, "one way to log in: the header's")
         self.assertIn("Create a free account", text)
-        self.assertIn("Free. You buy straight from the stores, in your sizes. Capsule never takes payment.", text)
+        self.assertIn("Free. You buy straight from the stores, in your sizes. Stilsmith never takes payment.", text)
         self.assertNotIn("/mock/img", page)
         self.assertNotIn("<img", page)
         self.assertEqual(description(page), "Plan a men's wardrobe where everything goes with everything: "
@@ -205,9 +207,9 @@ class PublicSite(ProductionCase):
         self.assertEqual(visitor.head(reset).status_code, 200)
         self.assertEqual(visitor.get(reset).status_code, 200, "the link still works after a HEAD")
 
-    def test_capsule_has_its_own_icons(self):
+    def test_stilsmith_has_its_own_icons(self):
         # Browsers and search engines ask for /favicon.ico by themselves (Google wants a multiple of 48 px); an iPhone
-        # puts the 180 px square on its home screen; Android installs Capsule from the manifest's PNGs, opening the
+        # puts the 180 px square on its home screen; Android installs Stilsmith from the manifest's PNGs, opening the
         # outfits, in the colour of the page. Every file is the size it says it is.
         visitor = self.app.test_client()
 
@@ -235,7 +237,10 @@ class PublicSite(ProductionCase):
             self.assertIn(link, page)
         self.assertNotIn('rel="icon" href="data:', page)
         manifest = json.loads(fetch("/static/app.webmanifest")[0])
-        self.assertEqual(manifest["start_url"], "/outfits", "the installed app opens on the outfits, Capsule's home")
+        # The manifest is a plain file, so it names the product itself: as the setting every page takes it from.
+        self.assertEqual((manifest["name"], manifest["short_name"]), (settings.SITE_NAME, settings.SITE_NAME),
+                         "the installed app is called what the pages call it")
+        self.assertEqual(manifest["start_url"], "/outfits", "the installed app opens on the outfits, Stilsmith's home")
         light = re.search(r'<meta name="theme-color" content="([^"]+)" media="\(prefers-color-scheme: light\)">', page)
         self.assertEqual(manifest["theme_color"], light.group(1))
         pngs = {(i["sizes"], i["purpose"]): i["src"] for i in manifest["icons"] if i["type"] == "image/png"}
@@ -308,7 +313,7 @@ class Accounts(ProductionCase):
             client = self.app.test_client()
             return self.post(client, "/login", email="ada@example.com", password=PASSWORD, **next_page).headers["Location"]
 
-        self.assertEqual(lands(), "/outfits", "the outfits on the model are Capsule's home")
+        self.assertEqual(lands(), "/outfits", "the outfits on the model are Stilsmith's home")
         self.assertEqual(lands(next="/slot/white-tee?sort=score"), "/slot/white-tee?sort=score")
         # Browsers read "\" as "/" and drop tabs and line breaks from an address: each of these leaves the site.
         for elsewhere in ("https://evil.example/", "//evil.example", "/\\evil.example", "\\\\evil.example",
@@ -375,7 +380,7 @@ class Accounts(ProductionCase):
 
 
 class SaysWhatReallyHappens(ProductionCase):
-    """Sign-up, the Account page and the privacy outline say what Capsule really does with a customer's data."""
+    """Sign-up, the Account page and the privacy outline say what Stilsmith really does with a customer's data."""
 
     @staticmethod
     def said(html: str) -> str:
@@ -390,7 +395,7 @@ class SaysWhatReallyHappens(ProductionCase):
         self.assertNotIn("accept", text.lower())
         self.assertIn("Free. No card. Delete your account and everything in it at any time.", text)
         self.assertIn("By creating an account you agree to the terms of use and confirm you are 18 or over. "
-                      "How Capsule uses your data: privacy policy.", text)
+                      "How Stilsmith uses your data: privacy policy.", text)
         for link in ('<a href="/legal/terms">terms of use</a>', '<a href="/legal/privacy">privacy policy</a>',
                      '<a href="/login">Log in</a>'):
             self.assertIn(link, page)
@@ -492,10 +497,10 @@ class SaysWhatReallyHappens(ProductionCase):
 
 
 class OutfitsIsHome(ProductionCase):
-    """The outfits on the AI model are Capsule's home: the first tab, and where log-in and the wordmark lead.
+    """The outfits on the AI model are Stilsmith's home: the first tab, and where log-in and the wordmark lead.
     The plan has no tab: the Wardrobe page, and every message that sends you to it, link to it."""
 
-    BRAND = re.compile(r'<a class="brand" href="([^"]*)">Capsule</a>')
+    BRAND = re.compile(r'<a class="brand" href="([^"]*)">Stilsmith</a>')
     GONE = ("Slots page", "under Slots", "open Outfits")     # pointers to tabs that no longer exist
 
     @staticmethod
@@ -532,7 +537,7 @@ class OutfitsIsHome(ProductionCase):
                              ("/slots", "Your plan"), ("/profile", "About you"), ("/account", "Your account")):
             self.assertEqual(re.findall(r"<h1[^>]*>([^<]*)</h1>", ada.get(url).data.decode()), [heading], url)
         plan = ada.get("/slots").data.decode()
-        self.assertIn("<title>Your plan · Capsule</title>", plan)
+        self.assertIn("<title>Your plan · Stilsmith</title>", plan)
         self.assertRegex(plan, re.compile(r'<p class="crumb"><a href="/">.*?Wardrobe</a></p>', re.S))
 
     def test_edit_the_plan_is_one_tap_from_the_wardrobe(self):
@@ -759,7 +764,7 @@ class Guards(ProductionCase):
 
 
 class ErrorPages(ProductionCase):
-    """An error page says what happened in Capsule's words, never in Werkzeug's sentences for developers, with the
+    """An error page says what happened in Stilsmith's words, never in Werkzeug's sentences for developers, with the
     wordmark, the way home and the legal links."""
 
     LEGAL = [("/legal/impressum", "Impressum"), ("/legal/privacy", "Privacy policy"), ("/legal/terms", "Terms of use")]
@@ -768,46 +773,46 @@ class ErrorPages(ProductionCase):
     def links(html: str) -> list[tuple[str, str]]:
         return [(href, unescape(name)) for href, name in re.findall(r'<a [^>]*href="([^"]*)"[^>]*>([^<]*)</a>', html)]
 
-    def test_a_page_that_is_not_there_says_so_in_capsules_words(self):
+    def test_a_page_that_is_not_there_says_so_in_stilsmiths_words(self):
         missing = self.app.test_client().get("/no-such-page")
         self.assertEqual(missing.status_code, 404)
         page = missing.get_data(as_text=True)
         text = unescape(words(page))
         self.assertIn("We can't find that page The link may be old, or the page may have moved.", text)
-        self.assertIn("<title>We can&#39;t find that page · Capsule</title>", page)
+        self.assertIn("<title>We can&#39;t find that page · Stilsmith</title>", page)
         for werkzeug in ("requested URL", "on the server", "check your spelling"):
             self.assertNotIn(werkzeug, text)
-        self.assertEqual(self.links(page), [("/", "Capsule"), ("/", "Go to the home page"), *self.LEGAL])
-        self.assertRegex(page, r'<a class="brand" href="/">Capsule</a>', "the wordmark, as on every page")
+        self.assertEqual(self.links(page), [("/", "Stilsmith"), ("/", "Go to the home page"), *self.LEGAL])
+        self.assertRegex(page, r'<a class="brand" href="/">Stilsmith</a>', "the wordmark, as on every page")
 
         ada = self.member("ada@example.com")
         mine = ada.get("/no-such-page").get_data(as_text=True)
-        self.assertEqual(self.links(mine), [("/outfits", "Capsule"), ("/outfits", "Go to your outfits"), *self.LEGAL])
+        self.assertEqual(self.links(mine), [("/outfits", "Stilsmith"), ("/outfits", "Go to your outfits"), *self.LEGAL])
         # An address that only takes a form, opened as a page, is one that isn't there for the customer.
         self.assertIn("We can't find that page", unescape(words(ada.get("/logout").get_data(as_text=True))))
 
-    def test_a_form_that_did_not_go_through_says_so_in_capsules_words(self):
+    def test_a_form_that_did_not_go_through_says_so_in_stilsmiths_words(self):
         ada = self.member("ada@example.com")
-        # Sent without the page's token (a page kept open too long): Capsule's own message is shown.
+        # Sent without the page's token (a page kept open too long): Stilsmith's own message is shown.
         stale = ada.post("/settings", data={"mode": "cheapest"})
         self.assertEqual(stale.status_code, 400)
-        self.assertIn("That didn't go through This page was open for too long or was not sent from Capsule. "
+        self.assertIn("That didn't go through This page was open for too long or was not sent from Stilsmith. "
                       "Reload it and try again. Go to your outfits", unescape(words(stale.get_data(as_text=True))))
-        # A form from another website: Capsule's line in place of Werkzeug's "You don't have the permission to…".
+        # A form from another website: Stilsmith's line in place of Werkzeug's "You don't have the permission to…".
         foreign = ada.post("/settings", data={"mode": "cheapest", "csrf_token": self.token(ada)},
                            headers={"Origin": "https://evil.example"})
         self.assertEqual(foreign.status_code, 403)
         text = unescape(words(foreign.get_data(as_text=True)))
         self.assertIn("That didn't go through Reload the page and try again.", text)
         self.assertNotIn("permission", text)
-        # Capsule's own words given to abort() take the place of the line.
+        # Stilsmith's own words given to abort() take the place of the line.
         gone = self.post(ada, "/outfits/save", key="no-such-outfit")
         self.assertEqual(gone.status_code, 409)
         self.assertIn("That changed in the meantime That outfit no longer exists — reload the page.",
                       unescape(words(gone.get_data(as_text=True))))
 
     def test_every_error_page_leads_a_customer_back_to_the_outfits(self):
-        # Whatever went wrong, the way home for someone logged in is Capsule's home, the outfits: also when the request
+        # Whatever went wrong, the way home for someone logged in is Stilsmith's home, the outfits: also when the request
         # is refused before anything else is looked at (a form sent from another website).
         ada = self.member("ada@example.com")
         with mock.patch("wardrobe.selection.build", side_effect=ValueError("a crash")):
@@ -825,16 +830,16 @@ class ErrorPages(ProductionCase):
         for code, response in answers.items():
             page = response.get_data(as_text=True)
             self.assertEqual(response.status_code, code)
-            home = [("/outfits", "Capsule"), ("/outfits", "Go to your outfits"), *self.LEGAL]
+            home = [("/outfits", "Stilsmith"), ("/outfits", "Go to your outfits"), *self.LEGAL]
             self.assertEqual(self.links(page), home, code)
-        # Capsule's own words, not the code's: no file names.
+        # Stilsmith's own words, not the code's: no file names.
         tryon = unescape(words(answers[501].get_data(as_text=True)))
         self.assertIn("Not available yet Trying outfits on yourself isn't built yet.", tryon)
         self.assertNotIn(".py", tryon)
 
-    def test_a_config_file_with_a_typo_shows_capsules_own_page_and_tells_only_the_log(self):
-        # The file's name, its line and the TOML reader's words are for whoever runs Capsule: in production they go to
-        # the log, and visitors and customers see the page for any fault on Capsule's side. (On your own machine the
+    def test_a_config_file_with_a_typo_shows_stilsmiths_own_page_and_tells_only_the_log(self):
+        # The file's name, its line and the TOML reader's words are for whoever runs Stilsmith: in production they go to
+        # the log, and visitors and customers see the page for any fault on Stilsmith's side. (On your own machine the
         # page names the file and the line: test_app.py, EditingTheRules.)
         ada = self.member("ada@example.com")
         with tempfile.TemporaryDirectory() as folder:
@@ -862,10 +867,89 @@ class ErrorPages(ProductionCase):
         self.assertIn(detail, "\n".join(log.output), "the operator finds the detail in the log")
 
 
-class CapsulesOwnFiles(ProductionCase):
+class TheName(ProductionCase):
+    """The product is called Stilsmith wherever someone meets it: every page's title and wordmark, the email, the
+    command line. Its name before is on no page and in no message. The name is one setting (settings.SITE_NAME)."""
+
+    OLD_NAME = "Capsule"
+    TITLE = re.compile(r"<title>([^<]*)</title>")
+    WORDMARK = re.compile(r'<a class="brand" href="[^"]*">([^<]*)</a>')
+
+    def named(self, client, url: str, status: int = 200) -> None:
+        answer = client.get(url)
+        self.assertEqual(answer.status_code, status, url)
+        page = answer.get_data(as_text=True)
+        self.assertRegex(" ".join(self.TITLE.findall(page)), r"^(Stilsmith — .+|.+ · Stilsmith)$", url)
+        self.assertEqual(self.WORDMARK.findall(page), ["Stilsmith"], url)
+        self.assertNotIn(self.OLD_NAME, page, url)
+
+    def test_the_name_is_one_setting(self):
+        self.assertEqual(settings.SITE_NAME, "Stilsmith")
+
+    def test_every_page_says_stilsmith_in_its_title_and_wordmark_and_never_its_old_name(self):
+        visitor = self.app.test_client()
+        for url in ("/", "/login", "/signup", "/forgot", "/legal/impressum", "/legal/privacy", "/legal/terms"):
+            self.named(visitor, url)
+        self.named(visitor, "/no-such-page", 404)
+        ada = self.member("ada@example.com")
+        db.add_owner("ada@example.com")                 # so that the owner's page is among them
+        outfits = ada.get("/outfits").get_data(as_text=True)
+        buy = html.unescape(re.search(r'href="(/outfits/buy\?at=[^"]+)"', outfits).group(1))
+        for url in ("/outfits", "/outfits?occasion=saved", buy, "/", "/slots", "/slot/white-tee", "/list", "/profile",
+                    "/account", "/stores", "/legal/privacy"):
+            self.named(ada, url)
+        self.named(ada, "/no-such-page", 404)
+        self.post(visitor, "/forgot", email="ada@example.com")
+        self.named(visitor, re.search(r"/reset/[\w-]+", mail.OUTBOX[-1]["body"]).group(0))
+        # The words a customer reads on the pages come from the setting too, here on sign-up and Account (and in the
+        # photo's consent box on Profile, which shows only while pictures are on: test_looks.py).
+        self.assertIn("How Stilsmith uses your data", words(visitor.get("/signup").get_data(as_text=True)))
+        self.assertIn("Everything Stilsmith keeps about you", words(ada.get("/account").get_data(as_text=True)))
+
+    def test_the_password_email_is_from_stilsmith_and_says_so(self):
+        self.member("ada@example.com")
+        sent = []
+
+        class MailServer:          # stands in for the mail server: keeps the message instead of sending it
+            def __init__(self, *args, **kwargs): pass
+            def __enter__(self): return self
+            def __exit__(self, *exc): return False
+            def starttls(self, **kwargs): pass
+            def send_message(self, message): sent.append(message)
+
+        with mock.patch.object(settings, "SMTP_URL", "smtp://mail.example:587"), \
+                mock.patch("smtplib.SMTP", MailServer):
+            self.post(self.app.test_client(), "/forgot", email="ada@example.com")
+        self.assertEqual(mail.OUTBOX[-1]["subject"], "Reset your Stilsmith password")
+        self.assertTrue(mail.OUTBOX[-1]["body"].startswith("Someone asked to reset the Stilsmith password"))
+        self.assertEqual([m["Subject"] for m in sent], ["Reset your Stilsmith password"])
+        self.assertEqual(sent[0]["From"], settings.MAIL_FROM)
+        # Unless MAIL_FROM says otherwise, the sender is named after the product too.
+        with mock.patch.dict(os.environ):
+            os.environ.pop("MAIL_FROM", None)
+            self.assertEqual(runpy.run_path(settings.__file__)["MAIL_FROM"], "Stilsmith <no-reply@localhost>")
+
+    def test_a_copy_of_your_data_is_named_after_stilsmith(self):
+        ada = self.member("ada@example.com")
+        copy = ada.get("/account/export")
+        self.assertEqual(copy.headers["Content-Disposition"], "attachment; filename=stilsmith-my-data.json")
+
+    def test_the_command_line_says_stilsmith(self):
+        from wardrobe.__main__ import main
+        printed = io.StringIO()
+        with self.assertRaises(SystemExit), redirect_stdout(printed):
+            main(["--help"])
+        said = " ".join(printed.getvalue().split())
+        self.assertIn("Stilsmith, a capsule wardrobe builder", said)
+        self.assertIn("the accounts that run Stilsmith", said)
+        self.assertIn("the stores whose product feeds Stilsmith may use", said)
+        self.assertNotIn(self.OLD_NAME, said)
+
+
+class StilsmithsOwnFiles(ProductionCase):
     """The stylesheet, the scripts and the fonts are kept by browsers for a year without asking again, so moving between
     pages fetches only the page: on a slow phone connection, a round trip less before anything shows. Each address names
-    one version of its file, and none of Capsule's own files carries the login cookie (a shared cache such as
+    one version of its file, and none of Stilsmith's own files carries the login cookie (a shared cache such as
     Cloudflare's keeps no file that sets one)."""
 
     YEAR = "public, max-age=31536000, immutable"
@@ -901,7 +985,7 @@ class CapsulesOwnFiles(ProductionCase):
         self.assertIn("session=", ada.get("/outfits").headers.get("Set-Cookie", ""))
 
     def test_the_icon_browsers_ask_for_by_themselves_carries_no_cookie(self):
-        # /favicon.ico is one of Capsule's own files, the same for everyone: no account is looked up for it, and it
+        # /favicon.ico is one of Stilsmith's own files, the same for everyone: no account is looked up for it, and it
         # neither sets the login cookie nor says "Vary: Cookie" (a shared cache keeps neither).
         ada = self.member("ada@example.com")
         with mock.patch("wardrobe.db.get_user", side_effect=AssertionError("an account was looked up")):
@@ -916,7 +1000,7 @@ class CapsulesOwnFiles(ProductionCase):
 
     def test_the_version_is_worked_out_once_per_start(self):
         # Looking at every file under static/ takes about half a millisecond, and one click on a price level renders
-        # eight templates. In production the files don't change while Capsule runs (an update restarts it), so their
+        # eight templates. In production the files don't change while Stilsmith runs (an update restarts it), so their
         # version is worked out once, at the start: no page looks at the files again. The next start sees an edit.
         # (On your own machine an edit shows at once: test_app.py.)
         from wardrobe.app import _asset_version
@@ -990,7 +1074,7 @@ class CapsulesOwnFiles(ProductionCase):
             self.assertEqual(scripts(ada, url), [("/static/vendor/htmx.min.js", True), ("/static/app.js", True)], url)
 
     def test_pictures_and_your_photo_keep_their_own_rules(self):
-        # Not Capsule's own files: an outfit's picture is kept by the customer's own browser only (private), and the
+        # Not Stilsmith's own files: an outfit's picture is kept by the customer's own browser only (private), and the
         # customer's photo is never kept at all.
         ada = self.member("ada@example.com")
         with tempfile.TemporaryDirectory() as folder:
@@ -1028,7 +1112,7 @@ class ByInvitation(ProductionCase):
         signup = visitor.get("/signup").get_data(as_text=True)
         self.assertIn('name="code"', signup)
         # One paragraph: two lines one under the other, with no space between them, read as one broken paragraph.
-        self.assertIn('<p class="muted">Capsule is open by invitation for now. You need the code you were given. '
+        self.assertIn('<p class="muted">Stilsmith is open by invitation for now. You need the code you were given. '
                       'Free. No card. Delete your account and everything in it at any time.</p>', signup)
 
     def test_no_account_without_the_code(self):
@@ -1209,7 +1293,7 @@ class SharedStoreCatalogue(ProductionCase):
             cos = next(c for c in selection.build().get("grey-merino-jumper").cands if c.id == "cos-2")
             self.assertEqual(cos.score.fabric_source, "listed", "the fabric she typed in is still there")
 
-    # ── A piece the list has nothing for: said plainly, with the colours Capsule has one tap away ──
+    # ── A piece the list has nothing for: said plainly, with the colours Stilsmith has one tap away ──
 
     def black_and_white(self, email="ada@example.com", extra=(), **answers):
         """A customer who likes black and white. The list has jumpers in grey and navy and tees in white and
@@ -1234,21 +1318,21 @@ class SharedStoreCatalogue(ProductionCase):
         """One piece's card on the Wardrobe page."""
         return re.search(rf'<article [^>]*id="card-{slot_id}">.*?</article>', page, re.S).group(0)
 
-    def test_a_piece_with_nothing_to_buy_says_so_and_offers_the_colours_capsule_has(self):
+    def test_a_piece_with_nothing_to_buy_says_so_and_offers_the_colours_stilsmith_has(self):
         ada = self.black_and_white()
         page = html.unescape(ada.get("/").data.decode())
         self.assertNotIn("Nothing found", page)
         self.assertNotIn("unfilled", page)
         card = re.search(r'<article [^>]*id="card-black-merino-jumper">.*?</article>', page, re.S).group(0)
-        self.assertIn("Not in Capsule's product list in black yet", card)
+        self.assertIn("Not in Stilsmith's product list in black yet", card)
         # The card's link is named by its aria-label, which hides the note inside it: the note is pointed at instead.
         self.assertIn('aria-label="Black merino jumper: see all options" aria-describedby="note-black-merino-jumper"', card)
-        self.assertIn('<span class="note" id="note-black-merino-jumper">Not in Capsule\'s product list in black yet</span>', card)
+        self.assertIn('<span class="note" id="note-black-merino-jumper">Not in Stilsmith\'s product list in black yet</span>', card)
         self.assertIn("Use navy<span class=\"sr\"> for Black merino jumper</span>", card)
         self.assertEqual(self.offered(page, "black-merino-jumper"), ["navy"],
                          "grey is on offer too, but the grey jumper already has those products")
         self.assertEqual(self.offered(page, "black-tee"), ["navy"], "white: those are the white tee's")
-        self.assertIn("Capsule has no coats yet, so this piece is left out of your outfits and your total.", page)
+        self.assertIn("Stilsmith has no coats yet, so this piece is left out of your outfits and your total.", page)
         self.assertNotIn("/colour", re.search(r'<article [^>]*id="card-charcoal-wool-coat">.*?</article>', page, re.S).group(0))
 
         # Every colour offered exists: a piece of that garment in that colour gets products.
@@ -1325,7 +1409,7 @@ class SharedStoreCatalogue(ProductionCase):
                "budget": "1500", "use": "both", "shoes": "on", "outerwear": "on", "owned": ""}
 
     def test_a_refused_colour_never_comes_back_through_denim(self):
-        """With navy refused, "Dunkelblau" and "Dark Blue" jeans (navy, in Capsule's colour table) are never options:
+        """With navy refused, "Dunkelblau" and "Dark Blue" jeans (navy, in Stilsmith's colour table) are never options:
         not for the jeans the plan has, nor through a "Use …" offer on jeans the list has nothing for. A piece he keeps
         or adds in navy himself is another matter: it keeps its navy options."""
         self.publish(extra=self.DENIM, slots=[self.DENIM_SLOT])
@@ -1376,10 +1460,10 @@ class SharedStoreCatalogue(ProductionCase):
         self.assertEqual(self.knit("bob@example.com", "navy-merino-jumper"), ["zara-3"])
         jumper = html.unescape(bob.get("/slot/navy-merino-jumper").get_data(as_text=True))
         self.assertIn("Pullover", jumper)
-        self.assertNotIn("Not in Capsule's product list in navy yet", jumper)
+        self.assertNotIn("Not in Stilsmith's product list in navy yet", jumper)
 
     def test_a_product_chosen_by_hand_stays_when_its_colour_is_refused_later(self):
-        """"Dark Blue" jeans (navy, in Capsule's colour table) that he chose himself stay his choice when he refuses
+        """"Dark Blue" jeans (navy, in Stilsmith's colour table) that he chose himself stay his choice when he refuses
         navy afterwards, also when every customer's products are rebuilt from the list. Unlocked, they go. Once he
         chooses other jeans in their place (on the piece's page, or by the pop-up's swap) they go at once: they were
         kept only for that choice, and are never left among the options of the piece made automatic again."""
@@ -1453,14 +1537,14 @@ class SharedStoreCatalogue(ProductionCase):
         self.assertNotIn('name="colour" value="navy"', page)
         self.assertNotIn("Use navy", page)
         # The list's other knitwear is grey, and white its other tees: the grey jumper's and the white tee's. The
-        # pieces left out say so; "Capsule has none" would be untrue beside the grey jumper on the same page.
-        self.assertIn("Capsule's knitwear in other colours you wear is already in your plan, so this piece is left out "
+        # pieces left out say so; "Stilsmith has none" would be untrue beside the grey jumper on the same page.
+        self.assertIn("Stilsmith's knitwear in other colours you wear is already in your plan, so this piece is left out "
                       "of your outfits and your total.", self.card(page, "black-merino-jumper"))
-        self.assertIn("Capsule's T-shirts in other colours you wear are already in your plan, so this piece is left out "
+        self.assertIn("Stilsmith's T-shirts in other colours you wear are already in your plan, so this piece is left out "
                       "of your outfits and your total.", self.card(page, "black-tee"))
         self.assertIn("Grey merino jumper", page)
-        self.assertNotIn("Capsule has no knitwear", page)
-        self.assertNotIn("Capsule has no T-shirts", page)
+        self.assertNotIn("Stilsmith has no knitwear", page)
+        self.assertNotIn("Stilsmith has no T-shirts", page)
         with db.as_user(self.user_id("ada@example.com")):
             self.assertFalse([v.slot["name"] for v in selection.build().slots if "navy" in {c.key for c in v.offers}])
         refused = self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy")
@@ -1474,7 +1558,7 @@ class SharedStoreCatalogue(ProductionCase):
     def test_the_pieces_own_page_offers_the_same_and_works_without_javascript(self):
         ada = self.black_and_white()
         page = html.unescape(ada.get("/slot/black-tee").data.decode())
-        self.assertIn("Not in Capsule's product list in black yet.", page)
+        self.assertIn("Not in Stilsmith's product list in black yet.", page)
         self.assertIn('action="/slot/black-tee/colour?view=slot&sort=price"', page)    # answered with this page
         self.assertIn("Or add one you found yourself, by its link below.", page)
         head = re.search(r'<header class="slot-head">.*?</header>', page, re.S).group(0)
@@ -1483,19 +1567,19 @@ class SharedStoreCatalogue(ProductionCase):
         for gone in ("Slots page", "Nothing found", "Edit the plan</a> to give it another colour"):
             self.assertNotIn(gone, page)
         coat = html.unescape(ada.get("/slot/charcoal-wool-coat").data.decode())
-        self.assertIn("Capsule has no coats yet, so this piece is left out of your outfits and your total.", coat)
+        self.assertIn("Stilsmith has no coats yet, so this piece is left out of your outfits and your total.", coat)
         coat_head = re.search(r'<header class="slot-head">.*?</header>', coat, re.S).group(0)
         self.assertIn('<p class="add-own">Add one you found yourself, by its link below.</p>', coat_head)
         self.assertNotIn("Or add", coat, "no 'Or' where no colour is offered")
         # Left out, it has one more way forward: the plan, where the piece can take another colour or go.
-        self.assertIn('<p class="left-out">Capsule has no coats yet, so this piece is left out of your outfits and your '
+        self.assertIn('<p class="left-out">Stilsmith has no coats yet, so this piece is left out of your outfits and your '
                       'total. <a href="/slots#slot-charcoal-wool-coat">Edit the plan</a></p>', coat_head)
         self.assertIn('<li id="slot-charcoal-wool-coat">', ada.get("/slots").get_data(as_text=True), "where it leads")
         self.assertNotIn('href="/slots#slot-black-tee"', page, "a piece with a colour on offer is not left out")
 
         swapped = self.post(ada, "/slot/black-tee/colour?view=slot&sort=price", headers=HX, colour="navy")
         body = html.unescape(swapped.data.decode())
-        self.assertTrue(body.startswith("<title>Navy tee · Capsule</title>"), "the tab is named after the piece")
+        self.assertTrue(body.startswith("<title>Navy tee · Stilsmith</title>"), "the tab is named after the piece")
         self.assertIn('<h1 tabindex="-1" autofocus>Navy tee</h1>', body)
         self.assertIn("T-Shirt aus Baumwolle", body)
         grey_tee = html.unescape(ada.get("/").data.decode())
@@ -1521,8 +1605,8 @@ class SharedStoreCatalogue(ProductionCase):
         page = html.unescape(ada.get("/").data.decode())
         self.assertEqual(self.offered(page, "black-merino-jumper"), ["navy"], "a navy jumper comes in XXL")
         self.assertEqual(self.offered(page, "black-tee"), [], "the navy tee comes in S, M and L only")
-        # White tees are the white tee's: so not "Capsule has no T-shirts in your size", which is untrue of them.
-        self.assertIn("Capsule's T-shirts in other colours you wear are already in your plan or not in your size, so "
+        # White tees are the white tee's: so not "Stilsmith has no T-shirts in your size", which is untrue of them.
+        self.assertIn("Stilsmith's T-shirts in other colours you wear are already in your plan or not in your size, so "
                       "this piece is left out of your outfits and your total.", self.card(page, "black-tee"))
         self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy")
         with db.as_user(self.user_id("ada@example.com")):
@@ -1536,17 +1620,17 @@ class SharedStoreCatalogue(ProductionCase):
             self.assertNotIn("/colour", card, "nothing is offered")
             return re.search(r'<p class="left-out">(.*?)</p>', card).group(1)
 
-        # Both colours refused: Capsule has no knitwear in a colour he wears.
+        # Both colours refused: Stilsmith has no knitwear in a colour he wears.
         self.assertEqual(left_out(self.black_and_white("ada@example.com", refused="navy, grey")),
-                         "Capsule has no knitwear in other colours you wear yet, so this piece is left out of your "
+                         "Stilsmith has no knitwear in other colours you wear yet, so this piece is left out of your "
                          "outfits and your total.")
         # Grey refused, and no navy jumper in XXL: none in his size.
         self.assertEqual(left_out(self.black_and_white("bea@example.com", refused="grey", top_size="XXL")),
-                         "Capsule has no knitwear in your size in other colours you wear yet, so this piece is left out "
+                         "Stilsmith has no knitwear in your size in other colours you wear yet, so this piece is left out "
                          "of your outfits and your total.")
         # Grey is the grey jumper's (planned, though not in XXL either) and navy is not in XXL.
         self.assertEqual(left_out(self.black_and_white("cyd@example.com", top_size="XXL")),
-                         "Capsule's knitwear in other colours you wear is already in your plan or not in your size, so "
+                         "Stilsmith's knitwear in other colours you wear is already in your plan or not in your size, so "
                          "this piece is left out of your outfits and your total.")
 
     def test_a_piece_whose_options_in_your_size_have_no_price_says_so(self):
@@ -1645,7 +1729,7 @@ class LocalModeStillWorks(unittest.TestCase):
 
     def test_the_outfits_are_home_here_too(self):
         client = create_app().test_client()
-        self.assertIn('<a class="brand" href="/outfits">Capsule</a>', client.get("/").data.decode())
+        self.assertIn('<a class="brand" href="/outfits">Stilsmith</a>', client.get("/").data.decode())
         self.assertIn('<a href="/outfits" class="on" aria-current="page">Outfits</a>', client.get("/outfits").data.decode())
         client.post("/profile/model", data={"build": "athletic"})
         profile = client.get("/profile").data.decode()

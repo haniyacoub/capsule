@@ -1,10 +1,10 @@
-# Putting Capsule on the internet, behind Cloudflare
+# Putting Stilsmith on the internet, behind Cloudflare
 
 ## What Cloudflare is for here
 
 Cloudflare cannot run this app by itself. Its own hosting (Workers and Pages)
 runs code that has no disk, and its Containers start from a fresh disk every
-time they wake up. Capsule keeps a database file, the AI pictures and
+time they wake up. Stilsmith keeps a database file, the AI pictures and
 customers' photos on disk, and draws pictures in the background. Making it fit
 would mean rewriting how it stores everything.
 
@@ -69,7 +69,7 @@ Both cost money and need your name on them, so they are yours to set up.
 
 ## A preview from your own Mac, without a server, an account or a domain
 
-For showing Capsule to someone, or trying it on your phone. Not a place for
+For showing Stilsmith to someone, or trying it on your phone. Not a place for
 customers: it runs on your Mac and only while a Terminal window is open.
 
 In the Terminal window the service runs in, stop it with Ctrl+C, then:

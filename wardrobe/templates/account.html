@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Account · Capsule{% endblock %}
+{% block title %}Account · {{ site_name }}{% endblock %}
 {% block summary %}{% endblock %}
 {% block notices %}{% endblock %}
 {% block main %}
@@ -11,7 +11,7 @@
   </form>
 </section>
 
-{# Only for an account that runs Capsule (owner.py, `python -m wardrobe owner add EMAIL`): anyone else sees nothing here. #}
+{# Only for an account that runs Stilsmith (owner.py, `python -m wardrobe owner add EMAIL`): anyone else sees nothing here. #}
 {% if owner %}
 <section class="card">
   <h2>Store catalogues</h2>
@@ -35,7 +35,7 @@
 <section class="card">
   <h2>Your data</h2>
   {# What the download holds (db.export_user and auth.export_data). Keep the two in step. #}
-  <p class="muted">Everything Capsule keeps about you: your email, profile and sizes, your plan and choices, saved outfits, items you added, the model you built, the times you asked for AI pictures and, if you uploaded one, your photo and the pictures made from it (see or delete them on <a href="{{ url_for('profile_page') }}#photo">Profile</a>).</p>
+  <p class="muted">Everything {{ site_name }} keeps about you: your email, profile and sizes, your plan and choices, saved outfits, items you added, the model you built, the times you asked for AI pictures and, if you uploaded one, your photo and the pictures made from it (see or delete them on <a href="{{ url_for('profile_page') }}#photo">Profile</a>).</p>
   <p><a class="btn ghost small" href="{{ url_for('auth.export_data') }}">Download a copy (.json)</a></p>
 </section>
 

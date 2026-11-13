@@ -1,4 +1,4 @@
-# Capsule
+# Stilsmith
 
 A local web app for building a men's capsule wardrobe from COS, Weekday and Zara
 (German sites, EUR). It proposes the slots, collects candidates from the stores,
@@ -13,6 +13,12 @@ as a public service with customer accounts; that is described in
 [PRODUCTION.md](PRODUCTION.md).
 
 Working on the code? Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Stilsmith was called Capsule before. Names inside the code keep that old name on
+purpose, so that a server already running carries on unchanged: the environment
+variable `CAPSULE_ENV` (and its friends), the package `wardrobe`, the data folders,
+the database and the repository's name. The product's name on every page, email
+and message comes from one setting, `SITE_NAME` in `wardrobe/settings.py`.
 
 ## Run it
 
@@ -128,7 +134,7 @@ The score is a weighted average of three parts, all in that file:
 "mostly synthetic" penalty and the wool-rich bonus. `[fabric.name_guess]` controls
 the estimate used when a store gives no composition. If you make a typo, the app
 shows a page naming the file and the problem instead of crashing (on a live site
-the page is Capsule's own error page and the file and line are in the log).
+the page is Stilsmith's own error page and the file and line are in the log).
 
 ## Price levels
 
@@ -252,7 +258,7 @@ Things to know:
 ## Store feeds (licensed product data)
 
 The public site will take products only from stores whose affiliate programme
-has accepted Capsule, through the product feed that the programme's network
+has accepted Stilsmith, through the product feed that the programme's network
 licenses to approved partners. None has accepted yet, so for now this runs on
 three invented sample stores (Musterhaus, Nordfaden, Kleiderwerk) whose feeds
 are files in `tests/fixtures/feeds/`.

@@ -81,7 +81,7 @@ def sync(data: dict | None = None, reopen: tuple[str, ...] | list[str] = ()) -> 
         note = ""
         if old and old["status"] == "ended" and values["status"] != "ended" and key not in reopen:
             values["status"] = "ended"
-            note = (" (ended with `stores end`, so it stays ended. If its programme takes Capsule back:"
+            note = (f" (ended with `stores end`, so it stays ended. If its programme takes {settings.SITE_NAME} back:"
                     f" python -m wardrobe stores sync --reopen {key})")
         lines.append(f"{key}: {db.save_store(key, values)}{note}")
         if values["status"] == "ended" and old and old["products"]:

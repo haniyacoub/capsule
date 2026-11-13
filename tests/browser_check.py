@@ -218,12 +218,12 @@ def run(base: str) -> None:
                     f"at {width} x {height} the picture ends at {seen['bottom']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
 
         def own_typefaces():
-            # The text font and the serif for titles come from Capsule itself. They must really load, under the
+            # The text font and the serif for titles come from Stilsmith itself. They must really load, under the
             # site's own security policy: a font that fails is replaced by another without any error to see.
             page.goto(base + "/profile", wait_until="networkidle")
             loaded = page.evaluate("() => document.fonts.ready.then(() => [...document.fonts]"
                                    ".filter(f => f.status === 'loaded').map(f => f.family.replace(/\"/g, '')))")
-            assert "Instrument Sans" in loaded and "Instrument Serif" in loaded, f"Capsule's fonts did not load: {loaded}"
+            assert "Instrument Sans" in loaded and "Instrument Serif" in loaded, f"Stilsmith's fonts did not load: {loaded}"
             assert page.evaluate("() => getComputedStyle(document.body).fontFamily").startswith('"Instrument Sans"'), \
                 "the text is not set in Instrument Sans"
             assert page.evaluate("() => getComputedStyle(document.querySelector('.brand')).fontFamily").startswith(
@@ -260,7 +260,7 @@ def run(base: str) -> None:
             assert not wide, "wider than the screen: " + "; ".join(wide)
 
         def outfits_are_home():
-            # The outfits on the model are the heart of Capsule: logging in, the first tab and the wordmark
+            # The outfits on the model are the heart of Stilsmith: logging in, the first tab and the wordmark
             # lead to them. The plan has no tab of its own: it is one tap from the Wardrobe page.
             for width, phone in ((390, True), (1280, False)):
                 context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
@@ -287,9 +287,9 @@ def run(base: str) -> None:
                 context.close()
 
         def the_landing_page():
-            # A stranger gives the page a few seconds. It says what Capsule is and who it is for, in plain words,
+            # A stranger gives the page a few seconds. It says what Stilsmith is and who it is for, in plain words,
             # with the way in on a phone's first screen and one 'Log in' there (the header's), the headline in
-            # Capsule's serif, no text cut off, nothing drawn from the demo data, and a description for search
+            # Stilsmith's serif, no text cut off, nothing drawn from the demo data, and a description for search
             # results. A customer back on the public pages is one tap from the outfits.
             for width, phone in ((390, True), (1280, False)):
                 context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
@@ -310,7 +310,7 @@ def run(base: str) -> None:
                                  .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent.trim().slice(0, 30))};
                 })""")
                 context.close()
-                assert "men's" in seen["text"].split(), f"at {width}px the page does not say who Capsule is for"
+                assert "men's" in seen["text"].split(), f"at {width}px the page does not say who Stilsmith is for"
                 planner = [word for word in ("slot", "candidate", "score") if word in seen["text"]]
                 assert not planner, f"the planner's words on the landing page: {planner}"
                 assert seen["log_in"] == 1, f"'Log in' is on the first screen {seen['log_in']} times at {width}px"
@@ -327,8 +327,8 @@ def run(base: str) -> None:
 
         def public_pages_and_errors():
             # A visitor who only reads the website is given no cookie (nothing to ask consent for); the log-in form
-            # sets the one its token needs. A page that isn't there says so in Capsule's words, with the wordmark, the
-            # way home and the legal links, on a phone and on a computer. Capsule's icon is there for browsers to find.
+            # sets the one its token needs. A page that isn't there says so in Stilsmith's words, with the wordmark, the
+            # way home and the legal links, on a phone and on a computer. Stilsmith's icon is there for browsers to find.
             for width, phone in ((390, True), (1280, False)):
                 context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
                 visitor = context.new_page()
@@ -343,7 +343,7 @@ def run(base: str) -> None:
                     cut: [...document.querySelectorAll('main h1, main p, main .btn')].filter(el => el.scrollWidth > el.clientWidth + 1).length})""")
                 assert seen["title"] == "We can't find that page", f"a missing page at {width}px says {seen['title']!r}"
                 assert "requested URL" not in seen["text"], "a missing page still shows Werkzeug's sentence"
-                assert seen["links"][:2] == [["Capsule", "/"], ["Go to the home page", "/"]], f"the way home: {seen['links']}"
+                assert seen["links"][:2] == [["Stilsmith", "/"], ["Go to the home page", "/"]], f"the way home: {seen['links']}"
                 assert ["Privacy policy", "/legal/privacy"] in seen["links"], "no legal links on a missing page"
                 assert seen["wide"] <= width + 1 and not seen["cut"], f"the missing page does not fit {width}px"
                 icon = context.request.get(base + "/favicon.ico")
@@ -354,6 +354,49 @@ def run(base: str) -> None:
             page.goto(base + "/does-not-exist", wait_until="networkidle")      # the customer is logged in here
             page.locator("main a", has_text="Go to your outfits").click()
             page.wait_for_url(base + "/outfits")
+
+        def the_wordmark_fits():
+            # The name is Stilsmith, two letters longer than the old one. On the narrowest phone (320px), a usual one
+            # (390px) and a computer, for a visitor and for a customer: every page's title and the wordmark say
+            # Stilsmith, the wordmark is on one line, whole, and touches nothing else in the header, and "Log in",
+            # "Create account", "Account" and the tabs keep their words on one line each.
+            measure = """() => document.fonts.ready.then(() => {
+                const lines = el => { const range = document.createRange(); range.selectNodeContents(el);
+                    return new Set([...range.getClientRects()].filter(r => r.width > 0).map(r => Math.round(r.top))).size; };
+                const brand = document.querySelector('header.top .brand'), b = brand.getBoundingClientRect();
+                const others = [...document.querySelectorAll('header.top .public-nav a, header.top .account-link, nav.tabs a')]
+                    .filter(el => el.getBoundingClientRect().width > 0);
+                return {title: document.title, text: brand.textContent.trim(), lines: lines(brand),
+                        cut: brand.scrollWidth > brand.clientWidth + 1,
+                        touching: others.filter(el => { const r = el.getBoundingClientRect();
+                            return r.left < b.right && r.right > b.left && r.top < b.bottom && r.bottom > b.top; })
+                            .map(el => el.textContent.trim()),
+                        wrapped: others.filter(el => lines(el) > 1).map(el => el.textContent.trim())};
+            })"""
+            for width in (320, 390, 1280):
+                phone = width < 760
+                context = browser.new_context(viewport={"width": width, "height": 800}, is_mobile=phone, has_touch=phone)
+                other = context.new_page()
+                seen = {}
+                for path in ("/", "/login", "/does-not-exist"):     # as a visitor (the 404 is expected)
+                    other.goto(base + path, wait_until="networkidle")
+                    seen["visitor " + path] = other.evaluate(measure)
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_url(base + "/outfits")
+                for path in ("/outfits", "/account", "/"):
+                    other.goto(base + path, wait_until="networkidle")
+                    seen["customer " + path] = other.evaluate(measure)
+                context.close()
+                for where, s in seen.items():
+                    assert s["text"] == "Stilsmith", f"at {width}px the wordmark on {where} says {s['text']!r}"
+                    assert re.fullmatch(r"Stilsmith — .+|.+ · Stilsmith", s["title"]), \
+                        f"at {width}px the title of {where} is {s['title']!r}"
+                    assert s["lines"] == 1 and not s["cut"], f"at {width}px the wordmark on {where} is not one whole line"
+                    assert not s["touching"], f"at {width}px the wordmark on {where} touches {s['touching']}"
+                    assert not s["wrapped"], f"at {width}px on {where} these break onto two lines: {s['wrapped']}"
 
         def tabs_fetch_only_the_page():
             # The browser keeps the stylesheet, the scripts and the fonts for a year (their addresses change when they do),
@@ -1089,7 +1132,7 @@ def run(base: str) -> None:
                 other.close()
 
         def one_tap_colour():
-            # A piece the store list has nothing for says so and offers, in one tap, a colour Capsule has. The demo
+            # A piece the store list has nothing for says so and offers, in one tap, a colour Stilsmith has. The demo
             # data has something for every piece, so a small list is published first, the way the operator does:
             # jumpers in grey and navy only. A second customer who likes black, grey and white then has a black
             # jumper with nothing to buy. Every signed-in page picks up a list as soon as it is published, so it is
@@ -1135,19 +1178,19 @@ def run(base: str) -> None:
                     return int(said.group(1)) if said else 0
 
                 offer = phone.locator("article.slot .offer button").first
-                assert offer.count(), "no piece with nothing to buy offers a colour Capsule has"
+                assert offer.count(), "no piece with nothing to buy offers a colour Stilsmith has"
                 card = offer.evaluate("b => b.closest('article').id")
                 colour = colours.get(offer.evaluate("b => b.form.elements.colour.value"))
                 name = phone.locator(f"#{card} .slot-name").inner_text()
                 qty = phone.locator(f"#{card} .qty")
                 pieces = int(qty.inner_text().lstrip("×")) if qty.count() else 1
                 before = missing()
-                assert phone.locator(f"#{card} .note").inner_text().startswith("Not in Capsule's product list in "), \
+                assert phone.locator(f"#{card} .note").inner_text().startswith("Not in Stilsmith's product list in "), \
                     "the empty piece does not say what is missing"
                 # The card's link is named "<piece>: see all options"; a screen reader hears its note as well.
                 link = phone.locator(f"#{card} .slot-main")
                 expect(link, "a screen reader is not told why the piece is empty").to_have_accessible_description(
-                    re.compile(r"^Not in Capsule's product list in \w"))
+                    re.compile(r"^Not in Stilsmith's product list in \w"))
                 phone.evaluate("() => { window.stayed = true; }")
                 offer.focus()
                 phone.keyboard.press("Enter")
@@ -1167,7 +1210,7 @@ def run(base: str) -> None:
                 context.close()
 
         def colours_by_tapping_swatches():
-            # Every colour Capsule knows is a swatch to tap, five to a row on a phone. Once: liked, numbered in the
+            # Every colour Stilsmith knows is a swatch to tap, five to a row on a phone. Once: liked, numbered in the
             # order tapped (1 counts most); twice: to avoid; three times: neither. The taps fill in the two text
             # fields, hidden while the swatches work, so what is saved is what typing it would save. A third customer,
             # new, so that his first save rebuilds the plan from his colours.
@@ -1195,7 +1238,7 @@ def run(base: str) -> None:
                 }""")
                 assert grid["names"] == [c.label.lower() for c in colours.COLOURS.values()], f"the swatches: {grid['names']}"
                 assert grid["colours"] == ["rgb({}, {}, {})".format(*(int(c.hex[i:i + 2], 16) for i in (1, 3, 5)))
-                                           for c in colours.COLOURS.values()], "a swatch is not in the colour Capsule shows for it"
+                                           for c in colours.COLOURS.values()], "a swatch is not in the colour Stilsmith shows for it"
                 assert grid["firstRow"] == 5 and grid["smallest"] >= 44, f"on a phone the swatches are laid out as {grid}"
                 assert not phone.locator("input[name=liked]").is_visible() and not phone.locator("input[name=refused]").is_visible(), \
                     "the text fields are still shown beside the swatches"
@@ -1292,7 +1335,7 @@ def run(base: str) -> None:
                 assert "Not kept: " in said, f"the swapped piece is gone and the message does not say so: {said!r}"
 
         def the_outfit_on_a_phones_first_screen():
-            # The model view is the heart of Capsule. On a phone (390 x 844) the first screen shows the AI picture and,
+            # The model view is the heart of Stilsmith. On a phone (390 x 844) the first screen shows the AI picture and,
             # under it, the outfit's title, its price and the heart, above the tab bar; on a shorter one (Safari's
             # 390 x 664) at least the whole picture with its lowest dot, also under a message at the top of the page.
             # The chips and Shuffle are one row (on a narrow phone the chips scroll sideways inside it, and a chip reached
@@ -1512,7 +1555,7 @@ def run(base: str) -> None:
             # on the same button, now 'Unlock'; after 'Choose this' on the mark that replaces it, and the next Tab
             # goes on through that option, not to the footer. What pasted links came to is said inside the 'Add a
             # product by link' section the page comes back to, on the screen, with JavaScript on and off. The piece
-            # used is one Capsule picks (not the one swapped earlier), and it is left that way.
+            # used is one Stilsmith picks (not the one swapped earlier), and it is left that way.
             ACTIVE = "() => ({id: document.activeElement.id, text: document.activeElement.textContent.replace(/\\s+/g, ' ').trim()})"
             # HTMX puts the new part of the page in at once and hooks up its buttons a moment later (its "settle", about
             # 20 ms): a key pressed in between sends the form without HTMX. A person never presses that fast; the
@@ -1526,7 +1569,7 @@ def run(base: str) -> None:
                 if page.locator("#slot-lock", has_text="Lock this choice").count() and page.locator("button[id^=choose-]").count():
                     break
             else:
-                raise AssertionError("no piece that Capsule picks, with another option to choose")
+                raise AssertionError("no piece that Stilsmith picks, with another option to choose")
             address = page.url
             page.locator("#slot-lock").focus()
             page.keyboard.press("Enter")
@@ -1554,7 +1597,7 @@ def run(base: str) -> None:
             page.keyboard.press("Tab")
             inside = page.evaluate("id => document.activeElement.closest('.cand') === document.getElementById(id).closest('.cand')", option)
             assert inside, f"the Tab after choosing leaves the option for {page.evaluate(ACTIVE)}"
-            page.locator("#slot-lock").focus()                     # back to what Capsule picks
+            page.locator("#slot-lock").focus()                     # back to what Stilsmith picks
             page.keyboard.press("Enter")
             page.wait_for_selector("#slot-lock:has-text('Lock this choice')")
             page.wait_for_function(SETTLED)
@@ -1673,7 +1716,7 @@ def run(base: str) -> None:
             finally:
                 db.remove_owner(EMAIL)
 
-        steps = [("create an account", sign_up), ("Capsule's own typefaces load", own_typefaces),
+        steps = [("create an account", sign_up), ("Stilsmith's own typefaces load", own_typefaces),
                  ("price levels and best for budget", price_levels),
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
                  ("an option not in your size fades only its photo", out_of_size_fades_only_the_photo),
@@ -1691,8 +1734,9 @@ def run(base: str) -> None:
                  ("save an outfit and buy it", save_and_buy),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
-                 ("the landing page says what Capsule is", the_landing_page),
+                 ("the landing page says what Stilsmith is", the_landing_page),
                  ("public pages: no cookie, errors in plain words", public_pages_and_errors),
+                 ("the wordmark Stilsmith fits at 320, 390 and 1280", the_wordmark_fits),
                  ("moving between tabs fetches only the page", tabs_fetch_only_the_page),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("the owner's store catalogues, owners only", owners_store_catalogues),

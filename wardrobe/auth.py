@@ -33,14 +33,14 @@ _DUMMY_HASH = generate_password_hash("not a real password")
 
 # ── who is signed in ──────────────────────────────────────────────────────────
 
-# Capsule's own files: the stylesheet, scripts, fonts and icons (static/) and /favicon.ico. They are the same for
+# Stilsmith's own files: the stylesheet, scripts, fonts and icons (static/) and /favicon.ico. They are the same for
 # everyone, so no account is looked up for them and they never carry the login cookie: browsers keep them (see
 # static_files_kept in app.py), and so can a shared cache such as Cloudflare's, which keeps no file that sets a cookie.
 FILES = {"static", "favicon"}
 
 
 class LoginCookie(SecureCookieSessionInterface):
-    """Flask's signed login cookie, except on Capsule's own files: those never set it, nor "Vary: Cookie".
+    """Flask's signed login cookie, except on Stilsmith's own files: those never set it, nor "Vary: Cookie".
     (Flask renews a lasting login cookie with every response, a stylesheet or a font included. Every page
     still renews it.)"""
 
@@ -66,7 +66,7 @@ def load_user() -> None:
 
 
 def is_owner() -> bool:
-    """Whether the person asking runs Capsule, and so may see the owner's pages (owner.py).
+    """Whether the person asking runs Stilsmith, and so may see the owner's pages (owner.py).
     On your own machine you do: one person, no login. In production, an account marked with
     `python -m wardrobe owner add EMAIL`; nobody signed out is one."""
     if not settings.PRODUCTION:
@@ -104,7 +104,8 @@ def check_csrf() -> None:
         return
     sent = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token", "")
     if not sent or not hmac.compare_digest(sent, session.get("csrf", "")):
-        abort(400, "This page was open for too long or was not sent from Capsule. Reload it and try again.")
+        abort(400, f"This page was open for too long or was not sent from {settings.SITE_NAME}. "
+                   "Reload it and try again.")
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -125,7 +126,7 @@ def password_problem(password: str, email: str = "") -> str | None:
 
 
 def _next_page() -> str:
-    """Where logging in leads: back to the page that was asked for, or else the outfits, Capsule's home."""
+    """Where logging in leads: back to the page that was asked for, or else the outfits, Stilsmith's home."""
     target = request.values.get("next", "")
     # Only a plain path on this site. Browsers drop tabs and line breaks from an address and read "\" as
     # "/", so "/<tab>/evil.example" and "/\evil.example" would both lead to another website.
@@ -157,7 +158,7 @@ def signup():
     if not problem and db.note_signup(request.remote_addr or "") > settings.SIGNUPS_PER_IP_PER_HOUR:
         problem = "Too many new accounts from this connection. Try again in an hour."
     if not problem and invite and not hmac.compare_digest(code.encode(), settings.INVITE_CODE.encode()):
-        problem = "That invitation code is not right. Capsule is open by invitation for now."
+        problem = f"That invitation code is not right. {settings.SITE_NAME} is open by invitation for now."
     if problem:
         flash(problem)
         return render_template("auth_signup.html", email=request.form.get("email", ""), invite=invite, code=code), 400
@@ -217,7 +218,7 @@ def forgot():
         db.add_reset_token(user["id"], token, settings.RESET_TOKEN_MINUTES)
         link = settings.SITE_URL + url_for("auth.reset", token=token)
         mail.send(user["email"], f"Reset your {settings.SITE_NAME} password",
-                  f"Someone asked to reset the password for this address.\n\n"
+                  f"Someone asked to reset the {settings.SITE_NAME} password for this address.\n\n"
                   f"Choose a new one here (the link works for {settings.RESET_TOKEN_MINUTES} minutes):\n{link}\n\n"
                   "If that wasn't you, ignore this message; nothing changes.")
     # The same answer whether or not the address has an account.
@@ -276,8 +277,8 @@ def export_data():
     data["your_photo"] = ("stored, with the pictures made from it; see the photo, or delete it and them, "
                           "on the Profile page" if person.photo() else "none stored")
     body = json.dumps(data, ensure_ascii=False, indent=2)
-    return Response(body, mimetype="application/json",
-                    headers={"Content-Disposition": "attachment; filename=capsule-my-data.json"})
+    name = f"{settings.SITE_NAME.lower()}-my-data.json"         # stilsmith-my-data.json
+    return Response(body, mimetype="application/json", headers={"Content-Disposition": f"attachment; filename={name}"})
 
 
 @bp.post("/account/delete")

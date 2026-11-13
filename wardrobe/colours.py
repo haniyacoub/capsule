@@ -195,7 +195,7 @@ def contrast(hex_a: str, hex_b: str) -> float:
 
 def ink_on(hex_: str) -> str:
     """Readable text colour on top of a swatch (the colour's name, when a product photo is
-    missing): Capsule's ink or white, whichever reads better. On a few middle greys and browns
+    missing): Stilsmith's ink or white, whichever reads better. On a few middle greys and browns
     neither reaches 4.5:1, and pure black always does there."""
     best = max(("#1b1b1a", "#ffffff"), key=lambda ink: contrast(hex_, ink))
     return best if contrast(hex_, best) >= 4.5 else "#000000"
