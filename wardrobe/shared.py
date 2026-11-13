@@ -141,7 +141,7 @@ def refused_colours() -> frozenset[str]:
 
 
 def colours_on_offer(category: str, refused: frozenset[str] = frozenset()) -> dict[str, list[dict]]:
-    """The colours Capsule has a garment in: for each colour, the products a piece of that garment in
+    """The colours Stilsmith has a garment in: for each colour, the products a piece of that garment in
     that colour is offered. Each colour is tried with candidates_for, the matching that fills every
     piece, so a colour listed here really fills one. The colours most of the products are named in
     come first: where two colours reach the same products ('white' and 'ecru' both reach an ecru
@@ -286,7 +286,7 @@ def _picked_again(gone: dict[str, list[str]]) -> None:
 
 def gone_message(keep: bool = False) -> str:
     """The one plain message about stores that are no longer offered, once (or "" when there is none): "Zara has
-    no partner programme, so Capsule no longer shows its products: 17 pieces were picked again." The Wardrobe page
+    no partner programme, so Stilsmith no longer shows its products: 17 pieces were picked again." The Wardrobe page
     shows it the first time it is opened after the change; `keep` leaves it to be shown again."""
     note = db.get_setting(GONE_SETTING)
     if not isinstance(note, dict) or not note.get("pieces"):

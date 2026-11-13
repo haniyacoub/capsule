@@ -21,7 +21,7 @@ try:
     logging.getLogger("capsule").info("AI pictures of outfits: %s", looks.status()[1])
 except ConfigError as problem:
     # For the operator, in the log. Visitors and customers never read it: a page that needs the file shows
-    # Capsule's own 500 page, and the log gets the message again.
+    # Stilsmith's own 500 page, and the log gets the message again.
     logging.getLogger("capsule").error("%s", problem)
 
 app = create_app()

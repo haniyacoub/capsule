@@ -1,5 +1,5 @@
 #!/bin/sh
-# Capsule on the internet from this computer, through a temporary Cloudflare tunnel.
+# Stilsmith on the internet from this computer, through a temporary Cloudflare tunnel.
 #
 #   ./deploy/preview.sh
 #
@@ -12,7 +12,7 @@
 #      people who have the link it prints can create an account,
 #   3. stops both when you press Ctrl+C. The address is gone then; the next run gets a new one.
 #
-# It is for showing Capsule to someone or trying it on your phone. It is not a place for
+# It is for showing Stilsmith to someone or trying it on your phone. It is not a place for
 # customers: it runs on this computer, and only while this window is open.
 #
 # PORT=8000 is used unless you set another.
@@ -61,10 +61,11 @@ if [ -z "$url" ]; then
 fi
 
 code="${INVITE_CODE:-$("$PYTHON" -c 'import secrets; print(secrets.token_urlsafe(9))')}"
+name="$("$PYTHON" -c 'from wardrobe.settings import SITE_NAME; print(SITE_NAME)')"     # the product's name (settings.py)
 
 cat <<EOF
 
-Capsule is on the internet for as long as this window stays open:
+$name is on the internet for as long as this window stays open:
 
     $url
 

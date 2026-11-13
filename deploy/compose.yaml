@@ -1,4 +1,4 @@
-# Capsule on one server, reached through a Cloudflare Tunnel.
+# Stilsmith on one server, reached through a Cloudflare Tunnel.
 #
 #   cp deploy/app.env.example deploy/app.env          and fill it in
 #   cp deploy/tunnel.env.example deploy/tunnel.env    and paste the tunnel's token

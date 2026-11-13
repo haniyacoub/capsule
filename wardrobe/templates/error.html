@@ -9,7 +9,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
-  <title>{{ title }} · Capsule</title>
+  <title>{{ title }} · {{ site_name }}</title>
   <link rel="icon" href="/favicon.ico" sizes="48x48">
   <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ asset_v }}">
@@ -20,7 +20,7 @@
 {% set home = url_for('outfits_page') if at_home else url_for('wardrobe') %}
 <body>
   <header class="top">
-    <a class="brand" href="{{ home }}">Capsule</a>
+    <a class="brand" href="{{ home }}">{{ site_name }}</a>
   </header>
 
   <main>

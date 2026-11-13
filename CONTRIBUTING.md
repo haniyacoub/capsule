@@ -1,6 +1,6 @@
-# Working on Capsule
+# Working on Stilsmith
 
-Capsule builds a men's capsule wardrobe (a small set of clothes that all go together)
+Stilsmith builds a men's capsule wardrobe (a small set of clothes that all go together)
 from COS and Weekday: a product for each piece at the price level you choose, the
 outfits they make, and the shopping list. Only stores with a partner (affiliate)
 programme are offered (`programme` in `config/stores.toml`, `wardrobe/programmes.py`);
@@ -223,8 +223,8 @@ Security tab, "Report a vulnerability".
 
 ## Licence and terms
 
-All rights reserved: Capsule is not open source. The code is public so that you can
+All rights reserved: Stilsmith is not open source. The code is public so that you can
 read it and work on it with us; it may not be copied or reused elsewhere without the
 owner's written permission. By sending a contribution (a pull request, a patch, code
-in an issue), you agree that Capsule may use, change and publish it, including
+in an issue), you agree that Stilsmith may use, change and publish it, including
 commercially, without payment. If you do not agree, say so before you send it.

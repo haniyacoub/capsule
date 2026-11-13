@@ -25,6 +25,7 @@ from . import catalog as catalog_mod
 from . import colours, db, scoring, shared, sizecheck, sizes
 from . import profile as profile_mod
 from .garments import GARMENTS, SECTIONS, Garment
+from . import settings
 
 # The price levels, cheapest first. To rename one, change its label here.
 # "Top" is the dearest option these stores sell for a slot; none of them is a luxury brand.
@@ -113,7 +114,7 @@ class SlotView:
     state: str = "auto"          # auto | locked | owned
     note: str | None = None
     warn: bool = False
-    # A piece Capsule's product list has nothing for: colours it has the garment in, to switch to in one
+    # A piece Stilsmith's product list has nothing for: colours it has the garment in, to switch to in one
     # tap (see _offer), or, when there are none, why the piece stays out of the outfits and the total.
     offers: list[colours.Colour] = field(default_factory=list)
     left_out: str | None = None
@@ -189,7 +190,7 @@ class Wardrobe:
 
     @property
     def n_missing(self) -> int:
-        """Pieces Capsule's product list has nothing for yet. Counted like n_buy: a white tee ×2 is two."""
+        """Pieces Stilsmith's product list has nothing for yet. Counted like n_buy: a white tee ×2 is two."""
         return sum(s.qty for s in self.slots if s.state != "owned" and not s.cands)
 
     @property
@@ -266,7 +267,8 @@ def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tu
     """The automatic pick for a slot: (candidate, note, is_warning). `colour` is the piece's colour, in
     words ('black'), for the note on a piece the product list has nothing for."""
     if not cands:
-        return None, f"Not in Capsule's product list in {colour} yet" if colour else "Not in Capsule's product list yet", True
+        return None, (f"Not in {settings.SITE_NAME}'s product list in {colour} yet" if colour
+                      else f"Not in {settings.SITE_NAME}'s product list yet"), True
     # An item without a price has no place on the price ladder: it is never picked automatically.
     available = [c for c in cands if c.available and c.price > 0]
     if not available:
@@ -432,7 +434,7 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
 
 
 def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -> None:
-    """For a piece the product list has nothing for: up to three colours Capsule has its garment in, each
+    """For a piece the product list has nothing for: up to three colours Stilsmith has its garment in, each
     of which fills it in one tap (app.slot_colour). Liked colours come first and refused ones never. A
     colour whose products another piece of that garment already has is skipped, and so is one that
     reaches the same products as a colour already offered: the piece must not become a copy of another.
@@ -466,15 +468,15 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
         kind = view.garment.plural
         verb = "are" if kind.endswith("s") else "is"        # "T-shirts are", "knitwear is"
         if not shared.colours_on_offer(category):    # none at all, in any colour (on_offer leaves out the refused)
-            why = f"Capsule has no {kind} yet"
-        elif in_your_plan:      # say so: "Capsule has none" would be untrue beside the grey jumper that has them
-            why = f"Capsule's {kind} in other colours you wear {verb} already in your plan"
+            why = f"{settings.SITE_NAME} has no {kind} yet"
+        elif in_your_plan:      # say so: "Stilsmith has none" would be untrue beside the grey jumper that has them
+            why = f"{settings.SITE_NAME}'s {kind} in other colours you wear {verb} already in your plan"
             if not_in_your_size:
                 why += " or not in your size"
         elif not_in_your_size:
-            why = f"Capsule has no {kind} in your size in other colours you wear yet"
+            why = f"{settings.SITE_NAME} has no {kind} in your size in other colours you wear yet"
         else:                   # it has this garment only in colours he refused
-            why = f"Capsule has no {kind} in other colours you wear yet"
+            why = f"{settings.SITE_NAME} has no {kind} in other colours you wear yet"
         view.left_out = f"{why}, so this piece is left out of your outfits and your total."
 
 

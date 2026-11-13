@@ -4,7 +4,7 @@ All numbers come from config/scoring.toml. This file only does the arithmetic
 and writes down, line by line, how each number came about. Those lines are what
 a customer reads under "How it's rated" on a piece's page, so they are in his
 words: a price is "in the usual range", and the brand part says plainly that the
-rating is Capsule's own.
+rating is Stilsmith's own.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from . import composition, config, programmes
 from .garments import GARMENTS
+from . import settings
 
 
 @dataclass
@@ -41,12 +42,12 @@ class Score:
     @property
     def note(self) -> str:
         """The line under every breakdown: which part counts most (from the weights, so it stays true when they
-        change), and that the brand part is Capsule's own judgement, not a fact from the store."""
+        change), and that the brand part is Stilsmith's own judgement, not a fact from the store."""
         weights = sorted((p.weight for p in self.parts), reverse=True)
         most = next(p for p in self.parts if p.weight == weights[0])
         first = f"{most.label} counts most. " if len(weights) < 2 or weights[0] > weights[1] else ""
-        return first + ("The brand part is Capsule's own judgement of how well each store makes this kind of "
-                        "garment.")
+        return first + (f"The brand part is {settings.SITE_NAME}'s own judgement of how well each store makes this "
+                        "kind of garment.")
 
     @property
     def fabric_text(self) -> str:
@@ -171,7 +172,7 @@ def price_part(price: float, category: str, rules: dict) -> tuple[float, list[st
     band = cfg.get("bands", {}).get(category)
     plural = GARMENTS[category].plural if category in GARMENTS else category
     if not band:
-        return 70.0, [f"Capsule has no usual price range for {plural} yet → neutral 70"]
+        return 70.0, [f"{settings.SITE_NAME} has no usual price range for {plural} yet → neutral 70"]
 
     low_score = float(cfg.get("score_when_suspicious", 40))
     high_score = float(cfg.get("score_when_steep", 55))
@@ -200,12 +201,13 @@ def brand_part(store: str, category: str, rules: dict) -> tuple[float, list[str]
     tiers = rules.get("brand", {}).get(store, {})
     plural = GARMENTS[category].plural if category in GARMENTS else category
     name = programmes.label(store)
-    # Capsule's own judgement of the store, and said to be: "Zara is rated 52" hid who rates it.
+    # Stilsmith's own judgement of the store, and said to be: "Zara is rated 52" hid who rates it.
     if category in tiers:
         value = float(tiers[category])
-        return value, [f"Capsule rates {name} {_num(value)}/100 for {plural}"]
+        return value, [f"{settings.SITE_NAME} rates {name} {_num(value)}/100 for {plural}"]
     value = float(tiers.get("default", 50))
-    return value, [f"Capsule rates {name} {_num(value)}/100 for {plural} (its rating for {name} in general)"]
+    return value, [f"{settings.SITE_NAME} rates {name} {_num(value)}/100 for {plural} "
+                   f"(its rating for {name} in general)"]
 
 
 def score(candidate: dict, category: str, rules: dict | None = None) -> Score:

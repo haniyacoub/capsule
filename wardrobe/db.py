@@ -14,7 +14,7 @@ Look around with `sqlite3 data/wardrobe.db`:
     SELECT key, value FROM settings WHERE user_id = 1;
     SELECT key, status, last_import_at FROM stores;          -- the store feeds (feeds/)
     SELECT store, name, price, colour, sizes_in_stock FROM products LIMIT 20;
-    SELECT u.email, o.added_at FROM owners o JOIN users u ON u.id = o.user_id;   -- who runs Capsule (owner.py)
+    SELECT u.email, o.added_at FROM owners o JOIN users u ON u.id = o.user_id;   -- who runs Stilsmith (owner.py)
 """
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ CREATE INDEX IF NOT EXISTS look_requests_at ON look_requests (at);
 """
 
 # Added in version 5: the store feeds (feeds/). These tables are shared, not per customer: the
-# stores whose affiliate programmes may license Capsule a product feed, and the products from
+# stores whose affiliate programmes may license Stilsmith a product feed, and the products from
 # those feeds. A database from version 4 gains them and nothing else changes.
 # (No semicolons inside the comments: the statements are split on them.)
 SCHEMA_FEEDS = """
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS products (   -- one row per product per store, replac
     category        TEXT,               -- the feed's own words
     gender          TEXT,               -- the feed's own words
     colour          TEXT,               -- the feed's own words
-    colour_key      TEXT,               -- Capsule's colour (colours.py), NULL when not recognised
+    colour_key      TEXT,               -- Stilsmith's colour (colours.py), NULL when not recognised
     material        TEXT,               -- the feed's own words
     composition     TEXT NOT NULL DEFAULT '[]',      -- JSON [[fibre, percent], ...] from composition.py
     price           REAL NOT NULL,      -- Google format: the regular price. Awin CSV: search_price, the price now
@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS products (   -- one row per product per store, replac
 CREATE INDEX IF NOT EXISTS products_by_group ON products (store, group_id);
 """
 
-# Added in version 6: who runs Capsule (owner.py). An owner's account sees the owner's pages, such as
+# Added in version 6: who runs Stilsmith (owner.py). An owner's account sees the owner's pages, such as
 # every store's catalogue at /stores. Marked with `python -m wardrobe owner add EMAIL`, straight in
 # the database: no setting and no restart. Deleting the account deletes the mark with it.
 # (No semicolons inside the comments: the statements are split on them.)
@@ -368,7 +368,7 @@ def delete_user(user_id: int) -> None:
             con.execute("DELETE FROM login_attempts WHERE email = ?", (email["email"],))
 
 
-# ── owners: the accounts that run Capsule (owner.py) ──────────────────────────
+# ── owners: the accounts that run Stilsmith (owner.py) ────────────────────────
 
 def add_owner(email: str) -> str:
     """Mark the account with this address as an owner. Returns 'added', 'already' or 'no account'."""
@@ -409,7 +409,7 @@ def export_user() -> dict:
         asked = con.execute("SELECT at FROM look_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
         owner = con.execute("SELECT added_at FROM owners WHERE user_id = ?", (user_id,)).fetchone()
     account = dict(user) if user else {}
-    if owner:       # only on the copy of someone who runs Capsule (owner.py)
+    if owner:       # only on the copy of someone who runs Stilsmith (owner.py)
         account["owner_since"] = owner["added_at"]
     return {
         "account": account,
@@ -714,7 +714,7 @@ def look_requests(since: float, mine: bool = False) -> int:
 
 
 # ── store feeds (feeds/) ──────────────────────────────────────────────────────
-# Shared by everybody, not scoped by uid(): which stores Capsule may take products
+# Shared by everybody, not scoped by uid(): which stores Stilsmith may take products
 # from, and the products their feeds carry.
 
 STORE_SETTINGS = ("label", "network", "programme_id", "status", "feed_format", "feed_location",
@@ -846,8 +846,8 @@ def _has_words(text: str | None, words: str) -> bool:
 
 # Which products a search finds. Every filter is given, as NULL when it is not used, so the statement is
 # fixed text: nothing from the request is ever written into it. Colour 'unknown' finds the products whose
-# colour Capsule did not recognise. A size is one the feed says is in stock. The words are looked for in the
-# name, brand, category, colour (the feed's and Capsule's: 'navy' finds 'Marineblau'), fabric, id and store.
+# colour Stilsmith did not recognise. A size is one the feed says is in stock. The words are looked for in the
+# name, brand, category, colour (the feed's and Stilsmith's: 'navy' finds 'Marineblau'), fabric, id and store.
 _FOUND = """
     FROM products p JOIN stores s ON s.key = p.store
     WHERE (:store IS NULL OR p.store = :store)
@@ -888,7 +888,7 @@ def find_products(store: str | None = None, category: str | None = None, colour:
 
 def product_choices() -> dict[str, list[tuple[str | None, int]]]:
     """What the filters on the owner's catalogue offer, each with how many products have it: the feeds'
-    own categories, Capsule's colours (None: not recognised) and the sizes the feeds say are in stock."""
+    own categories, Stilsmith's colours (None: not recognised) and the sizes the feeds say are in stock."""
     with connect() as con:
         return {
             "categories": [tuple(r) for r in con.execute(

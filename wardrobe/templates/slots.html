@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Your plan · Capsule{% endblock %}
+{% block title %}Your plan · {{ site_name }}{% endblock %}
 {% block main %}
 {% from "_macros.html" import icon, slot_fields %}
 <p class="crumb"><a href="{{ url_for('wardrobe') }}">{{ icon('back') }} Wardrobe</a></p>

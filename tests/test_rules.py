@@ -117,7 +117,7 @@ class Scoring(unittest.TestCase):
 
     def test_the_working_is_said_in_plain_words(self):
         # A price below the usual range counts against an option, and the breakdown says why instead of calling it
-        # "suspiciously cheap"; the brand part says that the rating is Capsule's own.
+        # "suspiciously cheap"; the brand part says that the rating is Stilsmith's own.
         def price_line(price):
             return scoring.price_part(price, "tee", self.rules)[1][0].replace("\u00a0", " ")   # "12 €" never splits
 
@@ -131,13 +131,13 @@ class Scoring(unittest.TestCase):
                                          "against it.")
         self.assertEqual(price_line(90), "90 € is far above the usual 12 €–40 € for T-shirts, so this counts against it.")
         self.assertEqual(scoring.brand_part("weekday", "knit", self.rules)[1], [
-            f"Capsule rates Weekday {self.rules['brand']['weekday']['knit']}/100 for knitwear"])
+            f"Stilsmith rates Weekday {self.rules['brand']['weekday']['knit']}/100 for knitwear"])
         rated = self.score("weekday", 49.95, "100 % Merinowolle", "knit")
-        self.assertEqual(rated.note, "Fabric counts most. The brand part is Capsule's own judgement of how well each "
+        self.assertEqual(rated.note, "Fabric counts most. The brand part is Stilsmith's own judgement of how well each "
                                      "store makes this kind of garment.")
         evenly = {**self.rules, "weights": {"fabric": 1, "brand": 1, "price": 1}}
         self.assertEqual(scoring.score({"store": "weekday", "price": 49.95}, "knit", evenly).note,
-                         "The brand part is Capsule's own judgement of how well each store makes this kind of garment.",
+                         "The brand part is Stilsmith's own judgement of how well each store makes this kind of garment.",
                          "with every part weighing the same, none is said to count most")
         said = " ".join(line for part in rated.parts for line in part.lines)
         for word in ("suspicious", "fair band", "steep", "is rated"):
@@ -229,7 +229,7 @@ class Colours(unittest.TestCase):
 
     def test_the_name_on_a_swatch_is_readable(self):
         # When a product photo is missing, its colour swatch shows with the colour's name written on it.
-        # The name must read at 4.5:1 (WCAG AA) on every swatch: Capsule's own colours, the middle greys
+        # The name must read at 4.5:1 (WCAG AA) on every swatch: Stilsmith's own colours, the middle greys
         # and browns of real products (white on '#7c8286' was 3.9:1), and every colour in between.
         self.assertAlmostEqual(colours.contrast("#000000", "#ffffff"), 21.0)
         self.assertAlmostEqual(colours.contrast("#ffffff", "#ffffff"), 1.0)
@@ -238,7 +238,7 @@ class Colours(unittest.TestCase):
         swatches += ["#{:02x}{:02x}{:02x}".format(r, g, b) for r in steps for g in steps for b in steps]
         for hex_ in swatches:
             self.assertGreaterEqual(colours.contrast(hex_, colours.ink_on(hex_)), 4.5, hex_)
-        self.assertEqual(colours.ink_on("#f5f4f0"), "#1b1b1a")     # white tee: Capsule's ink
+        self.assertEqual(colours.ink_on("#f5f4f0"), "#1b1b1a")     # white tee: Stilsmith's ink
         self.assertEqual(colours.ink_on("#1f2a44"), "#ffffff")     # navy: white
 
 

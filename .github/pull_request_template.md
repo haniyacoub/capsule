@@ -6,7 +6,7 @@ what changed, such as "Outfits no longer stretches the page sideways on phones".
 
 ## What changed and why
 
-<!-- What someone using Capsule notices, then why. Link the issue: "Closes #12". -->
+<!-- What someone using Stilsmith notices, then why. Link the issue: "Closes #12". -->
 
 ## How it was checked
 

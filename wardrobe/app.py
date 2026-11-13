@@ -36,7 +36,7 @@ from .garments import GARMENTS
 from .paths import ROOT
 from .sizes import ALPHA
 
-# The tabs, in order. The outfits on the AI model are the heart of Capsule, so they come first.
+# The tabs, in order. The outfits on the AI model are the heart of Stilsmith, so they come first.
 # The plan editor (/slots) has no tab: "Edit the plan" on the Wardrobe page leads to it.
 NAV = [
     ("outfits", "Outfits", "outfits_page"),
@@ -130,7 +130,7 @@ def rebuild_plan(profile: dict, before: dict) -> tuple[capsule.Rebuilt, bool]:
         if slot["pick"] not in {c.get("id") for c in offered.get(slot["id"], [])}:
             db.update_slot(slot["id"], locked=False, pick=None)
             plan.picked.remove(slot)
-            plan.lost.append((slot["name"], "no longer in Capsule's product list"))
+            plan.lost.append((slot["name"], f"no longer in {conf.SITE_NAME}'s product list"))
     return plan, needs_refresh
 
 
@@ -268,7 +268,7 @@ def create_app() -> Flask:
             from werkzeug.middleware.proxy_fix import ProxyFix
             hops = conf.TRUSTED_PROXY_HOPS
             app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)  # type: ignore[method-assign]
-        app.session_interface = auth.LoginCookie()      # the login cookie, never on Capsule's own files
+        app.session_interface = auth.LoginCookie()      # the login cookie, never on Stilsmith's own files
         app.register_blueprint(auth.bp)
     else:
         app.secret_key = secrets.token_hex(16)   # only signs the one-off "saved" messages
@@ -286,7 +286,7 @@ def create_app() -> Flask:
     )
     bootstrap()
 
-    # In production the files under static/ don't change while Capsule runs (an update restarts it, see
+    # In production the files under static/ don't change while Stilsmith runs (an update restarts it, see
     # PRODUCTION.md), so their version is worked out once, here. On your own machine it is worked out for every
     # page, so an edit to the stylesheet shows at the next reload.
     version_at_start = _asset_version() if conf.PRODUCTION else None
@@ -363,7 +363,7 @@ def create_app() -> Flask:
 
     @app.after_request
     def static_files_kept(resp: Response) -> Response:
-        """How long browsers keep Capsule's own files (static/), so that moving between pages fetches only the page.
+        """How long browsers keep Stilsmith's own files (static/), so that moving between pages fetches only the page.
 
         For a year, without asking again: the stylesheet and the scripts at their current ?v= (the address changes
         with every update of the files, see _asset_version), and the fonts (a changed font gets a new file name, see
@@ -381,9 +381,9 @@ def create_app() -> Flask:
             resp.headers["Cache-Control"] = "public, max-age=86400"
         return resp
 
-    # Each error page in Capsule's own words: a title and one line (error.html adds the way home). Werkzeug's
+    # Each error page in Stilsmith's own words: a title and one line (error.html adds the way home). Werkzeug's
     # own sentences ("The requested URL was not found on the server…") are written for developers and never
-    # shown; a message Capsule itself gives to abort() takes the place of the line.
+    # shown; a message Stilsmith itself gives to abort() takes the place of the line.
     error_words = {
         400: ("That didn't go through", "Reload the page and try again."),
         403: ("That didn't go through", "Reload the page and try again."),
@@ -393,7 +393,7 @@ def create_app() -> Flask:
         413: ("Too much data", "Go back and try again with less."),
         429: ("Too many attempts", "Wait a few minutes and try again."),
         500: ("Something went wrong on our side", "It's not you. Try again in a minute."),
-        501: ("Not available yet", "This part of Capsule isn't built yet."),
+        501: ("Not available yet", f"This part of {conf.SITE_NAME} isn't built yet."),
     }
 
     def error_page(code: int, own: str | None = None):
@@ -403,7 +403,7 @@ def create_app() -> Flask:
     @app.errorhandler(ConfigError)
     def config_error(err: ConfigError):
         """A config file with a typo. On your own machine the page names the file and the line to fix. In production
-        visitors and customers see Capsule's own 500 page: the file, its line and the TOML text are for the operator,
+        visitors and customers see Stilsmith's own 500 page: the file, its line and the TOML text are for the operator,
         and are in the log."""
         if conf.PRODUCTION:
             app.logger.error("A config file needs fixing (%s %s): %s", request.method, request.path, err)
@@ -605,7 +605,7 @@ def create_app() -> Flask:
                             else url_for("wardrobe") + f"#card-{slot_id}")
         # The button that was pressed is gone from the new view, so keyboard focus moves to the piece itself.
         if on_its_page:     # that page is named after the piece: HTMX takes the <title> into the tab
-            title = Markup("<title>%s · Capsule</title>") % name
+            title = Markup("<title>%s · %s</title>") % (name, conf.SITE_NAME)
             return str(title) + fragment("_slot_body.html", w, focus=slot_id, **slot_context(w, slot_id))
         return fragment("_wardrobe_body.html", w, focus=slot_id)
 

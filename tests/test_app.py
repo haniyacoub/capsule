@@ -225,8 +225,8 @@ class APiecesPageInPlainWords(AppCase):
         self.assertEqual(page.count("Quality <span class=\"pill"), n)
         self.assertEqual(page.count('<span class="sr"> out of 100</span></span> <u>How it\'s rated</u>'), n)
         self.assertIn(f"Quality {coat.cands[0].score.total}/100", text)
-        self.assertIn("Capsule rates ", text)
-        self.assertEqual(text.count("Fabric counts most. The brand part is Capsule's own judgement of how well "
+        self.assertIn("Stilsmith rates ", text)
+        self.assertEqual(text.count("Fabric counts most. The brand part is Stilsmith's own judgement of how well "
                                     "each store makes this kind of garment."), n)
         self.assertRegex(text, r"× 50% = \d+\.\d", "the working is still shown")
         # What the look says, a screen reader hears too: an old price, a size sold out, your own size.
@@ -383,7 +383,7 @@ class SlotsAndProfile(AppCase):
             self.assertNotIn(jargon, about)
 
     def test_the_colours_are_swatches_to_tap_that_fill_the_same_two_fields(self):
-        # Every colour Capsule knows is a swatch to tap, in the colour the plan and the pictures show for it, named as
+        # Every colour Stilsmith knows is a swatch to tap, in the colour the plan and the pictures show for it, named as
         # the two text fields name it. The page sends the swatches hidden: app.js shows them, so that without
         # JavaScript the fields are typed in as before.
         page = self.client.get("/profile").data.decode()
@@ -583,7 +583,7 @@ class RebuildingThePlan(AppCase):
     def test_a_kept_choice_that_left_the_catalogue_is_said_not_kept(self):
         db.update_slot("white-tee", locked=True, pick="gone-from-the-store")
         self.save_profile(**self.NEW)
-        self.assertIn("Not kept: White tee (no longer in Capsule's product list).", self.messages())
+        self.assertIn("Not kept: White tee (no longer in Stilsmith's product list).", self.messages())
         self.assertFalse(db.get_slot("white-tee")["locked"])
 
     def test_owned_lines_follow_the_profile_and_owned_marks_stay(self):
@@ -688,7 +688,7 @@ class RebuildingThePlan(AppCase):
 
 
 class PiecesWithNothingToBuy(AppCase):
-    """A piece the product list has nothing for says so, and offers the colours Capsule has in one tap
+    """A piece the product list has nothing for says so, and offers the colours Stilsmith has in one tap
     (the published list is tested in test_production.py; this is your own machine)."""
 
     @staticmethod
@@ -708,16 +708,16 @@ class PiecesWithNothingToBuy(AppCase):
         self.assertEqual(shared.colours_on_offer("coat"), {})
 
         # A black jumper added on the plan page could only copy one of the two: nothing is offered, and it says why,
-        # truly: Capsule's grey and navy knitwear is there, as the grey and the navy jumper.
+        # truly: Stilsmith's grey and navy knitwear is there, as the grey and the navy jumper.
         self.client.post("/slots/add", data={"name": "", "category": "knit", "colour": "black", "qty": "1"})
         jumper = selection.build().get("black-jumper")
-        self.assertEqual((jumper.note, jumper.offers), ("Not in Capsule's product list in black yet", []))
+        self.assertEqual((jumper.note, jumper.offers), ("Not in Stilsmith's product list in black yet", []))
         page = html.unescape(self.client.get("/slot/black-jumper").data.decode())
-        self.assertIn("Capsule's knitwear in other colours you wear is already in your plan, so this piece is left out "
+        self.assertIn("Stilsmith's knitwear in other colours you wear is already in your plan, so this piece is left out "
                       "of your outfits and your total.", page)
-        self.assertNotIn("Capsule has no knitwear", page)
+        self.assertNotIn("Stilsmith has no knitwear", page)
         self.assertIn("python -m wardrobe refresh --slot black-jumper", page)
-        self.assertIn("Capsule has no coats yet", html.unescape(self.client.get("/").data.decode()))
+        self.assertIn("Stilsmith has no coats yet", html.unescape(self.client.get("/").data.decode()))
         self.assertEqual(self.client.post("/slot/black-jumper/colour", data={"colour": "grey"}).status_code, 409)
 
     def test_a_new_colour_renames_a_piece_named_after_its_colour(self):
@@ -940,7 +940,7 @@ class EditingTheRules(AppCase):
         r = self.client.get("/")
         self.assertEqual(r.status_code, 500)
         self.assertIn(b"config/scoring.toml has a syntax error", r.data)
-        # On your own machine the page is for the one who edits the files (production shows Capsule's own 500 page).
+        # On your own machine the page is for the one who edits the files (production shows Stilsmith's own 500 page).
         self.assertIn(b"A config file needs fixing", r.data)
         self.assertIn(b"Fix the file, save it, and reload this page", r.data)
 

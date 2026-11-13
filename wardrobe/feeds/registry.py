@@ -32,7 +32,7 @@ LINKS_ONLY = "links only: its programme forbids storing its site, so nothing of 
 _KEY = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 _TEXT = ("label", "programme_id", "feed_location", "delivery_note", "disclaimer")
 # For the owner, kept with the store's rules (the database's `rules` column) and shown on /stores:
-#   programme_page  the programme's page, a link for the owner (Capsule never opens it)
+#   programme_page  the programme's page, a link for the owner (Stilsmith never opens it)
 #   unconfirmed     what the research could not confirm, e.g. "Germany"
 #   notes           what the research says about it: commission, what the programme requires
 _ABOUT = ("programme_page", "unconfirmed", "notes")
@@ -108,7 +108,7 @@ def sync(data: dict | None = None, reopen: tuple[str, ...] | list[str] = ()) -> 
         note = ""
         if old and old["status"] == "ended" and values["status"] != "ended" and key not in reopen:
             values["status"] = "ended"
-            note = (" (ended with `stores end`, so it stays ended. If its programme takes Capsule back:"
+            note = (f" (ended with `stores end`, so it stays ended. If its programme takes {settings.SITE_NAME} back:"
                     f" python -m wardrobe stores sync --reopen {key})")
         lines.append(f"{key}: {db.save_store(key, values)}{note}")
         if values["status"] == "ended" and old and old["products"]:
