@@ -12,7 +12,8 @@ arrive (said to be drawing inside its box, then labelled 'AI picture' on itself,
 page on a phone jumping), opens a piece from its dot, swaps it (said over the outfit, with Undo, which puts back the
 product and its lock state), leaves a layer off (said, with 'Put it back'), opens a piece on a phone
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
-comparing all options to the same outfit), tabs up and down a pop-up that scrolls (nothing with keyboard focus
+comparing all options to the same outfit), opens a piece with JavaScript off (its page, and back to the same outfit)
+and with Space, tabs up and down a pop-up that scrolls (nothing with keyboard focus
 hidden under its top row), sees that with scrollbars shown the page behind the pop-up does not move sideways,
 moves between outfits (by keyboard too: Next among the first Tab stops, focus going with the outfit shown, which a
 screen reader hears named, Tab leading into the outfit shown and Next keeping focus at the end of the row, the heart
@@ -756,6 +757,64 @@ def run(base: str) -> None:
             back = re.search(r"at=([^&]+)", other.locator(f"{first} .piece-row").first.get_attribute("hx-get")).group(1)
             assert back == sig, f"back on {back}, not on the outfit the pop-up was opened from ({sig})"
             context.close()
+
+        def a_piece_without_javascript():
+            # Each piece of an outfit (its photo, its dot, its line in the list) is a link to the piece's own page,
+            # opened from that outfit. With JavaScript off on a phone, tapping a line, and then a dot (or the photo, while
+            # the outfit has no picture), opens that page, in the Outfits tab, and its way back shows the same outfit
+            # first. With JavaScript on the same pieces are buttons: a screen reader calls them so, Space opens the
+            # pop-up, and the address stays.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True,
+                                          java_script_enabled=False)
+            try:
+                other = context.new_page()
+                other.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                         if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_load_state("networkidle")
+                other.goto(base + "/outfits?occasion=office", wait_until="networkidle")
+                outfit = other.locator(first).get_attribute("id")
+                pieces = other.evaluate(f"""() => [...document.querySelectorAll('{first} :is(.tile, .spot, .piece-row)')].map(el => ({{
+                    tag: el.tagName.toLowerCase(), href: el.getAttribute('href') || '', pop_up: el.getAttribute('hx-get') || ''}}))""")
+                sig = re.search(r"at=([^&]+)", pieces[0]["pop_up"]).group(1)
+                for piece in pieces:
+                    slot = re.search(r"slot=([^&]+)", piece["pop_up"]).group(1)
+                    assert piece["tag"] == "a" and piece["href"] == f"/slot/{slot}?from=outfit&at={sig}&occasion=office", \
+                        f"a piece of the outfit is not a link to its page from this outfit: {piece}"
+                pictured = other.locator(f"{first} .look-pic img").count() > 0
+                for kind in (".piece-row", ".spot" if pictured else ".tile"):
+                    tapped = other.locator(f"{first} {kind}").last
+                    address = tapped.get_attribute("href")
+                    with other.expect_navigation():
+                        tapped.tap()
+                    other.wait_for_load_state("networkidle")
+                    assert other.url == base + address, f"tapping a {kind} without JavaScript opened {other.url}, not {address}"
+                    crumb = other.locator(".crumb a")
+                    assert crumb.inner_text().strip() == "Back to the outfit", f"the piece page's way back reads {crumb.inner_text()!r}"
+                    assert other.locator(".tabs a[aria-current=page]").inner_text() == "Outfits", "the Outfits tab is not lit"
+                    with other.expect_navigation():
+                        crumb.tap()
+                    other.wait_for_load_state("networkidle")
+                    assert other.url == f"{base}/outfits?at={sig}&occasion=office", f"the way back leads to {other.url}"
+                    assert other.locator(first).get_attribute("id") == outfit, "the way back shows another outfit first"
+            finally:
+                context.close()
+
+            page.goto(base + "/outfits?occasion=office", wait_until="networkidle")
+            for kind in (".tile", ".spot", ".piece-row"):
+                expect(page.locator(f"{first} {kind}").first, f"with JavaScript a {kind} is not a button").to_have_role("button")
+            address = page.url
+            page.locator(f"{first} .piece-row").first.focus()
+            page.keyboard.press("Space")
+            page.wait_for_selector("dialog#piece[open] #piece-title")
+            assert page.url == address, f"Space on a piece's line left the page for {page.url}"
+            page.keyboard.press("Escape")
+            page.wait_for_selector("dialog#piece:not([open])", state="attached")
+            assert page.evaluate("() => document.activeElement.matches('#reel .slide:first-child .piece-row')"), \
+                "after the pop-up is closed, focus is not back on the piece's line"
 
         def logged_in_on(where_browser, **screen):
             """A page of its own, logged in as the customer, in a context with these settings (viewport, touch...)."""
@@ -1821,6 +1880,7 @@ def run(base: str) -> None:
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
+                 ("a piece from an outfit without JavaScript", a_piece_without_javascript),
                  ("the pop-up's top row never hides what has focus", pop_up_never_hides_the_focus),
                  ("the page behind the pop-up stays put", the_page_behind_the_pop_up_stays_put),
                  ("arrows and arrow keys", arrows_move),

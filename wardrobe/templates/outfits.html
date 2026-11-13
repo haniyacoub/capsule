@@ -42,7 +42,7 @@
 {% endif %}
 
 {# One piece of an outfit, as something to tap. In today's outfits it opens the
-   pop-up (see _piece.html); in a saved outfit it goes to the product page, unless
+   pop-up (see _piece.html), or the piece's page without JavaScript; in a saved outfit it goes to the product page, unless
    its store is no longer offered (p.gone, outfits.no_longer_offered): then it is
    shown as the piece it filled, with no link.
    `title` is the tooltip a mouse shows. With a `label` instead (the dots on the picture, whose own label shows
@@ -50,8 +50,11 @@
 {% macro piece(o, p, cls, title, style='', label='') %}
 {% set named %}{% if label %} aria-label="{{ label }}"{% else %} title="{{ title }}"{% endif %}{% endset %}
 {% if o.sig %}
-<button class="{{ cls }}" type="button"{{ named }}{% if style %} style="{{ style }}"{% endif %}
-        hx-get="{{ url_for('outfits_piece', at=o.sig, slot=p.slot_id, occasion=occasion) }}" hx-target="#piece-body" hx-swap="innerHTML">{{ caller() }}</button>
+{# A link to the piece's own page, opened from this outfit, whose way back leads to it (app.way_back): what a tap
+   opens without JavaScript. With it, HTMX opens the pop-up instead, and app.js (8a) makes it a button. #}
+{% set way = {'from': 'outfit', 'at': o.sig, 'occasion': occasion} %}
+<a class="{{ cls }}" href="{{ url_for('slot_page', slot_id=p.slot_id, **way) }}"{{ named }}{% if style %} style="{{ style }}"{% endif %}
+   hx-get="{{ url_for('outfits_piece', at=o.sig, slot=p.slot_id, occasion=occasion) }}" hx-target="#piece-body" hx-swap="innerHTML">{{ caller() }}</a>
 {% elif p.gone %}
 <span class="{{ cls }}" title="{{ title }}"{% if style %} style="{{ style }}"{% endif %}>{{ caller() }}</span>
 {% elif p.owned %}

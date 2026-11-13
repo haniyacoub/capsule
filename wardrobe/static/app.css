@@ -565,6 +565,7 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
   position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; padding: 0; border-radius: 50%;
   border: 2px solid #fff; background: rgba(27, 27, 26, .55); box-shadow: 0 0 0 1px rgba(0, 0, 0, .25), 0 1px 4px rgba(0, 0, 0, .3);
   pointer-events: auto; cursor: pointer;
+  text-decoration: none;    /* a link to the piece's page without JavaScript (outfits.html): never underlined */
 }
 .spot::before { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: #fff; }
 .spot::after { content: ""; position: absolute; inset: -10px; }   /* a finger-sized target */

@@ -271,6 +271,17 @@ if (sheet) {
   });
 }
 
+// 8a. Each piece of an outfit (its photo, its dot on the picture, its line in the list) is a link to the piece's own
+//     page, which is what a tap opens without JavaScript (outfits.html). Here HTMX opens the pop-up from it instead,
+//     so it is a button: a screen reader calls it one, and Space presses it, as it would a button.
+document.querySelectorAll('#reel a[hx-target="#piece-body"]').forEach((link) => link.setAttribute('role', 'button'));
+document.addEventListener('keydown', (e) => {
+  const link = e.key === ' ' && e.target instanceof Element && e.target.closest('#reel a[role=button][hx-target="#piece-body"]');
+  if (!link || e.altKey || e.ctrlKey || e.metaKey) return;
+  e.preventDefault();       // not the page scrolling down
+  if (!e.repeat) link.click();
+});
+
 // 9. "Open all": every product page of one store, each in its own tab. Browsers
 //    hold back tabs they did not expect; if that happens, say so.
 document.addEventListener('click', (e) => {
