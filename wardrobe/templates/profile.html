@@ -91,7 +91,7 @@
      left on "Any" beside chosen ones is not described at all, so there the AI decides. #}
   <p class="muted">Choose who wears your outfits in the AI pictures. With everything on “Any”, it is our standard model: a man of average build. Once you choose something, whatever is still on “Any” is up to the AI.</p>
   {% if not looks_on %}
-  <p class="demo"><b>AI pictures are switched off.</b> You can set the model up now; it is used once a key for the image service is set (README, “AI pictures of outfits”).</p>
+  <p class="demo"><b>AI pictures are switched off.</b> You can set the model up now; it is used once a key for the AI service is set (README, “AI pictures of outfits”).</p>
   {% endif %}
   <form class="form" method="post" action="{{ url_for('profile_model') }}">{{ csrf_field() }}
     {% for group, entry in groups.items() %}
