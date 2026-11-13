@@ -28,6 +28,7 @@ from werkzeug.exceptions import HTTPException, NotFound
 
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
                owner, person, programmes, selection, shared, tryon)
+from . import videos
 from . import profile as profile_mod
 from . import english
 from . import settings as conf
@@ -54,6 +55,8 @@ PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_ima
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
 # The date of the words a customer agrees to when he uploads his photo (the box on Profile, profile.html). It is
 # stored with the photo, so it is known which words he agreed to. Give it a new date whenever those words change.
+# While videos are on, the box's words also say that pictures of him go to Google for videos: those words are
+# dated videos.CONSENT, and that date is stored instead.
 PHOTO_CONSENT = "2026-11-12"
 
 
@@ -765,9 +768,11 @@ def create_app() -> Flask:
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
                        "saved": o.key in saved} for o in chosen]
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
+        videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved),
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
-                    looks_on=looks_on,
+                    looks_on=looks_on, videos_on=videos_on, turn_seconds=(videos.rules() or {}).get("turn_seconds", 6),
+                    scenes=looks.scenes() if looks_on else [],     # the studio picture first; the others on a tap
                     # Until the profile is saved, the starter banner stands where the budget bar would: a budget
                     # the customer never set says nothing yet. Saving the profile brings the bar back.
                     starter=starter_line() if prof["example"] else "",
@@ -805,9 +810,11 @@ def create_app() -> Flask:
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
 
-    def look_fragment(outfit_key: str, look: looks.Look | None) -> str:
-        return render_template("_look.html", key=outfit_key, look=look,
-                               auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off())
+    def look_fragment(outfit_key: str, look: looks.Look | None, scene: str) -> str:
+        return render_template("_look.html", key=outfit_key, look=look, scene=scene, scenes=looks.scenes(),
+                               auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off(),
+                               videos_on=videos.service() is not None, video=videos.of(look),
+                               turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
 
     @app.post("/outfits/look")
     def outfits_look():
@@ -818,12 +825,13 @@ def create_app() -> Flask:
             (fav["pieces"] for fav in db.list_saved() if fav["key"] == key), None)
         if pieces is None:
             abort(409, "That outfit no longer exists — reload the page.")
-        look = looks.request(pieces, again=request.form.get("again") == "1")
+        scene = looks.scene_named(request.form.get("scene"))     # a scene tapped under the picture; else the studio
+        look = looks.request(pieces, again=request.form.get("again") == "1", scene=scene)
         if look is None:
             abort(404)                      # AI pictures are switched off
         if not request.headers.get("HX-Request"):
             return redirect(request.referrer or url_for("outfits_page"))
-        return look_fragment(key, look)
+        return look_fragment(key, look, scene)
 
     @app.get("/outfits/look/<look_key>")
     def outfits_look_state(look_key: str):
@@ -832,7 +840,58 @@ def create_app() -> Flask:
         if look is None:
             abort(404)
         outfit_key = request.args.get("outfit", "")
-        return look_fragment(outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else "", look)
+        return look_fragment(outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else "", look,
+                             looks.scene_named(request.args.get("scene")))
+
+    # ── AI videos of outfits: "See it move" (videos.py) ──────────────────────
+    # The part of a picture box about its video is swapped on its own (_video.html), so the picture is not sent
+    # again and does not fade in again. It is named by the picture (`look`, its key) and the outfit (`outfit`).
+
+    def video_look() -> tuple[looks.Look, str]:
+        """The finished picture a video request is about, and the outfit's key; 404 if there is none to see."""
+        look_key = request.values.get("look", "")
+        outfit_key = request.values.get("outfit", "")
+        look = looks.get(look_key) if re.fullmatch(r"[0-9a-f]{24}", look_key) else None
+        if look is None or look.status != "ready" or videos.service() is None:
+            abort(404)
+        return look, outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else ""
+
+    def video_fragment(outfit_key: str, look: looks.Look, video: videos.Video | None, asking: bool = False,
+                       play: bool = False) -> str:
+        offer = asking or (video is not None and video.status in ("failed", "limit", "consent"))
+        return render_template("_video.html", key=outfit_key, look=look, video=video, asking=asking, play=play,
+                               left=videos.left() if offer else None, left_words=videos.left_words,
+                               needs_ok=offer and videos.needs_consent(look),
+                               turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
+
+    @app.get("/outfits/video")
+    def outfits_video():
+        """'See it move' opened (ask=1: what a video is and how many are left today), closed again, and asked
+        every few seconds while the video is being made (wait=1: once it is ready, it plays)."""
+        look, outfit_key = video_look()
+        video = videos.of(look)
+        ready = video is not None and video.status == "ready"
+        return video_fragment(outfit_key, look, video, asking=request.args.get("ask") == "1" and not video,
+                              play=ready and (request.args.get("wait") == "1" or request.args.get("ask") == "1"))
+
+    @app.post("/outfits/video")
+    def outfits_video_make():
+        """Make the video of an outfit's picture (or say why not)."""
+        look, outfit_key = video_look()
+        video = videos.request(look, agreed=request.form.get("agree") == "on")    # the band's box, where it has one
+        if not request.headers.get("HX-Request"):
+            return redirect(request.referrer or url_for("outfits_page"))
+        return video_fragment(outfit_key, look, video, play=video is not None and video.status == "ready")
+
+    @app.get("/videos/<name>")
+    def video_file(name: str):
+        path = videos.file_of(name)
+        if path is None:
+            abort(404)
+        # Sent in parts when the browser asks for a range of it (Range: bytes=…), which phones do to play a video.
+        response = send_file(path, mimetype="video/mp4", conditional=True)
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable"   # a new video gets a new name
+        return response
 
     @app.get("/looks/<name>")
     def look_image(name: str):
@@ -993,6 +1052,7 @@ def create_app() -> Flask:
             return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model,
                         model_words=person.describe(model)[0] or rules["text"]["model"],
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
+                        videos_on=chosen is not None and videos.service() is not None,
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
                         # The one note while the answers are still the example's: the sizes may already be his
@@ -1071,7 +1131,9 @@ def create_app() -> Flask:
         else:
             problem = person.save_photo(data)
             if problem is None:
-                db.set_setting("photo_consent", PHOTO_CONSENT)      # beside photo_added: which words he agreed to
+                # Beside photo_added: which words he agreed to (with the videos' words while videos are on).
+                videos_shown = looks.service() is not None and videos.service() is not None    # as profile_page
+                db.set_setting("photo_consent", videos.CONSENT if videos_shown else PHOTO_CONSENT)
                 looks.forget_pictures_of(db.uid())      # those showed the previous photo
             flash(f"Not saved. {problem}" if problem
                   else "Photo saved. Pictures drawn from now on show you.", "photo")

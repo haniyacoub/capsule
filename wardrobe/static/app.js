@@ -440,3 +440,177 @@ if (swatchGrid) {
   swatchGrid.hidden = false;
   swatchForm.querySelector('[data-typed-colours]').hidden = true;
 }
+
+// 15. "See it move": an outfit's AI video (videos.py, _video.html). The part of the picture box about the video
+//     (.look-vid) is filled by HTMX on its own. A video that is ready lies over the picture (.vid.on): it plays once,
+//     muted (with "reduce motion" asked for in the device's settings it does not play by itself, and shows its last
+//     frame), rests on its last frame, and is then turned by dragging sideways across it or with the arrow keys: a
+//     slider, its value in degrees (a drag across the whole picture is one full turn). "Play again" plays it from
+//     the start; "Show picture" goes back to the picture and its dots. Dragging uses the turn kept with every frame
+//     a keyframe (.vid-drag) where there is one, else the clip itself (its first data-turn-seconds).
+{
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const STEP = 15;                  // degrees per arrow key; Page Up and Page Down turn a quarter
+  const parts = (vid) => ({
+    clip: vid.querySelector('.vid-clip'),
+    drag: vid.querySelector('.vid-drag'),
+    turn: vid.querySelector('.vid-turn'),
+  });
+  // Where a video can go to: before it has loaded, the time is kept and set once it knows its length.
+  const seek = (video, time) => {
+    if (video.readyState >= 1) {
+      video.currentTime = Math.max(0, Math.min(time, video.duration - 0.05));
+    } else {
+      video.dataset.at = String(time);
+      video.preload = 'auto';
+      if (video.networkState === 0 || video.networkState === 3) video.load();
+    }
+  };
+  document.addEventListener('loadedmetadata', (e) => {
+    const video = e.target;
+    if (!(video instanceof HTMLVideoElement) || !('at' in video.dataset)) return;
+    const time = Number(video.dataset.at);
+    delete video.dataset.at;
+    seek(video, time === Infinity ? video.duration : time);
+  }, true);
+  // Showing the clip itself (to play), or the turn (to drag).
+  const show = (vid, which) => {
+    const { clip, drag } = parts(vid);
+    if (!drag) return clip;
+    clip.hidden = which !== clip;
+    drag.hidden = which !== drag;
+    if (which === drag) clip.pause();
+    return which;
+  };
+  const play = (vid) => {
+    const { clip } = parts(vid);
+    show(vid, clip);
+    clip.preload = 'auto';
+    clip.currentTime = 0;
+    clip.play().catch(() => {});      // a browser that will not play it by itself: it shows its first frame
+  };
+  // The video over the picture: played once, or (reduce motion) resting on its last frame at once.
+  const open = (vid, focus) => {
+    vid.classList.add('on');
+    const { clip, turn } = parts(vid);
+    if (still.matches) {
+      show(vid, clip);
+      seek(clip, Infinity);
+    } else {
+      play(vid);
+    }
+    if (focus) turn.focus({ preventScroll: true });
+  };
+  const close = (vid) => {
+    const { clip, drag } = parts(vid);
+    clip.pause();
+    if (drag) drag.pause();
+    vid.classList.remove('on');
+    vid.querySelector('.vid-pill').focus({ preventScroll: true });
+  };
+  // Turning: `degrees` from 0 to 360 is a moment in the turn.
+  const turnTo = (vid, degrees) => {
+    const { clip, drag, turn } = parts(vid);
+    const value = Math.round(Math.max(0, Math.min(360, degrees)));
+    const video = show(vid, drag || clip);
+    const span = drag && drag.readyState >= 1 ? drag.duration : Number(vid.dataset.turnSeconds) || 6;
+    video.pause();
+    seek(video, (value / 360) * span);
+    turn.setAttribute('aria-valuenow', String(value));
+    turn.setAttribute('aria-valuetext', `${value} degrees`);
+  };
+  const degreesOf = (vid) => Number(parts(vid).turn.getAttribute('aria-valuenow')) || 0;
+
+  document.addEventListener('click', (e) => {
+    const vid = e.target.closest('[data-vid]');
+    if (!vid) return;
+    if (e.target.closest('[data-vid-open]')) open(vid, true);
+    else if (e.target.closest('[data-vid-again]')) play(vid);
+    else if (e.target.closest('[data-vid-close]')) close(vid);
+  });
+  // Dragging sideways across the video turns the model (a drag across its whole width is one full turn).
+  let held = null;
+  document.addEventListener('pointerdown', (e) => {
+    const turn = e.target.closest('.vid-turn');
+    if (!turn || e.button !== 0) return;
+    const vid = turn.closest('[data-vid]');
+    held = { vid, turn, x: e.clientX, from: degreesOf(vid), width: turn.getBoundingClientRect().width };
+    turn.setPointerCapture(e.pointerId);
+    turn.classList.add('held');
+    turnTo(vid, held.from);
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!held) return;
+    turnTo(held.vid, held.from + ((e.clientX - held.x) / held.width) * 360);
+  });
+  const letGo = () => {
+    if (!held) return;
+    held.turn.classList.remove('held');
+    held = null;
+  };
+  document.addEventListener('pointerup', letGo);
+  document.addEventListener('pointercancel', letGo);
+  // The arrow keys on the video turn it, and only it: the outfit row does not move on (6), the page does not scroll.
+  document.addEventListener('keydown', (e) => {
+    const turn = e.target.closest && e.target.closest('.vid-turn');
+    if (!turn || e.altKey || e.ctrlKey || e.metaKey) return;
+    const vid = turn.closest('[data-vid]');
+    const now = degreesOf(vid);
+    const to = {
+      ArrowRight: now + STEP, ArrowUp: now + STEP, ArrowLeft: now - STEP, ArrowDown: now - STEP,
+      PageUp: now + 90, PageDown: now - 90, Home: 0, End: 360,
+    }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    turnTo(vid, to);
+  }, true);
+
+  // What HTMX puts in. A video that has just been made plays (data-play) and, on the outfit on screen, is announced
+  // in the page's one live region ("Video ready"); so is the start of its making ("Making the video"), once, not
+  // at each of the few seconds' asks that follow. Keyboard focus that was in the part that was replaced goes to what
+  // took its place: the box to tick or the button that makes the video (the band's words describe both), the video
+  // itself, "See it move", or the outfit while the video is made.
+  const isVid = (el) => el instanceof Element && el.matches('.look-vid');
+  const tell = (words) => {
+    const announce = document.getElementById('announce');    // the same words again are read out only if they change
+    if (announce) announce.textContent = announce.textContent === words ? `${words}\u00a0` : words;
+  };
+  document.body.addEventListener('htmx:beforeSwap', (e) => {
+    const box = e.detail.target;
+    if (!isVid(box)) return;
+    if (box.contains(document.activeElement) || document.activeElement === box.closest('[data-slide]')) {
+      box.dataset.focus = 'in';
+    }
+    box.dataset.making = box.querySelector('.vid-bar.wait') ? 'was' : '';
+  });
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    const box = e.detail.target;
+    if (!isVid(box)) return;
+    const focus = box.dataset.focus === 'in';
+    const wasMaking = box.dataset.making === 'was';
+    delete box.dataset.focus;
+    delete box.dataset.making;
+    if (box.querySelector('.vid-bar.wait') && !wasMaking) tell('Making the video');
+    const vid = box.querySelector('[data-vid][data-play]');
+    if (vid) {
+      // It plays where it can be seen: on the outfit on screen. On another one (swiped away meanwhile) the picture
+      // stays, with "See it move" to play it.
+      vid.removeAttribute('data-play');
+      const slide = box.closest('[data-slide]');
+      const row = slide && slide.parentElement;
+      const inView = !row || Math.round(row.scrollLeft / row.clientWidth) === [...row.children].indexOf(slide);
+      if (!inView) {
+        vid.classList.remove('on');
+        return;
+      }
+      open(vid, focus);
+      tell('Video ready');
+      return;
+    }
+    if (!focus) return;
+    const next = box.querySelector('.vid-bar input[type="checkbox"], .vid-bar button, .vid-pill');
+    if (next) next.focus({ preventScroll: true });
+    else if (box.closest('[data-slide]')) box.closest('[data-slide]').focus({ preventScroll: true });
+  });
+}

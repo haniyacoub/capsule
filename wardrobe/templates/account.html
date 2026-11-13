@@ -35,13 +35,13 @@
 <section class="card">
   <h2>Your data</h2>
   {# What the download holds (db.export_user and auth.export_data). Keep the two in step. #}
-  <p class="muted">Everything {{ site_name }} keeps about you: your email, profile and sizes, your plan and choices, saved outfits, items you added, the model you built, the times you asked for AI pictures and, if you uploaded one, your photo and the pictures made from it (see or delete them on <a href="{{ url_for('profile_page') }}#photo">Profile</a>).</p>
+  <p class="muted">Everything {{ site_name }} keeps about you: your email, profile and sizes, your plan and choices, saved outfits, items you added, the model you built, the times you asked for AI pictures and videos and, if you uploaded one, your photo and the pictures made from it (see or delete them on <a href="{{ url_for('profile_page') }}#photo">Profile</a>).</p>
   <p><a class="btn ghost small" href="{{ url_for('auth.export_data') }}">Download a copy (.json)</a></p>
 </section>
 
 <section class="card">
   <h2>Delete account</h2>
-  <p class="muted">This deletes your account and everything in it straight away, including the model you built and your photo with the pictures made from it. You can't undo this.</p>
+  <p class="muted">This deletes your account and everything in it straight away, including the model you built and your photo with the pictures made from it and their videos. You can't undo this.</p>
   <form class="form" method="post" action="{{ url_for('auth.delete_account') }}" data-confirm="Delete your account and everything in it? You can't undo this.">{{ csrf_field() }}
     <label class="field"><span>Your password, to confirm</span>
       <input type="password" name="current" autocomplete="current-password" required></label>

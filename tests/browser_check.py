@@ -4,12 +4,14 @@
 
 Needs the packages in requirements.txt and, once, `python -m playwright install chromium`.
 
-It starts the app in production mode on a spare port, with a throwaway data folder and a
-stand-in for the image service (nothing is sent anywhere and nothing is billed), then does
+It starts the app in production mode on a spare port, with a throwaway data folder and
+stand-ins for the image service and Google's video model (nothing is sent anywhere and nothing is billed), then does
 what a new customer would: signs up and lands on the starter outfits (a banner where the budget bar would be,
 the whole picture above the tab bar on three phones), changes the price level, watches an outfit's picture
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
-page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, opens a piece on a phone
+page on a phone jumping), makes the outfit's AI video with "See it move" (told first that it is his one video
+today), watches it play, drags it round and turns it with the arrow keys, then finds the day's video used up on
+the next outfit, opens a piece from its dot, swaps it, leaves a layer off, opens a piece on a phone
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
 comparing all options to the same outfit), tabs up and down a pop-up that scrolls (nothing with keyboard focus
 hidden under its top row, no focus ring cut off at its bottom), sees that with scrollbars shown the page behind
@@ -64,15 +66,16 @@ DATA = HOME / "data-production"
 
 # The app reads its settings when it is imported, so they are set first.
 os.environ.update(CAPSULE_ENV="production", SECRET_KEY=secrets.token_urlsafe(48), WARDROBE_DATA_DIR="./data-production",
-                  OPENAI_API_KEY="stand-in", SITE_URL="http://127.0.0.1")
-for name in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "SMTP_URL"):
+                  OPENAI_API_KEY="stand-in", SITE_URL="http://127.0.0.1",
+                  GEMINI_API_KEY="stand-in")     # for the videos ("See it move"); OpenAI still draws the pictures
+for name in ("GOOGLE_API_KEY", "SMTP_URL"):
     os.environ.pop(name, None)
 sys.path.insert(0, str(ROOT))
 
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, imagegen  # noqa: E402
+from wardrobe import colours, imagegen, looks, videogen  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
@@ -99,6 +102,23 @@ def stand_in(service, prompt, photo=None):
 
 
 imagegen.draw = stand_in
+
+made: list[str] = []        # what the "video model" was asked to make
+CLIP = (ROOT / "tests" / "fixtures" / "test-pattern.mp4").read_bytes()     # 8 s of ffmpeg's test pattern, no person
+
+
+def video_stand_in(service, picture, prompt):
+    made.append(prompt)
+    time.sleep(1.5)         # long enough for the page to show that it is being made
+    return CLIP
+
+
+def never(*args, **kwargs):
+    raise AssertionError("the walk-through never calls Google")
+
+
+videogen.make = video_stand_in
+imagegen._send = never
 
 failures: list[str] = []
 swapped: dict[str, str] = {}    # the piece swapped inside an outfit: its slot and the product chosen
@@ -562,6 +582,247 @@ def run(base: str) -> None:
                 f"the first outfit's picture is not fetched first, or has no size: {top}"
             assert all(img["lazy"] for img in fetched if not img["first"]), f"another outfit's picture is not fetched lazily: {fetched}"
             context.close()
+
+        def scenes_for_the_picture():
+            # Under each outfit's picture, the scenes: Studio, Street, Library, Café. The studio is the picture drawn by
+            # itself; another scene is drawn only when it is tapped: one more picture, asked for in that scene's words
+            # with the person and the pieces word for word as in the studio, shown in the same box (the drawing said
+            # inside it), with that scene pressed and keyboard focus kept on it. Back to the studio, its picture is
+            # there at once and nothing is drawn again. On a phone and a computer, light and dark, the row lies under
+            # the line under the picture, whole on the screen, four cells 40px tall with their words whole and readable
+            # (4.5:1) whether pressed or not; on a phone the outfit's title, price and heart still end above the tab bar.
+            row = f"{first} .scenes"
+            page.goto(base + "/outfits", wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            studio = page.get_attribute(f"{first} .look-pic img", "src")
+            labels = page.locator(f"{row} button").all_inner_texts()
+            assert labels == ["Studio", "Street", "Library", "Café"], f"the scenes under the picture are {labels}"
+            assert page.locator(f"{row} [aria-pressed=true]").all_inner_texts() == ["Studio"], "the studio is not the scene shown"
+            assert page.get_attribute(row, "role") == "group" and page.get_attribute(row, "aria-label") == "Scene", \
+                "the scenes are not one group named 'Scene' for screen readers"
+            elsewhere = [scene["setting"] for name, scene in looks.load_rules()["scenes"].items() if name != looks.STUDIO]
+            assert not any(words in sent["prompt"] for sent in asked for words in elsewhere), "a scene was drawn without being tapped"
+            before = len(asked)
+            page.focus(f"{row} button:has-text('Street')")              # by keyboard
+            page.keyboard.press("Enter")
+            page.wait_for_selector(f"{first} .look-bar.wait")
+            status = drawing_status(page)
+            assert status["inside"] and status["words"].startswith("Drawing this outfit"), \
+                f"while the Street picture is drawn, the picture's box does not say so: {status}"
+            page.wait_for_function("([s, old]) => { const i = document.querySelector(s + ' .look-pic img');"
+                                   " return i && i.getAttribute('src') !== old && i.complete; }", arg=[first, studio])
+            shows(f"{first} .look-pic img", "the Street picture")
+            labelled(page, "1280 x 860, Street")
+            assert page.locator(f"{row} [aria-pressed=true]").all_inner_texts() == ["Street"], "Street is not shown as pressed"
+            focused = page.evaluate("() => document.activeElement.id")
+            assert focused.startswith("scene-") and focused.endswith("-street"), f"keyboard focus left Street for {focused!r}"
+            assert page.locator(f"{first} .spot").count() == page.locator(f"{first} .piece-row").count(), "a dot per piece"
+            assert len(asked) == before + 1, f"tapping Street asked for {len(asked) - before} pictures"
+            street = asked[-1]["prompt"]
+            assert looks.load_rules()["scenes"]["street"]["setting"] in street and "studio" not in street.lower(), \
+                "the Street picture was not asked for in the street"
+            assert any(sent["prompt"].split("\n", 1)[1] == street.split("\n", 1)[1] for sent in asked[:before]), \
+                "the Street picture's pieces and what to avoid are not word for word the studio picture's"
+            page.click(f"{row} button:has-text('Studio')")
+            page.wait_for_function("([s, src]) => { const i = document.querySelector(s + ' .look-pic img');"
+                                   " return i && i.getAttribute('src') === src; }", arg=[first, studio])
+            assert len(asked) == before + 1 and not page.locator(f"{first} .look-bar.wait").count(), \
+                "going back to the studio drew its picture again"
+
+            for width, height, touch in ((390, 844, True), (1280, 860, False)):
+                for scheme in ("light", "dark"):
+                    context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=touch,
+                                                  has_touch=touch, color_scheme=scheme)
+                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.wait_for_selector(f"{first} .look-pic img")
+                    other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                    seen = other.evaluate("""s => {
+                        const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
+                        const row = slide.querySelector('.scenes'), r = box(row), line = box(slide.querySelector('.look-line'));
+                        const rgb = c => c.match(/[\\d.]+/g).slice(0, 4).map(Number);
+                        const lum = c => { const [r, g, b] = rgb(c).slice(0, 3).map(v => { v /= 255;
+                            return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+                        const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+                        const ground = getComputedStyle(row).backgroundColor;
+                        const cells = [...row.querySelectorAll('button')].map(b => {
+                            const style = getComputedStyle(b), own = style.backgroundColor;
+                            const bg = rgb(own)[3] === 0 ? ground : own;
+                            return {words: b.textContent.trim(), height: box(b).height, whole: b.scrollWidth <= b.clientWidth,
+                                    contrast: Math.round(ratio(style.color, bg) * 100) / 100};
+                        });
+                        const meta = [...slide.querySelectorAll('.about-head h2, .count, .board-cost, .heart')].map(el => box(el).bottom);
+                        return {cells, left: r.left, right: r.right, top: r.top, under: Math.abs(r.top - line.bottom) < 1,
+                                same_width: Math.abs(r.width - line.width) < 1, screen: innerWidth,
+                                line_end: Math.max(...meta), tabs: box(document.querySelector('nav.tabs')).top,
+                                page: document.documentElement.scrollWidth};
+                    }""", first)
+                    where = f"{width} x {height}, {scheme}"
+                    assert seen["under"] and seen["same_width"] and 0 <= seen["left"] and seen["right"] <= seen["screen"], \
+                        f"{where}: the scenes are not right under the line under the picture, whole on the screen: {seen}"
+                    assert seen["page"] <= width, f"{where}: the page is {seen['page']}px wide"
+                    for cell in seen["cells"]:
+                        assert cell["height"] >= 40 and cell["whole"] and cell["contrast"] >= 4.5, \
+                            f"{where}: the scene {cell['words']!r} is under 40px tall, cut off or hard to read: {cell}"
+                    if touch:
+                        assert seen["line_end"] <= seen["tabs"], \
+                            f"{where}: with the scenes, the outfit's title, price and heart end under the tab bar: {seen}"
+                    context.close()
+
+        def see_it_move():
+            # Under a finished picture, "See it move": a button on the picture, at its top right, clear of every dot.
+            # Tapped, it says what a video is and how many are left today ("1 video left today") next to the button that
+            # makes one, which has keyboard focus; nothing is made until that is pressed. While the video is made the
+            # picture's box says so (and "Making the video" is said once); then the video lies over the picture,
+            # labelled 'AI video', plays once and rests on its last frame, with keyboard focus on it and "Video ready"
+            # said once. Dragging across it, or the arrow keys, turn the model (a slider, its value in degrees) without
+            # moving on to another outfit; "Play again" plays it from the start; "Show picture" brings back the picture
+            # and its dots. Reloaded, playing it again is free. The customer's one video a day is then used: another
+            # outfit says "No videos left today: more tomorrow", which a screen reader hears with its only button,
+            # Close. Nothing below the picture moves at any point.
+            page.goto(base + "/outfits", wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            geometry = """s => { const slide = document.querySelector(s), box = el => el && el.getBoundingClientRect();
+                const pic = box(slide.querySelector('.look-pic')), pill = box(slide.querySelector('.vid-pill'));
+                const dots = [...slide.querySelectorAll('.spot')].map(box).filter(d => d.width);
+                const clear = pill && dots.every(d => d.right + 10 <= pill.left || d.left - 10 >= pill.right
+                                                     || d.bottom + 10 <= pill.top || d.top - 10 >= pill.bottom);
+                return {pill: pill && {left: pill.left, right: pill.right, top: pill.top, bottom: pill.bottom},
+                        on_picture: !!pill && pill.left >= pic.left && pill.right <= pic.right && pill.top >= pic.top
+                                    && pill.bottom <= pic.top + pic.height / 6 && pill.right > pic.left + pic.width * .8,
+                        clear, words: slide.querySelector('.vid-pill') && slide.querySelector('.vid-pill').textContent.trim(),
+                        scenes: box(slide.querySelector('.scenes')).top, title: box(slide.querySelector('.about-head')).top}; }"""
+            before = page.evaluate(geometry, first)
+            assert before["words"] == "See it move" and before["on_picture"] and before["clear"], \
+                f"'See it move' is not at the top right of the picture, clear of the dots: {before}"
+            # A key pressed before HTMX has hooked up what it just put in would send the form without it (see SETTLED in
+            # the piece page's step): the walk-through waits for that, as a person always does.
+            settled = "() => !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling')"
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid-bar.ask")
+            page.wait_for_function(settled)
+            offer = page.inner_text(f"{first} .vid-bar.ask")
+            assert "1 video left today" in offer and "Make the video" in offer, f"the offer says {offer!r}"
+            assert page.evaluate("() => document.activeElement.textContent.trim()") == "Make the video", \
+                "keyboard focus is not on 'Make the video'"
+            assert made == [], "a video was made before 'Make the video' was pressed"
+            page.keyboard.press("Enter")
+            page.wait_for_selector(f"{first} .vid-bar.wait")
+            status = page.evaluate("""s => { const b = document.querySelector(s + ' .vid-bar.wait').getBoundingClientRect(),
+                p = document.querySelector(s + ' .look-pic').getBoundingClientRect();
+                return {words: document.querySelector(s + ' .vid-bar.wait').textContent.replace(/\\s+/g, ' ').trim(),
+                        inside: b.top >= p.top - .5 && b.bottom <= p.bottom + .5 && b.left >= p.left - .5 && b.right <= p.right + .5}; }""", first)
+            assert status["words"].startswith("Making the video") and status["inside"], \
+                f"while the video is made the picture's box does not say so: {status}"
+            page.wait_for_function("() => document.getElementById('announce').textContent === 'Making the video'")
+            page.wait_for_selector(f"{first} .vid.on")
+            page.wait_for_function("s => { const v = document.querySelector(s + ' .vid-clip'); return v.currentTime > 0.3; }",
+                                   arg=first)
+            seen = page.evaluate("""s => { const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
+                const v = slide.querySelector('.vid-clip'), chip = slide.querySelector('.vid-box .ai-chip'), p = box(slide.querySelector('.look-pic'));
+                const b = box(slide.querySelector('.vid-box')), line = box(slide.querySelector('.vid-line'));
+                return {muted: v.muted, same_box: Math.abs(b.top - p.top) < 1 && Math.abs(b.height - p.height) < 1 && Math.abs(b.width - p.width) < 1,
+                        chip: chip.textContent.trim(), chip_on: box(chip).bottom <= b.bottom && box(chip).left >= b.left,
+                        dots: [...slide.querySelectorAll('.spot')].filter(d => d.getClientRects().length).length,
+                        line_under: Math.abs(line.top - p.bottom) < 1, line: slide.querySelector('.vid-line').textContent.replace(/\\s+/g, ' ').trim(),
+                        focus: document.activeElement.getAttribute('role'), heard: document.getElementById('announce').textContent.trim(),
+                        scenes: box(slide.querySelector('.scenes')).top, title: box(slide.querySelector('.about-head')).top}; }""", first)
+            assert seen["muted"] and seen["same_box"] and seen["chip"] == "AI video" and seen["chip_on"], \
+                f"the video does not lie over the picture, muted and labelled 'AI video': {seen}"
+            assert seen["dots"] == 0 and seen["line_under"] and seen["line"] == "Drag to turn Play again Show picture", \
+                f"while the video shows, the dots stay or its own line is not where the picture's was: {seen}"
+            assert seen["focus"] == "slider" and seen["heard"] == "Video ready", f"focus or what is heard: {seen}"
+            assert (seen["scenes"], seen["title"]) == (before["scenes"], before["title"]), \
+                f"something under the picture moved: {before} -> {seen}"
+            assert len(made) == 1 and made[0] == looks.load_rules()["videos"]["text"], "the video was not asked for once, in the set words"
+            page.wait_for_function("s => document.querySelector(s + ' .vid-clip').ended", arg=first, timeout=20000)
+            rest = page.evaluate("s => { const v = document.querySelector(s + ' .vid-clip'); return v.duration - v.currentTime; }", first)
+            assert rest < 0.2, f"it does not rest on its last frame ({rest:.2f} s before the end)"
+
+            row = "() => document.getElementById('reel').scrollLeft"
+            at = page.evaluate(row)
+            turn = page.locator(f"{first} .vid-turn").bounding_box()
+            page.mouse.move(turn["x"] + 10, turn["y"] + turn["height"] / 2)
+            page.mouse.down()
+            page.mouse.move(turn["x"] + 10 + turn["width"] / 2, turn["y"] + turn["height"] / 2, steps=6)
+            page.mouse.up()
+            degrees = int(page.get_attribute(f"{first} .vid-turn", "aria-valuenow"))
+            assert 165 <= degrees <= 195 and page.get_attribute(f"{first} .vid-turn", "aria-valuetext") == f"{degrees} degrees", \
+                f"a drag across half the video turned it to {degrees} degrees"
+            page.wait_for_function("""s => { const v = document.querySelector(s + ' .vid-drag:not([hidden])')
+                || document.querySelector(s + ' .vid-clip'); return v.readyState >= 1 && v.currentTime > 2; }""", arg=first)
+            for key, wanted in (("ArrowRight", degrees + 15), ("ArrowRight", degrees + 30), ("ArrowLeft", degrees + 15),
+                                ("Home", 0), ("End", 360), ("PageDown", 270)):
+                page.keyboard.press(key)
+                got = int(page.get_attribute(f"{first} .vid-turn", "aria-valuenow"))
+                assert got == wanted, f"{key} turned it to {got} degrees, not {wanted}"
+            assert page.evaluate(row) == at, "dragging or the arrow keys on the video moved on to another outfit"
+            page.click(f"{first} [data-vid-again]")
+            page.wait_for_function("s => { const v = document.querySelector(s + ' .vid-clip'); return !v.hidden && !v.paused; }",
+                                   arg=first)
+            page.click(f"{first} [data-vid-close]")
+            assert not page.locator(f"{first} .vid.on").count() and page.locator(f"{first} .spot:visible").count() > 0, \
+                "'Show picture' did not bring back the picture and its dots"
+            assert page.evaluate("() => document.activeElement.classList.contains('vid-pill')"), "focus is not back on 'See it move'"
+
+            page.reload(wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid.on")
+            assert len(made) == 1, "playing the video again made another"
+            page.click(f"{first} [data-vid-close]")
+            page.locator(".reel-nav.next").click()
+            second = "#reel .slide:nth-child(2)"
+            page.wait_for_selector(f"{second} .look-pic img", timeout=20000)
+            page.wait_for_timeout(400)
+            page.click(f"{second} .vid-pill")
+            page.wait_for_selector(f"{second} .vid-bar.ask")
+            page.wait_for_function(settled)
+            used = page.inner_text(f"{second} .vid-bar.ask")
+            assert "No videos left today: more tomorrow" in used and "Make the video" not in used, \
+                f"with the day's video used, another outfit offers {used!r}"
+            heard = page.evaluate("""() => { const button = document.activeElement;
+                const words = (button.getAttribute('aria-describedby') || '').split(' ').map(id => document.getElementById(id));
+                return {button: button.textContent.trim(), described: words.map(w => w ? w.textContent : '').join(' ')}; }""")
+            assert heard["button"] == "Close" and "No videos left today: more tomorrow" in heard["described"], \
+                f"a screen reader is not told that no videos are left: {heard}"
+            page.keyboard.press("Enter")                    # its one button, with keyboard focus: Close
+            page.wait_for_selector(f"{second} .vid-pill")
+            assert len(made) == 1
+            page.goto(base + "/outfits", wait_until="networkidle")     # the next steps start from the first outfit
+            page.wait_for_selector(f"{first} .look-pic img")
+
+            for width, height, touch in ((390, 844, True), (1280, 860, False)):
+                for scheme in ("light", "dark"):
+                    context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=touch,
+                                                  has_touch=touch, color_scheme=scheme, reduced_motion="reduce")
+                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.wait_for_selector(f"{first} .look-pic img")
+                    other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                    where = f"{width} x {height}, {scheme}"
+                    shut = other.evaluate(geometry, first)
+                    assert shut["on_picture"] and shut["clear"], f"{where}: 'See it move' is not on the picture, clear of the dots: {shut}"
+                    pill = other.evaluate("""s => { const b = document.querySelector(s + ' .vid-pill'), style = getComputedStyle(b);
+                        const rgba = style.backgroundColor.match(/[\\d.]+/g).map(Number), ground = [236, 235, 231];   // --photo
+                        const mix = rgba.slice(0, 3).map((c, i) => c * rgba[3] + ground[i] * (1 - rgba[3]));
+                        const lum = c => { const [r, g, b] = c.map(v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; });
+                            return .2126 * r + .7152 * g + .0722 * b; };
+                        const reach = -parseFloat(getComputedStyle(b, '::after').top);       // its tap area, above and below
+                        return {contrast: Math.round((1.05 / (lum(mix) + .05)) * 100) / 100, height: b.getBoundingClientRect().height,
+                                target: b.getBoundingClientRect().height + 2 * reach}; }""", first)
+                    assert pill["contrast"] >= 4.5 and pill["target"] >= 44, f"{where}: 'See it move' is hard to read or to tap: {pill}"
+                    other.click(f"{first} .vid-pill")
+                    other.wait_for_selector(f"{first} .vid.on")
+                    other.wait_for_function("s => document.querySelector(s + ' .vid-clip').readyState >= 1", arg=first)
+                    other.wait_for_timeout(300)
+                    still = other.evaluate("""s => { const slide = document.querySelector(s), v = slide.querySelector('.vid-clip'),
+                        box = el => el.getBoundingClientRect(), meta = [...slide.querySelectorAll('.about-head h2, .board-cost, .heart')];
+                        return {paused: v.paused, rest: v.duration - v.currentTime, page: document.documentElement.scrollWidth,
+                                line_end: Math.max(...meta.map(el => box(el).bottom)), tabs: box(document.querySelector('nav.tabs')).top}; }""", first)
+                    assert still["paused"] and still["rest"] < 0.2, f"{where}: with less motion asked for, the video played by itself: {still}"
+                    assert still["page"] <= width, f"{where}: the page is {still['page']}px wide"
+                    if touch:
+                        assert still["line_end"] <= still["tabs"], f"{where}: the outfit's line ends under the tab bar: {still}"
+                    context.close()
 
         def dot_opens_the_piece():
             spot = page.locator(f"{first} .spot").nth(0)
@@ -1912,6 +2173,8 @@ def run(base: str) -> None:
                  ("the picture of an outfit arrives by itself", picture_arrives),
                  ("the starter outfits fit three phones", starter_outfits_fit_a_phone),
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
+                 ("scenes: another drawn on a tap, the studio kept", scenes_for_the_picture),
+                 ("see it move: a video, played, dragged, limited", see_it_move),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
@@ -1975,7 +2238,8 @@ def main() -> int:
         for line in failures:
             print("  ", line)
         return 1
-    print(f"\nAll steps passed ({len(asked)} pictures were asked of the stand-in).")
+    print(f"\nAll steps passed ({len(asked)} pictures and {len(made)} video{'' if len(made) == 1 else 's'} "
+          "were asked of the stand-ins).")
     return 0
 
 

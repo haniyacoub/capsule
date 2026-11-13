@@ -7,8 +7,13 @@
 #     -e SITE_URL=https://your-domain.example -e TRUSTED_PROXY_HOPS=1 capsule
 #
 # Optional, for the AI pictures of outfits: add  -e OPENAI_API_KEY=…  (or GEMINI_API_KEY).
-# The pictures and customers' photos are kept on the same volume, under /data/looks and /data/people.
+# The videos of outfits ("See it move") need GEMINI_API_KEY. The pictures, the videos and customers' photos are
+# kept on the same volume, under /data/looks, /data/videos and /data/people.
 FROM python:3.13-slim
+
+# ffmpeg keeps each video's turn a second time with every frame a keyframe, so that dragging it is smooth
+# (videos.py). Without it the app still works: the video itself is dragged through.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     CAPSULE_ENV=production WARDROBE_DATA_DIR=/data
