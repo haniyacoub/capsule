@@ -582,29 +582,52 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 }
 
 /* ── The pop-up for one piece (a sheet from the bottom on a phone) ───────── */
+/* While it is open the page behind it stays put: a swipe inside the sheet scrolls only the sheet, never the page
+   once the sheet's end is reached, and the page itself cannot scroll, keeping its scrollbar's room so that nothing
+   behind the sheet moves sideways on a computer. */
+html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .sheet {
   width: min(560px, 100%); max-width: 100%; max-height: min(88svh, 780px); margin: auto auto 0;
-  padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
-  background: var(--surface); color: var(--ink); overflow-y: auto;
+  padding: var(--s-2) var(--s-4) calc(var(--s-5) + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  background: var(--surface); color: var(--ink); overflow-y: auto; overscroll-behavior: contain;
 }
 .sheet::backdrop { background: rgba(0, 0, 0, .45); }
-.sheet-close { float: right; width: 36px; height: 36px; margin: -6px -4px 4px 8px; padding: 0; border: 0; border-radius: 50%; background: var(--soft); font-size: var(--t-xl); line-height: 1; cursor: pointer; }
-.piece-head { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 14px; align-items: start; }
-.piece-head .pic { width: 104px; aspect-ratio: 3 / 4; }
-.piece-facts { display: grid; gap: 4px; }
+/* Close: a 44px target in the top corner, drawn as a smaller disc. The first line of the sheet (.piece-top) is as
+   tall and leaves it room. */
+.sheet-close {
+  position: absolute; top: var(--s-2); right: var(--s-2); width: 44px; height: 44px; padding: var(--s-1);
+  border: 0; border-radius: 50%; background: var(--soft) content-box; font-size: var(--t-xl); line-height: 1; cursor: pointer;
+}
+.piece-top { display: flex; align-items: center; min-height: 44px; padding-right: 44px; margin-bottom: var(--s-2); }
+h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece you have: its name is the title */
+.piece-head { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
+.piece-head .pic { width: 104px; aspect-ratio: 3 / 4; }   /* 104 x 139 */
+.piece-facts { display: grid; gap: var(--s-1); justify-items: start; }
 .piece-slot { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .piece-facts h2 { font-size: var(--t-l); line-height: 1.25; }
-.piece-cost { display: flex; align-items: center; gap: 8px; }
+.piece-cost { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-1) var(--s-2); }
 .piece-cost b { font-size: var(--t-l); font-weight: 500; font-variant-numeric: tabular-nums; }
-.sheet .sec { margin: 18px 0 8px; }
-.swap { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
-.swap li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.quality { display: inline-flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); color: var(--muted); }
+.piece-facts .sizeline { margin-top: 0; }
+.piece-facts .sizeline .ex { color: var(--ok); font-weight: 500; }   /* in stock, but in our example size: a caution to act on */
+.piece-facts .sizeline a { padding: 3px 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px to tap */
+.piece-facts .size-notes { margin: 0; display: block; }
+.piece-facts .extlink { min-height: 40px; }
+.piece-state { display: flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); font-weight: 500; }
+.sheet .sec { margin: var(--s-5) 0 var(--s-2); }
+.swap { list-style: none; margin: 0 0 var(--s-2); padding: 0; display: grid; gap: var(--s-3); }
+.swap li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; }
 .swap li.out .pic:not(.noimg) { opacity: .5; }   /* not in your size: the photo fades (a swatch in its place does not), the words say so in full */
 .swap .pic { width: 48px; aspect-ratio: 4 / 5; }
 .swap .pic .fb { display: none; }
 .swap-text { display: grid; gap: 2px; min-width: 0; font-size: var(--t-s); color: var(--muted); }
 .swap-text b { font-size: var(--t-m); font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.swap-text span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.swap-text > span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Its price, and what it costs next to the piece in the outfit now ("−69.05 €"). */
+.swap-text .swap-price { gap: var(--s-2); font-size: var(--t-m); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.diff { font-size: var(--t-s); font-weight: 400; color: var(--muted); }
+.sheet-more .link { display: inline-block; }
+.sheet-foot { margin-top: var(--s-4); }
 
 /* ── Shopping list ───────────────────────────────────────────────────────── */
 /* A page's title outside a card: the same serif and size as .card h1. */
@@ -806,7 +829,8 @@ details[open] > summary .edit { visibility: hidden; }
   .band { border-radius: var(--r-img) var(--r-img) 0 0; }
   .about { margin: 0; }
   .reel-nav { display: inline-flex; }
-  .sheet { margin: auto; padding: 22px; border-radius: var(--r-sheet); }
+  .sheet { margin: auto; padding: var(--s-3) var(--s-5) var(--s-5); border-radius: var(--r-sheet); }
+  .sheet-close { top: var(--s-3); right: var(--s-3); }
   .hero { padding-top: var(--s-7); }
   .hero-cta .btn { width: auto; }
 }

@@ -458,7 +458,12 @@ def create_app() -> Flask:
     @app.get("/slot/<slot_id>")
     def slot_page(slot_id: str):
         w = selection.build()
-        return page("slot.html", w=w, tab="wardrobe", **slot_context(w, slot_id))
+        # Opened from an outfit's pop-up ("Compare all 3 options", ?from=outfit&at=<the outfit>): its way back leads
+        # to that outfit, and the Outfits tab stays lit. Otherwise it is part of the Wardrobe.
+        at = request.args.get("at", "")[:400] if request.args.get("from") == "outfit" else ""
+        occasion = request.args.get("occasion", "")
+        back = url_for("outfits_page", at=at, occasion=occasion if occasion in outfits.OCCASIONS else None) if at else ""
+        return page("slot.html", w=w, tab="outfits" if back else "wardrobe", back=back, **slot_context(w, slot_id))
 
     @app.post("/slot/<slot_id>/pick")
     def slot_pick(slot_id: str):
@@ -679,7 +684,8 @@ def create_app() -> Flask:
         occasion = request.args.get("occasion", "")
         return render_template("_piece.html", w=w, s=view, sig=outfit.sig, others=others[:6], n_others=len(others),
                                swaps=swaps, without=without, worn=worn, n_outfits=len(every),
-                               occasion=occasion if occasion in outfits.OCCASIONS else "")
+                               occasion=occasion if occasion in outfits.OCCASIONS else "",
+                               example_sizes=profile_mod.sizes_unconfirmed(profile_mod.load()))
 
     @app.get("/outfits/buy")
     def outfits_buy():
