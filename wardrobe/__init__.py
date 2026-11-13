@@ -15,6 +15,8 @@ Module map (each file does one job):
     looks.py        AI pictures of an outfit being worn (config/looks.toml)
     person.py       who the model in those pictures is: a few choices, or your photo
     imagegen.py     talks to the image services (OpenAI, Google) that draw them
+    videos.py       "See it move": a short AI video of an outfit's picture, its limits and Pro accounts
+    videogen.py     talks to Google's video model that makes those videos
     export.py       the shopping list (page, Markdown, CSV), for the wardrobe or one outfit
     programmes.py   which stores customers are offered: only those with a partner programme
     catalog.py      reads/writes data/catalog.json (what the stores sell)

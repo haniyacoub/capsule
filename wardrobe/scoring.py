@@ -34,6 +34,8 @@ class Score:
     parts: list[Part]
     comp: list[tuple[str, float]] = field(default_factory=list)   # the fibres the score used
     fabric_source: str = "listed"   # listed | name (estimated) | assumed | none
+    fabric_how: str = ""            # for a name: how it speaks of the fibres (composition.GUESSED)
+    typical_for: str = ""           # for an assumed fabric: the garments it is typical for ("jeans")
 
     @property
     def band(self) -> str:
@@ -56,6 +58,11 @@ class Score:
             return "fabric not listed"
         text = composition.describe(self.comp)
         return text if self.fabric_source == "listed" else "≈ " + text
+
+    @property
+    def fabric_words(self) -> str:
+        """What the cards say after "Fabric: ", no more than the store said: "wool blend (the mix is not stated)"."""
+        return composition.in_words(self.comp, self.fabric_source, self.fabric_how, self.typical_for)
 
 
 def _check(rules: dict) -> None:
@@ -219,7 +226,7 @@ def score(candidate: dict, category: str, rules: dict | None = None) -> Score:
     # Fabric: the store's own composition if we have it; otherwise a labelled guess.
     fab = rules.get("fabric", {})
     comp = composition.parse(candidate.get("composition_text"))
-    source, preface = "listed", ""
+    source, preface, how, plural = "listed", "", "", ""
     if not comp:
         guess_rules = fab.get("name_guess", {})
         if guess_rules.get("enabled", True):
@@ -227,7 +234,7 @@ def score(candidate: dict, category: str, rules: dict | None = None) -> Score:
             comp, how = composition.guess(words, guess_rules)
             if comp:
                 source = "name"
-                preface = f"The store page gave no composition — estimated from the name ({how})"
+                preface = f"The store page gave no composition — estimated from the name ({composition.GUESSED[how]})"
         if not comp:
             typical = fab.get("assume_when_unknown", {}).get(category)
             comp = composition.parse(typical) if typical else []
@@ -253,4 +260,5 @@ def score(candidate: dict, category: str, rules: dict | None = None) -> Score:
         Part("price", "Price", p_score, w["price"] / w_total, p_lines),
     ]
     total = sum(p.points for p in parts)
-    return Score(total=int(_clamp(total) + 0.5), parts=parts, comp=comp, fabric_source=source)
+    return Score(total=int(_clamp(total) + 0.5), parts=parts, comp=comp, fabric_source=source, fabric_how=how,
+                 typical_for=plural)

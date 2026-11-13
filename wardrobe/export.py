@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from . import programmes
-from .selection import Wardrobe
+from .selection import Cand, Wardrobe
 
 
 @dataclass
@@ -24,9 +24,13 @@ class Line:
     qty: int
     unit_price: float
     url: str
-    notes: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)     # what to check before ordering: the fit, sizes, the fabric
     image_url: str = ""         # the store's photo of the product: on the pages, not in the files
     hex: str = ""               # its colour, shown where there is no photo
+    # On the pages, the product says what every card says, in the same order (store and quality, its name in English,
+    # fabric, fit: _buy_groups.html), and under it only the notes those lines leave out.
+    cand: Cand | None = None
+    cautions: list[str] = field(default_factory=list)
 
     @property
     def total(self) -> float:
@@ -82,7 +86,8 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
         if c is None:
             missing.append((s.slot["name"], s.note or "nothing selected"))
             continue
-        notes = list(c.check.notes)
+        cautions = list(c.check.notes) + ([s.note + "."] if s.note else [])
+        notes = ([f"Fit: {c.check.fit}"] if c.check.fit else []) + list(c.check.notes)
         if c.score.fabric_source in ("name", "assumed"):
             notes.append("Fabric is an estimate — check the label on the product page.")
         elif c.score.fabric_source == "none":
@@ -95,7 +100,7 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
             slot=s.slot["name"], product=c.data.get("name", ""), colour=c.data.get("colour", ""),
             size=c.size_to_order, qty=s.qty if only is None else 1, unit_price=c.price,
             url=c.data.get("url", ""), notes=notes,
-            image_url=c.data.get("image_url") or "", hex=c.colour_hex))
+            image_url=c.data.get("image_url") or "", hex=c.colour_hex, cand=c, cautions=cautions))
     order = list(programmes.offered())       # the stores in the order config/stores.toml lists them
     ordered = sorted(groups.values(), key=lambda g: order.index(g.key) if g.key in order else 99)
     total = w.total if only is None else round(sum(g.subtotal for g in ordered), 2)

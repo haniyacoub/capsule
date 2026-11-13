@@ -123,6 +123,37 @@ def describe(comp: list[tuple[str, float]]) -> str:
     return " · ".join(f"{pct:g}% {label(key)}" for key, pct in comp)
 
 
+def in_words(comp: list[tuple[str, float]], source: str, how: str = "", typical_for: str = "") -> str:
+    """The fabric in plain words, saying no more than its source does (the words after "Fabric: " on every page).
+
+    source "listed", the label:       "80% wool, 20% polyamide", or "50% wool (the rest not stated)"
+    source "name", the product's name (`how`, a key of GUESSED): "pure cashmere", "wool blend (the mix is not
+                                      stated)", "some wool (how much is not stated)", "cotton (how much is not stated)"
+    source "assumed", the garment's type (`typical_for`, its plural): "not stated (jeans are usually 99% cotton,
+                                      1% elastane)"
+    nothing at all:                   "not stated"
+    A name's shares are the score's assumption, not the store's: they are never shown as figures.
+    """
+    if not comp:
+        return "not stated"
+    if source == "listed":
+        said = ", ".join(f"{pct:g}% {'other fibres' if key == 'other' else label(key)}" for key, pct in comp)
+        return said if math.fsum(pct for _, pct in comp) >= 99.5 else f"{said} (the rest not stated)"
+    if source == "assumed":
+        usual = ", ".join(f"{pct:g}% {label(key)}" for key, pct in comp)
+        return f"not stated ({typical_for} are usually {usual})" if typical_for else "not stated"
+    # "Lederoptik", "Kunstleder": the name says faux leather, which the score counts as polyurethane.
+    named = ["faux leather" if key == "polyurethane" else label(key) for key, _ in comp if key != "other"]
+    fibres = " and ".join([", ".join(named[:-1]), named[-1]] if len(named) > 1 else named)
+    if how == "pure":
+        return f"pure {fibres}" if len(named) == 1 else fibres
+    if how == "blend":
+        return f"{fibres} blend (the mix is not stated)"
+    if how == "trace":
+        return f"some {fibres} (how much is not stated)"
+    return f"{fibres} (how much is not stated)"
+
+
 def to_german(comp: list[tuple[str, float]]) -> str:
     """The way a German store page would print it (used by the demo data)."""
     return ", ".join(f"{pct:g} % {_GERMAN.get(key, key)}" for key, pct in comp)
@@ -160,8 +191,13 @@ _SAYS_TRACE = re.compile(r"anteil|\b(?:mit|und)\s+(?:wolle|kaschmir|seide|leinen
 _SAYS_BLEND = re.compile(r"mix|misch|blend")
 
 
+# How a name speaks of its fibres (what guess() returns as its second value), in the words "How it's rated" uses.
+GUESSED = {"pure": "the name says it is pure", "trace": "the name says it contains some",
+           "blend": "the name says it is a blend", "plain": "the name mentions it"}
+
+
 def guess(name: str | None, shares: dict | None = None) -> tuple[list[tuple[str, float]], str]:
-    """A rough composition read off a product name: (fibres, how it was guessed).
+    """A rough composition read off a product name: (fibres, how the name speaks of them: a key of GUESSED).
 
     `shares` are the percentages to assume, from [fabric.name_guess] in
     config/scoring.toml. Returns ([], "") when the name mentions no fibre.
@@ -179,14 +215,14 @@ def guess(name: str | None, shares: dict | None = None) -> tuple[list[tuple[str,
         return [], ""
 
     if _SAYS_PURE.search(original):
-        named, how = float(shares.get("pure_share", 100)), "the name says it is pure"
+        named, how = float(shares.get("pure_share", 100)), "pure"
     elif _SAYS_TRACE.search(original):
-        named, how = float(shares.get("trace_share", 25)), "the name says it contains some"
+        named, how = float(shares.get("trace_share", 25)), "trace"
     elif _SAYS_BLEND.search(original):
         named = 90.0 if len(found) > 1 else float(shares.get("blend_share", 50))
-        how = "the name says it is a blend"
+        how = "blend"
     else:
-        named, how = float(shares.get("plain_share", 85)), "the name mentions it"
+        named, how = float(shares.get("plain_share", 85)), "plain"
 
     comp = [(fibre, round(named / len(found), 1)) for fibre in found]
     if named < 100:

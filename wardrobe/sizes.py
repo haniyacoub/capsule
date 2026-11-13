@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from . import config
+from . import config, programmes
 from .garments import GARMENTS
 
 ALPHA = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL"]
@@ -96,12 +96,33 @@ def expected_labels(profile: dict, store: str, category: str, charts: dict) -> l
     return numbered[:1] or [f"{waist}/{length}"]
 
 
+# How sure it is that a product can be bought in your size, best first. The automatic pick takes a product in
+# stock in your size before one whose sizes were not checked, and never one sold out in your size or not made in
+# it (selection.choose); a piece's options are listed in this order too.
+IN_YOUR_SIZE, NOT_CHECKED, NOT_IN_YOUR_SIZE = 0, 1, 2
+
+
 @dataclass
 class SizeStatus:
-    available: bool        # can be bought in your size right now
+    available: bool        # not known to be unavailable: in stock in your size, or sizes not checked (known=False)
     label: str | None      # the store's label for your size, if it makes one
     text: str              # one-line explanation for the UI
     known: bool = True     # False when the store gave no size information
+
+    @property
+    def rank(self) -> int:
+        """IN_YOUR_SIZE, NOT_CHECKED or NOT_IN_YOUR_SIZE (sold out in your size, or not made in it)."""
+        if not self.known:
+            return NOT_CHECKED
+        return IN_YOUR_SIZE if self.available else NOT_IN_YOUR_SIZE
+
+
+def not_checked(store: str) -> str:
+    """What is said of a product whose store gave no sizes: COS's list pages show none, and its product pages were
+    never opened, so nobody knows whether yours is in stock. Said with the store's name, in plain words."""
+    name = programmes.label(store) if store else ""
+    return f"Sizes not checked at {name}: look on its page before you buy" if name \
+        else "Sizes not checked: look on the store's page before you buy"
 
 
 def my_size(candidate: dict, profile: dict, category: str, charts: dict | None = None) -> SizeStatus:
@@ -111,7 +132,7 @@ def my_size(candidate: dict, profile: dict, category: str, charts: dict | None =
     all_sizes = candidate.get("sizes_all") or in_stock
 
     if not all_sizes:
-        return SizeStatus(True, None, "Size availability unknown — check the product page", known=False)
+        return SizeStatus(True, None, not_checked(store), known=False)
 
     for label in in_stock:
         if label_fits(label, profile, store, category, charts):

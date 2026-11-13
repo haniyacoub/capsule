@@ -1,38 +1,47 @@
 {# The pop-up for one piece of an outfit (outfits.html opens it from a dot or a row). `s` is the piece, `sig` the
-   outfit it was opened from. First what it is: the product with its price, store, quality, fabric, your size (with
-   the day the prices and stock are from) and how it fits. Then the quick changes to this one outfit, which are easy
-   to undo ("In this outfit"), so that on a phone they are on the pop-up's first screen. Then other products for the
-   piece, which change every outfit, and the way to compare them all on the piece's own page, which leads back to
-   this outfit. #}
-{% from "_macros.html" import icon, pic, pill, store %}
+   outfit it was opened from. First what it is, as every card says it (_macros.html): the piece and its price, the
+   store and the quality, the product's name in English and the store's own, the fabric and the fit, then your size
+   (with the day the prices and stock are from). Then the quick changes to this one outfit, which are easy to undo
+   ("In this outfit"), so that on a phone they are on the pop-up's first screen. Then other products for the piece,
+   which change every outfit, and the way to compare them all on the piece's own page, which leads back to this
+   outfit. #}
+{% from "_macros.html" import by, fabric_fit, icon, pic %}
 {% set c = s.chosen if s.state != 'owned' else none %}
 {% set back = {'from': 'outfit', 'at': sig, 'occasion': occasion or none} %}
 {% if c %}
-{# The piece's name in a small line beside the close button, then the store's own name for the product, which
-   names the pop-up (outfits.html: aria-labelledby) and is how the customer finds it at the store. #}
-<p class="piece-top piece-slot">{{ s.slot.name }}</p>
+{# The top row, beside Close: the piece's name, which names the pop-up (outfits.html: aria-labelledby), and its
+   price. Then the store's name for the product in English where every word is known (english.py), with the
+   original under it in small print: it is how the customer finds the product at the store. #}
+<div class="piece-top">
+  <h2 id="piece-title">{{ s.slot.name }}</h2>
+  <b class="sheet-price">{{ c.price|eur }}</b>
+</div>
 <div class="piece-head">
   {{ pic(c.data.image_url, c.colour_hex) }}
   <div class="piece-facts">
-    <h2 id="piece-title" lang="de">{{ c.data.name }}</h2>
-    <p class="piece-cost"><b>{{ c.price|eur }}</b> {{ store(c.data.store) }} <span class="quality">Quality {{ pill(c.score) }}<span class="sr"> out of 100</span></span></p>
-    <p class="fabric">{{ c.fabric }}{% if c.score.fabric_source in ('name', 'assumed') %} <span class="est">estimated</span>{% endif %}</p>
+    <p class="by">{{ by(c.data.store, c.score) }}</p>
+    {% set en = c.data.name|english %}
+    {% if en %}<p class="en" lang="en">{{ en }}</p>{% endif %}
+    <p class="{{ 'orig' if en else 'en' }}" lang="de">{{ c.data.name }}</p>
+    {{ fabric_fit(c) }}
     {# While the sizes are still the example's (profile.sizes_unconfirmed), the size is said to be ours, as on Buy
        this outfit and the shopping list, with the way to change it: in stock, that is a caution (amber), not yet a
-       yes (green). Sold out or not made in it stays red. #}
+       yes (green). Sold out or not made in it stays red. A store that gave no sizes (COS) is named: "Sizes not
+       checked at COS: look on its page before you buy" (sizes.not_checked), a caution too, and with no size said
+       there is no example size to change. #}
     <p class="sizeline">
-      {% if not c.size.known %}<span class="unk">Check that your size is in stock</span>
+      {% if not c.size.known %}<span class="unk">{{ c.size.text }}</span>
       {% else %}<span class="{{ 'no' if not c.available else 'ex' if example_sizes else 'yes' }}">{% if c.size.label %}Your size: {% endif %}{{ c.size.text }}{% if example_sizes %} (example&nbsp;size){% endif %}</span>{% endif %}
-      {% if example_sizes %}<a href="{{ url_for('profile_page') }}#sizes">Change<span class="sr"> your sizes</span></a>{% endif %}
+      {% if example_sizes and c.size.known %}<a href="{{ url_for('profile_page') }}#sizes">Change<span class="sr"> your sizes</span></a>{% endif %}
     </p>
     {# The day the prices and stock were collected, right under what it qualifies: "in stock" is as of then. #}
     <p class="as-of">Prices and stock as of <span>{{ w.collected }}</span></p>
-    {# The first thing to know about the fit (sizecheck: the cut comes first). "The store page gave no sizes", always
-       the last note, is left out: the size line above says it already. #}
+    {# The first thing to check about the size (the cut is said above, after "Fit:"). "Sizes not checked at …",
+       always the last note, is left out: the size line above says it already. #}
     {% set notes = c.check.notes if c.size.known else c.check.notes[:-1] %}
     {% if notes %}<p class="size-notes">{{ icon('flag') }} {{ notes[0] }}</p>{% endif %}
     <a class="extlink" href="{{ c.data.url|weblink }}" target="_blank" rel="noopener noreferrer">Open at {{ STORES.get(c.data.store, c.data.store) }} {{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>
-    {% if s.state == 'locked' %}<p class="piece-state">{{ icon('lock') }} Locked: kept when you change the price level</p>{% endif %}
+    {% if s.state == 'locked' %}<p class="piece-state">{{ icon('lock') }} Locked: kept when you change the price level or the minimum quality</p>{% endif %}
   </div>
 </div>
 {% else %}
@@ -56,10 +65,10 @@
 <h3 class="sec">In this outfit</h3>
 <div class="chips">
   {% for other, target in swaps %}
-  <a class="chip-link" href="{{ url_for('outfits_page', at=target, occasion=occasion or None) }}"><i class="dot" style="background:{{ other.hex }}"></i>Wear the {{ other.view.slot.name|lower }} instead</a>
+  <a class="chip-link" href="{{ url_for('outfits_page', at=target, occasion=occasion or None, instead=s.slot.id, back=sig) }}"><i class="dot" style="background:{{ other.hex }}"></i>Wear the {{ other.view.slot.name|lower }} instead</a>
   {% endfor %}
   {% if without %}
-  <a class="chip-link" href="{{ url_for('outfits_page', at=without, occasion=occasion or None) }}">Leave the {{ s.garment.label|lower }} off</a>
+  <a class="chip-link" href="{{ url_for('outfits_page', at=without, occasion=occasion or None, left=s.slot.id, back=sig) }}">Leave the {{ s.garment.label|lower }} off</a>
   {% endif %}
 </div>
 {% endif %}
@@ -72,8 +81,11 @@
   <li{% if not o.available %} class="out"{% endif %}>
     {{ pic(o.data.image_url, o.colour_hex) }}
     <span class="swap-text">
-      <b lang="de">{{ o.data.name }}</b>
-      <span>{{ store(o.data.store) }} <span class="sr">Quality </span>{{ pill(o.score) }}{% if not o.available %} · not in your size{% endif %}</span>
+      {% set en = o.data.name|english %}
+      <b lang="{{ 'en' if en else 'de' }}">{{ en or o.data.name }}</b>
+      {% if en %}<small class="orig" lang="de">{{ o.data.name }}</small>{% endif %}
+      <span class="by">{{ by(o.data.store, o.score) }}</span>
+      {% if not o.available %}<span>Not in your size</span>{% elif not o.size.known %}<span>Sizes not checked</span>{% endif %}
       <span class="swap-price">
         {% if o.price > 0 %}{{ o.price|eur }}{% else %}no price{% endif %}
         {% if o.price > 0 and c and c.price > 0 %}{% set cents = ((o.price - c.price) * 100)|round|int %}
@@ -87,6 +99,9 @@
       <input type="hidden" name="candidate" value="{{ o.id }}">
       <input type="hidden" name="outfit" value="{{ sig }}">
       <input type="hidden" name="occasion" value="{{ occasion }}">
+      {# What the piece is now, so that the outfit page can say what changed and undo it (app.py, change_said). #}
+      <input type="hidden" name="was" value="{{ c.id if c else '' }}">
+      <input type="hidden" name="was_locked" value="{{ 1 if s.state == 'locked' else 0 }}">
       <button class="btn ghost small">Choose</button>
     </form>
     {% else %}
@@ -95,7 +110,7 @@
   </li>
   {% endfor %}
 </ul>
-<p class="muted small">Choosing one uses it in all your outfits and keeps it when you change the price level.</p>
+<p class="muted small">Choosing one uses it in all your outfits and keeps it when you change the price level or the minimum quality.</p>
 <p class="sheet-more"><a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id, **back) }}">Compare all {{ s.cands|length }} options</a></p>
 {% elif s.state != 'owned' %}
 <p class="muted small sheet-more">No other option for this piece yet. <a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id, **back) }}#add">Add one you found yourself</a></p>

@@ -13,7 +13,8 @@ This is the one place that decides. Everything a customer sees reads the catalog
 for each customer's products, shared.load for the list every customer's products come from), so the planner,
 the piece pages, the pop-up, "Buy this outfit" and the shopping list never meet a store without a programme.
 The list on disk is never edited for it: such a store's products stay in the file and are skipped as it is
-read. A customer's own products are read the same way, and are saved back without them.
+read. A customer's own products are read the same way, and are saved back without them, but for what he added
+himself by its link: that is kept, set aside (catalog.set_aside), and comes back if the store is offered again.
 """
 from __future__ import annotations
 

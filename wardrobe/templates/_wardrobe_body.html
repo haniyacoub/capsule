@@ -1,4 +1,4 @@
-{% from "_macros.html" import icon, pic, pill, store %}
+{% from "_macros.html" import by, fabric_fit, icon, pic %}
 {% if w.note %}<p class="demo" role="status">{{ w.note }}</p>{% endif %}
 {% if not w.slots %}
 <p class="empty">No pieces in your plan yet. <a href="{{ url_for('slots_page') }}">Edit the plan</a> to add some, or to rebuild it from your profile.</p>
@@ -25,11 +25,17 @@
         {% if s.state == 'owned' %}
           <span class="item">You already own this</span>
         {% elif c %}
+          {# What every card says, in the same order (_macros.html): the store and the quality, the product's name in
+             English where every word is known (english.py) with the store's own under it, the fabric, the fit; then
+             the first thing to check about the size, and how many more there are on the piece's page. #}
           <span class="line">
-            <span class="item">{{ c.data.name }}</span>
+            <span class="by">{{ by(c.data.store, c.score) }}</span>
             {% if s.qty > 1 %}<span class="each">{{ s.qty }} × {{ c.price|eur }}</span>{% endif %}
           </span>
-          <span class="meta">{{ store(c.data.store) }}{{ pill(c.score) }}<span class="fab">{{ c.fabric }}</span></span>
+          {% set en = c.data.name|english %}
+          {% if en %}<span class="item" lang="en">{{ en }}</span>{% endif %}
+          <span class="item{{ ' orig' if en }}" lang="de">{{ c.data.name }}</span>
+          {{ fabric_fit(c, 'span') }}
           {% if c.check.notes %}<span class="hint">{{ icon('flag') }} {{ c.check.notes[0] }}{% if c.check.notes|length > 1 %} <b>+{{ c.check.notes|length - 1 }}</b>{% endif %}</span>{% endif %}
         {% endif %}
         {% if noted %}<span class="note" id="note-{{ s.slot.id }}">{{ s.note }}</span>{% endif %}

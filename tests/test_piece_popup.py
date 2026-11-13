@@ -1,14 +1,16 @@
 """The pop-up for one piece of an outfit (tap a dot on the model, or a piece in the list).
 
-What it promises: first what the piece is (the store's own name for the product, its price, store and quality, the
-fabric, your size and how it fits), then the quick changes to this one outfit, then the other products for the piece
-with what each costs next to it, and the way to compare them all on the piece's own page, which leads back to the
-same outfit. It is named by the product's name, and while the sizes are still our example's it says so.
+What it promises: first what the piece is, as every card says it (the piece and its price, the store and the quality,
+the product's name in English with the store's own under it, the fabric and the fit, then your size), then the quick
+changes to this one outfit, then the other products for the piece with what each costs next to it, and the way to
+compare them all on the piece's own page, which leads back to the same outfit. It is named by the piece's name, and
+while the sizes are still our example's it says so.
 """
 import html
 import re
 
-from wardrobe import catalog, db, outfits, selection
+from wardrobe import catalog, db, english, outfits, programmes, selection
+from wardrobe.app import eur
 
 from .test_app import HX, AppCase
 
@@ -30,39 +32,58 @@ class PiecePopUp(AppCase):
         """What the customer reads: tags dropped, spaces collapsed."""
         return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", page)).split())
 
-    def test_the_product_names_the_pop_up_and_the_quick_changes_come_before_the_other_products(self):
+    def test_the_piece_names_the_pop_up_and_the_quick_changes_come_before_the_other_products(self):
         outfit, coat = self.outfit_with("outer")
         page = self.popup(outfit, coat.view.slot["id"])
-        name = coat.view.chosen.data["name"]
-        # The dialog is named by the title the pop-up brings: the store's own name for the product, marked German.
+        chosen = coat.view.chosen
+        name, said_in_english = chosen.data["name"], english.name(chosen.data["name"])
+        # The dialog is named by the title the pop-up brings: the piece's name, with its price beside it in the top row.
         self.assertIn('aria-labelledby="piece-title"', self.client.get("/outfits").data.decode())
         self.assertNotIn('aria-label="This piece"', self.client.get("/outfits").data.decode())
-        self.assertIn(f'<h2 id="piece-title" lang="de">{html.escape(name, quote=False)}</h2>', page)
-        self.assertIn(f'<p class="piece-top piece-slot">{coat.view.slot["name"]}</p>', page, "the piece's name, small")
+        self.assertRegex(page, r'<div class="piece-top">\s*<h2 id="piece-title">' + re.escape(coat.view.slot["name"])
+                         + r'</h2>\s*<b class="sheet-price">' + re.escape(str(html.escape(eur(chosen.price)))) + "</b>")
+        # The store's name for the product in English, then the store's own words in small print, marked German.
+        self.assertTrue(said_in_english, f"the demo coat {name!r} has a name the word list knows")
+        self.assertRegex(page, r'<p class="en" lang="en">' + re.escape(html.escape(said_in_english, quote=False))
+                         + r'</p>\s*<p class="orig" lang="de">' + re.escape(html.escape(name, quote=False)) + "</p>")
         said = self.read(page)
         # Its parts in this order: what it is, then this outfit, then the other products, then comparing them all.
         order = [said.index(words) for words in ("Open at", "In this outfit", "Swap it for", "Choosing one uses it",
                                                  "Compare all")]
         self.assertEqual(order, sorted(order), said)
-        self.assertIn("Choosing one uses it in all your outfits and keeps it when you change the price level.", said)
+        self.assertIn("Choosing one uses it in all your outfits and keeps it when you change the price level or the "
+                      "minimum quality.", said)
         self.assertNotIn("locks it", said)
         self.assertRegex(said, r"In \d+ of the \d+ outfits your pieces make")
-        # Each option's name is the store's own words too.
-        options = re.findall(r"<b( lang=\"de\")?>[^<]+</b>", page.split("Swap it for", 1)[1])
-        self.assertEqual(options, [' lang="de"'] * min(6, len(coat.view.cands) - 1))
+        # Each option's name is in English too where every word is known, the store's own words under it.
+        others = [c for c in coat.view.cands if c.id != chosen.id][:6]
+        rest = page.split("Swap it for", 1)[1]
+        options = re.findall(r'<b lang="(en|de)">([^<]+)</b>', rest)
+        self.assertEqual(options, [("en", html.escape(english.name(c.data["name"]), quote=False))
+                                   if english.name(c.data["name"]) else ("de", html.escape(c.data["name"], quote=False))
+                                   for c in others])
+        for c in others:
+            if english.name(c.data["name"]):
+                self.assertIn(f'<small class="orig" lang="de">{html.escape(c.data["name"], quote=False)}</small>', rest)
 
-    def test_the_small_label_follows_the_pieces_name(self):
+    def test_the_title_follows_the_pieces_name(self):
         # A piece that took a new colour in one tap is renamed ("Black wool coat" becomes "Navy wool coat"): the
-        # pop-up's small label is the piece's name as it is now.
+        # pop-up's title is the piece's name as it is now.
         outfit, coat = self.outfit_with("outer")
         sid = coat.view.slot["id"]
         db.update_slot(sid, name="Navy wool coat")
-        self.assertIn('<p class="piece-top piece-slot">Navy wool coat</p>', self.popup(outfit, sid))
+        self.assertIn('<h2 id="piece-title">Navy wool coat</h2>', self.popup(outfit, sid))
 
-    def test_quality_is_named_next_to_its_number(self):
+    def test_quality_is_named_next_to_its_number_beside_the_store(self):
+        # Seen as "WEEKDAY · Quality 73/100", heard as "Weekday, Quality 73 out of 100".
         outfit, coat = self.outfit_with("outer")
-        said = self.read(self.popup(outfit, coat.view.slot["id"]))
-        self.assertIn(f"Quality {coat.view.chosen.score.total} out of 100", said)
+        score, store = coat.view.chosen.score, programmes.label(coat.view.chosen.data["store"])
+        page = self.popup(outfit, coat.view.slot["id"])
+        self.assertIn(f'<p class="by"><span class="store">{store}</span> <span class="sep" aria-hidden="true">·</span> '
+                      f'<span class="quality">Quality <span class="pill {score.band}">{score.total}<span class="of" '
+                      f'aria-hidden="true">/100</span></span><span class="sr"> out of 100</span></span></p>', page)
+        heard = self.read(re.sub(r'<span[^>]*aria-hidden="true">[^<]*</span>', "", page))
+        self.assertIn(f"{store} Quality {score.total} out of 100", heard)
 
     def test_each_option_says_what_it_costs_next_to_the_piece_in_the_outfit(self):
         outfit, coat = self.outfit_with("outer")
@@ -80,23 +101,32 @@ class PiecePopUp(AppCase):
                 self.assertIn(("−" if cents < 0 else "+") + amount, said, option.data["name"])
                 self.assertIn(f"{amount} {'less' if cents < 0 else 'more'}", said, option.data["name"])
 
-    def test_the_first_fit_note_is_shown(self):
+    def test_the_fit_is_shown_as_a_caution(self):
         outfit, coat = self.outfit_with("outer")
-        notes = coat.view.chosen.check.notes
-        self.assertTrue(notes[0].startswith("Oversized cut"), notes)     # the demo coat is cut large
-        self.assertIn(notes[0], self.read(self.popup(outfit, coat.view.slot["id"])))
+        check = coat.view.chosen.check
+        self.assertEqual(check.fit, "oversized, runs large. Size down for a regular fit.")   # the demo coat is cut large
+        page = self.popup(outfit, coat.view.slot["id"])
+        self.assertRegex(page, r'<p class="fit caution"><svg[^>]*>.*?</svg> Fit: oversized, runs large\. Size down for a '
+                               r'regular fit\.</p>')
+        self.assertEqual(self.read(page).count("runs large"), 1, "said once")
 
     def test_no_sizes_from_the_store_is_said_once(self):
-        # A product whose store gave no sizes: the size line says to check, and the note saying the same is left out.
+        # A piece whose options all come without sizes (as COS's did): the size line says, with the store's name, that
+        # the sizes were not checked and where to look, and the note saying the same is left out.
         outfit, top = self.outfit_with("top")
-        sid, cand = top.view.slot["id"], top.view.chosen.id
+        sid = top.view.slot["id"]
         catalog.update(lambda cat: [c.update(sizes_all=[], sizes_in_stock=[]) for c in cat["candidates"]
-                                    if c.get("slot_id") == sid and c.get("id") == cand])
+                                    if c.get("slot_id") == sid])
         view = selection.build().get(sid)
         self.assertFalse(view.chosen.size.known)
-        said = self.read(self.popup(outfit, sid))
-        self.assertIn("Check that your size is in stock", said)
+        store = programmes.label(view.chosen.data["store"])
+        page = self.popup(outfit, sid)
+        said = self.read(page)
+        self.assertIn(f'<span class="unk">Sizes not checked at {store}: look on its page before you buy</span>', page)
+        self.assertEqual(said.count("Sizes not checked at"), 1, said)
         self.assertNotIn("gave no sizes", said)
+        self.assertNotIn("Your size", said, "nothing is said to be in your size")
+        self.assertNotIn('#sizes">Change', page, "no size is said, so there is no example size to change here")
 
     def test_the_day_of_the_prices_and_stock_sits_with_the_size_line(self):
         # "In stock" holds as of the day the products were collected: that day is said right under the size line, on
@@ -145,7 +175,10 @@ class PiecePopUp(AppCase):
         self.assertNotIn("Locked", self.read(self.popup(outfit, sid)))
         other = next(c for c in coat.view.cands if c.id != coat.view.chosen.id and c.price > 0)
         self.client.post(f"/slot/{sid}/pick", data={"candidate": other.id, "outfit": outfit.sig})
-        self.assertIn("Locked: kept when you change the price level", self.read(self.popup(outfit, sid)))
+        # Said in the words of the piece's own page: kept when the price level or the minimum quality changes.
+        locked = "Locked: kept when you change the price level or the minimum quality"
+        self.assertIn(locked, self.read(self.popup(outfit, sid)))
+        self.assertIn(locked + ".", self.read(self.client.get(f"/slot/{sid}").data.decode()))
 
         self.post(f"/slot/{sid}/own")
         page = self.popup(outfit, sid)
@@ -247,6 +280,23 @@ class PiecePopUp(AppCase):
             way_back(html.unescape(sorting.group(1)))
         self.assertIn(f'action="/slot/{sid}/pick?view=slot&amp;sort=score&amp;from=outfit', self.client.get(
             html.unescape(sorting.group(1))).data.decode(), "sorted, its buttons keep the way back")
+
+    def test_a_piece_page_opened_from_the_saved_outfits_leads_back_to_them(self):
+        # The Outfits page takes "saved" (the Saved outfits) as it takes an occasion. A piece's page opened with it
+        # leads back to the Saved outfits, with "Saved" lit, and every button and link on it keeps it.
+        outfit, coat = self.outfit_with("outer")
+        sid = coat.view.slot["id"]
+        page = self.client.get(f"/slot/{sid}", query_string={"from": "outfit", "at": outfit.sig, "occasion": "saved"})
+        page = page.data.decode()
+        back = re.search(r'<p class="crumb"><a href="([^"]+)">.*?</svg> Back to the outfit</a></p>', page, re.S)
+        assert back is not None, "no way back to the outfit"
+        self.assertEqual(html.unescape(back.group(1)), f"/outfits?at={outfit.sig}&occasion=saved")
+        self.assertIn('<a href="/outfits" class="on" aria-current="page">Outfits</a>', page)
+        kept = re.findall(r'(?:action|href)="(/slot/[^"]*from=outfit[^"]*)"', page)
+        self.assertGreaterEqual(len(kept), 4, "the page's buttons and links")
+        self.assertEqual([a for a in kept if "occasion=saved" not in a], [], "a button or link drops 'saved'")
+        lands = self.client.get(html.unescape(back.group(1))).data.decode()
+        self.assertRegex(lands, r'<a class="chip-link on" href="/outfits\?occasion=saved" aria-current="page">')
 
     def test_the_piece_page_on_its_own_still_belongs_to_the_wardrobe(self):
         _, coat = self.outfit_with("outer")

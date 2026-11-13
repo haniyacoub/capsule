@@ -15,6 +15,7 @@ Look around with `sqlite3 data/wardrobe.db`:
     SELECT key, status, last_import_at FROM stores;          -- the store feeds (feeds/)
     SELECT store, name, price, colour, sizes_in_stock FROM products LIMIT 20;
     SELECT u.email, o.added_at FROM owners o JOIN users u ON u.id = o.user_id;   -- who runs Stilsmith (owner.py)
+    SELECT u.email, p.added_at FROM pro p JOIN users u ON u.id = p.user_id;      -- Pro accounts (videos.py)
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 LOCAL_USER_ID = 1
 
 SCHEMA = """
@@ -172,6 +173,36 @@ CREATE TABLE IF NOT EXISTS owners (     -- `python -m wardrobe owner add | remov
 """
 
 
+# Added in version 7: the AI videos of outfits ("See it move", videos.py), counted apart from the pictures, and the
+# accounts marked Pro, which may ask for more videos a day (`python -m wardrobe pro add EMAIL`). A database from
+# version 6 gains these tables and nothing else changes.
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_VIDEOS = """
+CREATE TABLE IF NOT EXISTS videos (     -- one row per video, the files are in <data>/videos/
+    key        TEXT PRIMARY KEY,        -- fingerprint of the picture it starts from and of what Google was told
+    picture    TEXT NOT NULL,           -- the file of the AI picture it starts from (looks.file)
+    user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,   -- only for a video of a picture of someone's photo
+    status     TEXT NOT NULL,           -- working | ready | failed
+    started_at REAL NOT NULL,
+    file       TEXT,                    -- the clip, exactly as Google sent it
+    turn       TEXT,                    -- its turn with every frame a keyframe, for dragging (NULL without ffmpeg)
+    error      TEXT,                    -- why the last attempt failed
+    service    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS videos_picture ON videos (picture);
+CREATE TABLE IF NOT EXISTS video_requests (  -- when a video was asked for: the daily limits, apart from the pictures'
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS video_requests_at ON video_requests (at);
+CREATE TABLE IF NOT EXISTS pro (        -- `python -m wardrobe pro add | remove | list`
+    user_id  INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL
+);
+"""
+
+
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -251,6 +282,9 @@ def _migrate() -> None:
             if statement.strip():
                 con.execute(statement)
         for statement in SCHEMA_OWNERS.split(";"):     # new in version 6, safe to repeat
+            if statement.strip():
+                con.execute(statement)
+        for statement in SCHEMA_VIDEOS.split(";"):     # new in version 7, safe to repeat
             if statement.strip():
                 con.execute(statement)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -408,9 +442,13 @@ def export_user() -> dict:
         catalogue = con.execute("SELECT data FROM catalogs WHERE user_id = ?", (user_id,)).fetchone()
         asked = con.execute("SELECT at FROM look_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
         owner = con.execute("SELECT added_at FROM owners WHERE user_id = ?", (user_id,)).fetchone()
+        videos = con.execute("SELECT at FROM video_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
+        pro = con.execute("SELECT added_at FROM pro WHERE user_id = ?", (user_id,)).fetchone()
     account = dict(user) if user else {}
     if owner:       # only on the copy of someone who runs Stilsmith (owner.py)
         account["owner_since"] = owner["added_at"]
+    if pro:         # only on the copy of a Pro account (videos.py)
+        account["pro_since"] = pro["added_at"]
     return {
         "account": account,
         "settings": {r["key"]: json.loads(r["value"]) for r in prefs},
@@ -420,6 +458,8 @@ def export_user() -> dict:
                             if c.get("source") == "manual" or c.get("manual")] if catalogue else [],
         "ai_pictures_asked_for_at": [datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="seconds")
                                      for r in asked],
+        "ai_videos_asked_for_at": [datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="seconds")
+                                   for r in videos],
     }
 
 
@@ -684,17 +724,34 @@ def take_look_ticket(since: float, per_day: int, per_user: int | None) -> tuple[
     is used up: `per_user` for this user (None: no such limit), `per_day` for everyone together.
     Looking and counting happen in one step, so requests arriving together cannot all slip under.
     """
+    return _take_ticket("look_requests", since, per_day, per_user)
+
+
+# The statements of _take_ticket for the pictures' count and the videos', written out: nothing is put together.
+_TICKETS = {
+    "look_requests": ("DELETE FROM look_requests WHERE at < ?",
+                      "SELECT COUNT(*) FROM look_requests WHERE user_id = ? AND at > ?",
+                      "SELECT COUNT(*) FROM look_requests WHERE at > ?",
+                      "INSERT INTO look_requests (user_id, at) VALUES (?, ?)"),
+    "video_requests": ("DELETE FROM video_requests WHERE at < ?",
+                       "SELECT COUNT(*) FROM video_requests WHERE user_id = ? AND at > ?",
+                       "SELECT COUNT(*) FROM video_requests WHERE at > ?",
+                       "INSERT INTO video_requests (user_id, at) VALUES (?, ?)"),
+}
+
+
+def _take_ticket(table: str, since: float, per_day: int, per_user: int | None) -> tuple[int, str]:
+    """take_look_ticket, for the pictures' count (look_requests) or the videos' (video_requests)."""
+    forget, count_mine, count_all, add = _TICKETS[table]
     user_id, now = uid(), time.time()
     with exclusive() as con:
-        con.execute("DELETE FROM look_requests WHERE at < ?", (now - 48 * 3600,))
+        con.execute(forget, (now - 48 * 3600,))
         if per_user is not None:
-            mine = con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ? AND at > ?",
-                               (user_id, since)).fetchone()[0]
-            if mine >= per_user:
+            if con.execute(count_mine, (user_id, since)).fetchone()[0] >= per_user:
                 return 0, "mine"
-        if con.execute("SELECT COUNT(*) FROM look_requests WHERE at > ?", (since,)).fetchone()[0] >= per_day:
+        if con.execute(count_all, (since,)).fetchone()[0] >= per_day:
             return 0, "all"
-        cur = con.execute("INSERT INTO look_requests (user_id, at) VALUES (?, ?)", (user_id, now))
+        cur = con.execute(add, (user_id, now))
         return int(cur.lastrowid or 0), ""
 
 
@@ -711,6 +768,125 @@ def look_requests(since: float, mine: bool = False) -> int:
             return con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ? AND at > ?",
                                (uid(), since)).fetchone()[0]
         return con.execute("SELECT COUNT(*) FROM look_requests WHERE at > ?", (since,)).fetchone()[0]
+
+
+# ── AI videos of outfits (videos.py) ──────────────────────────────────────────
+# Like the pictures: one made from a picture that shows no real person is shared by everybody who
+# looks at that picture; one made from a picture of someone's own photo carries their user_id.
+
+def video_rows(keys: list[str]) -> dict[str, dict]:
+    if not keys:
+        return {}
+    marks = ", ".join("?" * len(keys))        # only question marks go into the statement
+    statement = f"SELECT * FROM videos WHERE key IN ({marks})"  # nosec
+    with connect() as con:
+        rows = con.execute(statement, keys).fetchall()
+    return {r["key"]: dict(r) for r in rows}
+
+
+def start_video(key: str, picture: str, service: str, owner: int | None, stale_before: float,
+                lost: str | None = None) -> bool:
+    """Claim the making of one video. True for exactly one caller: a new video, or another try after a
+    failure or after an attempt that died (making since before `stale_before`), or a video made again whose
+    file `lost` has gone (only the first caller still finds that name in its row)."""
+    now = time.time()
+    with connect() as con:
+        cur = con.execute("INSERT OR IGNORE INTO videos (key, picture, user_id, status, started_at, service) "
+                          "VALUES (?, ?, ?, 'working', ?, ?)", (key, picture, owner, now, service))
+        if cur.rowcount == 1:
+            return True
+        cur = con.execute("UPDATE videos SET status = 'working', started_at = ?, error = NULL, service = ?, "
+                          "file = NULL, turn = NULL "
+                          "WHERE key = ? AND ((file IS NULL AND (status = 'failed' OR started_at < ?)) OR file = ?)",
+                          (now, service, key, stale_before, lost))
+        return cur.rowcount == 1
+
+
+def finish_video(key: str, file: str, turn: str | None) -> None:
+    """Record the finished clip (and its turn for dragging). LookupError if the row is gone with its account."""
+    with connect() as con:
+        cur = con.execute("UPDATE videos SET status = 'ready', file = ?, turn = ?, error = NULL WHERE key = ?",
+                          (file, turn, key))
+        if cur.rowcount != 1:
+            raise LookupError(key)
+
+
+def fail_video(key: str, error: str) -> None:
+    with connect() as con:
+        con.execute("UPDATE videos SET status = 'failed', error = ? WHERE key = ? AND file IS NULL", (error, key))
+
+
+_DROP_VIDEOS = {"user_id": ("SELECT file, turn FROM videos WHERE user_id = ?", "DELETE FROM videos WHERE user_id = ?"),
+                "picture": ("SELECT file, turn FROM videos WHERE picture = ?", "DELETE FROM videos WHERE picture = ?")}
+
+
+def _drop_videos(column: str, value: object) -> list[str]:
+    find, forget = _DROP_VIDEOS[column]
+    with exclusive() as con:
+        rows = con.execute(find, (value,)).fetchall()
+        con.execute(forget, (value,))
+    return [name for row in rows for name in (row["file"], row["turn"]) if name]
+
+
+def drop_personal_videos(user_id: int) -> list[str]:
+    """Forget the videos made from pictures of this user's photo. Returns their files, for deleting."""
+    return _drop_videos("user_id", user_id)
+
+
+def drop_videos_of(picture: str) -> list[str]:
+    """Forget the videos made from a picture that is gone (drawn again). Returns their files, for deleting."""
+    return _drop_videos("picture", picture)
+
+
+def take_video_ticket(since: float, per_day: int, per_user: int | None) -> tuple[int, str]:
+    """Count one video for the current user, if the limits leave room for it: as take_look_ticket."""
+    return _take_ticket("video_requests", since, per_day, per_user)
+
+
+def drop_video_request(ticket: int) -> None:
+    """Give a ticket back: a video that certainly cost nothing does not count towards the day's limits."""
+    with connect() as con:
+        con.execute("DELETE FROM video_requests WHERE id = ?", (ticket,))
+
+
+def video_requests(since: float, mine: bool = False) -> int:
+    """How many videos were counted since then: for the current user, or for everyone."""
+    with connect() as con:
+        if mine:
+            return con.execute("SELECT COUNT(*) FROM video_requests WHERE user_id = ? AND at > ?",
+                               (uid(), since)).fetchone()[0]
+        return con.execute("SELECT COUNT(*) FROM video_requests WHERE at > ?", (since,)).fetchone()[0]
+
+
+# ── Pro: accounts that may ask for more videos a day (videos.py) ──────────────
+
+def add_pro(email: str) -> str:
+    """Mark the account with this address as Pro. Returns 'added', 'already' or 'no account'."""
+    with connect() as con:
+        user = con.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+        if user is None:
+            return "no account"
+        cur = con.execute("INSERT OR IGNORE INTO pro (user_id, added_at) VALUES (?, ?)", (user["id"], now_iso()))
+    return "added" if cur.rowcount == 1 else "already"
+
+
+def remove_pro(email: str) -> bool:
+    """The account with this address is no longer Pro. False if it was not."""
+    with connect() as con:
+        cur = con.execute("DELETE FROM pro WHERE user_id = (SELECT id FROM users WHERE email = ?)", (email,))
+    return cur.rowcount == 1
+
+
+def list_pro() -> list[dict]:
+    with connect() as con:
+        rows = con.execute("SELECT u.email, p.added_at FROM pro p JOIN users u ON u.id = p.user_id "
+                           "ORDER BY u.email").fetchall()
+    return [dict(r) for r in rows]
+
+
+def is_pro(user_id: int) -> bool:
+    with connect() as con:
+        return con.execute("SELECT 1 FROM pro WHERE user_id = ?", (user_id,)).fetchone() is not None
 
 
 # ── store feeds (feeds/) ──────────────────────────────────────────────────────

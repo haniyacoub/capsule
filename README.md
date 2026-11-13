@@ -239,6 +239,25 @@ Things to know:
   `auto = false` in [config/looks.toml](config/looks.toml) to draw only when
   you press "See it worn". `per_day` in the same file caps how many are started
   in 24 hours.
+- **Scenes:** under each picture, Studio, Street, Library and Café. The studio
+  picture is the one drawn by itself; another scene is drawn only when you tap
+  it. Each scene is a picture of its own: billed and counted in `per_day` like
+  any other, and kept, so switching back and forth costs nothing. The scenes
+  and their words are under `[scenes]` in `config/looks.toml`. The words
+  describe the place and the light only: the model, the pose and the clothes
+  stay the same, and so do the dots.
+- **See it move:** on a finished picture, in any scene, "See it move" asks
+  Google's video model for an 8-second clip that starts from that picture: the
+  model turns round once, then poses. It plays once (muted), and can then be
+  played again or dragged round, sideways or with the arrow keys. It needs
+  `GEMINI_API_KEY`, also where OpenAI draws the pictures, and costs far more
+  than a picture (about $0.56 to $0.81 a clip in November 2026), so it has its
+  own limits under `[videos]` in `config/looks.toml`: one a day per customer,
+  five for Pro accounts and owners, ten for the whole site; on your own machine
+  only the site's. A video is kept in `data/videos/` and shown again for free;
+  where ffmpeg is installed its turn is kept a second time for smooth
+  dragging. Pro is a mark on an account, with nothing to buy:
+  `python -m wardrobe pro add you@example.com` (also `pro remove`, `pro list`).
 - The same file holds the service and model names, the picture quality, the
   wording sent to the service, and where the dots sit on the picture.
 - The services rename their models every few months. If pictures stop with
@@ -339,12 +358,13 @@ run on every push, together with building the container
 config/scoring.toml        quality score rules
 config/stores.toml         which category pages the collector reads, and how slowly
 config/size_charts.toml    each store's size labels and body measurements
-config/looks.toml          AI pictures: service, limits, wording, where the dots sit
+config/looks.toml          AI pictures and videos: service, limits, wording, where the dots sit
 config/feeds.toml          the stores whose licensed product feeds are imported (see "Store feeds")
 data/catalog.json          what the stores sell (rewritten by refresh)
 data/wardrobe.db           your profile, slots, locks, saved outfits (SQLite)
 data/looks/                AI pictures already drawn (safe to delete: they are drawn again when asked for),
                            and problems.log: why a picture could not be drawn
+data/videos/               AI videos already made ("See it move"), each with its turn for dragging
 data/people/               your photo, if you uploaded one
 data/wardrobe.db.before-accounts   copy made when the database gained accounts; delete when happy
 data/browser-profile/      the collector's own Chrome profile (cookies and cache; safe to delete)

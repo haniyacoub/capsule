@@ -11,6 +11,7 @@
     python -m wardrobe stores [sync | end KEY]    the stores whose feeds Stilsmith may use (config/feeds.toml)
     python -m wardrobe feeds [--store KEY] [--from FILE]   import the approved stores' product feeds (feeds/)
     python -m wardrobe owner [add EMAIL | remove EMAIL]    who sees the owner's pages, such as /stores (owner.py)
+    python -m wardrobe pro [add EMAIL | remove EMAIL]      Pro accounts: more AI videos a day (videos.py)
 """
 from __future__ import annotations
 
@@ -193,7 +194,7 @@ def rebuild_mock(args: argparse.Namespace) -> None:
     from . import catalog, db, mock
 
     db.init()
-    current = catalog.load()
+    current = catalog.stored()      # what you added from a store that is no longer offered is kept too
     if current.get("source") == "collected" and not args.yes:
         sys.exit("The catalogue holds real store data. To throw it away and go back to the\n"
                  "invented demo data, run:  python -m wardrobe mock --yes")
@@ -245,6 +246,8 @@ def main(argv: list[str] | None = None) -> None:
     feed_commands.add(sub)
     from .owner import add_commands as owner_commands  # owner: the accounts that see the owner's pages
     owner_commands(sub)
+    from .videos import add_commands as pro_commands   # pro: the accounts that may ask for more videos a day
+    pro_commands(sub)
 
     args = parser.parse_args(argv)
     args.func(args)

@@ -1,9 +1,11 @@
 {# A shopping list (`sl`) store by store: used by the List page and by "Buy this outfit".
-   Each line shows the product's photo (its colour where there is none), the piece, the store's own name for the
-   product as the link to its page, its colour and the size to order. Store words are German: marked lang="de".
+   Each line shows the product's photo (its colour where there is none) and what every card says, in the same order
+   (_macros.html): the piece and its price, the store and the quality, the product's name in English where every
+   word is known (english.py) as the link to its page, with the store's own name under it, the fabric and the fit.
+   Then its colour and the size to order, and what else to check. Store words are German: marked lang="de".
    "Open all" opens every product page of one store at once (app.js); each store has
    its own basket, so that is as close as it gets to buying everything in one go. #}
-{% from "_macros.html" import icon, pic %}
+{% from "_macros.html" import by, fabric_fit, icon, pic %}
 {% for g in sl.groups %}
 <section class="card store-list">
   <header class="store-head">
@@ -18,9 +20,13 @@
       <div class="buy-main">
         <p class="buy-top"><span class="buy-slot">{{ line.slot }}{% if line.qty > 1 %} <span class="qty">×{{ line.qty }}</span>{% endif %}</span>
           <span class="buy-total">{{ line.total|eur }}</span></p>
-        <a class="buy-product" href="{{ line.url|weblink }}" target="_blank" rel="noopener noreferrer"><span lang="de">{{ line.product }}</span>&nbsp;{{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>
+        {% set c, en = line.cand, line.product|english %}
+        {% if c %}<span class="by">{{ by(c.data.store, c.score) }}</span>{% endif %}
+        <a class="buy-product" href="{{ line.url|weblink }}" target="_blank" rel="noopener noreferrer"><span lang="{{ 'en' if en else 'de' }}">{{ en or line.product }}</span>&nbsp;{{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>
+        {% if en %}<span class="orig" lang="de">{{ line.product }}</span>{% endif %}
+        {% if c %}{{ fabric_fit(c, 'span') }}{% endif %}
         <span class="buy-meta">{% if line.colour %}Colour: <span lang="de">{{ line.colour }}</span> · {% endif %}Size: <b>{{ line.size }}</b>{% if line.qty > 1 %} · {{ line.qty }} × {{ line.unit_price|eur }}{% endif %}</span>
-        {% for note in line.notes %}<span class="buy-note">{{ note }}</span>{% endfor %}
+        {% for note in (line.cautions if c else line.notes) %}<span class="buy-note">{{ note }}</span>{% endfor %}
       </div>
     </li>
     {% endfor %}

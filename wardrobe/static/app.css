@@ -210,6 +210,14 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 .demo { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); background: var(--ok-bg); border-radius: var(--r-ui); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-3); }
 /* A status line: what just happened (saved, swapped, rebuilt). */
 .flash { font-size: var(--t-m); background: var(--soft); border-radius: var(--r-ui); padding: 10px var(--s-3); margin: 0 0 10px; }
+/* What a change made from an outfit did (outfits.html), and what Undo put back, its way back at the end of its words:
+   Undo is a button (it changes the piece again) that reads as a link, like the others. Each is a box as tall as the
+   line, kept whole on the line, and reaches 44px tall and a little wider than its words, without making the line
+   taller. */
+.said form { display: inline; }
+.said button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.said button, .said a { display: inline-block; position: relative; }
+.said button::after, .said a::after { content: ""; position: absolute; inset: calc((var(--t-m) * var(--lh-m) - 44px) / 2) calc(-1 * var(--s-2)); }
 .empty { color: var(--muted); padding: 28px 8px; text-align: center; }
 .foot { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); margin-top: 24px; }
 .foot ul { margin: 6px 0 0; padding-left: 16px; display: grid; gap: 3px; }
@@ -245,6 +253,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .pill.good, .pill.ok { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
 .pill.poor { color: var(--poor); background: var(--poor-bg); }
 .store { flex: none; font-size: var(--t-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }
+/* Every card's lines (_macros.html), the same on Wardrobe, the pop-up, a piece's page and Buy: "WEEKDAY · Quality
+   73/100", the store's name for the product in English with the original under it in small print (on the cards,
+   where the English is already at the smallest size for words, the original is told apart by its grey), then
+   "Fabric: …" and "Fit: …" (an oversized or slim cut in amber, with its flag: something to act on). */
+.by { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px var(--s-1); min-width: 0; font-size: var(--t-s); color: var(--muted); }
+.pill .of { font-weight: 400; }
+.orig { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.fabric, .fit { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.fit.caution { color: var(--ok); }
+.fit .ic { width: 13px; height: 13px; vertical-align: -2px; }
 .tag { display: inline-block; font-size: var(--t-s); font-weight: 500; padding: 2px 8px; border-radius: var(--r-pill); background: var(--soft); color: var(--muted); }
 
 /* ── Pictures with a swatch fallback ─────────────────────────────────────── */
@@ -307,10 +325,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .slot-name { flex: 1 1 auto; min-width: 0; font-size: var(--t-m); font-weight: 500; line-height: 1.25; overflow-wrap: anywhere; }
 .qty { color: var(--muted); font-weight: 500; }
 .slot-price { flex: none; font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.item { flex: 1 1 auto; min-width: 0; font-size: var(--t-s); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item { flex: 1 1 auto; min-width: 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.slot-text .item[lang] { color: var(--ink); }   /* the product's name, in English where it is known */
+.slot-text .item.orig { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* the store's own */
 .each { flex: none; font-size: var(--t-s); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--t-s); color: var(--muted); }
-.meta .fab { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
 .hint { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .hint .ic { width: 12px; height: 12px; vertical-align: -1px; }
@@ -357,16 +375,23 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
    the colour's name show instead, at full strength (faded, a name read at 2.6:1). */
 .cand.out .pic:not(.noimg) { opacity: .5; }
 .cand-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.colour-name { font-size: var(--t-s); color: var(--muted); margin-left: 4px; }
+/* Where the store, its quality and the price do not fit one line (an option on a phone), the quality goes under the
+   store, without the dot between them, for every store alike. */
+.cand-body { container-type: inline-size; }
+@container (max-width: 279px) {
+  .cand-top .by { display: grid; justify-items: start; }
+  .cand-top .sep { display: none; }
+}
+.colour-name { font-size: var(--t-s); color: var(--muted); }
 .price { font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.cand h2 { font-size: var(--t-m); font-weight: 500; line-height: 1.3; margin: 3px 0; }   /* each option's name: a heading under the piece's */
-.fabric { font-size: var(--t-s); color: var(--muted); }
+.cand h2 { font-size: var(--t-m); font-weight: 500; line-height: 1.3; margin: var(--s-1) 0 2px; }   /* each option's name: a heading under the piece's */
+.cand .orig { margin-bottom: var(--s-1); }
 .est { font-size: var(--t-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--ok); background: var(--ok-bg); padding: 1px 6px; border-radius: var(--r-pill); white-space: nowrap; }
 .was { font-size: var(--t-s); font-weight: 400; color: var(--muted); margin-left: 4px; }
 .sizeline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--t-s); margin-top: 5px; }
 .sizeline .yes { color: var(--good); font-weight: 500; }
 .sizeline .no { color: var(--poor); font-weight: 500; }
-.sizeline .unk { color: var(--muted); }
+.sizeline .unk { color: var(--ok); font-weight: 500; }   /* sizes not checked at the store: a caution to act on */
 .size-notes { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
 .size-notes .ic { width: 13px; height: 13px; vertical-align: -2px; }
 details.why { margin-top: 6px; font-size: var(--t-s); }
@@ -390,7 +415,7 @@ details.why summary::-webkit-details-marker { display: none; }
 .sz { font-size: var(--t-s); padding: 1px 6px; border-radius: var(--r-ui); border: 1px solid var(--line); background: var(--surface); }
 .sz.gone { text-decoration: line-through; color: var(--muted); background: none; }
 .sz.mine { border-color: var(--ink); font-weight: 600; }
-.cand-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.cand-actions { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-top: 10px; }   /* "Open at COS" beside "Choose this" on a 390px phone */
 .chosen-mark { display: inline-flex; align-items: center; gap: 5px; min-height: 38px; font-size: var(--t-s); font-weight: 500; }
 .extlink { display: inline-flex; align-items: center; gap: 4px; min-height: 38px; font-size: var(--t-s); color: var(--muted); }
 
@@ -441,11 +466,14 @@ details.why summary::-webkit-details-marker { display: none; }
    the photo radius (see "Wider screens"). On a phone the first screen shows the whole model, its price and the
    heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
    the budget bar (--bar-h) and 302px: the header, the chips and the lead line above the picture (150px), the line
-   under it (40px), the outfit line and the tab bar below. The picture is never under 240px wide; on a shorter
-   screen it then ends just above the tab bar, and the outfit line follows below. Its width is kept as --stage-w, so
-   that the arrows can be placed beside the picture (see .reel-nav). */
+   under it (40px), the outfit line and the tab bar below; and --scenes-h, the scenes under the line (see .scenes),
+   where there are any. The picture is never under 240px wide; on a shorter screen it then ends just above the tab
+   bar, and the outfit line follows below. Its width is kept as --stage-w, so that the arrows can be placed beside
+   the picture (see .reel-nav). */
 .looks { --told: 0px; --least: 240px; --lead-more: 0px; }
-.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--lead-more) - var(--told)) * 2 / 3))); }
+.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--scenes-h) - var(--lead-more) - var(--told)) * 2 / 3))); }
+.looks { --scenes-h: 0px; }
+.looks:has(.scenes) { --scenes-h: 40px; }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
    room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
@@ -453,6 +481,20 @@ details.why summary::-webkit-details-marker { display: none; }
    of up to three lines. */
 main:has(> .flash, > .demo) .looks { --told: calc(2 * var(--t-m) * var(--lh-m) + var(--s-6)); --least: 190px; }
 main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-m) * var(--lh-m) + 2 * var(--s-6)); --least: 150px; }
+/* The line that says what a change made from an outfit did (.said, outfits.html), and what Undo put back, is up to
+   four lines on a phone (the piece, the product's own long name, the prices, the price level): it gets that room, so
+   the whole model still ends above the tab bar of a 390 x 664 phone under it, below the starter banner too. After
+   leaving a piece off or wearing another (.short) it is at most two lines. One line on a computer. app.js (12a) sets
+   --said-h to the room the line really takes on this screen, so that a shorter line leaves the picture larger; until
+   then, and without JavaScript, the picture gives up the room of the longest line. */
+@media (max-width: 759.98px) {
+  main:has(> .said) .looks { --told: var(--said-h, calc(4 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 150px; }
+  main:has(> .said.short) .looks { --told: var(--said-h, calc(2 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 170px; }
+  /* With the scenes under the picture as well (40px more), the smallest width gives up the same 40px of height (a
+     third less width, 2:3), so the whole model still ends above the tab bar on that 390 x 664 phone. */
+  main:has(> .said) .looks:has(.scenes) { --least: 124px; }
+  main:has(> .said.short) .looks:has(.scenes) { --least: 144px; }
+}
 /* The stage is also the box the line under the picture measures itself against (see .look-line). */
 .stage {
   position: relative; margin: 0 auto; container-type: inline-size;
@@ -512,9 +554,9 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 /* The line under the box: one line, 40px tall in every state (empty until there is a picture), so that nothing under
    it moves when the picture arrives. It never wraps: at the browser's standard text size its words show whole (at a
    larger one they end in '…'). Where the box is narrower than the half sentence and the two links (272px: on a
-   phone under about 760px tall, or 795px on Saved, whose lead line is longer, each about 24px more while the
+   phone under about 800px tall, or 835px on Saved, whose lead line is longer, each about 24px more while the
    starter banner shows and about 22px more while the budget bar has its line about missing pieces; on a computer
-   under about 710px tall, or 675px with the banner; or under a message at the top), the line is 272px wide and
+   under about 750px tall, or 715px with the banner; or under a message at the top), the line is 272px wide and
    reaches past the box equally on both sides, by 61px each at most (the box is never under 150px), so it still
    fits a 320px phone. */
 .look-line {
@@ -538,6 +580,77 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .look-links .link { display: inline-flex; align-items: center; padding: 0; font-size: var(--t-s); }   /* each the line's 40px tall */
 .look-msg { color: var(--ok); }
 p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--s-1); }   /* why a new version was not drawn */
+/* The scenes under the line (config/looks.toml [scenes]): Studio, Street, Library, Café as one row of equal cells on
+   a --soft track, as wide as the line above it and 40px tall in every state (--scenes-h gives the picture's room for
+   it). The scene shown is filled with ink, like any choice of one of several. Each cell is the row's whole height, a
+   finger-sized target; a 2px inner ring in the track's colour draws the track around the filled one. */
+.scenes {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
+  background: var(--soft); border-radius: var(--r-track);
+}
+.scenes button {
+  min-width: 0; height: 40px; padding: 0 var(--s-1); border: 0; border-radius: var(--r-track); background: none;
+  font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; color: var(--muted); cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .15s ease-out, background-color .15s ease-out;
+}
+.scenes [aria-pressed="false"]:hover { color: var(--ink); }   /* the one shown keeps its page-colour words */
+.scenes [aria-pressed="true"] { background: var(--ink); color: var(--bg); box-shadow: inset 0 0 0 2px var(--soft); cursor: default; }
+/* "See it move" (_video.html, app.js 15): the outfit's AI video, over its picture.
+   The button on the picture, at its top right (clear of the head, which is centred, and of the dots): the same dark
+   veil and white as the 'AI picture' label (7.4:1 on the studio grey), 32px tall to the eye and 48px to a finger. Its
+   focus ring is white inside a dark one, so it shows on any picture. */
+.vid-pill {
+  position: absolute; top: var(--s-2); right: var(--s-2); z-index: 2;
+  display: inline-flex; align-items: center; gap: var(--s-1); height: var(--s-6); padding: 0 var(--s-3) 0 var(--s-2);
+  border: 0; border-radius: var(--r-pill); background: rgba(27, 27, 26, .72); color: #fff; cursor: pointer;
+  font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; white-space: nowrap;
+  transition: background-color .15s ease-out;
+}
+.vid-pill .ic { width: 14px; height: 14px; fill: currentColor; }
+.vid-pill::after { content: ""; position: absolute; inset: calc(-1 * var(--s-2)) 0; }   /* 48px tall to a finger (44px under 300px) */
+.vid-pill:hover { background: rgba(27, 27, 26, .9); }
+.vid-pill:focus-visible { outline: 2px solid #1b1b1a; outline-offset: 2px; box-shadow: 0 0 0 2px #fff; }
+/* On a picture under 300px wide (a phone under about 800px tall) the head reaches nearer the top right corner: the
+   button moves 4px nearer the corner and is 28px tall to the eye (44px to a finger), so it stays above the hair. */
+@container (max-width: 299.98px) {
+  .vid-pill { top: var(--s-1); right: var(--s-1); height: 28px; }
+}
+/* The video lies over the picture in the same 2:3 box, as tall as the box (it is 9:16: the whole figure, head to
+   shoes). On either side the picture it started from shows through: the same ground, so the edges do not show.
+   It is labelled 'AI video' like the picture. While it shows, the dots (which
+   would not follow the model as he turns) and the picture's line are hidden, and its own line takes that line's
+   place: the same 40px, so nothing moves. It is turned by dragging sideways across it (touch-action: a sideways
+   drag turns him rather than moving on to the next outfit) or with the arrow keys once it has focus. */
+.vid-box { display: none; position: absolute; top: 0; left: 0; z-index: 1; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; }
+.vid.on .vid-box { display: block; }
+.vid.on .vid-pill { display: none; }
+.vid-turn { position: absolute; inset: 0; cursor: grab; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.vid-turn.held { cursor: grabbing; }
+.vid-turn video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.vid-turn video[hidden] { display: none; }
+.vid-turn:focus-visible { outline: none; }
+.vid-turn:focus-visible::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  outline: 2px solid #1b1b1a; outline-offset: -2px; box-shadow: inset 0 0 0 4px #fff;
+}
+.stage:has(.vid.on) .spots, .stage:has(.vid.on) .look-pic .ai-chip { display: none; }   /* its own label is on the video */
+.look:has(.vid.on) > .look-line { display: none; }
+.vid-line {
+  display: none; align-items: center; justify-content: space-between; gap: var(--s-3);
+  width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
+  font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); white-space: nowrap;
+}
+.vid.on .vid-line { display: flex; }
+.vid-line .ic { width: 16px; height: 16px; margin-right: 2px; }
+/* The band across the top of the picture while a video is offered, made or refused: the picture's band, with its
+   "Not now" in white and as tall as the white button beside it. */
+.vid-bar .link { display: inline-flex; align-items: center; min-height: 40px; padding: 0; color: #fff; }
+.vid-bar b { font-weight: 600; }
+/* A picture drawn from the customer's photo, whose photo was added before the words about videos: his agreement first,
+   a box to tick on a line of its own, above the button. */
+.vid-bar .check { flex: 1 1 100%; gap: var(--s-2); min-height: 40px; }
+.vid-bar .check input { accent-color: #fff; }
 .spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--ink); animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 /* The dots on the AI picture: one per piece, placed by config/looks.toml. */
@@ -547,6 +660,7 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
   position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; padding: 0; border-radius: 50%;
   border: 2px solid #fff; background: rgba(27, 27, 26, .55); box-shadow: 0 0 0 1px rgba(0, 0, 0, .25), 0 1px 4px rgba(0, 0, 0, .3);
   pointer-events: auto; cursor: pointer;
+  text-decoration: none;    /* a link to the piece's page without JavaScript (outfits.html): never underlined */
 }
 .spot::before { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: #fff; }
 .spot::after { content: ""; position: absolute; inset: -10px; }   /* a finger-sized target */
@@ -628,6 +742,8 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
   .reel { scroll-behavior: auto; }
   .spin { animation: none; }
   .look-pic { transition: none; }
+  .scenes button { transition: none; }
+  .vid-pill { transition: none; }
 }
 
 /* ── The pop-up for one piece (a sheet from the bottom on a phone) ───────── */
@@ -637,9 +753,10 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
    when it opens or closes. */
 html { scrollbar-gutter: stable; }
 html:has(dialog[open]) { overflow: hidden; }
-/* --sheet-t and --sheet-x: the sheet's padding at the top and the sides, which its top row reaches over. */
+/* --sheet-t and --sheet-x: the sheet's padding at the top and the sides, which its top row reaches over. --close: the
+   size of Close's target, which the top row keeps room for. */
 .sheet {
-  --sheet-t: var(--s-2); --sheet-x: var(--s-4);
+  --sheet-t: var(--s-2); --sheet-x: var(--s-4); --close: 44px;
   width: min(560px, 100%); max-width: 100%; max-height: min(88svh, 780px); margin: auto auto 0;
   padding: var(--sheet-t) var(--sheet-x) calc(var(--s-5) + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   background: var(--surface); color: var(--ink); overflow-y: auto; overscroll-behavior: contain;
@@ -651,21 +768,22 @@ html:has(dialog[open]) { overflow: hidden; }
    to scroll: each sticks where it already is ('top' counts from inside the sheet's padding, so the row's is minus
    that padding: the sheet's very top). */
 .sheet-close {
-  position: sticky; top: 0; z-index: 2; display: block; width: 44px; height: 44px; padding: var(--s-1);
-  margin: 0 calc(var(--sheet-t) - var(--sheet-x)) -44px auto;   /* takes no room: the top row is under it */
+  position: sticky; top: 0; z-index: 2; display: block; width: var(--close); height: var(--close); padding: var(--s-1);
+  margin: 0 calc(var(--sheet-t) - var(--sheet-x)) calc(-1 * var(--close)) auto;   /* takes no room: the top row is under it */
   border: 0; border-radius: 50%; background: var(--soft) content-box; font-size: var(--t-xl); line-height: 1; cursor: pointer;
 }
 .piece-top {
-  position: sticky; top: calc(-1 * var(--sheet-t)); z-index: 1; display: flex; align-items: center; min-height: calc(var(--sheet-t) + 44px);
+  position: sticky; top: calc(-1 * var(--sheet-t)); z-index: 1; display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s-3); min-height: calc(var(--sheet-t) + var(--close));
   margin: calc(-1 * var(--sheet-t)) calc(-1 * var(--sheet-x)) var(--s-2);
-  padding: var(--sheet-t) calc(var(--sheet-x) + 44px) 0 var(--sheet-x); background: var(--surface);
+  padding: var(--sheet-t) calc(var(--sheet-x) + var(--close)) 0 var(--sheet-x); background: var(--surface);
 }
 #piece-body { display: flow-root; }   /* the row's reach up over the padding is not merged into Close's margin */
 /* What gets keyboard focus in the sheet is scrolled into view below the top row, never under it (WCAG 2.4.11): the
-   room kept above it is the row's height and 12px more, as under the budget bar, so its focus ring shows whole. Set
-   on what scrolls under the row only, so that coming back to Close (in the row, always in view) leaves the sheet
-   where it is. */
-#piece-body * { scroll-margin-top: calc(var(--sheet-t) + 44px + var(--s-3)); }
+   room kept above it is the row's height and 12px more, as under the budget bar, so its focus ring shows whole; and
+   12px below it, so that its ring is not cut off by the sheet's bottom edge either. Set on what scrolls under the
+   row only, so that coming back to Close (in the row, always in view) leaves the sheet where it is. */
+#piece-body * { scroll-margin-top: calc(var(--sheet-t) + var(--close) + var(--s-3)); scroll-margin-bottom: var(--s-3); }
 /* Once the sheet is scrolled, a hairline under the top row shows where the rest goes under it (in browsers that can
    tie a style to scrolling; in others the row has no line). At rest there is none. */
 @supports (animation-timeline: scroll()) {
@@ -673,13 +791,13 @@ html:has(dialog[open]) { overflow: hidden; }
 }
 @keyframes sheet-scrolled { to { box-shadow: 0 1px 0 var(--line); } }
 h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece you have: its name is the title */
+/* A product's piece and price. Two lines of the name still fit the row's 44px, so what scrolls under it is never hidden. */
+.piece-top h2 { min-width: 0; font-size: var(--t-l); line-height: 1.25; }
+.sheet-price { flex: none; font-size: var(--t-l); font-weight: 500; font-variant-numeric: tabular-nums; }
 .piece-head { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
 .piece-head .pic { width: 104px; aspect-ratio: 3 / 4; }   /* 104 x 139 */
 .piece-facts { display: grid; gap: var(--s-1); justify-items: start; }
-.piece-slot { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-.piece-facts h2 { font-size: var(--t-l); line-height: 1.25; }
-.piece-cost { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-1) var(--s-2); }
-.piece-cost b { font-size: var(--t-l); font-weight: 500; font-variant-numeric: tabular-nums; }
+.piece-facts .en { font-weight: 500; line-height: 1.3; }   /* the product's name: 15px, the original under it 13px */
 .quality { display: inline-flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); color: var(--muted); }
 .piece-facts .sizeline { margin-top: 0; }
 .piece-facts .sizeline .ex { color: var(--ok); font-weight: 500; }   /* in stock, but in our example size: a caution to act on */
@@ -688,7 +806,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .as-of span { white-space: nowrap; }   /* the date and time stay together */
 .piece-facts .size-notes { margin: 0; display: block; }
 .piece-facts .extlink { min-height: 40px; }
-.piece-state { display: flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); font-weight: 500; }
+.piece-state { display: flex; align-items: start; gap: var(--s-1); font-size: var(--t-s); font-weight: 500; }   /* the icon by the first line, where "Locked: …" wraps */
 .sheet .sec { margin: var(--s-5) 0 var(--s-2); }
 .swap { list-style: none; margin: 0 0 var(--s-2); padding: 0; display: grid; gap: var(--s-3); }
 .swap li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; }
@@ -696,8 +814,10 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .swap .pic { width: 48px; aspect-ratio: 4 / 5; }
 .swap .pic .fb { display: none; }
 .swap-text { display: grid; gap: 2px; min-width: 0; font-size: var(--t-s); color: var(--muted); }
-.swap-text b { font-size: var(--t-m); font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swap-text b, .swap-text .orig { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.swap-text b { font-size: var(--t-m); font-weight: 500; color: var(--ink); }
 .swap-text > span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.swap-text > .by { gap: 2px var(--s-1); }   /* "COS · Quality 84/100", spaced as on every card */
 /* Its price, and what it costs next to the piece in the outfit now ("−69.05 €"). */
 .swap-text .swap-price { gap: var(--s-2); font-size: var(--t-m); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .diff { font-size: var(--t-s); font-weight: 400; color: var(--muted); }
@@ -742,6 +862,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .buy-product { justify-self: start; padding: 3px 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); text-decoration: none; }
 .buy-product:hover { text-decoration: underline; text-underline-offset: 3px; }
 .buy-product .ic { width: 13px; height: 13px; color: var(--muted); }
+.buy .by { margin: 2px 0 0; }
 .buy-meta { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .buy-meta b { color: var(--ink); }
 .buy-note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
@@ -775,6 +896,17 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .card h2 { font-size: var(--t-l); margin-bottom: 10px; }
 .card.add { margin-top: 22px; }
 .card.add .flash { overflow-wrap: anywhere; }   /* what pasted links came to (a piece's page): a long link wraps, never widens the page */
+/* A piece's page: what you added from a store no longer offered (_set_aside.html), each with its store, name and
+   price, and Remove at the end of its line (44px tall to tap). */
+.card.set-aside { margin-top: var(--s-5); }
+.set-aside-list { list-style: none; margin: var(--s-2) 0 0; padding: 0; }
+.set-aside-list li { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: var(--s-1) 0; }
+.set-aside-list li + li { border-top: 1px solid var(--line); }
+.set-aside-list .what { min-width: 0; font-size: var(--t-m); line-height: var(--lh-m); overflow-wrap: anywhere; }
+.set-aside-list .store { display: block; color: var(--muted); }
+.set-aside-list .name { font-weight: 500; }
+.set-aside-list .price { margin-left: var(--s-1); }
+.set-aside-list .link { flex: none; min-height: 44px; padding: 0 var(--s-1); }
 .card .sec { margin: 8px 0 0; font-size: var(--t-xs); }   /* a section label stays small inside a card too */
 #sizes { scroll-margin-top: calc(var(--s-8) * 2); }   /* "Change" by Your sizes lands here: well clear of the bar that sticks to the top */
 .card .demo { margin: 6px 0 4px; }
@@ -797,6 +929,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .edit { font-size: var(--t-s); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
 details[open] > summary .edit { visibility: hidden; }
 .slot-edit { padding: 4px 12px 10px; border-top: 1px solid var(--line); }
+.slot-list .flash { margin: 0 var(--s-3) var(--s-3); overflow-wrap: anywhere; }   /* what adding or saving the piece came to, inside it */
 .slot-edit .form { margin-top: 10px; }
 .form { display: grid; gap: 12px; }
 .form > .btn { justify-self: start; }
@@ -939,7 +1072,7 @@ details[open] > summary .edit { visibility: hidden; }
 }
 .cat-table tbody tr + tr > * { border-top: 1px solid var(--line); }
 .cat-table .num-col { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: var(--s-5); }
-.cat-name { display: block; font-size: var(--t-m); line-height: 1.3; font-weight: 500; overflow-wrap: anywhere; }   /* 1.3 as .cand h3, a product's name; --lh-m adds 3px a line */
+.cat-name { display: block; font-size: var(--t-m); line-height: 1.3; font-weight: 500; overflow-wrap: anywhere; }   /* 1.3 as .cand h2, a product's name; --lh-m adds 3px a line */
 .cat-sub { display: block; color: var(--muted); overflow-wrap: anywhere; }
 .cell-label { display: none; }
 .c-store .cat-sub, .c-feed, .c-import, .c-price { white-space: nowrap; }
@@ -1012,7 +1145,8 @@ details[open] > summary .edit { visibility: hidden; }
   .cat-link { margin-top: 0; }
 }
 /* From 960px the stores' tables share their columns' widths (all but the notes, which take the rest), so the
-   networks' tables line up one under the other; a window too narrow for them scrolls inside each box. */
+   networks' tables line up one under the other. Under 1200px the notes go under each row (below), so that the
+   tables fit; only text made much larger than this would make one scroll inside its box. */
 @media (min-width: 960px) {
   .cat-stores { table-layout: fixed; min-width: 82em; }
   .cat-stores .w-store { width: 15em; }
@@ -1020,6 +1154,21 @@ details[open] > summary .edit { visibility: hidden; }
   .cat-stores .w-status { width: 9.5em; }
   .cat-stores .w-count { width: 7.5em; }
   .cat-stores .w-date { width: 10em; }
+}
+/* A small laptop, 960-1199px, is too narrow for the notes as a seventh column: there the six columns share the width
+   in the same proportions, and each store's notes take a line of their own under its row, from the programme to the
+   end, so that nothing scrolls sideways or is cut off. Their column's header is read out, not shown. */
+@media (min-width: 960px) and (max-width: 1199.98px) {
+  .cat-stores { min-width: 0; }
+  .cat-stores, .cat-stores thead, .cat-stores tbody { display: block; }
+  .cat-stores colgroup { display: none; }
+  .cat-stores tr { display: grid; grid-template-columns: minmax(0, 15fr) minmax(0, 14fr) minmax(0, 9.5fr) minmax(0, 7.5fr) minmax(0, 10fr) minmax(0, 10fr); }
+  .cat-stores thead th:last-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .cat-stores .c-store { grid-row: span 2; }
+  .cat-stores .c-state { grid-column: 2 / -1; min-width: 0; padding-top: 0; }
+  .cat-stores .c-state:has(.sr) { display: none; }      /* nothing to note: no empty line */
+  .cat-stores tbody tr + tr > * { border-top: 0; }
+  .cat-stores tbody tr + tr { border-top: 1px solid var(--line); }
 }
 @media (min-width: 1200px) {
   .card.cat-filters { grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 1fr)) minmax(0, .8fr) minmax(0, 1.3fr) auto; }
@@ -1059,11 +1208,13 @@ details[open] > summary .edit { visibility: hidden; }
   .reel { margin: calc(-1 * var(--s-4)) 0; }   /* the 16px of room for focus rings stays (see .reel) */
   .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: var(--s-6); padding: var(--s-4) 60px; }
   /* The picture beside the pieces, as tall as the screen allows below the budget bar (--bar-h), the header, the
-     chips and the lead line, with the line under it (210px), less any message's room (see .looks). */
-  .looks { --stage-w: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--told)) * 2 / 3))); }
+     chips and the lead line, with the line under it (210px) and the scenes under that (--scenes-h), less any
+     message's room (see .looks). */
+  .looks { --stage-w: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--scenes-h) - var(--told)) * 2 / 3))); }
   .looks { --pair: calc(var(--stage-w) + var(--s-6) + 420px); }   /* the picture, the gap and the list: the slide's columns */
   .stage { margin: 0; }
   .collage, .look-pic { border-radius: var(--r-img); }
+  .vid-box { border-radius: var(--r-img); }
   .band { border-radius: var(--r-img) var(--r-img) 0 0; }
   .about { margin: 0; }
   .sheet { --sheet-t: var(--s-3); --sheet-x: var(--s-5); margin: auto; padding: var(--sheet-t) var(--sheet-x) var(--s-5); border-radius: var(--r-sheet); }

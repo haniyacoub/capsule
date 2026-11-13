@@ -135,6 +135,18 @@ class OnYourOwnMachine(unittest.TestCase):
         self.assertEqual(sorted(read["stores"]), ["cos", "weekday"], "nor is it in the notes about each store")
         self.assertEqual(paths.CATALOG_PATH.read_bytes(), on_disk, "reading changes nothing in the file")
 
+    def test_saving_leaves_zara_out_but_keeps_what_you_added_from_it(self):
+        own = {**LIST[3], "id": "zara-1000099", "slot_id": "white-tee", "source": "manual"}
+        rows = [{**LIST[3], "slot_id": "white-tee"}, {**LIST[4], "slot_id": "white-tee"}, own]
+        catalog.save({"source": "collected", "collected_at": PUBLISHED, "stores": STORES, "candidates": rows})
+        catalog.update(lambda cat: None)         # any change saved: a link added, details typed in
+        on_disk = json.loads(paths.CATALOG_PATH.read_text(encoding="utf-8"))
+        self.assertEqual([c["id"] for c in on_disk["candidates"]], ["cos-1000000102", "zara-1000099"])
+        self.assertEqual(sorted(on_disk["stores"]), ["cos", "weekday"])
+        self.assertEqual([c["id"] for c in catalog.load()["candidates"]], ["cos-1000000102"], "set aside, not shown")
+        self.assertEqual(catalog.set_aside("white-tee"), [own])
+        self.assertEqual(catalog.set_aside("indigo-jeans"), [])
+
 
 class AccountsThatHadZara(ProductionCase):
     """An account built from the list before Zara went, as the owner's is on their server and on stilsmith.com."""
@@ -266,6 +278,154 @@ class AccountsThatHadZara(ProductionCase):
                                                     "shows their products: 2 pieces were picked again, and 2 have "
                                                     "nothing in Stilsmith's product list yet.")
             self.assertEqual(shared.gone_message(), "", "said once")
+
+    # ── what he added himself, by its link, from the store that went ──────────────────────────────────────────────
+
+    OWN = {**LIST[0], "id": "zara-1000099", "name": "Pullover mit Zopfmuster", "slot_id": "grey-merino-jumper",
+           "url": "https://www.zara.com/de/de/pullover-mit-zopfmuster-p01000099.html", "source": "manual",
+           "manual": {"price": 45.0}}
+
+    def added_his_own(self) -> None:
+        """Before Zara went, Ada added a Zara jumper to her grey merino jumper by its link, and typed in its price."""
+        with db.as_user(self.user_id("ada@example.com")):
+            had = catalog.stored()
+            had["candidates"].append(dict(self.OWN))
+            catalog.save(had)
+
+    def his_own(self) -> list[dict]:
+        with db.as_user(self.user_id("ada@example.com")):
+            return [c for c in db.get_catalog()["candidates"] if c["id"] == self.OWN["id"]]
+
+    def test_what_he_added_from_a_store_that_went_is_set_aside_never_deleted(self):
+        self.added_his_own()
+        first = html.unescape(self.ada.get("/").get_data(as_text=True))
+        self.assertIn("4 pieces were picked again", first, "his own Zara jumper was not his pick: the count is as it was")
+        self.assertEqual(self.his_own(), [self.OWN], "kept in his account as he added it, his typed-in price too")
+
+        # Hidden from picking, outfits and the shopping list: never among the piece's options.
+        self.assertEqual(self.picks()["grey-merino-jumper"], ("auto", "weekday-1000000201", ["cos", "weekday"]))
+        for path in ("/", "/outfits", "/list", "/list.md", "/list.csv", "/slots", "/slot/white-tee"):
+            body = self.ada.get(path).get_data(as_text=True)
+            self.assertNotIn("Zopfmuster", body, path)
+            self.assertNotIn("no longer offers", body, path)
+
+        # Listed on its piece's page, with what it is and a button to remove it.
+        page = html.unescape(self.ada.get("/slot/grey-merino-jumper").get_data(as_text=True))
+        listed = page[page.index('<section class="card set-aside"'):page.index('<section class="card add"')]
+        self.assertIn("From a store Stilsmith no longer offers", words(listed))
+        self.assertIn("Zara Pullover mit Zopfmuster 45 € Remove Pullover mit Zopfmuster", words(listed),
+                      "its store, its name and the price he typed in, then Remove (its name heard with it)")
+        self.assertIn("Zara has no partner programme, so Stilsmith keeps it for you but no longer offers it for this "
+                      "piece or in your outfits. It comes back if the store is offered again.", words(listed))
+        self.assertIn('action="/slot/grey-merino-jumper/remove"', listed)
+        self.assertIn('name="candidate" value="zara-1000099"', listed)
+        options = page[page.index('<ul class="cands">'):page.index('<section class="card set-aside"')]
+        self.assertNotIn("Zopfmuster", options, "not among the options above it")
+
+        # His data: in his copy of it.
+        export = json.loads(self.ada.get("/account/export").get_data(as_text=True))
+        self.assertIn(self.OWN["id"], [c["id"] for c in export["items_you_added"]])
+
+        # Every later save keeps it: a link added to the same piece (catalog.update), another piece taken out of the
+        # plan (sync_catalog, which rebuilds his products from the shared list).
+        cos_link = "https://www.cos.com/de-de/men/product/pullover-aus-merinowolle-1000000101"
+        self.post(self.ada, "/slot/grey-merino-jumper/import", urls=cos_link)
+        self.post(self.ada, "/slots/white-tee/delete")
+        self.assertEqual(self.his_own(), [self.OWN])
+        self.assertIn("Pullover mit Zopfmuster", html.unescape(self.ada.get("/slot/grey-merino-jumper")
+                                                               .get_data(as_text=True)))
+        # Taking its own piece out of the plan takes it too: it belonged to that piece.
+        self.post(self.ada, "/slots/grey-merino-jumper/delete")
+        self.assertEqual(self.his_own(), [])
+
+    def test_remove_takes_what_was_set_aside_out_of_his_account(self):
+        self.added_his_own()
+        self.ada.get("/")
+        response = self.post(self.ada, "/slot/grey-merino-jumper/remove", candidate=self.OWN["id"])
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.his_own(), [])
+        page = html.unescape(self.ada.get(response.headers["Location"]).get_data(as_text=True))
+        self.assertIn("Removed “Pullover mit Zopfmuster”.", page)
+        self.assertNotIn("no longer offers", page, "nothing left to list")
+        self.assertEqual(self.post(self.ada, "/slot/grey-merino-jumper/remove", candidate=self.OWN["id"]).status_code,
+                         404, "removed once")
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual({c["store"] for c in db.get_catalog()["candidates"]}, {"cos", "weekday"})
+
+    def test_what_was_set_aside_comes_back_when_its_store_is_offered_again(self):
+        from wardrobe import programmes
+        self.added_his_own()
+        self.ada.get("/")
+        real = programmes._stores()
+        again = {**real, "zara": {**real["zara"], "programme": "awin"}}
+        with mock.patch.object(programmes, "_stores", return_value=again):
+            page = html.unescape(self.ada.get("/slot/grey-merino-jumper").get_data(as_text=True))
+            self.assertNotIn("no longer offers", page)
+            options = page[page.index('<ul class="cands">'):page.index('<section class="card add"')]
+            self.assertIn("Pullover mit Zopfmuster", options, "among the piece's options again")
+            self.assertIn("added by you", options)
+            with db.as_user(self.user_id("ada@example.com")):
+                view = selection.build().get("grey-merino-jumper")
+                mine = next(c for c in view.cands if c.id == self.OWN["id"])
+                self.assertEqual(mine.price, 45.0, "with the price he typed in")
+        self.assertEqual(self.his_own(), [self.OWN])
+
+    def published_again(self, stamp: str) -> None:
+        """The owner imports a feed: the list is published again, the same products under a new date."""
+        data = json.loads(self.on_disk)
+        data["published_at"] = stamp
+        self.listed.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        shared._cache = None        # read it again, even if the file's time did not move
+
+    def test_what_was_set_aside_is_not_said_again_when_the_list_is_published_again(self):
+        self.added_his_own()
+        first = html.unescape(self.ada.get("/").get_data(as_text=True))
+        self.assertIn("Zara has no partner programme, so Stilsmith no longer shows its products: 4 pieces were picked "
+                      "again", first)
+        picks = self.picks()
+        self.published_again("2026-11-14T09:00:00.000000+01:00")
+        with mock.patch.object(shared, "_picked_again", wraps=shared._picked_again) as counted:
+            page = html.unescape(self.ada.get("/").get_data(as_text=True))
+        self.assertNotIn("picked again", page, "nothing went since Zara, and Zara was said once")
+        self.assertNotIn("zara", page.lower())
+        counted.assert_not_called()
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(db.get_setting("pool"), "2026-11-14T09:00:00.000000+01:00#refused#cos,weekday",
+                             "his products were rebuilt from the new publication")
+        self.assertEqual(self.picks(), picks, "no piece was picked again")
+        self.assertEqual(self.his_own(), [self.OWN], "still kept, set aside")
+
+    def test_a_store_that_goes_later_is_named_alone(self):
+        from wardrobe import programmes
+        self.added_his_own()
+        self.ada.get("/")                                  # Zara's message, said once
+        real = programmes._stores()
+        later = {**real, "weekday": {**real["weekday"], "programme": "none"}}
+        with mock.patch.object(programmes, "_stores", return_value=later):
+            page = html.unescape(self.ada.get("/").get_data(as_text=True))
+            # The jumper had Weekday's (COS's is next) and the jeans had Weekday's (nothing is left for them).
+            self.assertIn("Weekday has no partner programme, so Stilsmith no longer shows its products: 2 pieces were "
+                          "picked again, and 1 has nothing in Stilsmith's product list yet.", page)
+            self.assertNotIn("zara", page.lower(), "Zara went before, and was said then")
+            self.assertEqual(self.picks(), {
+                "grey-merino-jumper": ("auto", "cos-1000000101", ["cos"]),
+                "white-tee": ("auto", "cos-1000000102", ["cos"]),
+                "indigo-jeans": ("auto", None, []),
+                "charcoal-wool-coat": ("auto", None, []),
+            })
+        self.assertEqual(self.his_own(), [self.OWN], "what he added from Zara is still kept")
+
+    def test_an_owned_piece_locked_to_zara_stays_owned_its_lock_goes_and_it_is_not_counted(self):
+        """What _stores_gone says it does: an owned piece is not picked again, but a lock to the gone store's product
+        goes, so that the product is not his choice should he say he does not own it after all."""
+        with db.as_user(self.user_id("ada@example.com")):
+            db.update_slot("white-tee", owned=True)            # still locked to Zara's tee, from setUp
+        first = html.unescape(self.ada.get("/").get_data(as_text=True))
+        self.assertIn("Zara has no partner programme, so Stilsmith no longer shows its products: 3 pieces were picked "
+                      "again, and 1 has nothing in Stilsmith's product list yet.", first)
+        with db.as_user(self.user_id("ada@example.com")):
+            tee = db.get_slot("white-tee")
+        self.assertEqual((tee["owned"], tee["locked"], tee["pick"]), (True, False, None))
 
 
 if __name__ == "__main__":

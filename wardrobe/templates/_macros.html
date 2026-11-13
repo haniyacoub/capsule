@@ -14,6 +14,10 @@
 <path d="M14 5h5v5"/><path d="M19 5l-8 8"/><path d="M18 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4"/>
 {%- elif name == 'shuffle' -%}
 <path d="M4 7h3c4 0 6 10 10 10h3"/><path d="M4 17h3c1.5 0 2.7-1.4 3.8-3.2"/><path d="M13.3 10.1C14.4 8.4 15.5 7 17 7h3"/><path d="M18 4.5L20.5 7 18 9.5"/><path d="M18 14.5l2.5 2.5-2.5 2.5"/>
+{%- elif name == 'play' -%}
+<path d="M8 5.5v13l10.5-6.5z"/>
+{%- elif name == 'turn' -%}
+<path d="M4 12c0-2.2 3.6-4 8-4s8 1.8 8 4-3.6 4-8 4"/><path d="M14.5 13.5L12 16l2.5 2.5"/>
 {%- elif name == 'back' -%}
 <path d="M15 5l-7 7 7 7"/>
 {%- elif name == 'heart' -%}
@@ -32,12 +36,29 @@
 <span class="fb">{{ caption }}</span></span>
 {%- endmacro %}
 
-{% macro pill(score) -%}
-<span class="pill {{ score.band }}" title="Quality score {{ score.total }} of 100">{{ score.total }}</span>
+{# Every card says the same things about a product, in the same order (Wardrobe, the pop-up, a piece's page, Buy):
+     Charcoal wool coat                                  159 €
+     WEEKDAY · Quality 73/100
+     Single-breasted oversized coat, wool blend           (the store's name in English, english.py)
+     Einreihiger Oversize-Mantel aus Wollmischung         (the original, in small print, marked German)
+     Fabric: wool blend (the mix is not stated)
+     Fit: oversized, runs large. Size down for a regular fit.
+   Each page writes the names its own way (a heading, a link); the two macros below are the lines around them. #}
+
+{# "WEEKDAY · Quality 73/100": the store, then the number in its ring (red only when poor), heard as "Quality 73 out
+   of 100". The word Quality is there to see, so the ring has no tooltip. #}
+{% macro by(key, score) -%}
+<span class="store">{{ STORES.get(key, key) }}</span> <span class="sep" aria-hidden="true">·</span> <span class="quality">Quality <span class="pill {{ score.band }}">{{ score.total }}<span class="of" aria-hidden="true">/100</span></span><span class="sr"> out of 100</span></span>
 {%- endmacro %}
 
-{% macro store(key) -%}
-<span class="store">{{ STORES.get(key, key) }}</span>
+{# The fabric, saying no more than the store did (composition.in_words), "estimated" where the label was not read,
+   then the cut (sizecheck): an oversized or slim cut is a caution to act on, in amber with its flag. A regular cut
+   says nothing. `tag`: p in a block, span inside a link. #}
+{% macro fabric_fit(c, tag='p') -%}
+<{{ tag }} class="fabric">Fabric: {{ c.score.fabric_words }}{% if c.score.fabric_source in ('name', 'assumed') %}&nbsp;<span class="est">estimated</span>{% endif %}</{{ tag }}>
+{%- if c.check.fit %}
+<{{ tag }} class="fit{{ ' caution' if c.check.fit_flag }}">{% if c.check.fit_flag %}{{ icon('flag') }} {% endif %}Fit: {{ c.check.fit }}</{{ tag }}>
+{%- endif %}
 {%- endmacro %}
 
 {# The fields of one slot, used for both "edit" and "add". #}

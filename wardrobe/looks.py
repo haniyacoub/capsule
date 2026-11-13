@@ -10,8 +10,14 @@ Pictures are kept in <data>/looks/ and reused: the same description is never
 paid for twice, whoever asks. Drawing takes up to a minute, so it runs in the
 background while the page asks every few seconds whether it is done.
 
+Each outfit is drawn in a studio first. Other scenes (a street, a library…)
+are drawn only when the customer taps one under the picture: a scene changes
+the words about the place and the light, and so is a picture of its own, with
+its own name, kept, billed and counted like any other.
+
 All of it is off until a key is set (settings.py). The wording, the service,
-the limits and where the dots sit are in config/looks.toml.
+the limits and where the dots sit are in config/looks.toml. A finished picture
+can also be made into a short video ("See it move"): videos.py.
 """
 from __future__ import annotations
 
@@ -38,6 +44,7 @@ FORGET_FAILURE_SECONDS = 3600                  # after this, or once the app was
 STARTED = time.time()                          # when this server process started
 _TURNS = threading.BoundedSemaphore(2)         # pictures being drawn at once, per server process
 IN_LINE = "Waiting its turn · two pictures are drawn at a time"
+STUDIO = "studio"                              # the scene drawn by itself; the others only when tapped ([scenes])
 
 # What went wrong, in words. The lines a customer can meet say "the AI". The four operator lines (OPERATORS) name
 # the image service: customers of a public service only ever see CLOSED in their place (see _say).
@@ -102,6 +109,27 @@ def _check(data: dict) -> None:
     for name in ("model", "scene", "scene_with_photo", "avoid"):
         if not isinstance(text.get(name), str) or not text[name].strip():
             raise ConfigError(f"text.{name} must be a sentence")
+    for name in ("scene", "scene_with_photo"):        # without these every scene would be the same picture
+        if "{photograph}" not in text[name] or "{setting}" not in text[name]:
+            raise ConfigError(f"text.{name} must say where the scene's words go: {{photograph}} and {{setting}}")
+
+    scenes = config.table(data.get("scenes"), "scenes")
+    if STUDIO not in scenes:
+        raise ConfigError(f"[scenes.{STUDIO}] is missing: it is the picture drawn by itself")
+    if len(scenes) > 6:
+        raise ConfigError("[scenes] has room for six scenes at most")
+    for name, scene in scenes.items():
+        if not re.fullmatch(r"[a-z]{1,20}", name):
+            raise ConfigError(f"[scenes.{name}]: a scene's name is a word in small letters, like [scenes.street]")
+        scene = config.table(scene, f"scenes.{name}")
+        for part in ("label", "photograph", "setting"):
+            if not isinstance(scene.get(part), str) or not scene[part].strip():
+                raise ConfigError(f"scenes.{name}.{part} must be words")
+        if len(scene["label"]) > 12:
+            raise ConfigError(f"scenes.{name}.label must be one short word: it goes on a button under the picture")
+
+    if data.get("videos") is not None:                 # "See it move" (videos.py); without [videos] it is off
+        _check_videos(config.table(data["videos"], "videos"))
 
     spots = config.table(data.get("hotspots"), "hotspots")
     for name in ("outer", "mid", "top", "collar", "bottom", "shoes"):
@@ -109,6 +137,21 @@ def _check(data: dict) -> None:
         if not (isinstance(pair, list) and len(pair) == 2
                 and all(isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 100 for v in pair)):
             raise ConfigError(f"hotspots.{name} must be two percentages, like [50, 30]")
+
+
+def _check_videos(videos: dict) -> None:
+    if not isinstance(videos.get("on"), bool):
+        raise ConfigError("videos.on must be true or false")
+    for name in ("model", "text"):
+        if not isinstance(videos.get(name), str) or not videos[name].strip():
+            raise ConfigError(f"videos.{name} must be " + ("the name of a model" if name == "model" else "words"))
+    seconds = videos.get("turn_seconds")
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not 1 <= seconds <= 8:
+        raise ConfigError("videos.turn_seconds must be a number of seconds from 1 to 8 (the clip is 8 seconds long)")
+    for name in ("per_day", "per_customer_per_day", "pro_per_customer_per_day"):
+        value = videos.get(name)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ConfigError(f"videos.{name} must be a whole number, 0 or more")
 
 
 def service() -> imagegen.Service | None:
@@ -217,14 +260,29 @@ def _describe(piece: dict, pieces: list[dict]) -> str:
     return line + (f" {about}." if about else "")
 
 
-def prompt(pieces: list[dict], rules: dict, who: person.Who) -> str:
-    """Everything the image service is told about one outfit."""
+def scenes() -> list[tuple[str, str]]:
+    """The scenes a picture can be drawn in, as (name, label), in the order of config/looks.toml."""
+    return [(name, scene["label"]) for name, scene in load_rules()["scenes"].items()]
+
+
+def scene_named(name: str | None) -> str:
+    """`name` if it is a scene in config/looks.toml, else the studio: what a page asks for is checked here."""
+    return name if name and name in load_rules()["scenes"] else STUDIO
+
+
+def prompt(pieces: list[dict], rules: dict, who: person.Who, scene: str = STUDIO) -> str:
+    """Everything the image service is told about one outfit, in one scene. A scene changes only the words
+    about the photograph and the setting: the person, the pose, the pieces and what to avoid stay as they are."""
     pieces = outfits.with_roles(pieces)
     text = rules["text"]
+    where = rules["scenes"].get(scene) or rules["scenes"][STUDIO]
+    # The scene's words go in first, the person's after, so nothing in the person's words is ever read as a place.
+    opening = text["scene_with_photo" if who.photo else "scene"]
+    opening = opening.replace("{photograph}", where["photograph"]).replace("{setting}", where["setting"])
     if who.photo:
-        opening = text["scene_with_photo"].replace("{body}", f"Their build: {who.body}. " if who.body else "")
+        opening = opening.replace("{body}", f"Their build: {who.body}. " if who.body else "")
     else:
-        opening = text["scene"].replace("{model}", who.words or text["model"])
+        opening = opening.replace("{model}", who.words or text["model"])
     lines = [f"{number}. {_describe(piece, pieces)}" for number, piece in enumerate(pieces, 1)]
     if not any(piece.get("role") == "shoes" for piece in pieces):
         lines.append("Shoes are not part of this outfit: show plain, neutral ones.")
@@ -330,18 +388,19 @@ USED_UP = {
 }
 
 
-def request(pieces: list[dict], again: bool = False) -> Look | None:
-    """Start drawing one outfit, or say where its picture stands. None while AI pictures are off.
+def request(pieces: list[dict], again: bool = False, scene: str = STUDIO) -> Look | None:
+    """Start drawing one outfit in one scene, or say where that picture stands. None while AI pictures are off.
 
     Asking twice never pays twice: a finished picture is returned as it is
     (unless `again` asks for a new version), and one being drawn is left alone.
+    Each scene is a picture of its own, so a new scene takes a turn of the day's allowance like any picture.
     """
     chosen = service()
     if chosen is None:
         return None
     rules = load_rules()
     who = person.current(rules["pictures"]["photos"])
-    text = prompt(pieces, rules, who)
+    text = prompt(pieces, rules, who, scene_named(scene))
     key = fingerprint(chosen, text, who.mark)
     row = db.look_rows([key]).get(key)
     look = _view(row)
@@ -436,6 +495,8 @@ def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ti
                 return
             if before and before != name:
                 (folder() / before).unlink(missing_ok=True)
+                from . import videos                     # its videos showed the picture that is gone
+                videos.forget_made_from(before)
             log.info("Drew look %s with %s", key, chosen.tag)
         except imagegen.DrawError as problem:
             if photo is not None and problem.kind == "request":
@@ -451,13 +512,13 @@ def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ti
                 _held = (time.time() + wait, said)
             level = logging.ERROR if problem.kind in OPERATORS else logging.WARNING
             log.log(level, "Look %s was not drawn (%s): %s", key, problem.kind, problem.detail)
-            _write_down(key, chosen, problem.kind, problem.detail)
+            _write_down(key, chosen.tag, problem.kind, problem.detail)
         except Exception as error:
             # Never the exception's own words in a log that outlives the process: they could quote the key.
             trace = traceback.format_exc()
             log.error("Look %s was not drawn\n%s", key, trace.replace(chosen.key, "(the key)") if chosen.key else trace)
             db.fail_look(key, SAY["unknown"])
-            _write_down(key, chosen, "unknown", type(error).__name__)
+            _write_down(key, chosen.tag, "unknown", type(error).__name__)
 
 
 def _say(problem: imagegen.DrawError) -> str:
@@ -469,21 +530,24 @@ def _say(problem: imagegen.DrawError) -> str:
     return f"{text} {problem.detail.rstrip('.')}." if problem.detail else text
 
 
-def _write_down(key: str, chosen: imagegen.Service, kind: str, detail: str) -> None:
-    """Keep the reason a picture failed in <data>/looks/problems.log, where the operator can find it later."""
+def _write_down(key: str, tag: str, kind: str, detail: str, what: str = "look") -> None:
+    """Keep the reason a picture (or a video, videos.py) failed in <data>/looks/problems.log, where the operator
+    can find it later. `tag`: which service and model."""
     try:
         folder().mkdir(parents=True, exist_ok=True)
         book_path = folder() / "problems.log"
         if book_path.exists() and book_path.stat().st_size > 512 * 1024:     # keep it readable: one older file, no more
             os.replace(book_path, folder() / "problems.old.log")
         with book_path.open("a", encoding="utf-8") as book:
-            book.write(f"{db.now_iso()}  {kind:<8} {chosen.tag}  look {key}  {' '.join(detail.split())[:500]}\n")
+            book.write(f"{db.now_iso()}  {kind:<8} {tag}  {what} {key}  {' '.join(detail.split())[:500]}\n")
     except OSError:
         pass                                             # the server log has it too
 
 
 def forget_pictures_of(user_id: int) -> None:
-    """Delete every picture drawn from a user's photo."""
+    """Delete every picture drawn from a user's photo, and the videos made from those pictures (videos.py)."""
+    from . import videos
+    videos.forget_of(user_id)
     for name in db.drop_personal_looks(user_id):
         (folder() / name).unlink(missing_ok=True)
 
