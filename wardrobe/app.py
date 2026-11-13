@@ -13,6 +13,7 @@ customer's rows.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import ipaddress
 import math
 import random
@@ -235,6 +236,21 @@ def _photos_on() -> bool:
         return False
 
 
+def site_password_given() -> Response | None:
+    """With SITE_PASSWORD set, every page, file and form first needs that password (the browser's own sign-in box,
+    any user name). Only /healthz answers without it, for the container's health check. Nothing of the app, not
+    even the landing page, is shown to anyone without it."""
+    if request.endpoint == "healthz":
+        return None
+    given = request.authorization
+    password = (given.password or "") if given is not None and given.type == "basic" else ""
+    if hmac.compare_digest(password.encode(), conf.SITE_PASSWORD.encode()):
+        return None
+    return Response(f"{conf.SITE_NAME} is private for now.\n", status=401, headers={
+        "WWW-Authenticate": f'Basic realm="{conf.SITE_NAME} (private)", charset="UTF-8"',
+        "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"})
+
+
 def create_app() -> Flask:
     conf.check()
     app = Flask(__name__)
@@ -289,6 +305,8 @@ def create_app() -> Flask:
                 "csrf_token": auth.csrf_token if conf.PRODUCTION else (lambda: ""),
                 "legal_pages": LEGAL_PAGES, "site_name": conf.SITE_NAME}
 
+    if conf.SITE_PASSWORD:  # before anything else: a private trial asks every visitor for the site's password
+        app.before_request(site_password_given)
     if conf.PRODUCTION:     # first: a page that refuses a request still knows who asked (its way home, error.html)
         app.before_request(auth.load_user)
         app.teardown_request(auth.unload_user)
