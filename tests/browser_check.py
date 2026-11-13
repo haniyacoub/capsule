@@ -23,7 +23,8 @@ budget bar or the tab bar, and deletes the account.
 On the way a second customer, on a small product list published for that step alone, goes from the
 starter outfits to his profile with "Make them mine" and fills a piece the list has nothing for with one tap.
 And with the invented sample stores' feeds imported, the customer finds no store catalogues (/stores) until he is
-marked as an owner; then his Account page leads to them, on a phone and on a computer.
+marked as an owner; then his Account page leads to them, on a phone and on a computer: every store with a partner
+programme, grouped by network, each with its programme's page as a link, and the samples' products.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
@@ -1164,18 +1165,23 @@ def run(base: str) -> None:
             assert not any((DATA / "people").glob("*")) if (DATA / "people").exists() else True, "a photo was left behind"
 
         def owners_store_catalogues():
-            # The owner's view of every store's catalogue (/stores, owner.py), with the invented sample stores'
-            # feeds imported. A customer who is no owner gets the page that is not there, and no link to it. Once
-            # marked as an owner, the Account page leads to it: the stores and their products, no wider than a phone
-            # or a computer screen, every photo from the feed's own address and shown whole, a filter that narrows
-            # the list. The samples' photo addresses (example.com, example.org) are answered here with a stand-in:
-            # nothing leaves this computer.
+            # The owner's view of every store's catalogue (/stores, owner.py), with every store in config/feeds.toml
+            # and the invented sample stores' feeds imported. A customer who is no owner gets the page that is not
+            # there, and no link to it. Once marked as an owner, the Account page leads to it: the stores grouped by
+            # network, each real one with its programme's page as a link that opens in a new tab, and the products,
+            # no wider than a phone or a computer screen, every photo from the feed's own address and shown whole, a
+            # filter that narrows the list. The samples' photo addresses (example.com, example.org) are answered here
+            # with a stand-in, and no programme page is opened: nothing leaves this computer.
             from wardrobe import db
             from wardrobe.feeds import FORMATS, registry
             feeds = ROOT / "tests" / "fixtures" / "feeds"
             now = db.now_iso()
-            for key, values in registry.load().items():     # (production leaves the samples out of `stores sync`)
+            listed = registry.load()
+            real = [key for key, values in listed.items() if not values["rules"].get("sample")]
+            for key, values in listed.items():     # (production leaves the samples out of `stores sync`)
                 db.save_store(key, values)
+                if key in real:
+                    continue                         # a store with a programme, not applied to yet: no feed
                 found = FORMATS[values["feed_format"]](feeds / Path(values["feed_location"]).name).rows
                 for row in found:
                     row.update(imported_at=now, feed_updated_at=row["feed_updated_at"] or now)
@@ -1215,15 +1221,22 @@ def run(base: str) -> None:
                     other.wait_for_timeout(300)
                     seen = other.evaluate("""() => {
                         const imgs = [...document.querySelectorAll('.cat-pic img')];
+                        const links = [...document.querySelectorAll('.cat-stores a.cat-link')];
+                        const box = l => l.getBoundingClientRect();
                         return {path: location.pathname, wide: document.documentElement.scrollWidth,
                                 stores: document.querySelectorAll('.cat-stores tbody tr').length,
+                                groups: document.querySelectorAll('h3.cat-h3').length,
+                                programmes: links.filter(l => l.target === '_blank' && l.rel.includes('noopener')
+                                                              && l.href.startsWith('https://')).length,
+                                tappable: links.every(l => box(l).height >= 24 && box(l).width >= 24),
                                 rows: document.querySelectorAll('.cat-products tbody tr').length,
                                 whole: imgs.every(i => getComputedStyle(i).objectFit === 'contain'),
                                 loaded: imgs.filter(i => i.complete && i.naturalWidth > 0).length,
                                 outside: imgs.filter(i => i.getAttribute('src').startsWith('/')).length};
                     }""")
                     assert seen.pop("wide") <= width + 1, f"the store catalogues are wider than {width}px"
-                    assert seen == {"path": "/stores", "stores": 3, "rows": 17, "whole": True, "loaded": 17, "outside": 0}, \
+                    assert seen == {"path": "/stores", "stores": len(listed), "groups": 8, "programmes": len(real),
+                                    "tappable": True, "rows": 17, "whole": True, "loaded": 17, "outside": 0}, \
                         f"the store catalogues at {width}px: {seen}"
                     other.select_option("select[name=size]", "M")
                     other.click("button:has-text('Show')")

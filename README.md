@@ -271,6 +271,14 @@ python -m wardrobe stores end musterhaus    # a programme ended: all its product
 - Stores are listed in [config/feeds.toml](config/feeds.toml) with their network,
   status, feed format and address. Secrets never go there: an address names
   them, `{AWIN_API_TOKEN}`, and they are read from environment variables.
+- Every store found with a partner programme for Germany (research of 13 Nov
+  2026: OTTO, Breuninger, P&C, COS, Pull&Bear, Levi's and 23 more) is listed
+  there, not applied to yet, with its programme's page and notes (what is
+  unconfirmed, what the programme requires). `/stores` shows them grouped by
+  network in the order to apply, so it doubles as the checklist for applying.
+  A store whose programme forbids keeping its data (`links_only = true`, MR
+  PORTER) is never imported. Stores with no programme (Zara, the main Zalando
+  shop, Uniqlo, Hugo Boss and others) are not listed.
 - Formats: Google Shopping (Awin's product API as JSON Lines, Webgains and others
   as CSV or TSV), Awin's standard CSV and Tradedoubler's JSON. Rakuten's files
   come in a later round.
