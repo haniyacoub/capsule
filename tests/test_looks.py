@@ -1461,14 +1461,26 @@ class Scenes(WithPictures, AppCase):
         # While a picture is drawn its box asks every few seconds how it is going. A scene tapped meanwhile cancels a
         # question under way (its answer, the studio, would otherwise come back over the street), and no question is
         # asked while a scene's picture is being asked for. (The browser walk-through answers one late, for real.)
-        self.held_back()
+        waiting = self.held_back()
         outfit = some_outfits(1)[0]
         drawing = self.ask(outfit)
         question = re.search(r'<p class="look-bar band wait"[^>]*>', drawing).group(0)
         self.assertIn('hx-sync="closest .look:abort"', question)
         row = re.search(r'<form class="scenes"[^>]*>', drawing).group(0)
         self.assertIn('hx-sync="closest .look:replace"', row)
-        self.assertIn(f'<div class="look" id="look-{outfit.key}" hx-target="this"', self.client.get("/outfits").data.decode())
+        page = self.client.get("/outfits").data.decode()
+        self.assertIn(f'<div class="look" id="look-{outfit.key}" hx-target="this"', page)
+        # The box's other requests for the studio are the same: "See it worn" (sent by itself once the outfit is in
+        # view, or tapped) and "Draw again". A scene tapped meanwhile cancels them; neither is sent while it is asked.
+        asks = re.findall(r'<form class="look-bar band ask"[^>]*>', page)
+        self.assertTrue(any("data-auto-look" in ask for ask in asks), "no outfit asks for its picture by itself")
+        for ask in asks:
+            self.assertIn('hx-sync="closest .look:abort"', ask)
+        waiting.pop()()                                            # the drawing finishes
+        ready = self.ask(outfit)
+        self.assertIn("look-pic", ready)
+        line = re.search(r'<form class="look-bar look-line"[^>]*>', ready).group(0)
+        self.assertIn('hx-sync="closest .look:abort"', line, "Draw again")
 
     def test_a_scene_tapped_without_javascript_is_the_scene_shown(self):
         outfit, other = some_outfits(2)

@@ -38,7 +38,9 @@ An answer that is not finished yet is followed up the way Google's package does 
         Google stopped part-way: asked to go on, with the token and the id it came
         with ("previous_interaction_id") and without the picture (Google kept it);
         what each part made is put together. A token handed back unchanged would
-        go round for ever: then it stops.
+        go round for ever: then it stops. Each time it goes on, Google reads what
+        it has so far again, and that is billed (Google's package says so): so it
+        goes on at most GO_ON_AT_MOST times for one video, then stops and says so.
 
 All of it within TIMEOUT from the first request. Once Google has taken the request,
 nothing that goes wrong later is "free" (videos.py counts it): it may have been
@@ -64,6 +66,7 @@ GOOGLE_HOST = "generativelanguage.googleapis.com"
 STORAGE = (".googleapis.com", ".googleusercontent.com")   # where Google hands over a file it kept (a redirect)
 STILL_MAKING = ("in_progress", "queued")   # asked again by the interaction's id
 GO_ON = "requires_continuation"            # asked to go on, with its continuation_token
+GO_ON_AT_MOST = 3                          # times one video is asked to go on: each time is billed again
 ASK_AGAIN_SECONDS = 5                      # between two questions while Google is still making it
 _ID = re.compile(r"[\w.:-]{1,200}")        # what an interaction's id may look like, to go into its address
 
@@ -117,6 +120,9 @@ def make(service: Service, picture: bytes, prompt: str) -> bytes:
                 answers = parts[-1] = _read(status, body, label)     # the same part, further on
             elif state == GO_ON and token and token != sent_token:
                 followed = True
+                if len(parts) > GO_ON_AT_MOST:                       # each time costs more: enough for one video
+                    raise DrawError("busy", f"Google had still not finished the video after going on "
+                                            f"{GO_ON_AT_MOST} times")
                 going_on = {**payload, "continuation_token": token}
                 if _ID.fullmatch(ident):                             # Google kept the picture and the words
                     del going_on["input"]

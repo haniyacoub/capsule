@@ -779,6 +779,29 @@ class GoogleVideoModel(unittest.TestCase):
         self.assertEqual(caught.exception.kind, "empty")
         self.assertFalse(caught.exception.free, "Google worked on it: it counts")
 
+    def test_one_video_goes_on_a_few_times_at_most(self):
+        # Each time Google is asked to go on it reads everything so far again, and bills it: a new token every time
+        # would otherwise be followed until the five minutes are up. It goes on GO_ON_AT_MOST times, then stops.
+        self.assertEqual(videogen.GO_ON_AT_MOST, 3)
+        self.answers += [(200, json.dumps({"id": f"v1_{n}", "status": "requires_continuation",
+                                           "continuation_token": f"t{n}", "steps": []}).encode()) for n in range(10)]
+        with self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        first, *going_on = [json.loads(sent["body"]) for sent in self.sent]
+        self.assertIn("input", first)
+        self.assertEqual([body["continuation_token"] for body in going_on], ["t0", "t1", "t2"],
+                         "asked to go on three times after the first request, and no more")
+        self.assertEqual(caught.exception.kind, "busy")
+        self.assertFalse(caught.exception.free, "Google worked on it: it counts")
+        self.assertIn("after going on 3 times", caught.exception.detail)
+        # Three times is enough when the video comes then.
+        self.sent.clear()
+        self.answers[:] = [(200, json.dumps({"id": f"v1_{n}", "status": "requires_continuation",
+                                             "continuation_token": f"t{n}", "steps": []}).encode()) for n in range(3)]
+        self.answers.append(self.answer(self.video()))
+        self.assertEqual(videogen.make(self.service, PICTURE, "Turn."), CLIP)
+        self.assertEqual(len(self.sent), 4)
+
     def test_still_being_made_when_the_time_is_up_counts_and_says_so(self):
         self.waits()
         now = [1000.0]

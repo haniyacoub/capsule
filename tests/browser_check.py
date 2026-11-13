@@ -9,7 +9,8 @@ stand-ins for the image service and Google's video model (nothing is sent anywhe
 what a new customer would: signs up and lands on the starter outfits (a banner where the budget bar would be,
 the whole picture above the tab bar on three phones), changes the price level, watches an outfit's picture
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
-page on a phone jumping), taps Street while a picture is drawn (the drawing's late answer never undoes the tap) and
+page on a phone jumping), taps Street while a picture is asked for or drawn (no late answer of the studio's undoes the
+tap, and none is asked for while the street is) and
 taps a scene with JavaScript off (the page comes back showing it), makes the outfit's AI video with "See it move" (told
 first, under the picture and on five phones, that it is his one video today), watches it play under the caption 'Look
 and fit will differ', drags it round and turns it with the arrow keys, then finds the day's video used up on
@@ -712,7 +713,9 @@ def run(base: str) -> None:
         def a_scene_tap_is_kept():
             # A scene tapped while the studio picture is drawn is never undone by the drawing's own question (asked
             # every 3 s) coming back late: here that question is held until Street has been tapped and shown, then let
-            # go. The box stays on Street, and the street picture arrives in it. Without JavaScript a tap on a scene
+            # go. The box stays on Street, and the street picture arrives in it. The same for the studio's own request
+            # for its picture ("See it worn", sent by itself or tapped), sent before the tap or while the street is
+            # asked for (then it is not sent at all), and for "Draw again". Without JavaScript a tap on a scene
             # comes back to the outfits with that outfit showing that scene, and its picture once it is drawn. A
             # customer of his own, so that these pictures leave the first customer's ten a day as they were.
             who = "scenes-" + EMAIL
@@ -759,6 +762,92 @@ def run(base: str) -> None:
                 assert tapper.evaluate(pressed, first) == "Street", "the street picture arrived under another scene"
                 assert any(looks.load_rules()["scenes"]["street"]["setting"] in sent["prompt"] for sent in asked[before:]), \
                     "the Street picture was not asked for"
+                tapper.unroute("**/outfits/look/*")
+
+                # The same for the studio's own request for its picture ("See it worn", sent by itself 1.2 s after an
+                # outfit without one comes into view, or tapped): whether it was sent before the tap or is sent while
+                # the street is being asked for, its answer never puts the studio back. Each order on an outfit of its
+                # own; the box's requests for it are held here and let go in the order the test says.
+                def until(sent: list, what: str) -> None:
+                    for _ in range(60):
+                        if sent:
+                            return
+                        tapper.wait_for_timeout(100)
+                    raise AssertionError(what)
+
+                done: set = set()
+                for order in ("studio asked, then Street tapped", "Street tapped, then the studio asked"):
+                    for seed in range(201, 300):
+                        tapper.goto(base + f"/outfits?seed={seed}", wait_until="domcontentloaded")
+                        key = tapper.get_attribute(first, "id").removeprefix("outfit-")
+                        if key not in done and not tapper.locator(f"{first} .look-pic").count() \
+                                and tapper.locator(f"{first} [data-auto-look]").count():
+                            break
+                    else:
+                        raise AssertionError("the first outfit of every shuffle tried already has its picture")
+                    done.add(key)
+                    studio_asked: list = []
+                    street_asked: list = []
+
+                    def holding(key: str, studio_asked: list, street_asked: list):
+                        def hold(route):                            # this outfit's requests wait; others go through
+                            sent = route.request.post_data or ""
+                            if f"key={key}" not in sent:
+                                route.continue_()
+                            else:
+                                (street_asked if "scene=street" in sent else studio_asked).append(route)
+                        return hold
+                    tapper.route("**/outfits/look", holding(key, studio_asked, street_asked))
+                    if order.startswith("studio"):
+                        until(studio_asked, "the studio picture was never asked for by itself")   # once in view
+                        tapper.click(f"{first} .scenes button:has-text('Street')")
+                        until(street_asked, "tapping Street asked for nothing")
+                    else:
+                        tapper.click(f"{first} .scenes button:has-text('Street')")
+                        until(street_asked, "tapping Street asked for nothing")
+                        sent_before = len(studio_asked)
+                        # Meanwhile the studio is asked for: by the outfit itself (the event its timer sends) and by a
+                        # tap on "See it worn". Neither is sent: nothing is drawn that would only be thrown away.
+                        tapper.evaluate("s => htmx.trigger(document.querySelector(s + ' form.look-bar.ask'), 'draw')", first)
+                        tapper.click(f"{first} form.look-bar.ask button:has-text('See it worn')")
+                        tapper.wait_for_timeout(1500)               # longer than the outfit's own 1.2 s
+                        assert len(studio_asked) == sent_before, \
+                            f"{order}: the studio picture was asked for while the street's was under way"
+                    for route in street_asked:                      # the street's answer first …
+                        route.continue_()
+                    tapper.wait_for_function(f"s => ({pressed})(s) === 'Street'", arg=first)
+                    for route in studio_asked:                      # … then the studio's, late
+                        try:
+                            route.continue_()
+                        except Exception:  # noqa: BLE001 - the browser gave up on it already: that is the point
+                            pass
+                    tapper.wait_for_timeout(1500)
+                    late = tapper.evaluate(pressed, first)
+                    assert late == "Street", f"{order}: the studio's late answer put {late!r} back over the Street tapped"
+                    tapper.unroute("**/outfits/look")
+                    tapper.wait_for_function("s => { const i = document.querySelector(s + ' .look-pic img');"
+                                             " return i && i.alt.includes('Street scene') && i.complete; }", arg=first)
+                    assert tapper.evaluate(pressed, first) == "Street", f"{order}: the street picture arrived under another scene"
+
+                # And "Draw again" under the street picture, answered after Studio was tapped: Studio stays.
+                again_asked: list = []
+                tapper.route("**/outfits/look", lambda route: again_asked.append(route)
+                             if "again=1" in (route.request.post_data or "") else route.continue_())
+                tapper.click(f"{first} .look-line button:has-text('Draw again')")
+                until(again_asked, "Draw again asked for nothing")
+                tapper.click(f"{first} .scenes button:has-text('Studio')")
+                tapper.wait_for_function(f"s => ({pressed})(s) === 'Studio'", arg=first)
+                for route in again_asked:
+                    try:
+                        route.continue_()
+                    except Exception:  # noqa: BLE001 - the browser gave up on it already: that is the point
+                        pass
+                tapper.wait_for_timeout(1500)
+                late = tapper.evaluate(pressed, first)
+                assert late == "Studio", f"the late answer to Draw again in the street put {late!r} back over the Studio tapped"
+                tapper.unroute("**/outfits/look")
+                tapper.wait_for_function("s => { const i = document.querySelector(s + ' .look-pic img');"
+                                         " return i && !i.alt.includes(' scene') && i.complete; }", arg=first)
             finally:
                 context.close()
 
