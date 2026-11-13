@@ -250,3 +250,65 @@ if (aboutYou) {
     }
   });
 }
+
+// 14. Profile: the colours as swatches to tap. Once: a colour you like, numbered in the order you tapped it (1 counts
+//     most, which is how the plan reads "most important first"). Twice: a colour to avoid. Three times: neither.
+//     The swatches only fill in About you's two text fields ("Colours you like", "Colours to avoid") with the colours'
+//     names, in the order tapped, so what is saved is exactly what typing them would save, and a tap counts as a
+//     change not yet saved (13). The fields are hidden while the swatches work; without JavaScript the swatches stay
+//     hidden and the fields are typed in.
+const swatchGrid = document.querySelector('[data-swatches]');
+if (swatchGrid) {
+  const swatchForm = swatchGrid.closest('form');
+  const likedField = swatchForm.elements.liked;
+  const avoidField = swatchForm.elements.refused;
+  const swatches = [...swatchGrid.querySelectorAll('[data-colour]')];
+  const said = swatchGrid.querySelector('[data-swatch-said]');
+  const known = swatches.map((swatch) => swatch.dataset.colour);       // the names, as the fields write them
+  const ordinals = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+  // What the page was loaded with (or what the browser kept in the fields): names, most important first.
+  const read = (field) => field.value.split(',').map((name) => name.trim().toLowerCase())
+    .filter((name, at, all) => known.includes(name) && all.indexOf(name) === at);
+  let liked = read(likedField);
+  let avoided = read(avoidField).filter((name) => !liked.includes(name));
+  // Each swatch shows its state (app.css draws it from data-state) and says it to a screen reader:
+  // "Navy: liked, first", "Black: avoided", or just "Olive".
+  const show = () => swatches.forEach((swatch) => {
+    const name = swatch.dataset.colour;
+    const place = liked.indexOf(name);
+    const label = swatch.querySelector('span').textContent;
+    let state = '';
+    let words = label;
+    if (place >= 0) {
+      state = 'like';
+      words = `${label}: liked, ${ordinals[place] || 'number ' + (place + 1)}`;
+    } else if (avoided.includes(name)) {
+      state = 'avoid';
+      words = `${label}: avoided`;
+    }
+    swatch.dataset.state = state;
+    swatch.setAttribute('aria-pressed', String(state !== ''));
+    swatch.setAttribute('aria-label', words);
+    swatch.querySelector('b').textContent = place >= 0 ? String(place + 1) : '';
+  });
+  swatchGrid.addEventListener('click', (e) => {
+    const swatch = e.target.closest('[data-colour]');
+    if (!swatch) return;
+    const name = swatch.dataset.colour;
+    if (liked.includes(name)) {                   // liked: now avoided, and the colours liked after it move up one
+      liked = liked.filter((other) => other !== name);
+      avoided.push(name);
+    } else if (avoided.includes(name)) {          // avoided: now neither
+      avoided = avoided.filter((other) => other !== name);
+    } else {                                      // neither: liked, after the ones liked before it
+      liked.push(name);
+    }
+    likedField.value = liked.join(', ');
+    avoidField.value = avoided.join(', ');
+    show();
+    said.textContent = swatch.getAttribute('aria-label');     // a screen reader hears the new state
+  });
+  show();
+  swatchGrid.hidden = false;
+  swatchForm.querySelector('[data-typed-colours]').hidden = true;
+}

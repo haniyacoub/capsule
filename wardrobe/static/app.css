@@ -775,6 +775,40 @@ details[open] > summary .edit { visibility: hidden; }
 .check input { width: 20px; height: 20px; margin: 0; accent-color: var(--ink); }
 .mini { display: inline-flex; align-items: center; gap: 4px; margin: 0 8px 2px 0; white-space: nowrap; }
 .mini i { width: 10px; height: 10px; }
+/* The colours on Profile, as swatches to tap (app.js, 14): five to a row on a phone, nine on a computer, each a button
+   with its name under it. Liked: an ink ring with a gap of the card's colour inside it, and its number in an ink disc at
+   the top right. Avoided: struck through by an ink line edged in the card's colour, so that the strike shows on the
+   palest swatch and on the darkest, in both themes, and AVOID under the name (its line is kept empty until then, so
+   nothing moves when a swatch is tapped). */
+.swatches, .typed-colours { display: grid; gap: var(--s-3); }
+.swatches[hidden], .typed-colours[hidden] { display: none; }
+.swatch-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-1) var(--s-2); }   /* the empty AVOID line spaces the rows */
+.swatch {
+  display: grid; justify-items: center; align-content: start; gap: var(--s-1); min-width: 0; margin: 0; padding: 0 0 var(--s-1);
+  border: 0; border-radius: var(--r-ui); background: none; color: var(--muted); cursor: pointer;
+  font-size: var(--t-s); line-height: var(--lh-s); text-align: center; -webkit-tap-highlight-color: transparent;
+}
+.swatch[aria-pressed=true] { color: var(--ink); }
+.swatch i {
+  position: relative; display: block; width: 40px; height: 40px; margin: var(--s-1); border-radius: 50%;
+  border: 1px solid rgba(128, 128, 128, .35);
+}
+.swatch b {
+  position: absolute; top: -10px; right: -12px; display: none; min-width: 22px; height: 22px; padding: 0 var(--s-1);
+  border: 2px solid var(--surface); border-radius: var(--r-pill); background: var(--ink); color: var(--surface);
+  font: 600 var(--t-s)/18px var(--font); font-variant-numeric: tabular-nums; font-style: normal;   /* 18px: the disc inside its edge */
+}
+.swatch small { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; visibility: hidden; }
+.swatch[data-state=like] i { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.swatch[data-state=like] b { display: block; }
+.swatch[data-state=avoid] i::after {
+  content: ""; position: absolute; top: -4px; bottom: -4px; left: 50%; width: 2px; margin-left: -1px;
+  background: var(--ink); box-shadow: 0 0 0 2px var(--surface); transform: rotate(-45deg);
+}
+.swatch[data-state=avoid] small { visibility: visible; }
+@media (min-width: 760px) {
+  .swatch-grid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+}
 
 /* ── Your model (Profile) and buying ─────────────────────────────────────── */
 .pick { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }

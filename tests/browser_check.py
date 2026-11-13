@@ -22,6 +22,8 @@ budget bar or the tab bar, and deletes the account.
 
 On the way a second customer, on a small product list published for that step alone, goes from the
 starter outfits to his profile with "Make them mine" and fills a piece the list has nothing for with one tap.
+A third picks his colours on a phone by tapping swatches (and by keyboard), sees his first liked colour that is not a
+neutral become the plan's accent, and then types colours into the two text fields with JavaScript switched off.
 And with the invented sample stores' feeds imported, the customer finds no store catalogues (/stores) until he is
 marked as an owner; then his Account page leads to them, on a phone and on a computer.
 
@@ -143,6 +145,23 @@ def run(base: str) -> None:
             """Every line on the Profile page that speaks of example values."""
             return where_page.evaluate("""() => [...document.querySelectorAll('main p')]
                 .map(p => p.textContent.replace(/\\s+/g, ' ').trim()).filter(t => /example/i.test(t))""")
+
+        def pick_colours(where_page, liked=(), avoided=()) -> None:
+            """Colours chosen on Profile the way a customer does: by tapping their swatches. Whatever is chosen already
+            is cleared first (a liked colour takes two taps, one to avoid a single tap), then each liked colour is
+            tapped once, most important first, and each to avoid twice. The two hidden fields the taps fill in must
+            then name them in that order, as typing them would."""
+            for _ in range(60):
+                chosen = where_page.locator(".swatch[aria-pressed=true]")
+                if not chosen.count():
+                    break
+                chosen.first.click()
+            for key, taps in [(key, 1) for key in liked] + [(key, 2) for key in avoided]:
+                for _ in range(taps):
+                    where_page.locator(f".swatch[data-colour='{colours.get(key).label.lower()}']").click()
+            names = [", ".join(colours.get(key).label.lower() for key in keys) for keys in (liked, avoided)]
+            seen = [where_page.input_value("input[name=liked]"), where_page.input_value("input[name=refused]")]
+            assert seen == names, f"tapping {list(liked)} once and {list(avoided)} twice wrote {seen}, not {names}"
 
         # Said from the example values every account starts with (wardrobe/profile.py), never typed.
         liked = [colours.get(key).label.lower() for key in profile_mod.EXAMPLE["liked"]]
@@ -807,10 +826,12 @@ def run(base: str) -> None:
                 assert other.input_value("#budget") == str(int(budget) + 111), "told no, the changed budget is gone"
 
                 # The photo's button asks the same, once a photo is chosen and the box ticked (the browser's own checks
-                # come first).
+                # come first). This time the budget is back as it was and only a colour swatch was tapped: a tap is a
+                # change too.
                 photo = HOME / "me-again.png"
                 photo.write_bytes(picture(600, 800, (150, 130, 120)))
-                other.fill("input[name=refused]", "yellow")
+                other.fill("#budget", budget)
+                pick_colours(other, profile_mod.EXAMPLE["liked"], ["mustard"])
                 other.set_input_files("[data-photo-form] input[type=file]", str(photo))
                 other.wait_for_selector("[data-photo-form] [data-photo-ready]:not(.bad) img:not([hidden])")
                 other.check("[data-photo-form] input[name=agree]")
@@ -862,7 +883,7 @@ def run(base: str) -> None:
                 notes = example_notes(phone)
                 assert notes == ["These are example values. Change them to yours and save: your plan is rebuilt around them, "
                                  "then you see the outfits."], f"a new account's Profile says of its example values: {notes}"
-                phone.fill("input[name=liked]", "black, grey, white")
+                pick_colours(phone, ("black", "grey", "white"))
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/outfits")
                 phone.wait_for_load_state("networkidle")
@@ -908,6 +929,100 @@ def run(base: str) -> None:
                 listed.unlink(missing_ok=True)
                 context.close()
 
+        def colours_by_tapping_swatches():
+            # Every colour Capsule knows is a swatch to tap, five to a row on a phone. Once: liked, numbered in the
+            # order tapped (1 counts most); twice: to avoid; three times: neither. The taps fill in the two text
+            # fields, hidden while the swatches work, so what is saved is what typing it would save. A third customer,
+            # new, so that his first save rebuilds the plan from his colours.
+            who = "swatches-" + EMAIL
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            try:
+                phone = context.new_page()
+                # (The demo catalogue has one picture that is missing on purpose, to show the fallback.)
+                phone.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                         if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                phone.goto(base + "/signup", wait_until="networkidle")
+                phone.fill("input[name=email]", who)
+                phone.fill("input[name=password]", PASSWORD)
+                phone.click("button:has-text('Create account')")
+                phone.wait_for_url(base + "/outfits")
+                phone.goto(base + "/profile", wait_until="networkidle")
+                grid = phone.evaluate("""() => {
+                    const swatches = [...document.querySelectorAll('.swatch')];
+                    const top = Math.round(swatches[0].getBoundingClientRect().top);
+                    return {names: swatches.map(s => s.dataset.colour),
+                            firstRow: swatches.filter(s => Math.round(s.getBoundingClientRect().top) === top).length,
+                            smallest: Math.min(...swatches.map(s => Math.min(s.offsetWidth, s.offsetHeight))),
+                            colours: swatches.map(s => getComputedStyle(s.querySelector('i')).backgroundColor)};
+                }""")
+                assert grid["names"] == [c.label.lower() for c in colours.COLOURS.values()], f"the swatches: {grid['names']}"
+                assert grid["colours"] == ["rgb({}, {}, {})".format(*(int(c.hex[i:i + 2], 16) for i in (1, 3, 5)))
+                                           for c in colours.COLOURS.values()], "a swatch is not in the colour Capsule shows for it"
+                assert grid["firstRow"] == 5 and grid["smallest"] >= 44, f"on a phone the swatches are laid out as {grid}"
+                assert not phone.locator("input[name=liked]").is_visible() and not phone.locator("input[name=refused]").is_visible(), \
+                    "the text fields are still shown beside the swatches"
+
+                pick_colours(phone, ("navy", "olive"), ("black",))      # navy, olive, then black twice
+                for name in ("Navy: liked, first", "Olive: liked, second", "Black: avoided"):
+                    expect(phone.get_by_role("button", name=name, pressed=True), f"no swatch reads {name!r}").to_have_count(1)
+                numbers = [phone.locator(f".swatch[data-colour={c}] b").inner_text() for c in ("navy", "olive")]
+                assert numbers == ["1", "2"], f"navy and olive are numbered {numbers}"
+
+                # By keyboard: Tab goes through every swatch in turn, and Space changes the one with focus, which says
+                # what it is now.
+                phone.focus("#budget")
+                reached: list[str] = []
+                for _ in range(40):
+                    phone.keyboard.press("Tab")
+                    colour = phone.evaluate("() => document.activeElement.dataset.colour || null")
+                    if colour is None and reached:
+                        break
+                    if colour:
+                        reached.append(colour)
+                assert reached == grid["names"], f"Tab reached the swatches {reached}"
+                teal = phone.locator(".swatch[data-colour=teal]")
+                teal.focus()
+                said = []
+                for _ in range(3):
+                    phone.keyboard.press("Space")
+                    said.append([teal.get_attribute("aria-pressed"), phone.locator("[data-swatch-said]").inner_text()])
+                assert said == [["true", "Teal: liked, third"], ["true", "Teal: avoided"], ["false", "Teal"]], \
+                    f"Space on teal three times: {said}"
+
+                phone.click("button:has-text('Save profile')")
+                phone.wait_for_url(base + "/outfits")
+                phone.goto(base + "/profile", wait_until="networkidle")
+                saved = [phone.input_value("input[name=liked]"), phone.input_value("input[name=refused]")]
+                assert saved == ["navy, olive", "black"], f"saved as {saved}"
+                expect(phone.get_by_role("button", name="Navy: liked, first", pressed=True)).to_have_count(1)
+                phone.goto(base + "/slots", wait_until="networkidle")
+                palette = [" ".join(chip.split()) for chip in phone.locator(".palette .swatch-chip").all_inner_texts()]
+                assert "Olive accent" in palette, f"the plan's colours are {palette}: olive is not its accent"
+            finally:
+                context.close()
+
+            # Without JavaScript the swatches are not shown and the two text fields are typed in, as before.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, java_script_enabled=False)
+            try:
+                plain = context.new_page()
+                plain.goto(base + "/login", wait_until="networkidle")
+                plain.fill("input[name=email]", who)
+                plain.fill("input[name=password]", PASSWORD)
+                plain.click("button:has-text('Log in')")
+                plain.wait_for_load_state("networkidle")
+                plain.goto(base + "/profile", wait_until="networkidle")
+                assert not plain.locator("[data-swatches]").is_visible(), "without JavaScript the swatches show, doing nothing"
+                plain.fill("input[name=liked]", "olive, navy")
+                plain.fill("input[name=refused]", "black, pink")
+                plain.click("button:has-text('Save profile')")
+                plain.wait_for_load_state("networkidle")
+                plain.goto(base + "/profile", wait_until="networkidle")
+                typed = [plain.input_value("input[name=liked]"), plain.input_value("input[name=refused]")]
+                assert typed == ["olive, navy", "black, pink"], f"without JavaScript, typed colours were saved as {typed}"
+            finally:
+                context.close()
+
         def new_colours_rebuild_the_plan():
             # New colours and a new use rebuild the plan, although a piece was swapped inside an outfit
             # earlier: that swap is kept when the new plan has the same garment in the same colour.
@@ -916,7 +1031,7 @@ def run(base: str) -> None:
             notes = example_notes(page)
             assert len(notes) == 1 and notes[0].startswith("You said these sizes are yours; the rest are example values."), \
                 f"after 'These are my sizes' the Profile says of its example values: {notes}"
-            page.fill("input[name=liked]", "black, grey, white")
+            pick_colours(page, ("black", "grey", "white"))
             page.locator("input[name=use][value=office]").check(force=True)
             page.click("button:has-text('Save profile')")
             page.wait_for_url(base + "/outfits")
@@ -1257,6 +1372,7 @@ def run(base: str) -> None:
                  ("the owner's store catalogues, owners only", owners_store_catalogues),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
+                 ("colours picked by tapping swatches", colours_by_tapping_swatches),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
                  ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),
