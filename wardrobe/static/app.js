@@ -86,14 +86,18 @@ if (reel) {
     reel.scrollTo({ left: goal * reel.clientWidth, behavior: motion.matches ? 'auto' : 'smooth' });
     keep(goal);       // at once: 'Buy this outfit' may be pressed before the row has come to rest
   };
+  // A single outfit has no arrows (outfits.html leaves them out): there is nowhere to move to.
   const prev = document.querySelector('.reel-nav.prev');
   const next = document.querySelector('.reel-nav.next');
   const ends = () => {
+    if (!prev || !next) return;
     prev.disabled = reel.scrollLeft < 8;
     next.disabled = reel.scrollLeft > reel.scrollWidth - reel.clientWidth - 8;
   };
-  prev.addEventListener('click', () => step(-1));
-  next.addEventListener('click', () => step(1));
+  if (prev && next) {
+    prev.addEventListener('click', () => step(-1));
+    next.addEventListener('click', () => step(1));
+  }
   reel.addEventListener('scroll', () => {
     ends();
     clearTimeout(settled);

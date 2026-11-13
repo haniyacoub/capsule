@@ -1,6 +1,7 @@
 """Size check, saved outfits, and the shopping list."""
 import csv
 import io
+import re
 import unittest
 
 from wardrobe import catalog, db, export, outfits, paths, selection, sizecheck, sizes
@@ -153,6 +154,19 @@ class SavedOutfits(AppCase):
         page = self.client.get("/outfits?occasion=saved").data.decode()
         self.assertIn("changed", page)
         self.assertIn(before["pieces"][0]["name"], page)
+
+    def test_a_single_outfit_has_no_arrows(self):
+        # The arrows move to the next or the previous outfit: with one outfit there is none, so there are no arrows
+        # (rather than two that never work). With two outfits, or more to show, there are both.
+        arrows = re.compile(r'<button class="reel-nav (prev|next)"')
+        boards, _ = outfits.generate(selection.build(), limit=4)
+        self.client.post("/outfits/save", data={"key": boards[0].key}, headers=HX)
+        page = self.client.get("/outfits?occasion=saved").data.decode()
+        self.assertEqual(page.count("data-slide"), 1)
+        self.assertEqual(arrows.findall(page), [])
+        self.client.post("/outfits/save", data={"key": boards[1].key}, headers=HX)
+        self.assertEqual(arrows.findall(self.client.get("/outfits?occasion=saved").data.decode()), ["prev", "next"])
+        self.assertEqual(arrows.findall(self.client.get("/outfits").data.decode()), ["prev", "next"])
 
     def test_saving_something_that_no_longer_exists_is_refused(self):
         r = self.client.post("/outfits/save", data={"key": "000000000000"}, headers=HX)

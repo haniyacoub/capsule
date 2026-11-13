@@ -508,8 +508,10 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 /* The line under the box: one line, 40px tall in every state (empty until there is a picture), so that nothing under
    it moves when the picture arrives. It never wraps: at the browser's standard text size its words show whole (at a
    larger one they end in '…'). Where the box is narrower than the half sentence and the two links (272px: on a
-   screen under about 760px tall, or under a message at the top), the line is 272px wide and reaches past the box
-   equally on both sides, by 61px each at most (the box is never under 150px), so it still fits a 320px phone. */
+   phone under about 760px tall, or 795px on Saved, whose lead line is longer, either about 24px more while the
+   starter banner shows; on a computer under about 710px tall, or 675px with the banner; or under a message at the
+   top), the line is 272px wide and reaches past the box equally on both sides, by 61px each at most (the box is
+   never under 150px), so it still fits a 320px phone. */
 .look-line {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
   width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
@@ -619,22 +621,41 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 
 /* ── The pop-up for one piece (a sheet from the bottom on a phone) ───────── */
 /* While it is open the page behind it stays put: a swipe inside the sheet scrolls only the sheet, never the page
-   once the sheet's end is reached, and the page itself cannot scroll, keeping its scrollbar's room so that nothing
-   behind the sheet moves sideways on a computer. */
-html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
+   once the sheet's end is reached, and the page itself cannot scroll. Where scrollbars take room (a computer set to
+   always show them), that room is kept on every page, scrolling or not, so nothing behind the sheet moves sideways
+   when it opens or closes. */
+html { scrollbar-gutter: stable; }
+html:has(dialog[open]) { overflow: hidden; }
+/* --sheet-t and --sheet-x: the sheet's padding at the top and the sides, which its top row reaches over. */
 .sheet {
+  --sheet-t: var(--s-2); --sheet-x: var(--s-4);
   width: min(560px, 100%); max-width: 100%; max-height: min(88svh, 780px); margin: auto auto 0;
-  padding: var(--s-2) var(--s-4) calc(var(--s-5) + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  padding: var(--sheet-t) var(--sheet-x) calc(var(--s-5) + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
   background: var(--surface); color: var(--ink); overflow-y: auto; overscroll-behavior: contain;
 }
 .sheet::backdrop { background: rgba(0, 0, 0, .45); }
-/* Close: a 44px target in the top corner, drawn as a smaller disc. The first line of the sheet (.piece-top) is as
-   tall and leaves it room. */
+/* The top row stays while the sheet scrolls: the piece's name on the sheet's ground, across its whole width, with
+   the rest scrolling away under it, and Close over its right end, where the name leaves it room. Close is a 44px
+   target drawn as a smaller disc, as far from the sheet's top as from its side. Neither moves when the sheet starts
+   to scroll: each sticks where it already is ('top' counts from inside the sheet's padding, so the row's is minus
+   that padding: the sheet's very top). */
 .sheet-close {
-  position: absolute; top: var(--s-2); right: var(--s-2); width: 44px; height: 44px; padding: var(--s-1);
+  position: sticky; top: 0; z-index: 2; display: block; width: 44px; height: 44px; padding: var(--s-1);
+  margin: 0 calc(var(--sheet-t) - var(--sheet-x)) -44px auto;   /* takes no room: the top row is under it */
   border: 0; border-radius: 50%; background: var(--soft) content-box; font-size: var(--t-xl); line-height: 1; cursor: pointer;
 }
-.piece-top { display: flex; align-items: center; min-height: 44px; padding-right: 44px; margin-bottom: var(--s-2); }
+.piece-top {
+  position: sticky; top: calc(-1 * var(--sheet-t)); z-index: 1; display: flex; align-items: center; min-height: calc(var(--sheet-t) + 44px);
+  margin: calc(-1 * var(--sheet-t)) calc(-1 * var(--sheet-x)) var(--s-2);
+  padding: var(--sheet-t) calc(var(--sheet-x) + 44px) 0 var(--sheet-x); background: var(--surface);
+}
+#piece-body { display: flow-root; }   /* the row's reach up over the padding is not merged into Close's margin */
+/* Once the sheet is scrolled, a hairline under the top row shows where the rest goes under it (in browsers that can
+   tie a style to scrolling; in others the row has no line). At rest there is none. */
+@supports (animation-timeline: scroll()) {
+  .piece-top { animation: sheet-scrolled linear both; animation-timeline: scroll(nearest); animation-range: 0 var(--s-2); }
+}
+@keyframes sheet-scrolled { to { box-shadow: 0 1px 0 var(--line); } }
 h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece you have: its name is the title */
 .piece-head { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
 .piece-head .pic { width: 104px; aspect-ratio: 3 / 4; }   /* 104 x 139 */
@@ -646,7 +667,9 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .quality { display: inline-flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); color: var(--muted); }
 .piece-facts .sizeline { margin-top: 0; }
 .piece-facts .sizeline .ex { color: var(--ok); font-weight: 500; }   /* in stock, but in our example size: a caution to act on */
-.piece-facts .sizeline a { padding: 3px 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px to tap */
+.piece-facts .sizeline a { padding: var(--s-1) 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
+.as-of { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.as-of span { white-space: nowrap; }   /* the date and time stay together */
 .piece-facts .size-notes { margin: 0; display: block; }
 .piece-facts .extlink { min-height: 40px; }
 .piece-state { display: flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); font-weight: 500; }
@@ -966,8 +989,7 @@ details[open] > summary .edit { visibility: hidden; }
   .collage, .look-pic { border-radius: var(--r-img); }
   .band { border-radius: var(--r-img) var(--r-img) 0 0; }
   .about { margin: 0; }
-  .sheet { margin: auto; padding: var(--s-3) var(--s-5) var(--s-5); border-radius: var(--r-sheet); }
-  .sheet-close { top: var(--s-3); right: var(--s-3); }
+  .sheet { --sheet-t: var(--s-3); --sheet-x: var(--s-5); margin: auto; padding: var(--sheet-t) var(--sheet-x) var(--s-5); border-radius: var(--r-sheet); }
   .hero { padding-top: var(--s-7); }
   .hero-cta .btn { width: auto; }
 }

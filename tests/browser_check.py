@@ -571,6 +571,15 @@ def run(base: str) -> None:
                 touch.send("Input.synthesizeScrollGesture", {"x": 195, "y": int(box["y"] + box["height"] - 60), "xDistance": 0,
                                                             "yDistance": -300, "speed": 1200, "gestureSourceType": "touch"})
                 other.wait_for_timeout(300)
+            # Swiped to its end, the sheet keeps its close button where it was: at its top, whole and on top.
+            kept = other.evaluate("""() => {
+                const sheet = document.querySelector('dialog#piece'), s = sheet.getBoundingClientRect();
+                const close = sheet.querySelector('.sheet-close'), c = close.getBoundingClientRect();
+                return {scrollable: sheet.scrollHeight > sheet.clientHeight, scrolled: sheet.scrollTop, top: c.top - s.top,
+                        on_top: close.contains(document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2))};
+            }""")
+            assert (kept["scrolled"] > 0 or not kept["scrollable"]) and 0 <= kept["top"] <= 12 and kept["on_top"], \
+                f"once the pop-up is swiped, its close button is not whole at its top: {kept}"
             other.locator("dialog#piece .sheet-close").tap()
             other.wait_for_selector("dialog#piece:not([open])", state="attached")
             assert other.evaluate("scrollY") == still, f"swiping inside the pop-up moved the page from {still} to {other.evaluate('scrollY')}"
@@ -702,6 +711,7 @@ def run(base: str) -> None:
             assert "example sizes" not in page.locator("main").inner_text(), "the example warning stays after 'These are my sizes'"
             page.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
             assert page.locator("#reel .slide").count() == 1, "the saved outfit is not under Saved"
+            assert page.locator(".reel-nav").count() == 0, "a single saved outfit has arrows that lead nowhere"
 
         def list_prints_without_photos():
             # On paper the shopping list is words and links: the photos would only use ink.

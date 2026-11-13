@@ -129,8 +129,11 @@
     </article>
     {% endif %}
   </div>
+  {# The arrows only where there is another slide to move to: none for a single outfit (Saved with one, say). #}
+  {% if boards|length > 1 or (occasion != 'saved' and boards|length < total) %}
   <button class="reel-nav prev" type="button" data-reel="-1" aria-label="Previous outfit">{{ icon('back') }}</button>
   <button class="reel-nav next" type="button" data-reel="1" aria-label="Next outfit">{{ icon('back') }}</button>
+  {% endif %}
 </section>
 
 {# The pop-up for one piece. Its content comes from /outfits/piece when a piece is tapped; its title there
