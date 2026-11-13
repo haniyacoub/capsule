@@ -78,6 +78,8 @@ class Parsers(unittest.TestCase):
         self.assertTrue(all(it["sizes_all"] for it in items))
         self.assertTrue(any(len(it["sizes_in_stock"]) < len(it["sizes_all"]) for it in items), "a sold-out size")
         self.assertTrue(all(it["colour_hex"] is None for it in items), "Weekday's swatch is not the real shade")
+        self.assertEqual([pages.fit_from(f"{it['name']} {it['slug']}") for it in items], ["relaxed"] * 6,
+                         "every name on the page says its cut, as on the store's own page")
 
     def test_zara_category_page(self):
         items = zara.parse_listing(fixture("zara_listing.html"), ZARA)
@@ -87,6 +89,8 @@ class Parsers(unittest.TestCase):
         self.assertRegex(first["url"], r"^https://www\.zara\.com/de/de/.+-p\d{8}\.html$")
         self.assertGreater(len(first["colours"]), 1)
         self.assertTrue(all(c["name"] for c in first["colours"]))
+        self.assertEqual([pages.fit_from(f"{it['name']} {it['slug']}") for it in items],
+                         ["regular", "relaxed", "regular", "regular", "regular"])
 
     def test_zara_product_page(self):
         detail = zara.parse_product(fixture("zara_product.html"), ZARA)
@@ -106,13 +110,14 @@ class Parsers(unittest.TestCase):
                          COS + "/de-de/men/knitwear/jumper?page=2")
         self.assertIsNone(pages.next_page_url(fixture("cos_listing.html"), COS + "/de-de/men/knitwear/jumper?page=2"))
         self.assertEqual(pages.tidy_name("PULLOVER AUS 100 % WOLLE"), "Pullover aus 100 % Wolle")
-        self.assertEqual(pages.tidy_name("Boxy Strickpullover"), "Boxy Strickpullover")
+        self.assertEqual(pages.tidy_name("Boxy Pullover in kurzer Form aus Feinstrick"),
+                         "Boxy Pullover in kurzer Form aus Feinstrick")
         self.assertEqual(pages.fit_from("Oversized-Pullover aus Alpaka-Mix"), "oversized")
-        self.assertEqual(pages.fit_from("Schmaler Merinowollpullover"), "slim")
+        self.assertEqual(pages.fit_from("Schmal geschnittener Pullover aus Merinowolle"), "slim")
         self.assertEqual(pages.fit_from("Pullover aus Merinowolle"), "regular")
 
     def test_a_straight_leg_is_neither_slim_nor_wide(self):
-        # Zara's two "Jeans Straight Fit", name and description word for word, as the collector reads them.
+        # Two jeans with a straight leg, name and description joined as the collector reads them.
         for sku, description in STRAIGHT_FIT_JEANS.items():
             self.assertEqual(pages.fit_from(f"Jeans Straight Fit {description}"), "regular", sku)
         self.assertEqual(pages.fit_from("Hose, nicht zu weit geschnitten"), "regular")
@@ -121,24 +126,22 @@ class Parsers(unittest.TestCase):
         self.assertEqual(pages.fit_from("A shirt that is not slim"), "regular")
 
     def test_only_the_denied_words_are_taken_back(self):
-        self.assertEqual(pages.fit_from("Straight-Barrel-Fit-Jeans Größe des Models: 187 cm Weiter Schnitt an Hüfte "
-                                        "und Oberschenkeln, der zum Knöchel hin zuläuft."), "relaxed")
+        self.assertEqual(pages.fit_from("Barrel-Jeans Modellgröße 183 cm. Weiter Schnitt an Oberschenkel und Knie, "
+                                        "nach unten hin zulaufend."), "relaxed")
         self.assertEqual(pages.fit_from("Nicht dehnbar. Schmal geschnitten."), "slim")
         self.assertEqual(pages.fit_from("Jeans, weder zu eng noch zu weit, mit schmalem Bein"), "slim")
-        self.assertEqual(pages.fit_from("Jeans Straight Bootcut Fit Gerades Bein von der Hüfte bis zum Knöchel, mit "
-                                        "einer Passform, die sich am Saum leicht weitet."), "relaxed")
+        self.assertEqual(pages.fit_from("Bootcut-Jeans mit geradem Bein bis zum Knie, das sich zum Saum hin leicht "
+                                        "weitet."), "relaxed")
 
 
-# The descriptions of Zara's two "Jeans Straight Fit" as collected on 11 Nov 2026. The first was
-# stored as slim ("schmaler"), the second as relaxed ("weiter"); both say the leg is straight.
+# Two made-up jeans descriptions with the phrases Zara uses for a straight leg. Before the cut reader
+# took denied words out, the first read as slim ("schmaler") and the second as relaxed ("weiter");
+# both say the leg is straight.
 STRAIGHT_FIT_JEANS = {
-    "zara-00774360-400": "Gerades Bein von der Hüfte bis zum Knöchel mit einer Passform, die weder schmaler noch "
-                         "weiter wird. Mittelhoher Bund. Festes Gewebe. Jeans im Straight Fit aus Baumwoll-Denim. "
-                         "Fünf Taschen. Waschungseffekt. Vorderer Verschluss mit Knopfleiste.",
-    "zara-03991345-405": "Größe des Models: 184 cm Gerades Bein von der Hüfte bis zum Knöchel, mit einer Passform, "
-                         "die weder enger noch weiter wird. Mittelhoher Bund. Starrer Stoff. Jeans Straight Fit aus "
-                         "Baumwoll-Denim. Fünf Taschen. Waschungseffekt. Frontaler Verschluss mit Knopfleiste. "
-                         "Besondere Kollektion Origins.",
+    "zara-01000001-400": "Jeans mit geradem Bein und einer Passform, die weder schmaler noch weiter wird. Hoher "
+                         "Bund. Fester Baumwoll-Denim. Fünf Taschen und Knopfleiste.",
+    "zara-01000002-405": "Modellgröße 186 cm. Gerade geschnittene Jeans, die weder enger noch weiter wird. Mittlere "
+                         "Leibhöhe. Steifer Denim mit Waschung. Knopfverschluss.",
 }
 
 
@@ -240,15 +243,16 @@ class Politeness(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stdout(printed):
             main(["refresh", "--help"])
         said = " ".join(printed.getvalue().split())
-        for promise in ("For your own machine and for testing only", "never on a schedule",
+        for promise in ("Reads COS, Weekday and Zara category pages (and Zara's product pages for fabric and sizes)",
+                        "For your own machine and for testing only", "never on a schedule",
                         "never use what it collects as the source for the public site"):
             self.assertIn(promise, said)
         # Nothing that runs on a server or on GitHub starts it: the container, gunicorn's settings, the
-        # deploy folder (its secret .env files left unread) and the workflows name neither the command
-        # nor the collector's code.
+        # deploy folder and its subfolders (secret .env files left unread) and the workflows name neither
+        # the command nor the collector's code.
         root = Path(__file__).parent.parent
         server_side = [root / "Dockerfile", root / "gunicorn.conf.py",
-                       *(p for p in (root / "deploy").iterdir() if p.is_file() and not p.name.endswith(".env")),
+                       *(p for p in (root / "deploy").rglob("*") if p.is_file() and not p.name.endswith(".env")),
                        *(root / ".github" / "workflows").iterdir()]
         self.assertGreater(len(server_side), 5)
         for path in server_side:
@@ -281,6 +285,7 @@ class Collecting(unittest.TestCase):
             self.assertEqual((c["store"], c["slot_id"], c["source"]), ("weekday", GREY_KNIT["id"], "collected"))
             self.assertEqual(c["composition_text"], "")
             self.assertTrue(c["sizes_all"])
+        self.assertEqual([c["fit"] for c in found], ["relaxed", "relaxed"], "the cut each name announces")
 
     def test_zara_gets_fabric_and_sizes_from_product_pages(self):
         db.replace_slots([slot("Brown jumper", "knit", "brown")])
@@ -292,6 +297,7 @@ class Collecting(unittest.TestCase):
         self.assertEqual(c["colour"], "Braun")
         self.assertIn("wolle", c["composition_text"].lower())
         self.assertEqual(c["sizes_in_stock"], ["S", "M", "L", "XL"])
+        self.assertEqual(c["fit"], "regular", "the cut is read from the product page's name and description")
         self.assertIn("?v1=", c["url"])
         self.assertEqual(len({x["id"] for x in found}), len(found), "the same product is not listed twice")
 
@@ -343,14 +349,14 @@ class FabricFromTheName(unittest.TestCase):
 
     def test_reading_fibres_out_of_names(self):
         self.assertEqual(self.guess("Pullover aus Merinowolle"), [("merino", 85.0), ("other", 15.0)])
-        self.assertEqual(self.guess("PULLOVER REGULAR FIT 100 % WOLLE"), [("wool", 100.0)])
-        self.assertEqual(self.guess("Relaxter Rundhalspullover aus Wollmix"), [("wool", 50.0), ("other", 50.0)])
+        self.assertEqual(self.guess("GROBSTRICKPULLOVER IN REGULAR FIT AUS 100 % WOLLE"), [("wool", 100.0)])
+        self.assertEqual(self.guess("Relaxter Pullover mit Rippbündchen aus Wollmix"), [("wool", 50.0), ("other", 50.0)])
         self.assertEqual(self.guess("Pullover mit Wollanteil"), [("wool", 25.0), ("other", 75.0)])
         self.assertEqual(self.guess("Baumwoll-T-Shirt mit Rundhalsausschnitt"), [("cotton", 85.0), ("other", 15.0)])
         self.assertEqual(self.guess("Pullover aus Merinowoll-Kaschmir-Mix"),
                          [("cashmere", 45.0), ("merino", 45.0), ("other", 10.0)])
         self.assertEqual(self.guess("Sneaker in Lederoptik"), [("polyurethane", 85.0), ("other", 15.0)])
-        self.assertEqual(self.guess("Boxy Strickpullover"), [])
+        self.assertEqual(self.guess("Boxy Pullover in kurzer Form aus Feinstrick"), [])
 
     def test_a_guess_is_scored_lower_than_the_label_and_says_so(self):
         listed = scoring.score({"store": "cos", "price": 89, "name": "Pullover aus Merinowolle",
@@ -382,8 +388,8 @@ class PublishedListReadAgain(unittest.TestCase):
         db.init()
         db.replace_slots([slot("Indigo jeans", "jeans", "indigo"), slot("Grey wool trousers", "trousers", "grey")])
         pool = {"published_at": self.PUBLISHED, "collected_at": "2026-11-11T17:00:18+01:00", "stores": {}, "products": [
-            self.product("zara-00774360-400", "slim", STRAIGHT_FIT_JEANS["zara-00774360-400"]),
-            self.product("zara-03991345-405", "relaxed", STRAIGHT_FIT_JEANS["zara-03991345-405"]),
+            self.product("zara-01000001-400", "slim", STRAIGHT_FIT_JEANS["zara-01000001-400"]),
+            self.product("zara-01000002-405", "relaxed", STRAIGHT_FIT_JEANS["zara-01000002-405"]),
             # Its cut came from its web address ("relaxed-…"): there is no description to read again.
             self.product("cos-1", "relaxed", "", store="cos", name="Hose aus Wolle", category="trousers",
                          colour="Grey", slug="relaxed-wool-trousers-grey-1")]}
@@ -405,14 +411,14 @@ class PublishedListReadAgain(unittest.TestCase):
 
     def test_the_cut_is_read_again_from_the_stores_own_words(self):
         fits = {p["id"]: p["fit"] for p in shared.load()["products"]}
-        self.assertEqual(fits, {"zara-00774360-400": "regular", "zara-03991345-405": "regular", "cos-1": "relaxed"})
+        self.assertEqual(fits, {"zara-01000001-400": "regular", "zara-01000002-405": "regular", "cos-1": "relaxed"})
         on_disk = json.loads((paths.DATA_DIR / shared.POOL_NAME).read_text(encoding="utf-8"))
         self.assertEqual([p["fit"] for p in on_disk["products"]], ["slim", "relaxed", "relaxed"],
                          "the published file itself is left as it is")
 
     def test_every_customer_gets_the_corrected_cut_once(self):
         # A customer whose products were built from this list before the correction: the jeans say "Slim cut".
-        jeans = {**self.product("zara-00774360-400", "slim", STRAIGHT_FIT_JEANS["zara-00774360-400"]),
+        jeans = {**self.product("zara-01000001-400", "slim", STRAIGHT_FIT_JEANS["zara-01000001-400"]),
                  "slot_id": "indigo-jeans"}
         catalog.save({"source": "collected", "collected_at": "2026-11-11T17:00:18+01:00", "stores": {},
                       "pool": self.PUBLISHED, "candidates": [jeans]})
@@ -427,13 +433,13 @@ class PublishedListReadAgain(unittest.TestCase):
         self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#refused")
         after = selection.build().get("indigo-jeans")
         self.assertEqual({c.id: c.data["fit"] for c in after.cands},
-                         {"zara-00774360-400": "regular", "zara-03991345-405": "regular"})
+                         {"zara-01000001-400": "regular", "zara-01000002-405": "regular"})
         self.assertFalse([note for note in after.chosen.check.notes if "Slim" in note], after.chosen.check.notes)
 
     def test_a_new_customer_starts_on_the_corrected_list(self):
         built = shared.build_catalog(db.list_slots(), None)
         self.assertEqual({c["id"]: c["fit"] for c in built["candidates"]},
-                         {"zara-00774360-400": "regular", "zara-03991345-405": "regular", "cos-1": "relaxed"})
+                         {"zara-01000001-400": "regular", "zara-01000002-405": "regular", "cos-1": "relaxed"})
         db.set_setting("pool", built["pool"])           # what sign-up keeps (onboarding.ensure_setup)
         with mock.patch.object(shared, "build_catalog", wraps=shared.build_catalog) as rebuild:
             shared.refresh_customer()
@@ -454,10 +460,11 @@ class ByHand(unittest.TestCase):
         def go_real(cat):
             catalog.start_collected(cat)
             cat["candidates"].append({
-                "id": "cos-1260173010", "slot_id": self.sid, "store": "cos", "source": "collected",
-                "name": "Schmaler Merinowollpullover", "slug": "slim-merino-wool-crew-neck-jumper-grey-1260173010",
+                "id": "cos-4100000901", "slot_id": self.sid, "store": "cos", "source": "collected",
+                "name": "Schmal geschnittener Pullover aus Merinowolle",
+                "slug": "slim-fine-merino-crew-neck-jumper-grey-4100000901",
                 "price": 69.0, "colour": "Grey", "colour_hex": "#8d8e91", "composition_text": "",
-                "sizes_all": [], "sizes_in_stock": [], "url": COS + "/de-de/x/product/slim-1260173010", "image_url": ""})
+                "sizes_all": [], "sizes_in_stock": [], "url": COS + "/de-de/x/product/slim-4100000901", "image_url": ""})
         catalog.update(go_real)
 
     def cand(self, cand_id):
@@ -472,69 +479,69 @@ class ByHand(unittest.TestCase):
         self.assertIsNone(results[0][1])
 
     def test_a_cos_link_is_not_opened_and_gives_what_the_link_says(self):
-        link = COS + "/de-de/men/menswear/knitwear/jumpers/merino/product/boiled-merino-wool-crew-neck-jumper-black-1338797001"
+        link = COS + "/de-de/men/menswear/knitwear/jumpers/merino/product/brushed-merino-crew-neck-jumper-black-4100000902"
         r = self.client.post(f"/slot/{self.sid}/import", data={"urls": link})
         self.assertEqual(r.status_code, 302)
-        added = self.cand("cos-1338797001")
+        added = self.cand("cos-4100000902")
         self.assertTrue(added.manual)
-        self.assertEqual(added.data["name"], "Boiled merino wool crew neck jumper black")
+        self.assertEqual(added.data["name"], "Brushed merino crew neck jumper black")
         self.assertEqual(added.gaps, ["price", "fabric", "sizes"])
         self.assertNotEqual(self.view().chosen.id, added.id, "an item without a price is never picked")
 
     def test_a_link_seen_during_a_refresh_brings_its_price_and_colour(self):
-        link = COS + "/de-de/x/product/slim-merino-wool-crew-neck-jumper-grey-1260173010"
+        link = COS + "/de-de/x/product/slim-fine-merino-crew-neck-jumper-grey-4100000901"
         other = next(s for s in db.list_slots() if s["category"] == "cardigan")
         self.client.post(f"/slot/{other['id']}/import", data={"urls": link})
-        copied = next(c for c in selection.build().get(other["id"]).cands if c.id == "cos-1260173010")
+        copied = next(c for c in selection.build().get(other["id"]).cands if c.id == "cos-4100000901")
         self.assertEqual((copied.price, copied.data["colour"], copied.manual), (69.0, "Grey", True))
 
     def view(self):
         return selection.build().get(self.sid)
 
     def test_typed_in_details_complete_an_item_and_change_its_score(self):
-        before = self.cand("cos-1260173010")
+        before = self.cand("cos-4100000901")
         self.assertEqual(before.score.fabric_source, "name")
         self.assertFalse(before.size.known)
         self.client.post(f"/slot/{self.sid}/details", data={
-            "candidate": "cos-1260173010", "composition": "100% Merinowolle", "sizes": "S, L, XL", "price": ""})
-        after = self.cand("cos-1260173010")
+            "candidate": "cos-4100000901", "composition": "100% Merinowolle", "sizes": "S, L, XL", "price": ""})
+        after = self.cand("cos-4100000901")
         self.assertEqual(after.score.fabric_source, "listed")
         self.assertGreater(after.score.total, before.score.total)
         self.assertTrue(after.size.known)
         self.assertFalse(after.available, "M was not among the sizes typed in")
         self.assertEqual(after.gaps, [])
 
-        self.client.post(f"/slot/{self.sid}/details", data={"candidate": "cos-1260173010", "clear": "1"})
-        self.assertEqual(self.cand("cos-1260173010").score.fabric_source, "name")
+        self.client.post(f"/slot/{self.sid}/details", data={"candidate": "cos-4100000901", "clear": "1"})
+        self.assertEqual(self.cand("cos-4100000901").score.fabric_source, "name")
 
     def test_nonsense_details_are_reported_not_saved(self):
         r = self.client.post(f"/slot/{self.sid}/details", follow_redirects=True, data={
-            "candidate": "cos-1260173010", "composition": "very nice wool", "price": "cheap"})
+            "candidate": "cos-4100000901", "composition": "very nice wool", "price": "cheap"})
         self.assertIn("Couldn&#39;t read a composition".encode(), r.data)
         self.assertIn("a price".encode(), r.data)
-        self.assertEqual(self.cand("cos-1260173010").score.fabric_source, "name")
+        self.assertEqual(self.cand("cos-4100000901").score.fabric_source, "name")
         r = self.client.post(f"/slot/{self.sid}/details", data={"candidate": "nope"})
         self.assertEqual(r.status_code, 404)
 
     def test_only_your_own_items_can_be_removed(self):
-        r = self.client.post(f"/slot/{self.sid}/remove", data={"candidate": "cos-1260173010"})
+        r = self.client.post(f"/slot/{self.sid}/remove", data={"candidate": "cos-4100000901"})
         self.assertEqual(r.status_code, 404, "collected items are not removable")
-        link = COS + "/de-de/x/product/some-jumper-black-1338797001"
+        link = COS + "/de-de/x/product/some-jumper-black-4100000902"
         self.client.post(f"/slot/{self.sid}/import", data={"urls": link})
-        self.client.post(f"/slot/{self.sid}/details", data={"candidate": "cos-1338797001", "price": "59,90"})
-        self.assertEqual(self.cand("cos-1338797001").price, 59.9)
-        self.client.post(f"/slot/{self.sid}/pick", data={"candidate": "cos-1338797001"})
-        self.client.post(f"/slot/{self.sid}/remove", data={"candidate": "cos-1338797001"})
+        self.client.post(f"/slot/{self.sid}/details", data={"candidate": "cos-4100000902", "price": "59,90"})
+        self.assertEqual(self.cand("cos-4100000902").price, 59.9)
+        self.client.post(f"/slot/{self.sid}/pick", data={"candidate": "cos-4100000902"})
+        self.client.post(f"/slot/{self.sid}/remove", data={"candidate": "cos-4100000902"})
         view = self.view()
-        self.assertNotIn("cos-1338797001", [c.id for c in view.cands])
+        self.assertNotIn("cos-4100000902", [c.id for c in view.cands])
         self.assertEqual(view.state, "auto", "the lock on a removed item is released")
 
     def test_recolouring_a_slot_drops_what_was_collected_for_the_old_colour(self):
-        link = COS + "/de-de/x/product/some-jumper-black-1338797001"
+        link = COS + "/de-de/x/product/some-jumper-black-4100000902"
         self.client.post(f"/slot/{self.sid}/import", data={"urls": link})
         r = self.client.post(f"/slots/{self.sid}/save", follow_redirects=True, data={
             "name": "Burgundy jumper", "category": "knit", "colour": "burgundy", "qty": "1", "keywords": ""})
-        self.assertEqual([c.id for c in self.view().cands], ["cos-1338797001"],
+        self.assertEqual([c.id for c in self.view().cands], ["cos-4100000902"],
                          "only the item added by hand is kept")
         self.assertIn(b"python -m wardrobe refresh", r.data)
         self.client.post(f"/slots/{self.sid}/delete")

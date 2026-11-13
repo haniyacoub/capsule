@@ -840,7 +840,7 @@ def run(base: str) -> None:
                       "fit": "regular", "sizes_all": ["S", "M", "L"], "sizes_in_stock": ["S", "M", "L"],
                       "image_url": "", "source": "collected"}
             products = [{**jumper, "id": f"zara-9{n}", "name": f"Pullover aus Wolle {n}", "slug": f"pullover-{n}",
-                         "price": 39.95 + n, "colour": colour, "colour_hex": None, "url": f"https://www.zara.com/de/{n}"}
+                         "price": 39.95 + n, "colour": colour, "colour_hex": None, "url": f"https://www.example.com/de/{n}"}
                         for n, colour in enumerate(("Grau", "Marineblau"))]
             listed = DATA / "store_catalog.json"
             listed.write_text(json.dumps({"published_at": "2026-11-12T12:00:00+01:00",
