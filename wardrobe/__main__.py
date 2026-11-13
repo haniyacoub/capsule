@@ -8,6 +8,9 @@
     python -m wardrobe publish ./data-production   give your own or an invite-only service the collected products
     python -m wardrobe looks                  are the AI pictures of outfits switched on?
     python -m wardrobe looks --test           draw one sample picture, to check the key (costs one picture)
+    python -m wardrobe stores [sync | end KEY]    the stores whose feeds Capsule may use (config/feeds.toml)
+    python -m wardrobe feeds [--store KEY] [--from FILE]   import the approved stores' product feeds (feeds/)
+    python -m wardrobe owner [add EMAIL | remove EMAIL]    who sees the owner's pages, such as /stores (owner.py)
 """
 from __future__ import annotations
 
@@ -232,6 +235,11 @@ def main(argv: list[str] | None = None) -> None:
     p_mock = sub.add_parser("mock", help="go back to the invented demo catalogue")
     p_mock.add_argument("--yes", action="store_true", help="discard collected store data without asking")
     p_mock.set_defaults(func=rebuild_mock)
+
+    from .feeds import commands as feed_commands      # stores, feeds: the licensed store feeds
+    feed_commands.add(sub)
+    from .owner import add_commands as owner_commands  # owner: the accounts that see the owner's pages
+    owner_commands(sub)
 
     args = parser.parse_args(argv)
     args.func(args)

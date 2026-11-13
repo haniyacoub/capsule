@@ -1,0 +1,320 @@
+{
+ "productHeader": {
+  "totalHits": 6
+ },
+ "products": [
+  {
+   "name": "Leinenhemd",
+   "brand": "Kleiderwerk",
+   "description": "Ein erfundener Artikel.",
+   "language": "de",
+   "categories": [
+    {
+     "name": "Herren > Hemden"
+    }
+   ],
+   "groupingId": "KW-10",
+   "identifiers": {
+    "sku": "KW-10-M"
+   },
+   "fields": [
+    {
+     "name": "colour",
+     "value": "Hellblau"
+    },
+    {
+     "name": "material",
+     "value": "100% Leinen"
+    },
+    {
+     "name": "gender",
+     "value": "male"
+    }
+   ],
+   "productImage": {
+    "url": "https://images.example.org/kleiderwerk/kw-10.jpg",
+    "width": 600,
+    "height": 800
+   },
+   "offers": [
+    {
+     "id": "offer-KW-10-M",
+     "feedId": 900003,
+     "sourceProductId": "KW-10-M",
+     "programName": "Kleiderwerk (sample)",
+     "modified": 1794456000000,
+     "productUrl": "https://track.example.org/td?p=900003&a=KW-10-M",
+     "priceHistory": [
+      {
+       "date": 1790000000000,
+       "price": {
+        "value": "59.95",
+        "currency": "EUR"
+       }
+      },
+      {
+       "date": 1794400000000,
+       "price": {
+        "value": "49.95",
+        "currency": "EUR"
+       }
+      }
+     ],
+     "availability": "in stock",
+     "inStock": 7
+    }
+   ],
+   "size": "M"
+  },
+  {
+   "name": "Leinenhemd",
+   "brand": "Kleiderwerk",
+   "description": "Ein erfundener Artikel.",
+   "language": "de",
+   "categories": [
+    {
+     "name": "Herren > Hemden"
+    }
+   ],
+   "groupingId": "KW-10",
+   "identifiers": {
+    "sku": "KW-10-L"
+   },
+   "fields": [
+    {
+     "name": "colour",
+     "value": "Hellblau"
+    },
+    {
+     "name": "material",
+     "value": "100% Leinen"
+    },
+    {
+     "name": "gender",
+     "value": "male"
+    }
+   ],
+   "productImage": {
+    "url": "https://images.example.org/kleiderwerk/kw-10.jpg",
+    "width": 600,
+    "height": 800
+   },
+   "offers": [
+    {
+     "id": "offer-KW-10-L",
+     "feedId": 900003,
+     "sourceProductId": "KW-10-L",
+     "programName": "Kleiderwerk (sample)",
+     "modified": 1794456000000,
+     "productUrl": "https://track.example.org/td?p=900003&a=KW-10-L",
+     "priceHistory": [
+      {
+       "date": 1794400000000,
+       "price": {
+        "value": "49.95",
+        "currency": "EUR"
+       }
+      }
+     ],
+     "availability": "out of stock",
+     "inStock": 0
+    }
+   ],
+   "size": "L"
+  },
+  {
+   "name": "Chino aus Twill",
+   "brand": "Kleiderwerk",
+   "description": "Ein erfundener Artikel.",
+   "language": "de",
+   "categories": [
+    {
+     "name": "Herren > Hosen"
+    }
+   ],
+   "groupingId": "KW-20",
+   "identifiers": {
+    "sku": "KW-20-3234"
+   },
+   "fields": [
+    {
+     "name": "colour",
+     "value": "Beige"
+    },
+    {
+     "name": "material",
+     "value": "97% Baumwolle, 3% Elasthan"
+    },
+    {
+     "name": "gender",
+     "value": "male"
+    },
+    {
+     "name": "size",
+     "value": "32/34"
+    }
+   ],
+   "productImage": {
+    "url": "https://images.example.org/kleiderwerk/kw-20.jpg",
+    "width": 600,
+    "height": 800
+   },
+   "offers": [
+    {
+     "id": "offer-KW-20-3234",
+     "feedId": 900003,
+     "sourceProductId": "KW-20-3234",
+     "programName": "Kleiderwerk (sample)",
+     "modified": 1794456000000,
+     "productUrl": "https://track.example.org/td?p=900003&a=KW-20-3234",
+     "price": {
+      "value": "69,95",
+      "currency": "EUR"
+     },
+     "inStock": 3
+    }
+   ]
+  },
+  {
+   "name": "Strickjacke",
+   "brand": "Kleiderwerk",
+   "description": "Ein erfundener Artikel.",
+   "language": "de",
+   "categories": [
+    {
+     "name": "Herren > Strick"
+    }
+   ],
+   "groupingId": "KW-30",
+   "identifiers": {
+    "sku": "KW-30"
+   },
+   "fields": [
+    {
+     "name": "colour",
+     "value": "Dunkelgrau"
+    },
+    {
+     "name": "material",
+     "value": "70% Wolle, 30% Polyamid"
+    },
+    {
+     "name": "gender",
+     "value": "male"
+    }
+   ],
+   "productImage": {
+    "url": "https://images.example.org/kleiderwerk/kw-30.jpg",
+    "width": 600,
+    "height": 800
+   },
+   "offers": [
+    {
+     "id": "offer-KW-30",
+     "feedId": 900003,
+     "sourceProductId": "KW-30",
+     "programName": "Kleiderwerk (sample)",
+     "modified": 1794456000000,
+     "productUrl": "https://track.example.org/td?p=900003&a=KW-30",
+     "priceHistory": [
+      {
+       "date": 1794400000000,
+       "price": "89.00 EUR"
+      }
+     ],
+     "availability": "in stock"
+    }
+   ]
+  },
+  {
+   "name": "Gürtel aus Leder",
+   "brand": "Kleiderwerk",
+   "description": "Ein erfundener Artikel.",
+   "language": "de",
+   "categories": [
+    {
+     "name": "Herren > Accessoires"
+    }
+   ],
+   "groupingId": "KW-40",
+   "identifiers": {
+    "sku": "KW-40"
+   },
+   "fields": [
+    {
+     "name": "colour",
+     "value": "Braun"
+    },
+    {
+     "name": "gender",
+     "value": "male"
+    }
+   ],
+   "productImage": {
+    "url": "https://images.example.org/kleiderwerk/kw-40.jpg",
+    "width": 600,
+    "height": 800
+   },
+   "offers": [
+    {
+     "id": "offer-KW-40",
+     "feedId": 900003,
+     "sourceProductId": "KW-40",
+     "programName": "Kleiderwerk (sample)",
+     "modified": 1794456000000,
+     "priceHistory": [
+      {
+       "date": 1794400000000,
+       "price": {
+        "value": "39.95",
+        "currency": "EUR"
+       }
+      }
+     ],
+     "availability": "in stock"
+    }
+   ]
+  },
+  {
+   "name": "Schal",
+   "brand": "Kleiderwerk",
+   "description": "Ein erfundener Artikel.",
+   "language": "de",
+   "categories": [
+    {
+     "name": "Herren > Accessoires"
+    }
+   ],
+   "groupingId": "KW-50",
+   "identifiers": {
+    "sku": "KW-50"
+   },
+   "fields": [
+    {
+     "name": "colour",
+     "value": "Navy"
+    },
+    {
+     "name": "gender",
+     "value": "male"
+    }
+   ],
+   "productImage": {
+    "url": "https://images.example.org/kleiderwerk/kw-50.jpg",
+    "width": 600,
+    "height": 800
+   },
+   "offers": [
+    {
+     "id": "offer-KW-50",
+     "feedId": 900003,
+     "sourceProductId": "KW-50",
+     "programName": "Kleiderwerk (sample)",
+     "modified": 1794456000000,
+     "productUrl": "https://track.example.org/td?p=900003&a=KW-50",
+     "availability": "in stock"
+    }
+   ]
+  }
+ ]
+}

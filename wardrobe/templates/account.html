@@ -11,6 +11,15 @@
   </form>
 </section>
 
+{# Only for an account that runs Capsule (owner.py, `python -m wardrobe owner add EMAIL`): anyone else sees nothing here. #}
+{% if owner %}
+<section class="card">
+  <h2>Store catalogues</h2>
+  <p class="muted">Every listed store with its current products, from the stores' own feeds. Only owners see this.</p>
+  <p><a class="btn ghost small" href="{{ url_for('owner.stores') }}">Open the store catalogues</a></p>
+</section>
+{% endif %}
+
 <section class="card">
   <h2>Change password</h2>
   <form class="form" method="post" action="{{ url_for('auth.change_password') }}">{{ csrf_field() }}
