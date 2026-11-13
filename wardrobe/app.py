@@ -27,7 +27,7 @@ from markupsafe import Markup
 from werkzeug.exceptions import HTTPException, NotFound
 
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
-               owner, person, scoring, selection, shared, tryon)
+               owner, person, programmes, selection, shared, tryon)
 from . import profile as profile_mod
 from . import settings as conf
 from .onboarding import ensure_setup
@@ -280,7 +280,9 @@ def create_app() -> Flask:
     app.jinja_env.globals.update(
         nav=NAV, GARMENTS=GARMENTS, COLOURS=colours.COLOURS, ALPHA=ALPHA,
         USES=profile_mod.USES, MODES=selection.MODES, OCCASIONS=outfits.OCCASIONS,
-        STORES=scoring.STORE_LABELS, ink_on=colours.ink_on, level_hints=selection.HINTS,
+        ink_on=colours.ink_on, level_hints=selection.HINTS,
+        # The stores customers are offered, {key: name}, and their names in a sentence (programmes.py).
+        STORES=programmes.OFFERED, store_names=programmes.names,
     )
     bootstrap()
 
@@ -503,7 +505,9 @@ def create_app() -> Flask:
         if conf.PRODUCTION and g.user is None:
             return render_template("landing.html", looks_on=_pictures_on(),      # the public website
                                    photos=_photos_on(), invite=bool(conf.INVITE_CODE))
-        return page("wardrobe.html", tab="wardrobe")
+        # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
+        gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
+        return page("wardrobe.html", tab="wardrobe", gone=gone)
 
     @app.post("/settings")
     def settings():
@@ -621,8 +625,8 @@ def create_app() -> Flask:
         if not links:
             flash("Paste at least one product link.", "import")
             return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
-        # On a server no browser is ever opened: only what the link itself says is taken.
-        results = manual.from_urls(links, slot, allow_fetch=not conf.PRODUCTION)
+        # No browser is ever opened: only what the link itself says is taken.
+        results = manual.from_urls(links, slot)
 
         def add(cat: dict) -> None:
             for _, cand, _ in results:
@@ -727,14 +731,18 @@ def create_app() -> Flask:
             now_picked = {s.slot["id"]: (s.chosen.id if s.chosen and s.state != "owned" else None) for s in w.slots}
             boards = []
             for fav in db.list_saved():
+                as_saved = [dict(piece) for piece in outfits.with_roles(fav["pieces"])]
                 for piece in fav["pieces"]:   # has the wardrobe moved on since this was saved?
                     piece["changed"] = (not piece["owned"]
                                         and now_picked.get(piece["slot_id"]) != piece["cand_id"])
+                    if not piece["owned"] and piece.get("store") and not programmes.is_offered(piece["store"]):
+                        outfits.no_longer_offered(piece)
                 same_today = outfits.find(w, fav["key"])       # still one of today's outfits, product for product
                 boards.append({"key": fav["key"], "sig": "", "label": fav["label"],
                                "pieces": outfits.with_roles(fav["pieces"]),
-                               # Its picture is the one "See it worn" would draw: of today's pieces if it still exists.
-                               "look_pieces": outfits.snapshot(same_today) if same_today else None,
+                               # Its picture is the one "See it worn" would draw: of today's pieces if it still exists,
+                               # else of the pieces as they were saved (also where a store has gone since).
+                               "look_pieces": outfits.snapshot(same_today) if same_today else as_saved,
                                "cost": round(sum(p["price"] for p in fav["pieces"]), 2),
                                "saved": True, "saved_at": catalog.collected_label({"collected_at": fav["saved_at"]})})
             total = len(boards)

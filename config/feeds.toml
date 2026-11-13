@@ -10,6 +10,14 @@
 #      python -m wardrobe feeds              fetch every approved store's feed when it changed
 #      python -m wardrobe stores end KEY     a programme ended: delete all its products at once
 #
+#  Every store found with a partner programme for Germany (research of 13 Nov 2026)
+#  is listed below, grouped by network in the order to apply: Awin first, then
+#  Rakuten (COS), then Tradedoubler, then the others. None has been applied to yet.
+#  The owner's page /stores shows them the same way, with each programme's page as
+#  a link: it doubles as the checklist for applying. Capsule never opens those pages.
+#  Stores with no programme (Zara, the main Zalando shop, Uniqlo, Hugo Boss, Marc
+#  O'Polo, ASOS, Scotch & Soda, Manufactum) are not listed.
+#
 #  This file is not the collector's: config/stores.toml is (the store pages read
 #  on your own machine). Nothing from the collector ever goes into these tables.
 #
@@ -17,8 +25,14 @@
 #  and they are read from environment variables of that name when the feed is
 #  fetched, e.g.  {AWIN_API_TOKEN}.  {programme_id} is the store's own id below.
 #
-#  status        none | applied | approved | refused | ended   (only "approved" is fetched)
-#  network       awin | tradedoubler | rakuten | webgains | impact   (leave it out: no programme)
+#  status        none (not applied yet) | applied | approved | refused | ended   (only "approved" is fetched)
+#  network       awin | rakuten | tradedoubler | partnerize | daisycon | webgains | impact
+#  programme_id  the store's id in its network, e.g. its Awin advertiser id
+#  programme_page  the programme's page (or where the research found it), a link for you on /stores
+#  unconfirmed   what the research could not confirm, e.g. "Germany"; leave it out once it is
+#  notes         what the research says: commission, what the programme requires
+#  links_only    true: the programme forbids storing its site, so nothing of it is ever imported
+#                (no feed_location or feed_format then)
 #  feed_format   google             Google Shopping format: JSON Lines (Awin's product API),
 #                                   or CSV or TSV (Webgains and others)
 #                awin_csv           Awin's standard CSV
@@ -40,6 +54,270 @@
 #                headers         request headers, e.g. { Authorization = "Bearer {SOME_TOKEN}" }
 #                max_mb          the largest feed accepted (default 300)
 # ══════════════════════════════════════════════════════════════════════════════
+
+
+# ── Awin: apply here first ───────────────────────────────────────────────────
+
+[stores.otto]
+label          = "OTTO"
+network        = "awin"
+status         = "none"
+programme_page = "https://www.otto.de/partnerprogramm/"
+notes          = """Fashion pays 15% to content and product-data sites, 30-day cookie. "Produktdaten"
+                    is named only as a kind of partner site: a product feed is not promised."""
+
+[stores.breuninger]
+label          = "Breuninger"
+network        = "awin"
+programme_id   = "11590"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/11590"
+unconfirmed    = "its terms, whose page could not be read when checked"
+notes          = """Said to require the feed refreshed daily and all its data deleted when the
+                    partnership ends. 12% for new customers, 5% for existing ones."""
+
+[stores.peek-cloppenburg]
+label          = "Peek & Cloppenburg Düsseldorf"
+network        = "awin"
+programme_id   = "14716"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/14716"
+notes          = """A fixed disclaimer must appear next to the P&C name: once you have its exact words,
+                    put them in this store's disclaimer line. No voucher or cashback sites."""
+
+[stores.engelhorn]
+label          = "engelhorn"
+network        = "awin"
+programme_id   = "13759"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/13759"
+notes          = "Product feed: a CSV updated daily. 6%, 30 days."
+
+[stores.herrenausstatter]
+label          = "Herrenausstatter"
+network        = "awin"
+programme_id   = "11952"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/11952"
+notes          = "Germany and Austria. Over 230 menswear brands. 3-12%. A product feed is not stated."
+
+[stores.just4men]
+label          = "just4men"
+network        = "awin"
+programme_id   = "11911"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/11911"
+notes          = "Germany and Austria. Product feed in CSV and XML. 3-12%."
+
+[stores.braun-hamburg]
+label          = "BRAUN Hamburg"
+network        = "awin"
+programme_id   = "11864"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/11864"
+notes          = "Luxury menswear. Product feed, updated daily."
+
+[stores.tom-tailor]
+label          = "Tom Tailor"
+network        = "awin"
+programme_id   = "8617"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/8617"
+notes          = "Product feed (\"Produktdaten\"). 7-9%."
+
+[stores.s-oliver]
+label          = "s.Oliver"
+network        = "awin"
+status         = "none"
+programme_page = "https://affi.io/m/s-oliver"
+notes          = "Also on Tradedoubler. Known from a tracker only; a product feed is not verified."
+
+[stores.suitsupply]
+label          = "Suitsupply"
+network        = "awin"
+programme_id   = "10009"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/10009"
+notes          = "6%, 30 days. A product feed is not mentioned."
+
+[stores.snipes]
+label          = "Snipes"
+network        = "awin"
+status         = "none"
+programme_page = "https://www.affilitizer.com/programs/snipes.com"
+notes          = """Listed as "Snipes EU". Sneakers. Probably a product feed: the older German
+                    programme had a full one."""
+
+[stores.lounge-by-zalando]
+label          = "Lounge by Zalando"
+network        = "awin"
+programme_id   = "13789"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/13789"
+notes          = """Outlet only. It excludes sites that are not in German, so apply once Capsule is in
+                    German. 12% for new customers, 4% for existing ones, 30 days. The main Zalando
+                    shop has no open programme."""
+
+
+# ── Rakuten Advertising: next (COS) ──────────────────────────────────────────
+# Rakuten's product files (pipe-delimited) are not read yet: that comes with the first approval.
+
+[stores.cos]
+label          = "COS"
+network        = "rakuten"
+status         = "none"
+programme_page = "https://www.cos.com/en-ch/affiliates"
+notes          = """Germany is among its 29 countries. It recruits content creators, which may not
+                    cover a styling or comparison site: ask when applying."""
+
+[stores.weekday]
+label          = "Weekday"
+network        = "rakuten"
+status         = "none"
+programme_page = "https://www.affilitizer.com/programs/weekday.com"
+unconfirmed    = "Germany (Rakuten shows Great Britain only, and Adtraction the Nordic countries only)"
+notes          = """Monki has merged into Weekday. Its own page mentions data feeds, in EUR among
+                    others. Apply directly or through the Klarna Creator Platform or LTK."""
+
+[stores.hm]
+label          = "H&M"
+network        = "rakuten"
+status         = "none"
+programme_page = "https://affi.io/m/h-and-m"
+unconfirmed    = "one tracker lists \"H&M (DE)\"; no official H&M page was found"
+notes          = "A product feed is not verified."
+
+[stores.mango]
+label          = "Mango"
+network        = "rakuten"
+status         = "none"
+programme_page = "https://affi.io/m/mango"
+unconfirmed    = "probably (\"our exclusive network on Rakuten\"), but its main German page did not name Rakuten"
+notes          = "A product feed is not verified."
+
+[stores.arket]
+label          = "Arket"
+network        = "rakuten"
+status         = "none"
+programme_page = "https://affi.io/m/arket"
+unconfirmed    = "a tracker lists \"ARKET EU\", on Rakuten or on Partnerize"
+notes          = "A product feed is not verified."
+
+
+# ── Tradedoubler ─────────────────────────────────────────────────────────────
+
+[stores.pull-and-bear]
+label          = "Pull&Bear"
+network        = "tradedoubler"
+programme_id   = "317285"
+status         = "none"
+programme_page = "https://directory.tradedoubler.com/en/programs/317285-PULL-and-BEAR-DE"
+notes          = """Comparison and content sites allowed. 3.84%, 1-day cookie. Products through
+                    Tradedoubler's Products API (not stated on the listing)."""
+
+[stores.about-you]
+label          = "About You"
+network        = "tradedoubler"
+status         = "none"
+programme_page = "https://www.affilitizer.com/programs/aboutyou.de"
+unconfirmed    = "Germany (two trackers say its German programme moved to Tradedoubler in July 2025)"
+notes          = """The product feed and the "may not revise or alter" clause found so far belong to
+                    About You SE (Sweden, programme 384188), whose terms exclude individual influencers."""
+
+[stores.bershka]
+label          = "Bershka"
+network        = "tradedoubler"
+programme_id   = "304030"
+status         = "none"
+programme_page = "https://directory.tradedoubler.com/en/programs/304030-Bershka-DE"
+unconfirmed    = "Germany (one tracker shows only Bershka GB active)"
+notes          = "A product feed is not stated."
+
+[stores.massimo-dutti]
+label          = "Massimo Dutti"
+network        = "tradedoubler"
+programme_id   = "359442"
+status         = "none"
+programme_page = "https://directory.tradedoubler.com/de/programs/359442-Massimo-Dutti-DE"
+unconfirmed    = "whether it still runs (a tracker says it was removed on 28 Sep 2026)"
+notes          = "A product feed is not stated."
+
+
+# ── Partnerize ───────────────────────────────────────────────────────────────
+
+[stores.tommy-hilfiger]
+label          = "Tommy Hilfiger"
+network        = "partnerize"
+status         = "none"
+programme_page = "https://affi.io/m/tommy-hilfiger"
+notes          = """Listed as "TOMMY DE". 5%, 30 days. A product feed is not verified."""
+
+[stores.calvin-klein]
+label          = "Calvin Klein"
+network        = "partnerize"
+status         = "none"
+programme_page = "https://affi.io/m/calvin-klein"
+notes          = """Listed as "Calvin Klein DE". 5%, 30 days. Its terms forbid "CSS activity" (not
+                    explained in the research: ask the programme whether a styling site counts). A
+                    product feed is not verified."""
+
+[stores.jack-and-jones]
+label          = "Jack & Jones"
+network        = "partnerize"
+status         = "none"
+programme_page = "https://www.affilitizer.com/programs/jackjones.com"
+unconfirmed    = "Germany"
+notes          = "A product feed is not verified."
+
+[stores.selected-homme]
+label          = "Selected Homme"
+network        = "partnerize"
+status         = "none"
+programme_page = "https://www.affilitizer.com/programs/selected.com"
+unconfirmed    = "Germany"
+notes          = "Pays up to 10%. A product feed is not verified."
+
+[stores.mr-porter]
+label          = "MR PORTER"
+network        = "partnerize"
+status         = "none"
+links_only     = true
+programme_page = "https://docs.partnerize.com/clients/mrporter/terms/MRP_Partnerize_Affiliate_Terms.pdf"
+notes          = """Clause 4.8 of its terms forbids storing any part of the MR PORTER website: if you
+                    join, show live links only and never import its products. The terms are from 2020."""
+
+
+# ── Daisycon ─────────────────────────────────────────────────────────────────
+
+[stores.levis]
+label          = "Levi's"
+network        = "daisycon"
+programme_id   = "19949"
+status         = "none"
+programme_page = "https://daisycon.com/de/kampagnen/19949-levi-s-eu"
+notes          = """In Germany since 26 Nov 2024. Daisycon counts feeds as advertising material and
+                    allows only royalty-free images or ones whose rights were bought (its terms, 2.5)."""
+
+
+# ── Webgains ─────────────────────────────────────────────────────────────────
+
+[stores.carhartt-wip]
+label          = "Carhartt WIP"
+network        = "webgains"
+status         = "none"
+programme_page = "https://affi.io/m/carhartt-wip"
+notes          = "Up to 8%, 30 days. A product feed is not verified."
+
+
+# ── impact.com ───────────────────────────────────────────────────────────────
+
+[stores.end-clothing]
+label          = "END."
+network        = "impact"
+status         = "none"
+programme_page = "https://www.endclothing.com/affiliate-program/"
+unconfirmed    = "Germany (its page does not say)"
+notes          = "It offers up-to-date product feeds."
 
 
 # ── Samples: invented stores selling invented products ───────────────────────
@@ -81,8 +359,9 @@ delivery_note = "Versand 3,95 €"
 rules         = { refresh_hours = 12, delete_on_exit = true }
 
 
-# ── A real store, once you apply ────────────────────────────────────────────
-# Copy the lines below, remove the first # of each one, and fill them in.
+# ── A store, once its programme approves Capsule ────────────────────────────
+# For a store listed above: set its status, and add the feed lines below to it.
+# For another store: copy the lines below, remove the first # of each one, and fill them in.
 #
 # [stores.yourstore]
 # label         = "Your Store"

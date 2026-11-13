@@ -27,7 +27,7 @@ no personal details. Delete this section otherwise. -->
 - [ ] New or changed behaviour has tests; coverage is still 85% or more (`check.sh` stops below that).
 - [ ] `git status` checked: no `data/`, `data-production/`, `deploy/*.env`, databases, photos, store catalogues or keys in this pull request.
 - [ ] No key, password or personal detail in the code, this description, the screenshots or the logs.
-- [ ] No store was visited for this (no `refresh`, no Zara link pasted), unless by the owner; reading store pages is tested on `tests/fixtures`.
+- [ ] No store was visited for this (no `refresh`), unless by the owner; reading store pages is tested on `tests/fixtures`.
 - [ ] Nothing copied from other sites (no text, images, logos or fonts), and nothing new loads from another site; a new font is self-hosted, with an open licence.
 - [ ] Nothing invented is shown as real: no made-up products, prices, reviews or numbers, no fake urgency.
 - [ ] If the UI changed on purpose, the tests and the walk-through check the new UI. No assertion was deleted or weakened, only replaced by one that checks the same promise.

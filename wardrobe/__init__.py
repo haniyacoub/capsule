@@ -1,4 +1,4 @@
-"""Capsule — a local wardrobe builder for COS, Weekday and Zara.
+"""Capsule — a wardrobe builder for COS and Weekday: stores with a partner programme.
 
 Module map (each file does one job):
 
@@ -16,11 +16,12 @@ Module map (each file does one job):
     person.py       who the model in those pictures is: a few choices, or your photo
     imagegen.py     talks to the image services (OpenAI, Google) that draw them
     export.py       the shopping list (page, Markdown, CSV), for the wardrobe or one outfit
+    programmes.py   which stores customers are offered: only those with a partner programme
     catalog.py      reads/writes data/catalog.json (what the stores sell)
     db.py           reads/writes data/wardrobe.db (what you decided)
     collect/        the collector behind `python -m wardrobe refresh`
         browser.py    one visible Chrome window, robots.txt, pauses, stop at a refusal
-        cos.py, weekday.py, zara.py   reading each store's pages
+        cos.py, weekday.py   reading each store's category pages
         matching.py   which products on a category page fit a slot
         manual.py     importing a pasted product link
     mock.py         invented demo catalogue (before the first refresh)

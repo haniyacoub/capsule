@@ -1,8 +1,10 @@
 # Working on Capsule
 
 Capsule builds a men's capsule wardrobe (a small set of clothes that all go together)
-from COS, Weekday and Zara: a product for each piece at the price level you choose, the
-outfits they make, and the shopping list. Python, Flask, SQLite, and Jinja pages with
+from COS and Weekday: a product for each piece at the price level you choose, the
+outfits they make, and the shopping list. Only stores with a partner (affiliate)
+programme are offered (`programme` in `config/stores.toml`, `wardrobe/programmes.py`);
+Zara has none. Python, Flask, SQLite, and Jinja pages with
 HTMX (which swaps parts of a page without a reload).
 
 Read more in [README.md](README.md) (what it does, running it on your computer) and
@@ -54,7 +56,7 @@ start and many tests fail.
 - Real store data is not in the repository, and you do not need it. On first start
   the app writes invented **demo data** (**mock** in the code) to `data/catalog.json`,
   and the pages say "Demo data — invented items, not real products, prices or
-  stock." Everything works on it. Zara's demo chinos and leather sneakers have no
+  stock." Everything works on it. Weekday's demo chinos and leather sneakers have no
   picture on purpose: they show what a page does when a store's picture is missing or
   fails to load. To start again from nothing, stop the app and delete `data/`.
 - If you need real products, ask the owner for `store_catalog.json`, sent privately,
@@ -62,8 +64,7 @@ start and many tests fail.
   folder, `data-production/`. Never commit it or put it online: the products and
   pictures belong to the stores.
 - The **collector** reads the stores' pages, and it is the owner's to run. Do not run
-  `python -m wardrobe refresh`, and do not paste Zara links into "Add a product by
-  link": both visit the stores. (The "Collect real data with …" line at the bottom of
+  `python -m wardrobe refresh`: it visits the stores. (The "Collect real data with …" line at the bottom of
   the Wardrobe page is meant for the owner.) The rule, in the owner's words:
 
   > Do not crawl whole catalogues. Go only to the category or search pages relevant to

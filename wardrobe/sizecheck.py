@@ -18,8 +18,7 @@ import re
 from dataclasses import dataclass, field
 
 from .garments import GARMENTS
-from .scoring import STORE_LABELS
-from . import sizes
+from . import programmes, sizes
 from .sizes import SizeStatus
 
 ONE_LENGTH = {"coat", "blazer", "trousers", "chinos", "shirt", "overshirt"}   # no length to choose
@@ -61,7 +60,7 @@ def by_chart(table: dict, value: float, near: float) -> tuple[str | None, str | 
 def check(data: dict, size: SizeStatus, profile: dict, category: str, charts: dict) -> Check:
     group = GARMENTS[category].size_group
     store = data.get("store", "")
-    name = STORE_LABELS.get(store, store)
+    name = programmes.label(store)
     limits = charts.get("check", {})
     body = charts.get(store, {}).get("body", {})
     near = float(limits.get("near_edge_cm", 1.5))
