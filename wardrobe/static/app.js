@@ -193,3 +193,26 @@ if (starter && 'ResizeObserver' in window) {
     document.documentElement.style.setProperty('--bar-h', `${starter.getBoundingClientRect().height}px`);
   }).observe(starter);
 }
+
+// 13. Profile: About you is one form, the model and the photo are others, and sending either of those loads the page
+//     again. Sizes, colours or a budget changed in About you and not yet saved would then be lost without a word, so
+//     the page asks first. "Changed" is measured against what the page was loaded with, field by field.
+const aboutYou = document.getElementById('about-you');
+if (aboutYou) {
+  const changed = () => [...aboutYou.elements].some((field) => {
+    if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;
+    if (field.tagName === 'SELECT') {
+      const loaded = [...field.options].find((option) => option.defaultSelected) || field.options[0];
+      return Boolean(loaded) && field.value !== loaded.value;
+    }
+    if (field.tagName === 'INPUT' || field.tagName === 'TEXTAREA') return field.value !== field.defaultValue;
+    return false;
+  });
+  document.addEventListener('submit', (e) => {
+    // (A form that already asked its own question and was told no, like deleting the photo, is not sent anyway.)
+    if (e.defaultPrevented || e.target === aboutYou || !e.target.closest('#model') || !changed()) return;
+    if (!window.confirm("You changed your sizes, colours or budget but didn't save them. Leave those changes unsaved?")) {
+      e.preventDefault();
+    }
+  });
+}

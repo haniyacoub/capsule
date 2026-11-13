@@ -247,6 +247,31 @@ class SlotsAndProfile(AppCase):
         self.assertEqual((after.state, after.chosen.id), ("locked", other.id), "the choice made by hand is kept")
         self.assertIn("Kept your 1 hand-picked piece.", self.client.get("/outfits").data.decode())
 
+    def test_the_profile_says_what_each_field_is(self):
+        page = self.client.get("/profile").data.decode()
+        self.assertEqual(re.findall(r"<h1[^>]*>([^<]*)</h1>", page), ["About you"], "one main heading")
+        self.assertIn("<h2>Your model</h2>", page)
+        about = page[page.index('<form class="form" id="about-you"'):]
+        about = about[:about.index("</form>")]
+        labels = [html.unescape(re.sub(r"<[^>]+>", "", label)).strip()
+                  for label in re.findall(r'<label class="field"><span>(.*?)</span>', about)]
+        self.assertEqual(labels, ["Tops", "Shoes (EU)", "Trouser waist (inches)", "Trouser length (inches)", "Height (cm)",
+                                  "Weight (kg)", "Chest (cm, optional)", "Body waist (cm, optional)",
+                                  "For the whole wardrobe (EUR)",
+                                  "Colours you like (most important first, separated by commas)", "Colours to avoid",
+                                  "Things to build around (one per line, e.g. “white leather sneakers”)"])
+        self.assertIn("We use these to warn you when a cut runs slim or large, or a size may not fit. Add your chest and "
+                      "body waist to compare yourself with each store's size chart.", about)
+        self.assertIn('<h2 class="sec" id="use-label">What do you dress for?</h2>', about)
+        self.assertIn('role="radiogroup" aria-labelledby="use-label"', about, "the choice is named by its heading")
+        self.assertIn('<h2 class="sec" id="sizes">Sizes</h2>', about)
+        for name in ("liked", "refused"):        # colour names: a phone's autocorrect would only change them
+            field = re.search(rf'<input [^>]*name="{name}"[^>]*>', about).group(0)
+            self.assertIn('autocorrect="off"', field, name)
+            self.assertIn('spellcheck="false"', field, name)
+        for jargon in ("slot", "size check", "Colours I ", "comma-separated", "What it is for", "Trousers "):
+            self.assertNotIn(jargon, about)
+
     def test_budget_change_alone_keeps_everything(self):
         s = self.first("coat")
         current = profile_mod.load()

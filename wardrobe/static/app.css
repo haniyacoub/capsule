@@ -742,6 +742,13 @@ details[open] > summary .edit { visibility: hidden; }
 .pick span i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(128, 128, 128, .4); }
 .pick input:checked + span { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .pick input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* The model's words keep to the width of its form, so that no line runs across a computer's whole card. */
+#model > p { max-width: 620px; }
+/* Your own photo starts a new part of the card. What happens to the photo is said before the box that agrees to it:
+   the size of a hint, in ink, not faded; what to expect of the pictures comes after the button. */
+#photo .sec { margin-top: var(--s-5); }
+.photo-facts { font-size: var(--t-s); line-height: var(--lh-s); }
+.photo-note { margin-top: var(--s-2); }
 .me { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; align-items: start; margin: 10px 0 14px; }
 .me img { width: 96px; height: 128px; object-fit: cover; border-radius: var(--r-img); border: 1px solid var(--line); }
 .me p { font-size: var(--t-m); }

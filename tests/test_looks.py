@@ -27,6 +27,7 @@ from markupsafe import escape
 from wardrobe import catalog, config, db, imagegen, looks, outfits, paths, person, selection, settings, shared
 from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
+from wardrobe.app import PHOTO_CONSENT
 
 from .test_app import HX, AppCase
 from .test_production import PASSWORD, ProductionCase
@@ -1029,6 +1030,39 @@ class TheModel(WithPictures, AppCase):
 
         self.client.post("/profile/photo", data={"remove": "1"})
         self.assertIn("are deleted", self.parts()[2])
+
+    def test_what_happens_to_a_photo_is_said_before_the_box_that_agrees_to_it(self):
+        # Where the photo goes, how long it is kept and how to take it back come first; the box, which names the
+        # service and asks for 18 or over, comes after them; what to expect of the pictures only after the button.
+        service = looks.service().label
+        _, _, photo = self.parts()
+        form = photo[photo.index("data-photo-form"):photo.index("</form>")]
+        facts = re.search(r'<p class="photo-facts" id="photo-facts">(.*?)</p>', form, re.S)
+        self.assertIsNotNone(facts, "no facts in the photo's form")
+        said = " ".join(facts.group(1).split())
+        for fact in (f"Your photo goes to {service} each time a picture of you is drawn",
+                     "without where and when it was taken, until you delete it",
+                     "you can delete it here at any time, and the pictures made from it go with it"):
+            self.assertIn(fact, said)
+        self.assertIn('<a href="/legal/privacy">privacy policy</a>', said, "a link to the privacy page")
+        box = re.search(r'<label class="check">(.*?)</label>', form, re.S).group(1)
+        self.assertIn(f"This is me, I'm 18 or over, and I agree to Capsule sending this photo to {service}", box)
+        self.assertIn('aria-describedby="photo-facts"', box, "a screen reader hears the facts with the box")
+        self.assertLess(form.index("photo-facts"), form.index('type="file"'), "the facts are not before the file field")
+        self.assertLess(form.index('type="file"'), form.index('name="agree"'), "the box is not after the file field")
+        self.assertNotIn("close, not exact", photo[:photo.index("</form>")])
+        self.assertIn("Your face in a picture will be close, not exact.", photo[photo.index("</form>"):])
+
+    def test_the_words_agreed_to_are_kept_with_the_photo(self):
+        refused = self.upload()                                     # the box not ticked: nothing is kept
+        self.assertTrue(refused.headers["Location"].endswith("/profile#photo"))
+        self.assertIn(f"you&#39;re 18 or over and that the photo may be sent to {looks.service().label}.", self.parts()[2])
+        self.assertIsNone(db.get_setting("photo_consent"))
+        self.upload(agree="on")
+        self.assertEqual(db.get_setting("photo_consent"), PHOTO_CONSENT)
+        self.assertEqual(PHOTO_CONSENT, "2026-11-12", "the date of the box's words on Profile")
+        self.assertIsNotNone(db.get_setting("photo_added"), "beside when the photo was added")
+        self.assertEqual(db.export_user()["settings"]["photo_consent"], PHOTO_CONSENT, "in his copy of his data too")
 
     def test_a_photo_too_large_to_take_comes_back_to_the_form(self):
         huge = self.upload(PHOTO + b"\x00" * (person.MAX_PHOTO + 128 * 1024), agree="on")

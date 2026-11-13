@@ -11,7 +11,8 @@ the whole picture above the tab bar on three phones), changes the price level, w
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
 page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
-logs in again and lands on the outfits, puts a model together, uploads a photo, saves new colours
+logs in again and lands on the outfits, puts a model together, uploads a photo, sees Profile ask before a
+budget or colours changed and not saved would be lost, saves new colours
 (the plan is rebuilt, keeping the swapped piece, and the budget bar takes the banner's place), sees
 that a phone's first screen shows the outfit on the model with its price and the heart, tabs through
 three pages to see that nothing with keyboard focus is hidden under the budget bar or the tab bar,
@@ -629,6 +630,58 @@ def run(base: str) -> None:
             page.wait_for_load_state("networkidle")
             assert page.locator(".me img").count() == 0, "the photo is still shown after deleting it"
 
+        def unsaved_changes_are_not_lost_silently():
+            # Profile has three forms: About you, the model and the photo. Sending the model's or the photo's loads the
+            # page again, so a budget or a colour changed in About you and not saved would be lost without a word. The
+            # page asks first, and only then; told no, it stays as it is. (A page of its own, to answer the question.)
+            question = "You changed your sizes, colours or budget but didn't save them. Leave those changes unsaved?"
+            said: list[str] = []
+            reply = {"leave them": False}
+            other = page.context.new_page()
+            other.on("dialog", lambda d: (said.append(d.message), d.accept() if reply["leave them"] else d.dismiss()))
+            other.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+            try:
+                other.goto(base + "/profile", wait_until="networkidle")
+                other.click("button:has-text('Save model')")
+                other.wait_for_load_state("networkidle")
+                assert not said, f"'Save model' asked although nothing had changed: {said}"
+                assert "Model saved" in other.locator("#model .flash").inner_text(), "the model was not saved"
+
+                other.goto(base + "/profile", wait_until="networkidle")
+                budget = other.input_value("#budget")
+                other.fill("#budget", str(int(budget) + 111))
+                other.evaluate("() => { window.stayed = true; }")
+                with other.expect_event("dialog"):
+                    other.click("button:has-text('Save model')")
+                assert said == [question], f"with the budget changed, 'Save model' asked {said}"
+                assert other.evaluate("() => window.stayed === true") and other.locator("#model .flash").count() == 0, \
+                    "told no, the page was sent all the same"
+                assert other.input_value("#budget") == str(int(budget) + 111), "told no, the changed budget is gone"
+
+                # The photo's button asks the same, once a photo is chosen and the box ticked (the browser's own checks
+                # come first).
+                photo = HOME / "me-again.png"
+                photo.write_bytes(picture(600, 800, (150, 130, 120)))
+                other.fill("input[name=refused]", "yellow")
+                other.set_input_files("[data-photo-form] input[type=file]", str(photo))
+                other.wait_for_selector("[data-photo-form] [data-photo-ready]:not(.bad) img:not([hidden])")
+                other.check("[data-photo-form] input[name=agree]")
+                with other.expect_event("dialog"):
+                    other.click("[data-photo-form] button")
+                assert said == [question, question], f"with a colour changed, 'Use this photo' asked {said[1:]}"
+                assert other.evaluate("() => window.stayed === true") and other.locator(".me img").count() == 0, \
+                    "told no, the photo was sent all the same"
+
+                reply["leave them"] = True        # told yes: the model is saved, the changes above are left unsaved
+                other.click("button:has-text('Save model')")
+                other.wait_for_load_state("networkidle")
+                assert len(said) == 3 and "Model saved" in other.locator("#model .flash").inner_text(), \
+                    "told yes, the model was not saved"
+                assert other.input_value("#budget") == budget and other.input_value("input[name=refused]") == "", \
+                    "the changes left unsaved were saved after all"
+            finally:
+                other.close()
+
         def one_tap_colour():
             # A piece the store list has nothing for says so and offers, in one tap, a colour Capsule has. The demo
             # data has something for every piece, so a small list is published first, the way the operator does:
@@ -956,6 +1009,7 @@ def run(base: str) -> None:
                  ("moving between tabs fetches only the page", tabs_fetch_only_the_page),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
+                 ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
                  ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),

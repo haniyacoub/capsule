@@ -50,6 +50,9 @@ PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_ima
           "auth.signup", "auth.login", "auth.forgot", "auth.reset",
           "favicon"}
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
+# The date of the words a customer agrees to when he uploads his photo (the box on Profile, profile.html). It is
+# stored with the photo, so it is known which words he agreed to. Give it a new date whenever those words change.
+PHOTO_CONSENT = "2026-11-12"
 
 
 def bootstrap() -> None:
@@ -974,10 +977,13 @@ def create_app() -> Flask:
         if not data:
             flash("No photo arrived. Choose a photo first.", "photo")
         elif request.form.get("agree") != "on":
-            flash("Not saved. Tick the box to confirm that it is a photo of you and may be sent to the image service.", "photo")
+            chosen = looks.service()
+            flash(f"Not saved. Tick the box to confirm that this is you, that you're 18 or over and that the photo "
+                  f"may be sent to {chosen.label if chosen else 'the image service'}.", "photo")   # as the box says
         else:
             problem = person.save_photo(data)
             if problem is None:
+                db.set_setting("photo_consent", PHOTO_CONSENT)      # beside photo_added: which words he agreed to
                 looks.forget_pictures_of(db.uid())      # those showed the previous photo
             flash(f"Not saved. {problem}" if problem
                   else "Photo saved. Pictures drawn from now on show you.", "photo")
