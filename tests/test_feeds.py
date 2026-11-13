@@ -8,6 +8,7 @@ address or a stand-in server on this computer on purpose.
 """
 import contextlib
 import email.utils
+import fcntl
 import gzip
 import io
 import json
@@ -132,7 +133,7 @@ class FeedCase(unittest.TestCase):
         db.init()
         self.folder = Path(tempfile.mkdtemp(prefix="capsule-feeds-"))
         self.addCleanup(shutil.rmtree, self.folder, ignore_errors=True)
-        refresh._last_request.clear()
+        (paths.DATA_DIR / "feeds" / "asked.json").unlink(missing_ok=True)     # when each network was last asked
         # The downloader's way out is replaced: a test that reaches it without meaning to fails.
         self.real_opener = refresh._opener
         patcher = mock.patch.object(refresh, "_opener", side_effect=AssertionError("a network connection was opened"))
@@ -489,6 +490,25 @@ class Registry(FeedCase):
         with self.assertRaises(SystemExit):
             self.cli("stores", "end", "nobody")
 
+    def test_a_store_no_longer_approved_that_still_has_products_is_pointed_out(self):
+        data = {"stores": {"one": {"label": "One", "status": "approved", "feed_format": "google"}}}
+        registry.sync(data)
+        db.replace_products("one", sample_rows())
+        for status in ("refused", "applied", "none"):
+            data["stores"]["one"]["status"] = status
+            self.assertIn("one: no longer approved but still has 8 products. Delete them with: "
+                          "python -m wardrobe stores end one", registry.sync(data), status)
+            self.assertEqual(len(db.store_products("one")), 8, "nothing is deleted unless asked")
+        data["stores"]["one"]["status"] = "approved"
+        self.assertEqual(registry.sync(data), ["one: updated"], "approved again: nothing to point out")
+        # A sample store's file may be tried by hand whatever its status, so its products are not pointed out.
+        registry.sync()
+        self.cli("feeds", "--store", "musterhaus")
+        sample = {"stores": {"musterhaus": {**tomllib.loads((paths.CONFIG_DIR / "feeds.toml").read_text(
+            encoding="utf-8"))["stores"]["musterhaus"], "status": "applied"}}}
+        self.assertEqual(registry.sync(sample)[0], "musterhaus: updated")
+        self.assertNotIn("no longer approved", " ".join(registry.sync(sample)))
+
     def test_a_feed_older_than_its_refresh_hours_plus_a_day_is_stale(self):
         now = datetime(2026, 11, 13, 6, 0).astimezone()
         store = {"status": "approved", "rules": {"refresh_hours": 24}, "last_import_at": None}
@@ -549,6 +569,29 @@ class Importing(FeedCase):
         said = self.cli("feeds", "--store", "musterhaus", "--from", str(smaller))
         self.assertIn("musterhaus: 7 products imported, 1 from the last import is gone", said)
         self.assertEqual(self.ids("musterhaus"), [p for p in MUSTERHAUS if p != "MH-2001-M"])
+
+    def test_a_file_given_by_hand_is_dated_by_its_products_not_by_when_it_was_copied(self):
+        registry.sync()
+        for store, name, reader in (("nordfaden", "nordfaden.csv", awin_csv.read),
+                                    ("kleiderwerk", "kleiderwerk.json", tradedoubler.read)):
+            copied = self.folder / name
+            shutil.copyfile(FEEDS / name, copied)                 # copied just now: the file's own time is now
+            newest = max((r["feed_updated_at"] for r in reader(copied).rows), key=datetime.fromisoformat)
+            self.cli("feeds", "--store", store, "--from", str(copied))
+            self.assertEqual(db.get_store(store)["last_feed_update"], newest, store)
+            # Never newer than the file itself, though: a file written before its products' times.
+            earlier = datetime.fromisoformat(newest).timestamp() - 3600
+            os.utime(copied, (earlier, earlier))
+            self.cli("feeds", "--store", store, "--from", str(copied))
+            self.assertEqual(datetime.fromisoformat(db.get_store(store)["last_feed_update"]).timestamp(), earlier, store)
+        # Google's format carries no time per product: the file's own time is all there is, for each product too.
+        copied = self.folder / "musterhaus.jsonl"
+        shutil.copyfile(FEEDS / "musterhaus.jsonl", copied)
+        os.utime(copied, (1794456000, 1794456000))
+        self.cli("feeds", "--store", "musterhaus", "--from", str(copied))
+        when = datetime.fromtimestamp(1794456000, timezone.utc)
+        self.assertEqual(datetime.fromisoformat(db.get_store("musterhaus")["last_feed_update"]), when)
+        self.assertEqual({datetime.fromisoformat(p["feed_updated_at"]) for p in db.store_products("musterhaus")}, {when})
 
     def test_ending_a_store_removes_all_its_products_and_only_its(self):
         registry.sync()
@@ -662,6 +705,7 @@ class StandIn(BaseHTTPRequestHandler):
     changed = 1794456000000
     last_modified = ""          # the feed's Last-Modified header, if any
     refuse = False
+    cut = False                 # send half the feed under the whole one's Content-Length, then hang up
     seen: list = []
 
     def do_GET(self):
@@ -685,6 +729,8 @@ class StandIn(BaseHTTPRequestHandler):
         if self.path.startswith("/feed.jsonl") and type(self).last_modified:
             self.send_header("Last-Modified", type(self).last_modified)
         self.end_headers()
+        if self.path.startswith("/feed.jsonl") and type(self).cut:
+            body = body[:len(body) // 2]            # the connection closes after this (HTTP/1.0)
         self.wfile.write(body)
 
     def log_message(self, *args):
@@ -703,7 +749,7 @@ class Downloads(FeedCase):
     def stand_in(self) -> str:
         StandIn.feed = (FEEDS / "musterhaus.jsonl").read_bytes()
         StandIn.changed, StandIn.refuse, StandIn.seen = int(time.time() - 3600) * 1000, False, []   # an hour ago
-        StandIn.last_modified = ""
+        StandIn.last_modified, StandIn.cut = "", False
         server = ThreadingHTTPServer(("127.0.0.1", 0), StandIn)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
@@ -792,6 +838,35 @@ class Downloads(FeedCase):
         self.assertIsNotNone(db.get_store("musterhaus")["last_download_at"], "a download that broke off counts too")
         self.assertFalse((paths.DATA_DIR / "feeds" / "musterhaus.download").exists())
 
+    def test_a_download_that_stops_short_of_its_announced_size_keeps_the_old_products(self):
+        self.use_the_real_opener()
+        base = self.stand_in()
+        StandIn.last_modified = email.utils.formatdate(time.time() - 3600, usegmt=True)
+        self.store(feed_location=base + "/feed.jsonl")
+        refresh.run("remote", say=lambda line: None)
+        self.assertEqual(self.ids("remote"), MUSTERHAUS)
+        before = db.get_store("remote")
+        db.note_download("remote", "2026-11-01T06:00:00+01:00")
+
+        # A new version, and the server hangs up half-way through it, after announcing its whole size.
+        StandIn.cut, StandIn.last_modified = True, email.utils.formatdate(time.time() - 60, usegmt=True)
+        said: list[str] = []
+        self.assertEqual(refresh.run("remote", say=said.append), 1)
+        whole = len(StandIn.feed)
+        self.assertEqual(said, [f"remote: failed, and its products are kept as they were: "
+                                f"the download broke off ({whole // 2} of {whole} bytes arrived)"])
+        self.assertEqual(self.ids("remote"), MUSTERHAUS, "the old products stay")
+        after = db.get_store("remote")
+        self.assertIn("the download broke off", after["last_error"])
+        self.assertNotEqual(after["last_download_at"], "2026-11-01T06:00:00+01:00", "the download is recorded")
+        self.assertEqual(after["last_feed_update"], before["last_feed_update"], "the cut version is not taken as imported")
+        self.assertFalse((paths.DATA_DIR / "feeds" / "remote.download").exists())
+
+        StandIn.cut = False                      # so the next run fetches that version again, whole this time
+        refresh.run("remote", say=said.append)
+        self.assertIn("remote: 8 products imported", said[-1])
+        self.assertIsNone(db.get_store("remote")["last_error"])
+
     def test_awin_is_asked_at_most_once_every_12_seconds(self):
         self.use_the_real_opener()
         base = self.stand_in()
@@ -801,6 +876,35 @@ class Downloads(FeedCase):
         self.assertEqual(len(StandIn.seen), 2)
         self.assertEqual(sleep.call_count, 1, "the second request waited")
         self.assertTrue(11 < sleep.call_args[0][0] <= 12, sleep.call_args)
+        # The next run, in another process (the timer's, right after one started by hand), waits too:
+        # when Awin was last asked is kept in the data folder. Here the run before asked it 5 seconds ago.
+        (paths.DATA_DIR / "feeds" / "asked.json").write_text(json.dumps({"awin": time.time() - 5}), encoding="utf-8")
+        with mock.patch.object(refresh.time, "sleep") as sleep:
+            refresh.run("remote", say=lambda line: None)
+        self.assertEqual(len(StandIn.seen), 3, "asked again, and the feed had not changed")
+        self.assertEqual(sleep.call_count, 1, "its first request waited")
+        self.assertTrue(6 < sleep.call_args[0][0] <= 7, sleep.call_args)
+        # A kept time that cannot be read counts as "not asked yet": it never stops a run.
+        for garbled in ("not json", "[]", '{"awin": "soon"}'):
+            (paths.DATA_DIR / "feeds" / "asked.json").write_text(garbled, encoding="utf-8")
+            with mock.patch.object(refresh.time, "sleep") as sleep:
+                self.assertEqual(refresh.run("remote", say=lambda line: None), 0, garbled)
+            sleep.assert_not_called()
+
+    def test_only_one_run_goes_at_a_time(self):
+        registry.sync()
+        lock = paths.DATA_DIR / "feeds" / "run.lock"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        with lock.open("a") as other_run:
+            fcntl.flock(other_run, fcntl.LOCK_EX | fcntl.LOCK_NB)        # a run that is still going
+            for argv in (["feeds"], ["feeds", "--store", "musterhaus", "--from", str(FEEDS / "musterhaus.csv")]):
+                with self.assertRaises(SystemExit) as stopped:
+                    self.cli(*argv)
+                self.assertEqual(str(stopped.exception),
+                                 "another `python -m wardrobe feeds` is running: try again once it has finished")
+            self.assertEqual(db.store_products("musterhaus"), [], "nothing was imported")
+        self.assertIn("musterhaus: 8 products imported", self.cli("feeds"), "once it has finished, the next run goes")
+        self.assertIn("unchanged since", self.cli("feeds"), "and one run after another, too")
 
     def ago(self, **how_long) -> str:
         return (datetime.now().astimezone() - timedelta(**how_long)).isoformat(timespec="seconds")

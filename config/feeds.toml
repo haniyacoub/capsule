@@ -24,7 +24,8 @@
 #                awin_csv           Awin's standard CSV
 #                tradedoubler_json  Tradedoubler's Products API, JSON
 #                (Rakuten's pipe-delimited files come in a later round.)
-#  feed_location an https address, or a file on this computer
+#  feed_location an https address, or a file on this computer (dated by the file's own
+#                time, so put each feed there as it arrives)
 #  delivery_note shown next to prices later, e.g. "Versand 4,95 €, ab 50 € frei"
 #  disclaimer    text the programme requires next to its name
 #  [rules]       refresh_hours   how often the feed is expected to change (default 24); a feed

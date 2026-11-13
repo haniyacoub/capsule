@@ -6,27 +6,36 @@
     python -m wardrobe feeds --store KEY --from FILE      import a file you have: nothing is downloaded
                                                           (an approved store's, or an invented sample's)
 
-This runs from the command line (later from a timer on the server), never inside a web worker.
-For each store:
+This runs from the command line (later from a timer on the server), never inside a web worker,
+and only one run goes at a time: a second one stops at once and says so. For each store:
 
  1. Ask when its feed last changed, where the network offers a way (rules.check_url in
     config/feeds.toml), or look at the file's time for a feed on this computer.
  2. Download it only when that says it changed (or with --force). Where there is nothing to ask,
-    it is downloaded, and its Last-Modified time decides whether it is imported. Either way the
-    networks' limits are kept: Awin's API is asked at most 5 times a minute, and Tradedoubler,
-    which allows 3 downloads of one file version a day, gets at most one download every 8 hours,
-    unless its rules.check_url says the feed changed after the last download.
+    it is downloaded, and imported unless its Last-Modified time shows it is the version already
+    imported. Either way the networks' limits are kept, from one run to the next too: Awin's API
+    is asked at most 5 times a minute, and Tradedoubler, which allows 3 downloads of one file
+    version a day, gets at most one download every 8 hours, unless its rules.check_url says the
+    feed changed after the last download.
  3. Read it with the store's importer and replace all of that store's products in one
     transaction: products missing from the new file are gone, and a failure part-way keeps the
-    old ones exactly as they were. A file in which no product can be read changes nothing.
+    old ones exactly as they were. So does a download that stops short of the size its server
+    announced, and a file in which no product can be read.
  4. Record the import, or the error, on the store. One store's failure never stops the others.
+
+The feed's date (stale or not, and later the "as of" next to prices): the network's own word
+where it gives one (rules.check_url, or the download's Last-Modified), the file's own time for a
+feed file on this computer, and for a file given with --from the newest time its products carry,
+since a file copied today may hold an old feed (the file's time only when they carry none).
 
 A feed address may name secrets, such as {AWIN_API_TOKEN}: they are read from environment variables
 of that name when the feed is fetched, and the filled-in address is never printed or stored.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
+import fcntl
 import http.client
 import io
 import json
@@ -37,7 +46,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -64,23 +73,39 @@ class FeedError(Exception):
 def run(store_key: str | None = None, force: bool = False, from_file: str | None = None,
         say: Callable[[str], object] = print) -> int:
     """Refresh the chosen stores, saying how each went. Returns how many failed."""
-    stores = chosen(store_key, from_file)
-    if not stores:
-        say("No approved stores. Their status is set in config/feeds.toml, then: python -m wardrobe stores sync")
-    failed = 0
-    for store in stores:
+    with _one_run_at_a_time():
+        stores = chosen(store_key, from_file)
+        if not stores:
+            say("No approved stores. Their status is set in config/feeds.toml, then: python -m wardrobe stores sync")
+        failed = 0
+        for store in stores:
+            try:
+                said = refresh_store(store, force=force, from_file=Path(from_file) if from_file else None)
+            except Exception as problem:      # one store's failure never stops the others
+                failed += 1
+                # Only a FeedError's own words are passed on: another error's text might quote an address with a secret.
+                reason = str(problem) if isinstance(problem, FeedError) else f"an unexpected {type(problem).__name__}"
+                db.note_store(store["key"], error=f"{db.now_iso()}: {reason}")
+                said = f"failed, and its products are kept as they were: {reason}"
+            say(f"{store['key']}: {said}")
+            if registry.stale(db.get_store(store["key"]) or store):
+                say(f"{store['key']}: STALE, its feed is older than its refresh hours plus a day")
+        return failed
+
+
+@contextlib.contextmanager
+def _one_run_at_a_time() -> Iterator[None]:
+    """Only one run at a time: the timer's and one started by hand would not keep to the networks'
+    limits together, and would download the same feeds twice. A second run stops at once and says
+    so. The lock belongs to the running process, so a run that was killed leaves none behind."""
+    folder = paths.DATA_DIR / "feeds"
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / "run.lock").open("a") as lock:
         try:
-            said = refresh_store(store, force=force, from_file=Path(from_file) if from_file else None)
-        except Exception as problem:      # one store's failure never stops the others
-            failed += 1
-            # Only a FeedError's own words are passed on: another error's text might quote an address with a secret.
-            reason = str(problem) if isinstance(problem, FeedError) else f"an unexpected {type(problem).__name__}"
-            db.note_store(store["key"], error=f"{db.now_iso()}: {reason}")
-            said = f"failed, and its products are kept as they were: {reason}"
-        say(f"{store['key']}: {said}")
-        if registry.stale(db.get_store(store["key"]) or store):
-            say(f"{store['key']}: STALE, its feed is older than its refresh hours plus a day")
-    return failed
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise FeedError("another `python -m wardrobe feeds` is running: try again once it has finished") from None
+        yield
 
 
 def chosen(store_key: str | None, from_file: str | None) -> list[dict]:
@@ -117,7 +142,8 @@ def refresh_store(store: dict, force: bool = False, from_file: Path | None = Non
     if from_file is not None:
         if not from_file.is_file():
             raise FeedError(f"there is no file {from_file}")
-        return _import(store, from_file, _file_time(from_file))
+        # A file you have may hold an old feed copied today: it is dated by its products (_feed_time).
+        return _import(store, from_file, None, file_time=_file_time(from_file))
     where = store.get("feed_location")
     if not where:
         raise FeedError("it has no feed_location in config/feeds.toml")
@@ -152,8 +178,10 @@ def _unchanged(store: dict, version: str) -> str:
     return f"unchanged since {version[:16].replace('T', ' ')}, not imported again"
 
 
-def _import(store: dict, path: Path, version: str | None) -> str:
-    """Read the file with the store's importer and swap the store's products for what it holds."""
+def _import(store: dict, path: Path, version: str | None, file_time: str | None = None) -> str:
+    """Read the file with the store's importer and swap the store's products for what it holds.
+    `version` is the feed's date where the network or the file's place gives one; `file_time` the
+    time of a file given by hand (see _feed_time)."""
     try:
         result = FORMATS[store["feed_format"]](path)
     except (OSError, ValueError, EOFError, csv.Error, zlib.error) as problem:
@@ -162,8 +190,7 @@ def _import(store: dict, path: Path, version: str | None) -> str:
         skipped = f" ({result.summary()})" if result.skipped else ""
         raise FeedError(f"no product in the file could be read{skipped}")
     imported_at = db.now_iso()
-    times = [r["feed_updated_at"] for r in result.rows if r["feed_updated_at"]]
-    feed_time = version or (max(times, key=datetime.fromisoformat) if times else imported_at)
+    feed_time = _feed_time(version, result.rows, file_time) or imported_at
     for row in result.rows:
         row["imported_at"] = imported_at
         row["feed_updated_at"] = row["feed_updated_at"] or feed_time
@@ -175,6 +202,25 @@ def _import(store: dict, path: Path, version: str | None) -> str:
     if result.skipped:
         said.append(result.summary())
     return ", ".join(said)
+
+
+def _feed_time(version: str | None, found: list[dict], file_time: str | None) -> str | None:
+    """The feed's date, in this order:
+
+        version    the network's own word (rules.check_url, the download's Last-Modified), or the
+                   time of the feed file on this computer: taken as it is
+        products   the newest time any product carries (Awin's last_updated, Tradedoubler's
+                   modified): the feed is at least that new. A file given by hand never counts as
+                   newer than the file itself, though
+        file_time  a file given by hand whose products carry no time (Google's format has none)
+    """
+    if version:
+        return version
+    times = [row["feed_updated_at"] for row in found if row["feed_updated_at"]]
+    newest = max(times, key=datetime.fromisoformat) if times else None
+    if newest and file_time:
+        return min(newest, file_time, key=datetime.fromisoformat)
+    return newest or file_time
 
 
 def _file_time(path: Path) -> str:
@@ -248,19 +294,28 @@ def _opener() -> urllib.request.OpenerDirector:
                                        _OnlyHttps)
 
 
-_last_request: dict[str, float] = {}       # network -> when this run last asked it something
-
-
 def _pace(network: str | None) -> None:
-    """Wait as long as the network asks between two requests (Awin: 12 seconds)."""
+    """Wait as long as the network asks between two requests (Awin: 12 seconds). When each network
+    was last asked is kept in a file, feeds/asked.json in the data folder, so the wait holds from
+    one run to the next too (and runs never overlap: _one_run_at_a_time)."""
     gap = SECONDS_BETWEEN_REQUESTS.get(network or "")
     if not gap or not network:
         return
-    if network in _last_request:
-        wait = _last_request[network] + gap - time.monotonic()
+    kept = paths.DATA_DIR / "feeds" / "asked.json"
+    try:
+        asked = json.loads(kept.read_text(encoding="utf-8"))      # {"awin": seconds since 1970}
+    except (OSError, ValueError):
+        asked = {}
+    if not isinstance(asked, dict):
+        asked = {}
+    last = asked.get(network)
+    if isinstance(last, (int, float)):
+        wait = min(last + gap - time.time(), gap)     # never longer than the gap, even if the clock was put back
         if wait > 0:
             time.sleep(wait)
-    _last_request[network] = time.monotonic()
+    asked[network] = time.time()
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text(json.dumps(asked), encoding="utf-8")
 
 
 def _download(store: dict, url: str, target: Path, limit_mb: float, feed: bool = False) -> str | None:
@@ -287,6 +342,13 @@ def _download(store: dict, url: str, target: Path, limit_mb: float, feed: bool =
                 if size > limit:
                     raise FeedError(f"the feed is larger than {limit_mb:g} MB; rules.max_mb can allow more")
                 out.write(chunk)
+            # When the connection closes before the size the server announced (Content-Length), the
+            # reading above just ends, with no error: a cut file would be imported as the whole feed.
+            # So what arrived is counted. (A feed sent in chunks raises IncompleteRead instead, below,
+            # and a cut gzipped feed fails to unpack.)
+            announced = (answer.headers.get("Content-Length") or "").strip()
+            if announced.isdecimal() and size < int(announced):
+                raise FeedError(f"the download broke off ({size} of {announced} bytes arrived)")
             modified = answer.headers.get("Last-Modified")
         done = True
     except urllib.error.HTTPError as refusal:      # an answer, with an error status

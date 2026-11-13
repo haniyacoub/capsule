@@ -87,6 +87,11 @@ def sync(data: dict | None = None, reopen: tuple[str, ...] | list[str] = ()) -> 
         if values["status"] == "ended" and old and old["products"]:
             lines.append(f"{key}: marked ended but still has {old['products']} products. "
                          f"Delete them with: python -m wardrobe stores end {key}")
+        # Products came only while it was approved (a sample's may come from a file tried by hand,
+        # whatever its status). Without its programme's yes they are no longer licensed: say so.
+        elif values["status"] != "approved" and old and old["products"] and not values["rules"].get("sample"):
+            lines.append(f"{key}: no longer approved but still has {old['products']} products. "
+                         f"Delete them with: python -m wardrobe stores end {key}")
     for store in db.list_stores():
         if store["key"] not in listed:
             lines.append(f"{store['key']}: in the database but no longer in config/feeds.toml; left as it is")

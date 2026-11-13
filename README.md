@@ -266,17 +266,22 @@ python -m wardrobe stores end musterhaus    # a programme ended: all its product
   as CSV or TSV), Awin's standard CSV and Tradedoubler's JSON. Rakuten's files
   come in a later round.
 - An import replaces that store's products in one go: whatever is missing from
-  the new file is gone, and a failure part-way keeps the old products. A
-  product without a price or a link is skipped and counted.
+  the new file is gone, and a failure part-way keeps the old products, as does
+  a download that stops short of the size its server announced. A product
+  without a price or a link is skipped and counted.
 - A download is skipped when the store's `rules.check_url`, or the file's own
   time for a feed on this computer, says the feed has not changed. Otherwise
-  it is downloaded, and imported only if its Last-Modified time is new. Awin's
-  API is asked at most 5 times a minute. Tradedoubler allows 3 downloads of one
-  version a day, so its feed is downloaded at most every 8 hours, unless its
-  `check_url` says it changed after the last download. A feed older than its
-  refresh hours plus a day is marked stale.
+  it is downloaded, and imported unless its Last-Modified time shows it is the
+  version already imported. Only one `feeds` run goes at a time, and Awin's
+  API is asked at most 5 times a minute, from one run to the next too.
+  Tradedoubler allows 3 downloads of one version a day, so its feed is
+  downloaded at most every 8 hours, unless its `check_url` says it changed
+  after the last download. A feed older than its refresh hours plus a day is
+  marked stale.
 - Products come only from approved stores: `--from` imports a file only for an
-  approved store or an invented sample store.
+  approved store or an invented sample store. Such a file is dated by the
+  newest time its products carry (an old feed copied today still shows as
+  old), or by the file's own time if they carry none.
 - It is separate from the collector: nothing from `refresh` or its snapshot goes
   into these tables, and the planner does not use them yet.
 

@@ -33,7 +33,8 @@ def add(sub) -> None:
                               "(the networks' download limits still apply)")
     p_feeds.add_argument("--from", dest="from_file", metavar="FILE",
                          help="import this file for the store given with --store (an approved store, or an "
-                              "invented sample); nothing is downloaded")
+                              "invented sample); nothing is downloaded. The feed is dated by the newest time "
+                              "its products carry, or by the file's own time if they carry none")
     p_feeds.set_defaults(func=feeds)
 
 
