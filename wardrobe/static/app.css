@@ -490,6 +490,10 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 @media (max-width: 759.98px) {
   main:has(> .said) .looks { --told: var(--said-h, calc(4 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 150px; }
   main:has(> .said.short) .looks { --told: var(--said-h, calc(2 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 170px; }
+  /* With the scenes under the picture as well (40px more), the smallest width gives up the same 40px of height (a
+     third less width, 2:3), so the whole model still ends above the tab bar on that 390 x 664 phone. */
+  main:has(> .said) .looks:has(.scenes) { --least: 124px; }
+  main:has(> .said.short) .looks:has(.scenes) { --least: 144px; }
 }
 /* The stage is also the box the line under the picture measures itself against (see .look-line). */
 .stage {
