@@ -448,11 +448,24 @@ def create_app() -> Flask:
         doesn't stop the profile from rebuilding the plan: the rebuild keeps them.)"""
         w = selection.build()
         if not request.headers.get("HX-Request"):   # plain form post (no JavaScript)
-            return redirect(url_for("slot_page", slot_id=slot_id) if request.args.get("view") == "slot"
+            return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) if request.args.get("view") == "slot"
                             else url_for("wardrobe"))
         if request.args.get("view") == "slot":
             return fragment("_slot_body.html", w, **slot_context(w, slot_id))
         return fragment("_wardrobe_body.html", w)
+
+    def way_back() -> dict:
+        """A piece's page opened from an outfit's pop-up ("Compare all 3 options") has ?from=outfit&at=<the
+        outfit>&occasion=<its filter> in its address: its way back leads to that outfit, and the Outfits tab stays
+        lit. These are those address arguments, checked (an occasion that is not one is left out), or {} for a
+        page that is part of the Wardrobe. The page's buttons and links carry them, and so does every answer that
+        sends the browser back to the page: any button pressed without JavaScript, and adding, completing or
+        removing a product by hand (those forms always post plainly)."""
+        at = request.args.get("at", "")[:400] if request.args.get("from") == "outfit" else ""
+        if not at:
+            return {}
+        occasion = request.args.get("occasion", "")
+        return {"from": "outfit", "at": at, **({"occasion": occasion} if occasion in outfits.OCCASIONS else {})}
 
     def slot_context(w: selection.Wardrobe, slot_id: str) -> dict:
         view = w.get(slot_id)
@@ -463,7 +476,7 @@ def create_app() -> Flask:
             cands = sorted(view.cands, key=lambda c: (not c.available, -c.score.total, c.price))
         else:
             sort, cands = "price", view.cands   # already: in stock first, then by price
-        return {"s": view, "cands": cands, "sort": sort}
+        return {"s": view, "cands": cands, "sort": sort, "way": way_back()}
 
     # ── Wardrobe ──────────────────────────────────────────────────────────────
 
@@ -497,11 +510,10 @@ def create_app() -> Flask:
     @app.get("/slot/<slot_id>")
     def slot_page(slot_id: str):
         w = selection.build()
-        # Opened from an outfit's pop-up ("Compare all 3 options", ?from=outfit&at=<the outfit>): its way back leads
-        # to that outfit, and the Outfits tab stays lit. Otherwise it is part of the Wardrobe.
-        at = request.args.get("at", "")[:400] if request.args.get("from") == "outfit" else ""
-        occasion = request.args.get("occasion", "")
-        back = url_for("outfits_page", at=at, occasion=occasion if occasion in outfits.OCCASIONS else None) if at else ""
+        # Opened from an outfit's pop-up: its way back leads to that outfit (see way_back). Otherwise it is part of
+        # the Wardrobe.
+        way = way_back()
+        back = url_for("outfits_page", at=way["at"], occasion=way.get("occasion")) if way else ""
         return page("slot.html", w=w, tab="outfits" if back else "wardrobe", back=back, **slot_context(w, slot_id))
 
     @app.post("/slot/<slot_id>/pick")
@@ -509,12 +521,15 @@ def create_app() -> Flask:
         view = selection.build().get(slot_id)
         cand_id = request.form.get("candidate", "")
         wanted = next((c for c in view.cands if c.id == cand_id), None) if view else None
-        if wanted is None:
+        if view is None or wanted is None:
             abort(404)
         if wanted.price <= 0:           # an item without a price would silently make the wardrobe cheaper
             abort(409, "That item has no price yet. Add its price on the piece's page first.")
+        before = next((c for c in view.cands if c.id == view.slot["pick"]), None) if view.slot["locked"] else None
         # Choosing by hand locks the choice, so the price level can't undo it.
         db.update_slot(slot_id, pick=cand_id, locked=True, owned=False)
+        if conf.PRODUCTION and before and before.id != cand_id and shared.kept_for_its_lock(view.slot, before.data):
+            sync_catalog()      # the product it was locked to, in a colour he refused since, was kept only for that
         if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
             return redirect(url_for("outfits_page", at=request.form["outfit"][:400],
                                     occasion=request.form.get("occasion") or None))
@@ -527,8 +542,10 @@ def create_app() -> Flask:
             abort(404)
         if view.slot["locked"]:
             db.update_slot(slot_id, locked=False, pick=None)       # back to automatic
-            if conf.PRODUCTION and view.chosen and shared.kept_for_its_lock(view.slot, view.chosen.data):
-                sync_catalog()      # a product kept only for its lock, in a colour he refused since, goes with it
+            # Any option kept only for a lock, in a colour he refused since, goes with it: the product it is locked
+            # to, or one it was locked to before he chose another (as choosing did before it rebuilt, see slot_pick).
+            if conf.PRODUCTION and shared.kept_for_its_lock(view.slot, *(c.data for c in view.cands)):
+                sync_catalog()
         elif view.chosen is not None:
             db.update_slot(slot_id, locked=True, pick=view.chosen.id)  # freeze what's showing
         return after_slot_change(slot_id)
@@ -562,7 +579,7 @@ def create_app() -> Flask:
         w = selection.build()
         on_its_page = request.args.get("view") == "slot"
         if not request.headers.get("HX-Request"):          # plain form post (no JavaScript)
-            return redirect(url_for("slot_page", slot_id=slot_id) if on_its_page
+            return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) if on_its_page
                             else url_for("wardrobe") + f"#card-{slot_id}")
         # The button that was pressed is gone from the new view, so keyboard focus moves to the piece itself.
         if on_its_page:     # that page is named after the piece: HTMX takes the <title> into the tab
@@ -583,7 +600,7 @@ def create_app() -> Flask:
         links = [u for u in re.split(r"\s+", request.form.get("urls", "")) if u][:8]
         if not links:
             flash("Paste at least one product link.")
-            return redirect(url_for("slot_page", slot_id=slot_id) + "#add")
+            return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
         # On a server no browser is ever opened: only what the link itself says is taken.
         results = manual.from_urls(links, slot, allow_fetch=not conf.PRODUCTION)
 
@@ -596,7 +613,7 @@ def create_app() -> Flask:
         catalog.update(add)
         for link, cand, note in results:
             flash(f"{cand['name'] if cand else link}: {note}.")
-        return redirect(url_for("slot_page", slot_id=slot_id) + "#add")
+        return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
 
     @app.post("/slot/<slot_id>/details")
     def slot_details(slot_id: str):
@@ -638,7 +655,7 @@ def create_app() -> Flask:
                 cand.pop("manual", None)
         catalog.update(change)
         flash("Details cleared." if form.get("clear") == "1" else "Details saved.")
-        return redirect(url_for("slot_page", slot_id=slot_id, sort=request.args.get("sort", "price")))
+        return redirect(url_for("slot_page", slot_id=slot_id, sort=request.args.get("sort", "price"), **way_back()))
 
     @app.post("/slot/<slot_id>/remove")
     def slot_remove(slot_id: str):
@@ -653,7 +670,7 @@ def create_app() -> Flask:
         catalog.update(lambda cat: cat.__setitem__("candidates", [
             c for c in cat["candidates"] if not (c.get("slot_id") == slot_id and c.get("id") == cand_id)]))
         flash(f"Removed “{cand['name']}”.")
-        return redirect(url_for("slot_page", slot_id=slot_id))
+        return redirect(url_for("slot_page", slot_id=slot_id, **way_back()))
 
     # ── Outfits ───────────────────────────────────────────────────────────────
 

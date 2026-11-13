@@ -1379,34 +1379,62 @@ class SharedStoreCatalogue(ProductionCase):
 
     def test_a_product_chosen_by_hand_stays_when_its_colour_is_refused_later(self):
         """"Dark Blue" jeans (navy, in Capsule's colour table) that he chose himself stay his choice when he refuses
-        navy afterwards, also when every customer's products are rebuilt from the list. Unlocked, they go."""
+        navy afterwards, also when every customer's products are rebuilt from the list. Unlocked, they go. Once he
+        chooses other jeans in their place (on the piece's page, or by the pop-up's swap) they go at once: they were
+        kept only for that choice, and are never left among the options of the piece made automatic again."""
         self.publish(extra=self.DENIM, slots=[self.DENIM_SLOT])
-        dan = self.member("dan@example.com")              # the example's colours: navy is liked
-        self.assertEqual(self.post(dan, "/slot/indigo-jeans/pick", candidate="cos-j2").status_code, 302)
+        locked = ("locked", "cos-j2", {"zara-j1", "cos-j2", "zara-j4"})
 
-        def jeans() -> tuple:
-            with db.as_user(self.user_id("dan@example.com")):
+        def jeans(email) -> tuple:
+            with db.as_user(self.user_id(email)):
                 view = selection.build().get("indigo-jeans")
                 return view.state, view.chosen.id, {c.id for c in view.cands}, view.note
 
-        rebuilt = self.post(dan, "/profile", **self.ANSWERS, liked="grey, white", refused="navy")
-        self.assertEqual(rebuilt.headers["Location"], "/outfits", "the plan is rebuilt from the new answers")
-        message = html.unescape(dan.get("/outfits").get_data(as_text=True))
-        self.assertIn("Kept your 1 hand-picked piece.", message)
-        self.assertNotIn("Not kept", message)
-        locked = ("locked", "cos-j2", {"zara-j1", "cos-j2", "zara-j4"})
-        self.assertEqual(jeans()[:3], locked)
+        def chose_dark_blue_then_refused_navy(email):
+            client = self.member(email)                   # the example's colours: navy is liked
+            self.assertEqual(self.post(client, "/slot/indigo-jeans/pick", candidate="cos-j2").status_code, 302)
+            rebuilt = self.post(client, "/profile", **self.ANSWERS, liked="grey, white", refused="navy")
+            self.assertEqual(rebuilt.headers["Location"], "/outfits", "the plan is rebuilt from the new answers")
+            message = html.unescape(client.get("/outfits").get_data(as_text=True))
+            self.assertIn("Kept your 1 hand-picked piece.", message)
+            self.assertNotIn("Not kept", message)
+            self.assertEqual(jeans(email)[:3], locked)
+            return client
+
+        dan = chose_dark_blue_then_refused_navy("dan@example.com")
         # Every customer's products are rebuilt from the list (a newer list, or a new way of reading it): it stays.
         with db.as_user(self.user_id("dan@example.com")):
             db.set_setting("pool", "an older list")
         page = html.unescape(dan.get("/slot/indigo-jeans").get_data(as_text=True))
-        self.assertEqual(jeans()[:3], locked)
+        self.assertEqual(jeans("dan@example.com")[:3], locked)
         self.assertNotIn("no longer in the catalogue", page)
-        self.assertNotIn("no longer in the catalogue", jeans()[3] or "")
+        self.assertNotIn("no longer in the catalogue", jeans("dan@example.com")[3] or "")
 
         # Unlocked, the piece is automatic again, and the automatic pick is never in a colour he refused.
         self.post(dan, "/slot/indigo-jeans/lock")
-        state, chosen, options, _ = jeans()
+        state, chosen, options, _ = jeans("dan@example.com")
+        self.assertEqual((state, options), ("auto", {"zara-j1", "zara-j4"}))
+        self.assertIn(chosen, options)
+
+        # Other jeans chosen by hand in their place, on the piece's page or by the pop-up's swap: the "Dark Blue"
+        # ones go at once, and are not among the options when the piece is unlocked either.
+        for email, where in (("eve@example.com", {}), ("fay@example.com", {"outfit": "a~b"})):
+            client = chose_dark_blue_then_refused_navy(email)
+            self.assertEqual(self.post(client, "/slot/indigo-jeans/pick", candidate="zara-j1", **where).status_code, 302)
+            self.assertEqual(jeans(email)[:3], ("locked", "zara-j1", {"zara-j1", "zara-j4"}), where)
+            self.post(client, "/slot/indigo-jeans/lock")
+            state, chosen, options, _ = jeans(email)
+            self.assertEqual((state, options), ("auto", {"zara-j1", "zara-j4"}), where)
+            self.assertIn(chosen, options)
+
+        # An account that chose other jeans before this was so still has the "Dark Blue" ones among its options:
+        # unlocking the piece takes them away.
+        gus = chose_dark_blue_then_refused_navy("gus@example.com")
+        with db.as_user(self.user_id("gus@example.com")):
+            db.update_slot("indigo-jeans", pick="zara-j1", locked=True, owned=False)     # what choosing did then
+        self.assertEqual(jeans("gus@example.com")[:3], ("locked", "zara-j1", {"zara-j1", "cos-j2", "zara-j4"}))
+        self.post(gus, "/slot/indigo-jeans/lock")
+        state, chosen, options, _ = jeans("gus@example.com")
         self.assertEqual((state, options), ("auto", {"zara-j1", "zara-j4"}))
         self.assertIn(chosen, options)
 

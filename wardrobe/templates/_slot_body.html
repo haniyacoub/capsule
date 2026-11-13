@@ -1,6 +1,7 @@
 {% from "_macros.html" import icon, pic, pill, store %}
 {% set sid = s.slot.id %}
-{% set here = {'slot_id': sid, 'view': 'slot', 'sort': sort} %}
+{# `way`: opened from an outfit, every button and link here keeps the way back to it (app.way_back). #}
+{% set here = dict(slot_id=sid, view='slot', sort=sort, **way) %}
 {% set fit_words = {'slim': 'Slim cut', 'relaxed': 'Relaxed cut', 'oversized': 'Oversized cut'} %}
 {% set demo = w.source == 'mock' %}
 
@@ -20,7 +21,7 @@
     {% if s.note and s.chosen and s.state != 'owned' %}<span class="note">{{ s.note }}.</span>{% endif %}
   </p>
   {# `plan_link`: a piece left out has one more way forward on its own page: the plan, where it can be recoloured or removed. #}
-  {% if s.offers or s.left_out %}{% set offer_args = {'view': 'slot', 'sort': sort} %}{% set plan_link = true %}{% include "_colour_offer.html" %}{% endif %}
+  {% if s.offers or s.left_out %}{% set offer_args = dict(view='slot', sort=sort, **way) %}{% set plan_link = true %}{% include "_colour_offer.html" %}{% endif %}
   {% if not cands and not demo and s.state != 'owned' %}
   {# The other way to fill an empty piece: the form at the bottom of this page. #}
   <p class="add-own">{% if production %}{{ 'Or add' if s.offers else 'Add' }} one you found yourself, by its link below.
@@ -46,8 +47,8 @@
 <div class="sortbar">
   <span>{{ s.cands|length }} candidates · {{ s.n_available }} in stock in your size</span>
   <span class="chips">
-    <a class="chip-link{% if sort == 'price' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid) }}">By price</a>
-    <a class="chip-link{% if sort == 'score' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, sort='score') }}">By score</a>
+    <a class="chip-link{% if sort == 'price' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, **way) }}">By price</a>
+    <a class="chip-link{% if sort == 'score' %} on{% endif %}" href="{{ url_for('slot_page', slot_id=sid, sort='score', **way) }}">By score</a>
   </span>
 </div>
 {% elif demo %}
@@ -103,7 +104,7 @@
       {# What the store page didn't give can be typed in here; it is kept across refreshes. #}
       <details class="fill"{% if c.price <= 0 %} open{% endif %}>
         <summary><u>{{ 'Edit details' if d.manual else 'Add details' }}</u>{% if c.gaps %} <span class="muted">— missing: {{ c.gaps|join(', ') }}</span>{% endif %}</summary>
-        <form class="form compact" method="post" action="{{ url_for('slot_details', slot_id=sid, sort=sort) }}">{{ csrf_field() }}
+        <form class="form compact" method="post" action="{{ url_for('slot_details', slot_id=sid, sort=sort, **way) }}">{{ csrf_field() }}
           <input type="hidden" name="candidate" value="{{ c.id }}">
           <label class="field"><span>Fabric, as on the product page</span>
             <input type="text" name="composition" placeholder="80% Wolle, 20% Polyamid" value="{{ d.manual.composition_text if d.manual and d.manual.composition_text else '' }}"></label>
@@ -132,7 +133,7 @@
         {% endif %}
         <a class="extlink" href="{{ d.url|weblink }}" target="_blank" rel="noopener noreferrer">{{ 'Store home (demo item)' if demo else 'View at ' ~ STORES.get(d.store, d.store) }} {{ icon('ext') }}</a>
         {% if c.manual %}
-        <form method="post" action="{{ url_for('slot_remove', slot_id=sid) }}" data-confirm="Remove “{{ d.name }}” from this slot?">{{ csrf_field() }}
+        <form method="post" action="{{ url_for('slot_remove', slot_id=sid, **way) }}" data-confirm="Remove “{{ d.name }}” from this slot?">{{ csrf_field() }}
           <input type="hidden" name="candidate" value="{{ c.id }}">
           <button class="link danger">Remove</button>
         </form>
@@ -150,7 +151,7 @@
   {% else %}
   <p class="muted small">Paste product page addresses from COS, Weekday or Zara, one per line. Zara pages are read in full. COS and Weekday don't show product pages to automated browsers, so only what the link says is taken; add the rest under “Add details”.</p>
   {% endif %}
-  <form class="form" method="post" action="{{ url_for('slot_import', slot_id=sid) }}">{{ csrf_field() }}
+  <form class="form" method="post" action="{{ url_for('slot_import', slot_id=sid, **way) }}">{{ csrf_field() }}
     <label class="field"><span>Product links</span>
       <textarea name="urls" rows="3" placeholder="https://www.zara.com/de/de/…-p01234567.html" autocapitalize="off" spellcheck="false"></textarea></label>
     <button class="btn small">Add</button>
