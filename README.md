@@ -272,7 +272,9 @@ python -m wardrobe stores end musterhaus    # a programme ended: all its product
 - An import replaces that store's products in one go: whatever is missing from
   the new file is gone, and a failure part-way keeps the old products, as does
   a download that stops short of the size its server announced. A product
-  without a price or a link is skipped and counted.
+  without a price or a link is skipped and counted. A file that would remove
+  more than half of a store's products (once it has 10 or more) is refused and
+  the old products stay, until you import it with `--force`.
 - A download is skipped when the store's `rules.check_url`, or the file's own
   time for a feed on this computer, says the feed has not changed. Otherwise
   it is downloaded, and imported unless its Last-Modified time shows it is the

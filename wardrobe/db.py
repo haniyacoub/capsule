@@ -22,6 +22,7 @@ import hashlib
 import json
 import sqlite3
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -776,18 +777,24 @@ def note_download(key: str, when: str) -> None:
         con.execute("UPDATE stores SET last_download_at = ? WHERE key = ?", (when, key))
 
 
-def replace_products(store: str, rows: list[dict]) -> tuple[int, int]:
+def replace_products(store: str, rows: list[dict],
+                     check: Callable[[int, int], None] | None = None) -> tuple[int, int]:
     """Swap one store's products for these, in one transaction: if anything fails part-way, the old
     rows stay exactly as they were. Products missing from `rows` are gone afterwards.
+    `check`, if given, is told how many products the store has and how many of them the swap would
+    remove, inside the same transaction and before anything changes; it raises to stop the swap.
     Returns (products now, products that were there before and are gone)."""
     marks = ", ".join("?" * len(PRODUCT_COLUMNS))      # only the fixed column names go into the statement
     statement = f"INSERT INTO products ({', '.join(PRODUCT_COLUMNS)}) VALUES ({marks})"  # nosec
     with exclusive() as con:
         before = {r[0] for r in con.execute("SELECT product_id FROM products WHERE store = ?", (store,))}
+        gone = len(before - {row["product_id"] for row in rows})
+        if check is not None:
+            check(len(before), gone)
         con.execute("DELETE FROM products WHERE store = ?", (store,))
         for row in rows:
             con.execute(statement, _product_values(store, row))
-    return len(rows), len(before - {row["product_id"] for row in rows})
+    return len(rows), gone
 
 
 def _product_values(store: str, row: dict) -> list:
@@ -850,8 +857,10 @@ _FOUND = """
                                        || ' ' || COALESCE(p.colour, '') || ' ' || replace(COALESCE(p.colour_key, ''), '-', ' ')
                                        || ' ' || COALESCE(p.material, '') || ' ' || p.product_id || ' ' || s.label, :words))
 """
-_COUNT_FOUND = "SELECT COUNT(*)" + _FOUND  # nosec - fixed text only (see _FOUND)
-_LIST_FOUND = ("SELECT p.*, s.label AS store_label" + _FOUND  # nosec - fixed text only (see _FOUND)
+# Fixed text only (see _FOUND): nothing from a request is written into these two statements. Bandit's
+# check for SQL built from strings (B608) does not flag them, so they carry no nosec.
+_COUNT_FOUND = "SELECT COUNT(*)" + _FOUND
+_LIST_FOUND = ("SELECT p.*, s.label AS store_label" + _FOUND
                + " ORDER BY s.label, p.name, p.group_id, p.product_id LIMIT :limit OFFSET :offset")
 
 

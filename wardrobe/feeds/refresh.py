@@ -2,7 +2,8 @@
 
     python -m wardrobe feeds                              every approved store, when its feed changed
     python -m wardrobe feeds --store KEY                  one store
-    python -m wardrobe feeds --force                      download even when the feed says it has not changed
+    python -m wardrobe feeds --force                      download even when the feed says it has not changed, and
+                                                          import a file that would remove most of a store (step 3)
     python -m wardrobe feeds --store KEY --from FILE      import a file you have: nothing is downloaded
                                                           (an approved store's, or an invented sample's)
 
@@ -20,13 +21,18 @@ and only one run goes at a time: a second one stops at once and says so. For eac
  3. Read it with the store's importer and replace all of that store's products in one
     transaction: products missing from the new file are gone, and a failure part-way keeps the
     old ones exactly as they were. So does a download that stops short of the size its server
-    announced, and a file in which no product can be read.
+    announced, and a file in which no product can be read. So does a file that would remove more
+    than half of a store's products, once it has 10 or more, unless --force is given: more likely
+    a cut download (one whose server gave no size to check it against) or a broken export at the
+    store than a store that sells half as much overnight.
  4. Record the import, or the error, on the store. One store's failure never stops the others.
 
 The feed's date (stale or not, and later the "as of" next to prices): the network's own word
 where it gives one (rules.check_url, or the download's Last-Modified), the file's own time for a
-feed file on this computer, and for a file given with --from the newest time its products carry,
-since a file copied today may hold an old feed (the file's time only when they carry none).
+feed file on this computer, and otherwise the newest time its products carry, since a file copied
+today may hold an old feed (for a file given with --from, the file's time when they carry none).
+A time a product carries is never taken as later than the import: a product dated 2099 never
+makes a feed look fresh.
 
 A feed address may name secrets, such as {AWIN_API_TOKEN}: they are read from environment variables
 of that name when the feed is fetched, and the filled-in address is never printed or stored.
@@ -55,6 +61,8 @@ from . import FORMATS, registry, rows
 
 TIMEOUT = 60                   # seconds without an answer before a download gives up
 DEFAULT_MAX_MB = 300           # a bigger feed is refused; rules.max_mb in config/feeds.toml allows more
+MOST_GONE = 0.5                # an import that would remove more than this share of a store's products ...
+FEW_PRODUCTS = 10              # ... of a store with at least this many is refused, unless --force (_refuse_most_gone)
 AGENT = "Capsule feed import"
 
 # The networks' own limits.
@@ -86,10 +94,13 @@ def run(store_key: str | None = None, force: bool = False, from_file: str | None
                 # Only a FeedError's own words are passed on: another error's text might quote an address with a secret.
                 reason = str(problem) if isinstance(problem, FeedError) else f"an unexpected {type(problem).__name__}"
                 db.note_store(store["key"], error=f"{db.now_iso()}: {reason}")
-                said = f"failed, and its products are kept as they were: {reason}"
+                kept = (db.get_store(store["key"]) or store)["products"]
+                said = (f"failed, and its products are kept as they were: {reason}" if kept
+                        else f"failed, and nothing was imported: {reason}")
             say(f"{store['key']}: {said}")
-            if registry.stale(db.get_store(store["key"]) or store):
-                say(f"{store['key']}: STALE, its feed is older than its refresh hours plus a day")
+            current = db.get_store(store["key"]) or store
+            if registry.stale(current):
+                say(f"{store['key']}: STALE: {registry.stale_words(current)}")
         return failed
 
 
@@ -143,7 +154,7 @@ def refresh_store(store: dict, force: bool = False, from_file: Path | None = Non
         if not from_file.is_file():
             raise FeedError(f"there is no file {from_file}")
         # A file you have may hold an old feed copied today: it is dated by its products (_feed_time).
-        return _import(store, from_file, None, file_time=_file_time(from_file))
+        return _import(store, from_file, None, file_time=_file_time(from_file), force=force)
     where = store.get("feed_location")
     if not where:
         raise FeedError("it has no feed_location in config/feeds.toml")
@@ -154,7 +165,7 @@ def refresh_store(store: dict, force: bool = False, from_file: Path | None = Non
         version = _file_time(path)
         if not force and _same(version, store["last_feed_update"]):
             return _unchanged(store, version)
-        return _import(store, path, version)
+        return _import(store, path, version, force=force)
 
     asked = _remote_version(store)
     if asked and not force and _same(asked, store["last_feed_update"]):
@@ -168,7 +179,7 @@ def refresh_store(store: dict, force: bool = False, from_file: Path | None = Non
                              feed=True)
         if not asked and modified and not force and _same(modified, store["last_feed_update"]):
             return _unchanged(store, modified)            # nowhere to ask first: the download's own time says
-        return _import(store, target, asked or modified)
+        return _import(store, target, asked or modified, force=force)
     finally:
         target.unlink(missing_ok=True)       # the feed is kept as products, not as a copy of the file
 
@@ -178,10 +189,10 @@ def _unchanged(store: dict, version: str) -> str:
     return f"unchanged since {version[:16].replace('T', ' ')}, not imported again"
 
 
-def _import(store: dict, path: Path, version: str | None, file_time: str | None = None) -> str:
+def _import(store: dict, path: Path, version: str | None, file_time: str | None = None, force: bool = False) -> str:
     """Read the file with the store's importer and swap the store's products for what it holds.
     `version` is the feed's date where the network or the file's place gives one; `file_time` the
-    time of a file given by hand (see _feed_time)."""
+    time of a file given by hand (see _feed_time). force: even if it would remove most of the store."""
     try:
         result = FORMATS[store["feed_format"]](path)
     except (OSError, ValueError, EOFError, csv.Error, zlib.error) as problem:
@@ -190,11 +201,12 @@ def _import(store: dict, path: Path, version: str | None, file_time: str | None 
         skipped = f" ({result.summary()})" if result.skipped else ""
         raise FeedError(f"no product in the file could be read{skipped}")
     imported_at = db.now_iso()
-    feed_time = _feed_time(version, result.rows, file_time) or imported_at
+    feed_time = _feed_time(version, result.rows, file_time, imported_at)
     for row in result.rows:
         row["imported_at"] = imported_at
-        row["feed_updated_at"] = row["feed_updated_at"] or feed_time
-    count, gone = db.replace_products(store["key"], result.rows)
+        row["feed_updated_at"] = _not_after(row["feed_updated_at"], imported_at) or feed_time
+    check = None if force else _refuse_most_gone(store["key"], from_file=file_time is not None)
+    count, gone = db.replace_products(store["key"], result.rows, check)
     db.note_store(store["key"], error=None, feed_update=feed_time, imported_at=imported_at)
     said = [f"{count} products imported"]
     if gone:
@@ -204,23 +216,46 @@ def _import(store: dict, path: Path, version: str | None, file_time: str | None 
     return ", ".join(said)
 
 
-def _feed_time(version: str | None, found: list[dict], file_time: str | None) -> str | None:
+def _refuse_most_gone(key: str, from_file: bool) -> Callable[[int, int], None]:
+    """The check db.replace_products makes before it swaps a store's products: it refuses a file that
+    would remove more than half of them (MOST_GONE), once the store has FEW_PRODUCTS or more. A cut
+    download whose server gave no size, or a broken export at the store, looks just like that, and
+    taking it would empty most of the store's catalogue at once. The old products stay, and the
+    store's last error says why and how to go on."""
+    def check(now: int, gone: int) -> None:
+        if now >= FEW_PRODUCTS and gone > now * MOST_GONE:
+            again = f"python -m wardrobe feeds --store {key}" + (" --from FILE" if from_file else "") + " --force"
+            raise FeedError(f"the new file would remove {gone} of its {now} products, more than half. "
+                            f"If the store really has that few now, import it with: {again}")
+    return check
+
+
+def _feed_time(version: str | None, found: list[dict], file_time: str | None, imported_at: str) -> str:
     """The feed's date, in this order:
 
         version    the network's own word (rules.check_url, the download's Last-Modified), or the
                    time of the feed file on this computer: taken as it is
         products   the newest time any product carries (Awin's last_updated, Tradedoubler's
-                   modified): the feed is at least that new. A file given by hand never counts as
-                   newer than the file itself, though
+                   modified): the feed is at least that new. Never newer than the import, though
+                   (a product dated 2099 would keep the feed looking fresh for ever), nor, for a
+                   file given by hand, than the file itself
         file_time  a file given by hand whose products carry no time (Google's format has none)
+        imported_at  a download with none of these: the time it was imported
     """
     if version:
         return version
     times = [row["feed_updated_at"] for row in found if row["feed_updated_at"]]
-    newest = max(times, key=datetime.fromisoformat) if times else None
-    if newest and file_time:
-        return min(newest, file_time, key=datetime.fromisoformat)
-    return newest or file_time
+    if times:
+        newest = max(times, key=datetime.fromisoformat)
+        return min(newest, file_time or imported_at, imported_at, key=datetime.fromisoformat)
+    return file_time or imported_at
+
+
+def _not_after(when: str | None, latest: str) -> str | None:
+    """`when`, or `latest` if `when` is later: no product's time is later than its import."""
+    if when and datetime.fromisoformat(when) > datetime.fromisoformat(latest):
+        return latest
+    return when
 
 
 def _file_time(path: Path) -> str:

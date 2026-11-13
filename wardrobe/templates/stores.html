@@ -53,11 +53,12 @@
 <form class="card cat-filters" method="get" action="{{ url_for('owner.stores') }}" role="search" aria-label="Products">
   {% for name, label, everything in (("store", "Store", "All stores"), ("category", "Category", "All categories"),
                                      ("colour", "Colour", "All colours"), ("size", "Size in stock", "Any size")) %}
-  <label class="field"><span>{{ label }}</span>
+  <label class="field f-{{ name }}"><span>{{ label }}</span>
     <select name="{{ name }}">
       <option value="">{{ everything }}</option>
+      {# Each with how many products have it; a store's count is in the table above, so its name stands alone #}
       {% for value, words, n in choices[name] %}
-      <option value="{{ value }}"{% if name == "category" %} lang="de"{% endif %}{% if asked[name] == value %} selected{% endif %}>{{ words }} ({{ "{:,}".format(n) }})</option>
+      <option value="{{ value }}"{% if name == "category" %} lang="de"{% endif %}{% if asked[name] == value %} selected{% endif %}>{{ words }}{% if name != "store" %} ({{ "{:,}".format(n) }}){% endif %}</option>
       {% endfor %}
     </select></label>
   {% endfor %}
@@ -91,6 +92,7 @@
   <tbody role="rowgroup">
   {% for p in products %}
   {% set hex = swatch(p.colour_key) %}
+  {% set brand = other_brand(p.brand, p.store_label) %}{# the brand, unless it is the store's own name #}
   <tr role="row" data-product="{{ p.store }}/{{ p.product_id }}">
     {# The feed's photo address exactly as given: no copy, no proxy, the whole photo (object-fit: contain). Where
        there is none, or it does not load (app.js), the colour shows instead, with a word saying which. #}
@@ -99,7 +101,7 @@
       <span class="fb">{{ "Not loaded" if p.image_url else "No photo" }}</span></span></td>
     <th scope="row" role="rowheader" class="c-product">
       <span class="cat-name" lang="de">{{ p.name }}</span>
-      <span class="cat-sub">{% if p.brand %}{{ p.brand }} · {% endif %}{{ p.store_label }}</span>
+      <span class="cat-sub">{% if brand %}{{ brand }} · {% endif %}{{ p.store_label }}</span>
       <span class="cat-sub">{% if p.category %}<span lang="de">{{ p.category }}</span> · {% endif %}{{ p.product_id }}</span>
     </th>
     <td role="cell" class="c-colour"><span class="cell-label" aria-hidden="true">Colour: </span>

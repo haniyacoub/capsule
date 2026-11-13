@@ -311,6 +311,43 @@ class Values(unittest.TestCase):
         for sale, kept in (("8 EUR", 8.0), ("10 EUR", None), ("15 EUR", None), ("0 EUR", None), ("soon", None), (None, None)):
             self.assertEqual(rows.product(**base, sale_price=sale)["sale_price"], kept, sale)
 
+    def test_a_sale_runs_between_its_dates(self):
+        def at(when: str) -> datetime:
+            return datetime.fromisoformat(when)
+
+        november = "2026-11-20T00:00+01:00/2026-11-30T23:59+01:00"          # Google's own way of writing it
+        for dates in (november, "2026-11-20T00:00+0100/2026-11-30T23:59+0100", " 2026-11-20T00:00+01:00 / 2026-11-30T23:59+01:00 "):
+            for when, runs in (("2026-11-19T23:59+01:00", False),            # before
+                               ("2026-11-20T00:00+01:00", True),             # from its first minute
+                               ("2026-11-19T23:30+00:00", True),             # the same moment written in another zone
+                               ("2026-11-25T12:00+01:00", True),             # inside
+                               ("2026-11-30T23:59+01:00", True),             # to its last
+                               ("2026-12-01T00:00+01:00", False)):           # after
+                self.assertEqual(rows.sale_runs(dates, at(when)), runs, f"{dates} at {when}")
+        # Open-ended: no start, or no end.
+        self.assertTrue(rows.sale_runs("2026-11-20T00:00+01:00/", at("2099-01-01T00:00+00:00")))
+        self.assertFalse(rows.sale_runs("2026-11-20T00:00+01:00/", at("2026-11-19T12:00+01:00")))
+        self.assertTrue(rows.sale_runs("/2026-11-30T23:59+01:00", at("2020-01-01T00:00+00:00")))
+        self.assertFalse(rows.sale_runs("/2026-11-30T23:59+01:00", at("2026-12-01T00:00+01:00")))
+        # A day alone as the end: all of that day, in this computer's time.
+        last_evening = datetime(2026, 11, 30, 23, 0).astimezone()
+        self.assertTrue(rows.sale_runs("2026-11-20/2026-11-30", last_evening))
+        self.assertFalse(rows.sale_runs("2026-11-20/2026-11-30", last_evening + timedelta(hours=1)))
+        # No dates, or dates that cannot be read: the sale price stands, and it is no error.
+        for dates in (None, "", "next week", "2026-11-20T00:00+01:00", "2026-13-45/2026-11-30", "/", "a/b/c",
+                      "2026-11-20/soon", 42):
+            self.assertTrue(rows.sale_runs(dates, at("2099-01-01T00:00+00:00")), dates)
+
+    def test_a_sale_price_counts_only_while_its_sale_runs(self):
+        base = {"product_id": "1", "name": "Shirt", "price": "10 EUR", "buy_link": "https://shop.example.com/1",
+                "sale_price": "8 EUR"}
+        for dates, kept in (("2020-01-01T00:00+01:00/2099-12-31T23:59+01:00", 8.0),     # running now
+                            ("2099-01-01T00:00+01:00/2099-12-31T23:59+01:00", None),    # not begun
+                            ("2020-01-01T00:00+01:00/2020-12-31T23:59+01:00", None),    # over
+                            ("2020-01-01T00:00+01:00/", 8.0), ("/2099-12-31T23:59+01:00", 8.0),   # open-ended
+                            ("whenever", 8.0), (None, 8.0)):                            # unreadable, or none given
+            self.assertEqual(rows.product(**base, sale_dates=dates)["sale_price"], kept, dates)
+
 
 # ── the importers ─────────────────────────────────────────────────────────────
 
@@ -341,6 +378,20 @@ class Importers(FeedCase):
             other = google.read(FEEDS / name)
             self.assertEqual(other.rows, lines.rows, name)
             self.assertEqual(other.skipped, lines.skipped, name)
+
+    def test_google_format_keeps_a_sale_price_only_while_its_sale_runs(self):
+        line = ('{"id": "S%d", "title": "Hemd", "price": "50.00 EUR", "sale_price": "35.00 EUR", '
+                '"sale_price_effective_date": "%s", "link": "https://shop.example.com/s"}\n')
+        cases = [("2020-01-01T00:00+01:00/2099-12-31T23:59+01:00", 35.0),    # inside
+                 ("2099-01-01T00:00+0100/2099-12-31T23:59+0100", None),      # before
+                 ("2020-01-01T00:00Z/2020-12-31T23:59Z", None),              # after
+                 ("2020-01-01T00:00+01:00/", 35.0),                          # open-ended
+                 ("from Friday", 35.0)]                                      # malformed: kept, and not skipped
+        path = self.write("sale.jsonl", "".join(line % (i, dates) for i, (dates, _) in enumerate(cases)))
+        result = google.read(path)
+        self.assertEqual([r["sale_price"] for r in result.rows], [kept for _, kept in cases])
+        self.assertEqual(result.skipped, Counter(), "a malformed range is no error")
+        self.assertEqual({r["price"] for r in result.rows}, {50.0}, "the regular price stays whatever the dates")
 
     def test_google_names_written_as_in_its_xml_are_read_too(self):
         path = self.write("g.csv", "g:id,g:title,g:price,g:link,g:size,g:availability\n"
@@ -680,12 +731,101 @@ class Importing(FeedCase):
         said = out.getvalue()
         self.assertIn("kleiderwerk: 4 products imported", said)
         self.assertIn("musterhaus: 8 products imported", said)
-        self.assertIn("nordfaden: failed, and its products are kept as they were: there is no file tests/fixtures/feeds/gone.csv", said)
+        self.assertIn("nordfaden: failed, and nothing was imported: there is no file tests/fixtures/feeds/gone.csv", said)
         self.assertEqual(str(stopped.exception), "1 store failed; the reason is above and in `python -m wardrobe stores`.")
         self.assertIn("last refresh failed", self.cli("stores"))
         db.save_store("nordfaden", nordfaden)
         self.cli("feeds", "--store", "nordfaden")
         self.assertIsNone(db.get_store("nordfaden")["last_error"], "a refresh that works clears the error")
+
+    def test_a_failed_run_says_what_the_store_has(self):
+        registry.sync()
+        missing = str(self.folder / "missing.jsonl")
+        # Its first run fails: there is nothing to keep, and no feed yet.
+        said: list[str] = []
+        self.assertEqual(refresh.run("musterhaus", from_file=missing, say=said.append), 1)
+        self.assertEqual(said, [f"musterhaus: failed, and nothing was imported: there is no file {missing}",
+                                "musterhaus: STALE: no feed imported yet"])
+        self.assertIn("    STALE: no feed imported yet", self.cli("stores"), "the same words as the list of stores")
+        # Once it has products, a failure keeps them, and an old feed is stale for being old.
+        self.cli("feeds", "--store", "musterhaus", "--from", str(FEEDS / "musterhaus.jsonl"))
+        db.note_store("musterhaus", error=None, feed_update=(datetime.now().astimezone() - timedelta(days=3)).isoformat())
+        said = []
+        refresh.run("musterhaus", from_file=missing, say=said.append)
+        self.assertEqual(said, [f"musterhaus: failed, and its products are kept as they were: there is no file {missing}",
+                                "musterhaus: STALE: the feed is older than its refresh hours plus a day"])
+        self.assertEqual(self.ids("musterhaus"), MUSTERHAUS)
+
+    def test_a_file_that_would_remove_most_of_a_store_is_refused_unless_forced(self):
+        def feed(name: str, numbers) -> Path:
+            return self.write(name, "".join(json.dumps({"id": f"BIG-{n:02}", "title": "Hemd", "price": "25 EUR",
+                                                        "link": f"https://shop.example.com/big/{n}"}) + "\n"
+                                            for n in numbers))
+
+        registry.sync()
+        db.save_store("big", a_store(label="A big test store"))
+        whole = feed("whole.jsonl", range(1, 13))
+        self.assertIn("big: 12 products imported", self.cli("feeds", "--store", "big", "--from", str(whole)))
+        before = db.get_store("big")
+
+        # 5 of 12 left: 7 would go, more than half. Nothing changes, and the store says why and how to go on.
+        few = feed("few.jsonl", range(1, 6))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit) as stopped:
+            main(["feeds", "--store", "big", "--from", str(few)])
+        reason = ("the new file would remove 7 of its 12 products, more than half. If the store really has that few "
+                  "now, import it with: python -m wardrobe feeds --store big --from FILE --force")
+        self.assertEqual(out.getvalue(), f"big: failed, and its products are kept as they were: {reason}\n")
+        self.assertIn("1 store failed", str(stopped.exception))
+        self.assertEqual(len(db.store_products("big")), 12, "the old products stay")
+        after = db.get_store("big")
+        self.assertTrue(after["last_error"].endswith(reason), after["last_error"])
+        self.assertEqual((after["last_feed_update"], after["last_import_at"]),
+                         (before["last_feed_update"], before["last_import_at"]), "not taken as imported")
+
+        # Exactly half may go.
+        db.save_store("half", a_store(label="Another test store"))
+        self.cli("feeds", "--store", "half", "--from", str(whole))
+        self.assertIn("half: 6 products imported, 6 from the last import are gone",
+                      self.cli("feeds", "--store", "half", "--from", str(feed("half.jsonl", range(1, 7)))))
+
+        # --force takes the file as it is, and clears the error.
+        self.assertIn("big: 5 products imported, 7 from the last import are gone",
+                      self.cli("feeds", "--store", "big", "--from", str(few), "--force"))
+        self.assertIsNone(db.get_store("big")["last_error"])
+
+        # A store with fewer than 10 products is not held back: one product left of Musterhaus's 8.
+        self.cli("feeds", "--store", "musterhaus", "--from", str(FEEDS / "musterhaus.jsonl"))
+        first = (FEEDS / "musterhaus.jsonl").read_text(encoding="utf-8").splitlines(keepends=True)[0]
+        self.assertIn("musterhaus: 1 products imported, 7 from the last import are gone",
+                      self.cli("feeds", "--store", "musterhaus", "--from", str(self.write("one.jsonl", first))))
+
+    def test_a_refused_store_does_not_stop_the_others(self):
+        registry.sync()
+        big = self.folder / "big.jsonl"
+        db.save_store("big", a_store(label="A big test store", feed_location=str(big)))
+        lines = [json.dumps({"id": f"BIG-{n:02}", "title": "Hemd", "price": "25 EUR",
+                             "link": f"https://shop.example.com/big/{n}"}) + "\n" for n in range(1, 21)]
+        big.write_text("".join(lines), encoding="utf-8")
+        os.utime(big, (time.time() - 7200,) * 2)
+        self.cli("feeds")
+        self.assertEqual(len(db.store_products("big")), 20)
+        # The store's own file is cut to a quarter (as a cut download whose server gave no size would be).
+        big.write_text("".join(lines[:5]), encoding="utf-8")
+        os.utime(big, (time.time() - 3600,) * 2)             # a newer version of it
+        for key in ("musterhaus", "nordfaden", "kleiderwerk"):
+            db.note_store(key, error=None, feed_update="2026-01-01T06:00:00+01:00")      # so they are imported again
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            main(["feeds"])
+        said = out.getvalue()
+        self.assertIn("big: failed, and its products are kept as they were: the new file would remove 15 of its 20 "
+                      "products, more than half. If the store really has that few now, import it with: "
+                      "python -m wardrobe feeds --store big --force", said)
+        for key, count in (("musterhaus", 8), ("nordfaden", 5), ("kleiderwerk", 4)):
+            self.assertIn(f"{key}: {count} products imported", said)
+        self.assertEqual(len(db.store_products("big")), 20)
+        self.assertIn("big: 5 products imported, 15 from the last import are gone", self.cli("feeds", "--store", "big", "--force"))
 
     def test_an_unchanged_feed_is_not_imported_again_unless_forced(self):
         registry.sync()
@@ -740,6 +880,7 @@ class StandIn(BaseHTTPRequestHandler):
     last_modified = ""          # the feed's Last-Modified header, if any
     refuse = False
     cut = False                 # send half the feed under the whole one's Content-Length, then hang up
+    unsized = False             # send a quarter of the feed with no Content-Length at all, then hang up
     seen: list = []
 
     def do_GET(self):
@@ -759,7 +900,10 @@ class StandIn(BaseHTTPRequestHandler):
             self.end_headers()
             return
         self.send_response(200)
-        self.send_header("Content-Length", str(len(body)))
+        if self.path.startswith("/feed.jsonl") and type(self).unsized:
+            body = body[:len(body) // 4]            # nothing to check it against: the connection just closes
+        else:
+            self.send_header("Content-Length", str(len(body)))
         if self.path.startswith("/feed.jsonl") and type(self).last_modified:
             self.send_header("Last-Modified", type(self).last_modified)
         self.end_headers()
@@ -783,7 +927,7 @@ class Downloads(FeedCase):
     def stand_in(self) -> str:
         StandIn.feed = (FEEDS / "musterhaus.jsonl").read_bytes()
         StandIn.changed, StandIn.refuse, StandIn.seen = int(time.time() - 3600) * 1000, False, []   # an hour ago
-        StandIn.last_modified, StandIn.cut = "", False
+        StandIn.last_modified, StandIn.cut, StandIn.unsized = "", False, False
         server = ThreadingHTTPServer(("127.0.0.1", 0), StandIn)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
@@ -900,6 +1044,55 @@ class Downloads(FeedCase):
         refresh.run("remote", say=said.append)
         self.assertIn("remote: 8 products imported", said[-1])
         self.assertIsNone(db.get_store("remote")["last_error"])
+
+    def test_a_cut_download_with_no_size_given_is_stopped_when_it_would_remove_most_of_a_store(self):
+        self.use_the_real_opener()
+        base = self.stand_in()
+        StandIn.feed = "".join(json.dumps({"id": f"BIG-{n:02}", "title": "Hemd", "price": "25 EUR",
+                                           "link": f"https://shop.example.com/big/{n}"}) + "\n"
+                               for n in range(1, 21)).encode()
+        StandIn.last_modified = email.utils.formatdate(time.time() - 3600, usegmt=True)
+        self.store(feed_location=base + "/feed.jsonl")
+        said: list[str] = []
+        refresh.run("remote", say=said.append)
+        self.assertEqual(said, ["remote: 20 products imported"])
+        before = db.get_store("remote")
+
+        # A new version, and the server hangs up a quarter of the way through, having given no size.
+        StandIn.unsized, StandIn.last_modified = True, email.utils.formatdate(time.time() - 60, usegmt=True)
+        self.assertEqual(refresh.run("remote", say=said.append), 1)
+        self.assertRegex(said[-1], r"^remote: failed, and its products are kept as they were: the new file would remove "
+                                   r"1[56] of its 20 products, more than half\. If the store really has that few now, "
+                                   r"import it with: python -m wardrobe feeds --store remote --force$")
+        self.assertEqual(len(db.store_products("remote")), 20, "the old products stay")
+        self.assertEqual(db.get_store("remote")["last_feed_update"], before["last_feed_update"])
+        self.assertFalse((paths.DATA_DIR / "feeds" / "remote.download").exists())
+
+        StandIn.unsized = False                  # the next run fetches that version again, whole this time
+        refresh.run("remote", say=said.append)
+        self.assertEqual(said[-1], "remote: 20 products imported")
+
+    def test_a_product_dated_in_the_future_never_makes_the_feed_look_fresh(self):
+        # Nowhere to ask, and no Last-Modified: the feed is dated by its products. One of them says 2099.
+        self.use_the_real_opener()
+        base = self.stand_in()
+        csv_text = (FEEDS / "nordfaden.csv").read_text(encoding="utf-8")
+        self.assertEqual(csv_text.count("2026-11-12 05:30:00"), 6)
+        StandIn.feed = csv_text.replace("2026-11-12 05:30:00", "2099-01-01 00:00:00", 1).encode()
+        self.store(network="awin", feed_format="awin_csv", feed_location=base + "/feed.jsonl")
+        with mock.patch.object(refresh.time, "sleep"):
+            refresh.run("remote", say=lambda line: None)
+        store = db.get_store("remote")
+        self.assertEqual(store["last_feed_update"], store["last_import_at"], "no later than the import")
+        future = [p for p in db.store_products("remote") if p["product_id"] == "70011"][0]
+        self.assertEqual(future["feed_updated_at"], store["last_import_at"], "nor is the product's own time")
+        two_days_on = datetime.fromisoformat(store["last_import_at"]) + timedelta(hours=49)
+        self.assertTrue(registry.stale(store, two_days_on), "so it turns stale like any other feed")
+        # A file given by hand is still never dated after the file itself.
+        dated = self.write("future.csv", csv_text.replace("2026-11-12 05:30:00", "2099-01-01 00:00:00"))
+        os.utime(dated, (1794456000, 1794456000))
+        self.cli("feeds", "--store", "remote", "--from", str(dated))
+        self.assertEqual(datetime.fromisoformat(db.get_store("remote")["last_feed_update"]).timestamp(), 1794456000)
 
     def test_awin_is_asked_at_most_once_every_12_seconds(self):
         self.use_the_real_opener()
@@ -1191,11 +1384,38 @@ class OwnerCatalogue(ProductionCase):
             self.assertIn(f"{len(wanted)} of 17 products match.", text, address)
         self.assertEqual(self.shown(olga, "/stores?size=XXXL"), [])
         self.assertIn("Nothing matches these filters.", unescape(page_text(olga.get("/stores?size=XXXL").get_data(as_text=True))))
-        # The filters offer what the products have, each with its count, and keep what was chosen.
+        # The filters offer what the products have, each with its count, and keep what was chosen. A store's
+        # count is in the stores' table just above, so its option is its name alone (and fits its box).
         page = olga.get("/stores?store=nordfaden&colour=navy").get_data(as_text=True)
-        self.assertIn('<option value="nordfaden" selected>Nordfaden (sample) (5)</option>', page)
+        self.assertIn('<option value="nordfaden" selected>Nordfaden (sample)</option>', page)
+        self.assertIn("Nordfaden (sample) nordfaden Awin Approved · 5 products", unescape(page_text(page)))
+        self.assertEqual(re.findall(r'<option value="(\w+)">', page.split('name="store"')[1].split("</select>")[0]),
+                         ["kleiderwerk", "musterhaus"], "every other store with products is offered")
         self.assertIn('<option value="navy" selected>Navy (2)</option>', page)
         self.assertIn('<option value="M">M (5)</option>', page)
+
+    def test_a_product_names_its_brand_only_when_it_is_not_the_store(self):
+        for brand, label, shown in (("Kleiderwerk", "Kleiderwerk (sample)", None), ("KLEIDERWERK", "Kleiderwerk (Sample)", None),
+                                    ("Kleiderwerk", "Kleiderwerk", None), (None, "Kleiderwerk", None), ("", "Kleiderwerk", None),
+                                    ("Feldweg", "Kleiderwerk (sample)", "Feldweg"),
+                                    ("Kleiderwerk Studio", "Kleiderwerk (sample)", "Kleiderwerk Studio")):
+            self.assertEqual(owner.other_brand(brand, label), shown, (brand, label))
+        db.save_store("haus", {"label": "Kaufhaus Beispiel", "network": "awin", "programme_id": None, "status": "approved",
+                               "feed_format": "google", "feed_location": None, "delivery_note": None, "disclaimer": None,
+                               "rules": {}})
+        own, other = ({**rows.product(product_id=pid, name="Hemd", price="30 EUR", brand=brand,
+                                      buy_link=f"https://haus.example.com/{pid}"), "imported_at": db.now_iso()}
+                      for pid, brand in (("H-1", "kaufhaus beispiel"), ("H-2", "Feldweg")))
+        db.replace_products("haus", [own, other])
+        olga = self.an_owner()
+        lines = re.findall(r'<span class="cat-name" lang="de">[^<]*</span>\s*<span class="cat-sub">([^<]*)</span>',
+                           olga.get("/stores?store=haus").get_data(as_text=True))
+        self.assertEqual(sorted(unescape(line) for line in lines), ["Feldweg · Kaufhaus Beispiel", "Kaufhaus Beispiel"])
+        everything = unescape(olga.get("/stores").get_data(as_text=True))
+        for label in ("Musterhaus (sample)", "Nordfaden (sample)", "Kleiderwerk (sample)"):
+            name = label.removesuffix(" (sample)")
+            self.assertIn(f'<span class="cat-sub">{label}</span>', everything)
+            self.assertNotIn(f"{name} · {label}", everything, "the samples' brand is the store's own name")
 
     def test_photos_and_links_are_the_feeds_own_addresses(self):
         olga = self.an_owner()

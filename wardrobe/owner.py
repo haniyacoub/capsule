@@ -42,7 +42,9 @@ NETWORKS = {"awin": "Awin", "tradedoubler": "Tradedoubler", "rakuten": "Rakuten"
 
 @bp.before_request
 def owners_only() -> None:
-    """Also checked before the login is (app.py, accounts_and_csrf): here it holds on your own machine too."""
+    """A second line of defence. In production app.py (accounts_and_csrf) already answers anyone but an
+    owner with "not found" before an owner's page runs; this check keeps that so should the first one
+    ever move. On your own machine you are the owner (auth.is_owner), so it turns no one away there."""
     if not auth.is_owner():
         abort(404)
 
@@ -87,7 +89,7 @@ def stores():
         "stores.html", tab="account", stores=[{**s, "notes": notes(s)} for s in listed],
         products=products, total=total, every=sum(s["products"] for s in listed), page=page, pages=pages,
         first=(page - 1) * PER_PAGE + 1, asked=asked, filtered=bool(kept), choices=choices(listed, asked), link=link,
-        networks=NETWORKS, when=when, money=money, swatch=swatch)
+        networks=NETWORKS, when=when, money=money, swatch=swatch, other_brand=other_brand)
 
 
 def notes(store: dict) -> list[tuple[str, str]]:
@@ -96,8 +98,7 @@ def notes(store: dict) -> list[tuple[str, str]]:
     if store["last_error"]:
         said.append(("bad", f"The last refresh failed: {store['last_error']}"))
     if registry.stale(store):
-        said.append(("warn", "Stale: no feed imported yet" if not (store["last_feed_update"] or store["last_import_at"])
-                     else "Stale: the feed is older than its refresh hours plus a day"))
+        said.append(("warn", f"Stale: {registry.stale_words(store)}"))
     if store["products"] and store["status"] == "ended":
         said.append(("bad", f"Ended, yet its products are still here. Delete them: python -m wardrobe stores end {store['key']}"))
     elif store["products"] and store["status"] != "approved" and not store["rules"].get("sample"):
@@ -127,6 +128,18 @@ def choices(listed: list[dict], asked: dict[str, str]) -> dict[str, list[tuple[s
         if asked[name] and asked[name] not in {value for value, _, _ in values}:
             values.append((asked[name], asked[name], 0))
     return offered
+
+
+def other_brand(brand: str | None, store_label: str) -> str | None:
+    """The product's brand, when it is not just the store's own name: a line that reads "Kleiderwerk ·
+    Kleiderwerk (sample)" says the name twice, so it names the store alone. Case, and " (sample)" after
+    a sample store's label, make no difference."""
+    if not brand or brand.strip().casefold() == _SAMPLE.sub("", store_label).strip().casefold():
+        return None
+    return brand
+
+
+_SAMPLE = re.compile(r"\s*\(sample\)\s*$", re.IGNORECASE)
 
 
 def size_order(label: str) -> tuple:

@@ -7,7 +7,8 @@ what. The rules for turning those values into a row are here, once:
     a product needs an id, a name, a price above zero and a buy link, or it is skipped and counted;
              so is a record with a value the mapping cannot read: one bad record never stops a file
     prices:  "39,95 EUR", "39.95 EUR", "EUR 39.95", "€39,95", 39.95 or {"value": "39.95", "currency": "EUR"};
-             a sale price is kept only when it is below the price
+             a sale price is kept only when it is below the price, and, where the feed gives the sale's
+             dates, only while the sale runs (sale_runs)
     sizes:   only what the feed says. A size the feed does not name stays unknown (an empty list),
              and a size counts as in stock only when the feed says so for that size
 """
@@ -23,7 +24,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import IO, Any
@@ -193,6 +194,36 @@ def parse_time(value: Any) -> str | None:
         return None
 
 
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def sale_runs(dates: Any, now: datetime | None = None) -> bool:
+    """Whether a sale is on now (or at `now`), by the dates a feed gives for it, written as Google's
+    sale_price_effective_date: '2026-11-20T00:00+01:00/2026-11-30T23:59+01:00', a start and an end
+    between which the sale price applies, both included. Either side may carry its own offset
+    ('+01:00' or '+0100'; none: this computer's time), or be left empty: the sale has no start or no
+    end. An end given as a day alone lasts to the end of that day.
+    No dates: the sale price simply applies. Dates that cannot be read are no error either: the sale
+    price is kept, as the feed gives it."""
+    words = text(dates)
+    if not words or words.count("/") != 1:
+        return True
+    start_words, end_words = (part.strip() for part in words.split("/"))
+    start, end = parse_time(start_words), parse_time(end_words)
+    if (start_words and start is None) or (end_words and end is None) or not (start or end):
+        return True                                     # a malformed range: the sale price stays
+    moment = now or datetime.now().astimezone()
+    if start and moment < datetime.fromisoformat(start):
+        return False                                    # not begun yet
+    if end:
+        last = datetime.fromisoformat(end)
+        if _DAY.fullmatch(end_words):
+            last += timedelta(days=1)                   # '2026-11-30': all of that day
+            return moment < last
+        return moment <= last
+    return True
+
+
 # Words for "can be bought now" and "cannot". Google's own are in_stock, out_of_stock, preorder and
 # backorder; a pre-order or back-order cannot be bought now, so it counts as not available.
 _NOT_NOW = ("out of stock", "outofstock", "sold out", "soldout", "unavailable", "not available", "preorder",
@@ -257,7 +288,7 @@ def product(*, product_id: Any, name: Any, price: Any, buy_link: Any, sale_price
             currency: Any = None, group_id: Any = None, brand: Any = None, category: Any = None,
             gender: Any = None, colour: Any = None, material: Any = None, sizes: Any = None,
             size_stock: dict[str, bool] | None = None, available: bool | None = None,
-            image_url: Any = None, feed_updated_at: Any = None) -> dict:
+            image_url: Any = None, feed_updated_at: Any = None, sale_dates: Any = None) -> dict:
     """One row of the `products` table from a feed's values, or Skip with the reason.
     The store and the import time are added when the file is imported (refresh.py)."""
     pid, title = text(product_id), text(name)
@@ -291,7 +322,8 @@ def product(*, product_id: Any, name: Any, price: Any, buy_link: Any, sale_price
         "material": material_words,
         "composition": [[fibre, share] for fibre, share in composition.parse(material_words)],
         "price": amount,
-        "sale_price": reduced if reduced and 0 < reduced < amount else None,    # a reduction, or none at all
+        # A reduction, while its sale runs (judged as the file is read, during its import), or none at all.
+        "sale_price": reduced if reduced and 0 < reduced < amount and sale_runs(sale_dates) else None,
         "currency": money or reduced_money or DEFAULT_CURRENCY,
         "sizes": labels,
         "sizes_in_stock": stocked,
