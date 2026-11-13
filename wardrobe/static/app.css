@@ -837,6 +837,95 @@ details[open] > summary .edit { visibility: hidden; }
 .site-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; max-width: 1240px; margin: 0 auto; padding: 18px var(--gutter) 26px; font-size: var(--t-s); color: var(--muted); }
 .site-foot a { color: var(--muted); }
 
+/* ── The owner's store catalogues ────────────────────────────────────────── */
+/* Two tables in cards: the stores, then their products, with the filters between. From 960px they are tables,
+   each in a box that scrolls sideways if a window is too narrow for every column (the page itself never does: the
+   box is also where the hidden words inside it are placed, .sr; it reaches 4px past its table and pads that back,
+   so focus rings show whole). Under 960px (phones, small tablets) each row is a card of its own: the header row is
+   hidden but still read out, and a cell that needs its name says it (.cell-label, shown there only and never read
+   out, as the header already is). Product photos are shown whole (contain), on the photo ground; where a photo is
+   missing or does not load, the colour shows with a word (.pic.noimg, app.js). */
+.cat-h2 { font-size: var(--t-l); line-height: var(--lh-l); font-weight: 500; margin: var(--s-5) 0 var(--s-2); }
+.card.cat-card { padding-top: 0; padding-bottom: 0; }
+.cat-scroll { position: relative; overflow-x: auto; margin: 0 calc(-1 * var(--s-1)); padding: 0 var(--s-1); }
+.cat-table { width: 100%; border-collapse: collapse; font-size: var(--t-s); line-height: var(--lh-s); }
+.cat-table th, .cat-table td { padding: var(--s-3) var(--s-3) var(--s-3) 0; text-align: left; vertical-align: top; font-weight: 400; }
+.cat-table tr > :last-child { padding-right: 0; }
+.cat-table thead th {
+  padding-bottom: var(--s-2); border-bottom: 1px solid var(--line); white-space: nowrap;
+  font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+.cat-table tbody tr + tr > * { border-top: 1px solid var(--line); }
+.cat-table .num-col { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: var(--s-5); }
+.cat-name { display: block; font-size: var(--t-m); line-height: 1.3; font-weight: 500; overflow-wrap: anywhere; }   /* 1.3 as .cand h3, a product's name; --lh-m adds 3px a line */
+.cat-sub { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.cell-label { display: none; }
+.c-store .cat-sub, .c-feed, .c-import, .c-price { white-space: nowrap; }
+.c-state { min-width: 12em; }
+.c-product { min-width: 14em; }
+.c-product .cat-name { margin-bottom: 2px; }
+.cat-note { display: block; overflow-wrap: anywhere; font-weight: 500; }
+.cat-note.good { color: var(--good); }
+.cat-note.warn { color: var(--ok); }
+.cat-note.bad { color: var(--poor); }
+.tag.st-approved { color: var(--good); }
+.tag.st-refused, .tag.st-ended { color: var(--poor); }
+.cat-pic { width: 64px; aspect-ratio: 4 / 5; }      /* 64 x 80 */
+.cat-pic img { object-fit: contain; object-position: center; }   /* the whole photo, never cropped */
+.cat-pic.noimg .fb { padding: var(--s-1); }
+.cat-key { display: block; color: var(--muted); white-space: nowrap; }
+.cat-key .dot { width: 12px; height: 12px; margin-right: var(--s-1); vertical-align: -1px; }
+.c-sizes .allsizes { max-width: 12em; }
+.c-price b { font-size: var(--t-m); font-weight: 500; }
+.cat-link { display: inline-flex; align-items: center; gap: var(--s-1); min-height: 40px; margin-top: calc(-1 * var(--s-3)); color: var(--muted); text-decoration: none; white-space: nowrap; }
+.cat-link u { text-underline-offset: 3px; }        /* the word only, not the space before the sign */
+.cat-link .ic { width: 13px; height: 13px; }
+/* The filters: two in a row, the search and the buttons each across; all in one row from 1200px, where each
+   is wide enough for its words: "All categories", a chosen store's whole name ("Kleiderwerk (sample)"), the
+   search's hint. The store's list and the search are a little wider there, the sizes' (short) narrower.
+   Under 600px (phones) the stores' and the categories' lists, whose words are long, each take a row too. */
+.card.cat-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); align-items: end; }
+.cat-q, .cat-go { grid-column: 1 / -1; }
+@media (max-width: 599.98px) { .cat-filters :is(.f-store, .f-category) { grid-column: 1 / -1; } }
+.cat-go { display: flex; gap: var(--s-2); }
+.cat-count { margin: var(--s-3) 0 var(--s-2); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.cat-empty { margin: 0 0 var(--s-3); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.cat-pages { display: flex; align-items: center; justify-content: center; gap: var(--s-3); margin: var(--s-4) 0 0; font-size: var(--t-s); color: var(--muted); }
+@media (max-width: 959.98px) {
+  .cat-table, .cat-table tbody { display: block; }
+  .cat-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .cat-table tbody tr + tr > * { border-top: 0; }
+  .cat-table tbody tr + tr { border-top: 1px solid var(--line); }
+  .cat-table th, .cat-table td { display: block; padding: 0; }
+  .cell-label { display: inline; color: var(--muted); }
+  .cat-table .num-col { text-align: left; padding-right: 0; }
+  /* A store: its name and status, then its network and products, its two dates, and what to know. */
+  .cat-stores tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--s-1); padding: var(--s-3) 0; }
+  .cat-stores .c-store { order: -3; flex: 1 1 auto; min-width: 0; }
+  .cat-stores .c-store .cat-sub { display: inline; }
+  .cat-stores .c-status { order: -2; flex: none; margin-left: auto; }
+  .cat-stores tr::before { content: ""; order: -1; flex-basis: 100%; height: 0; }   /* the network starts a new line */
+  .cat-stores .c-net, .cat-stores .c-count { color: var(--muted); }
+  .cat-stores .c-feed, .cat-stores .c-import, .cat-stores .c-state { flex-basis: 100%; }
+  .cat-stores .c-state:has(.sr) { display: none; }      /* nothing to note: no empty line */
+  /* A product: its photo beside its name and price, then colour, fabric, sizes in stock, date and link. */
+  .cat-products tr { display: grid; grid-template-columns: 72px minmax(0, 1fr); column-gap: var(--s-3); row-gap: 2px; padding: var(--s-3) 0; }
+  .cat-products .c-photo { grid-column: 1; grid-row: 1 / span 8; }
+  .cat-products tr > :not(.c-photo) { grid-column: 2; min-width: 0; }
+  .cat-products .c-product { order: -2; min-width: 0; }
+  .cat-products .c-price { order: -1; }
+  .cat-products .c-price .cat-sub { display: inline; margin-left: var(--s-2); }
+  .cat-products .c-price, .cat-products .c-feed { white-space: normal; }
+  .cat-pic { width: 72px; }                         /* 72 x 90 */
+  .cat-key { display: inline; margin-left: var(--s-2); }
+  .c-sizes .allsizes { display: inline-flex; max-width: none; vertical-align: 1px; }
+  .cat-link { margin-top: 0; }
+}
+@media (min-width: 1200px) {
+  .card.cat-filters { grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 1fr)) minmax(0, .8fr) minmax(0, 1.3fr) auto; }
+  .cat-q, .cat-go { grid-column: auto; }
+}
+
 /* ── Wider screens ───────────────────────────────────────────────────────── */
 @media (min-width: 760px) {
   body { padding-bottom: 0; }

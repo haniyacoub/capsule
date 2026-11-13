@@ -553,7 +553,7 @@ class PiecesWithNothingToBuy(AppCase):
     def collected(slot_id, sku, colour):
         return {"id": f"zara-{sku}", "slot_id": slot_id, "store": "zara", "name": "Pullover", "slug": "pullover",
                 "price": 39.95, "colour": colour, "colour_hex": None, "sizes_all": ["M"], "sizes_in_stock": ["M"],
-                "url": "https://www.zara.com/de/", "image_url": "", "source": "collected"}
+                "url": "https://www.example.com/de/", "image_url": "", "source": "collected"}
 
     def test_on_your_own_machine_the_colours_on_offer_are_those_collected(self):
         catalog.save({"source": "collected", "collected_at": "2026-11-11T17:00:00+01:00", "stores": {}, "candidates": [
@@ -817,7 +817,7 @@ class EditingTheRules(AppCase):
 
 class Safety(AppCase):
     def test_only_web_addresses_become_links(self):
-        self.assertEqual(weblink("https://www.cos.com/de-de/x"), "https://www.cos.com/de-de/x")
+        self.assertEqual(weblink("https://www.example.com/de-de/x"), "https://www.example.com/de-de/x")
         self.assertEqual(weblink("javascript:alert(1)"), "#")
         self.assertEqual(weblink(None), "#")
 

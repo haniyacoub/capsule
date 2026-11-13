@@ -9,6 +9,13 @@ config/stores.toml, shortlists the products that fit (matching.py) and, where
 the store serves them, opens each shortlisted product page for fabric and
 sizes. The politeness rules — real browser, robots.txt, pauses, stop at the
 first refusal — live in browser.py.
+
+For your own machine and for testing only. Run it by hand, never on a
+schedule (no cron job, timer or start-up call: nothing in deploy/ or the
+container runs it), and never use what it collects as the source for the
+public site. The public site is to use the stores' licensed product feeds
+instead (PRODUCTION.md, "Before customers"). `python -m wardrobe refresh`
+refuses to run in production mode.
 """
 from __future__ import annotations
 

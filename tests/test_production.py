@@ -688,10 +688,10 @@ class Isolation(ProductionCase):
         ada, bob = self.member("ada@example.com"), self.member("bob@example.com")
         with db.as_user(self.user_id("ada@example.com")):
             knit = next(s["id"] for s in db.list_slots() if s["category"] == "knit")
-        link = "https://www.cos.com/de-de/x/product/slim-merino-wool-crew-neck-jumper-black-1260173010"
+        link = "https://www.cos.com/de-de/x/product/slim-fine-merino-crew-neck-jumper-black-4100000901"
         self.post(ada, f"/slot/{knit}/import", urls=link)
-        self.assertIn(b"Slim merino wool crew neck jumper", ada.get(f"/slot/{knit}").data)
-        self.assertNotIn(b"Slim merino wool crew neck jumper", bob.get(f"/slot/{knit}").data)
+        self.assertIn(b"Slim fine merino crew neck jumper", ada.get(f"/slot/{knit}").data)
+        self.assertNotIn(b"Slim fine merino crew neck jumper", bob.get(f"/slot/{knit}").data)
 
         key = re.search(r'id="outfit-(\w+)"', ada.get("/outfits").data.decode()).group(1)
         self.assertEqual(self.post(ada, "/outfits/save", headers=HX, key=key).status_code, 200)
@@ -727,9 +727,9 @@ class Guards(ProductionCase):
             knit = next(s["id"] for s in db.list_slots() if s["category"] == "knit")
         with mock.patch("wardrobe.collect.manual.Session", side_effect=AssertionError("a browser was started")):
             response = self.post(ada, f"/slot/{knit}/import",
-                                 urls="https://www.zara.com/de/de/pullover-regular-fit-100-wolle-p05755370.html")
+                                 urls="https://www.zara.com/de/de/grobstrickpullover-100-wolle-p01928374.html")
         self.assertEqual(response.status_code, 302)
-        self.assertIn(b"Pullover regular fit 100 wolle", ada.get(f"/slot/{knit}").data)
+        self.assertIn(b"Grobstrickpullover 100 wolle", ada.get(f"/slot/{knit}").data)
 
         from wardrobe.__main__ import main
         for command in (["refresh"], ["mock"], ["serve"]):

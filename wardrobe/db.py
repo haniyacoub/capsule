@@ -12,6 +12,9 @@ Look around with `sqlite3 data/wardrobe.db`:
     SELECT id, email, created_at FROM users;
     SELECT name, category, colour, qty, owned, locked, pick FROM slots WHERE user_id = 1 ORDER BY position;
     SELECT key, value FROM settings WHERE user_id = 1;
+    SELECT key, status, last_import_at FROM stores;          -- the store feeds (feeds/)
+    SELECT store, name, price, colour, sizes_in_stock FROM products LIMIT 20;
+    SELECT u.email, o.added_at FROM owners o JOIN users u ON u.id = o.user_id;   -- who runs Capsule (owner.py)
 """
 from __future__ import annotations
 
@@ -19,13 +22,14 @@ import hashlib
 import json
 import sqlite3
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 LOCAL_USER_ID = 1
 
 SCHEMA = """
@@ -105,6 +109,67 @@ CREATE TABLE IF NOT EXISTS look_requests (   -- when a picture was asked for: th
 CREATE INDEX IF NOT EXISTS look_requests_at ON look_requests (at);
 """
 
+# Added in version 5: the store feeds (feeds/). These tables are shared, not per customer: the
+# stores whose affiliate programmes may license Capsule a product feed, and the products from
+# those feeds. A database from version 4 gains them and nothing else changes.
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_FEEDS = """
+CREATE TABLE IF NOT EXISTS stores (     -- copied from config/feeds.toml by `python -m wardrobe stores sync`
+    key              TEXT PRIMARY KEY,  -- short name for the command line, e.g. 'musterhaus'
+    label            TEXT NOT NULL,     -- the store's name as people read it
+    network          TEXT,              -- awin | tradedoubler | rakuten | webgains | impact, NULL = no programme
+    programme_id     TEXT,              -- the store's id in its network, e.g. an Awin advertiser id
+    status           TEXT NOT NULL DEFAULT 'none',   -- none | applied | approved | refused | ended
+    feed_format      TEXT,              -- google | awin_csv | tradedoubler_json
+    feed_location    TEXT,              -- address or file, {NAMES} in it are read from environment variables
+    delivery_note    TEXT,              -- shown next to prices later, e.g. 'Versand 4,95 EUR'
+    disclaimer       TEXT,              -- text the programme requires next to its name
+    rules            TEXT NOT NULL DEFAULT '{}',     -- JSON: refresh hours, delete on exit, images, answers
+    last_feed_update TEXT,              -- when the feed itself last changed
+    last_import_at   TEXT,              -- when its products were last imported here
+    last_download_at TEXT,              -- when its feed last began to download (Tradedoubler counts downloads)
+    last_error       TEXT               -- why the last refresh failed, NULL after one that worked
+);
+CREATE TABLE IF NOT EXISTS products (   -- one row per product per store, replaced at each import of its feed
+    store           TEXT NOT NULL REFERENCES stores(key),
+    product_id      TEXT NOT NULL,      -- the feed's id for it (one size or colour of a garment)
+    group_id        TEXT,               -- the same garment in other sizes or colours shares this
+    name            TEXT NOT NULL,
+    brand           TEXT,
+    category        TEXT,               -- the feed's own words
+    gender          TEXT,               -- the feed's own words
+    colour          TEXT,               -- the feed's own words
+    colour_key      TEXT,               -- Capsule's colour (colours.py), NULL when not recognised
+    material        TEXT,               -- the feed's own words
+    composition     TEXT NOT NULL DEFAULT '[]',      -- JSON [[fibre, percent], ...] from composition.py
+    price           REAL NOT NULL,      -- Google format: the regular price. Awin CSV: search_price, the price now
+    sale_price      REAL,               -- a reduced price below `price`, when the feed gives one. The price
+                                        -- to show is COALESCE(sale_price, price), and no "was" price
+                                        -- until a lawyer has said how one must be shown
+    currency        TEXT NOT NULL,
+    sizes           TEXT NOT NULL DEFAULT '[]',      -- JSON, every size the feed names (empty: it does not say)
+    sizes_in_stock  TEXT NOT NULL DEFAULT '[]',      -- JSON, the sizes it says are in stock (empty: it does not say)
+    available       INTEGER,            -- 1 can be bought now, 0 cannot, NULL the feed does not say
+    image_url       TEXT,               -- the feed's photo address, exactly as given
+    buy_link        TEXT NOT NULL,      -- the tracked link, exactly as given
+    feed_updated_at TEXT,               -- the feed's time for this product (or for the whole feed)
+    imported_at     TEXT NOT NULL,
+    PRIMARY KEY (store, product_id)
+);
+CREATE INDEX IF NOT EXISTS products_by_group ON products (store, group_id);
+"""
+
+# Added in version 6: who runs Capsule (owner.py). An owner's account sees the owner's pages, such as
+# every store's catalogue at /stores. Marked with `python -m wardrobe owner add EMAIL`, straight in
+# the database: no setting and no restart. Deleting the account deletes the mark with it.
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_OWNERS = """
+CREATE TABLE IF NOT EXISTS owners (     -- `python -m wardrobe owner add | remove | list`
+    user_id  INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL
+);
+"""
+
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -181,6 +246,12 @@ def _migrate() -> None:
         if version == 3:
             con.execute("INSERT INTO look_requests (user_id, at) SELECT user_id, at FROM look_requests_v3")
             con.execute("DROP TABLE look_requests_v3")
+        for statement in SCHEMA_FEEDS.split(";"):      # new in version 5, safe to repeat
+            if statement.strip():
+                con.execute(statement)
+        for statement in SCHEMA_OWNERS.split(";"):     # new in version 6, safe to repeat
+            if statement.strip():
+                con.execute(statement)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
@@ -296,6 +367,37 @@ def delete_user(user_id: int) -> None:
             con.execute("DELETE FROM login_attempts WHERE email = ?", (email["email"],))
 
 
+# ── owners: the accounts that run Capsule (owner.py) ──────────────────────────
+
+def add_owner(email: str) -> str:
+    """Mark the account with this address as an owner. Returns 'added', 'already' or 'no account'."""
+    with connect() as con:
+        user = con.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+        if user is None:
+            return "no account"
+        cur = con.execute("INSERT OR IGNORE INTO owners (user_id, added_at) VALUES (?, ?)", (user["id"], now_iso()))
+    return "added" if cur.rowcount == 1 else "already"
+
+
+def remove_owner(email: str) -> bool:
+    """The account with this address is no longer an owner. False if it was not one."""
+    with connect() as con:
+        cur = con.execute("DELETE FROM owners WHERE user_id = (SELECT id FROM users WHERE email = ?)", (email,))
+    return cur.rowcount == 1
+
+
+def list_owners() -> list[dict]:
+    with connect() as con:
+        rows = con.execute("SELECT u.email, o.added_at FROM owners o JOIN users u ON u.id = o.user_id "
+                           "ORDER BY u.email").fetchall()
+    return [dict(r) for r in rows]
+
+
+def is_owner(user_id: int) -> bool:
+    with connect() as con:
+        return con.execute("SELECT 1 FROM owners WHERE user_id = ?", (user_id,)).fetchone() is not None
+
+
 def export_user() -> dict:
     """Everything stored about the current user, as plain data (their GDPR copy)."""
     user_id = uid()
@@ -304,8 +406,12 @@ def export_user() -> dict:
         prefs = con.execute("SELECT key, value FROM settings WHERE user_id = ?", (user_id,)).fetchall()
         catalogue = con.execute("SELECT data FROM catalogs WHERE user_id = ?", (user_id,)).fetchone()
         asked = con.execute("SELECT at FROM look_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
+        owner = con.execute("SELECT added_at FROM owners WHERE user_id = ?", (user_id,)).fetchone()
+    account = dict(user) if user else {}
+    if owner:       # only on the copy of someone who runs Capsule (owner.py)
+        account["owner_since"] = owner["added_at"]
     return {
-        "account": dict(user) if user else {},
+        "account": account,
         "settings": {r["key"]: json.loads(r["value"]) for r in prefs},
         "slots": list_slots(),
         "saved_outfits": list_saved(),
@@ -604,3 +710,189 @@ def look_requests(since: float, mine: bool = False) -> int:
             return con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ? AND at > ?",
                                (uid(), since)).fetchone()[0]
         return con.execute("SELECT COUNT(*) FROM look_requests WHERE at > ?", (since,)).fetchone()[0]
+
+
+# ── store feeds (feeds/) ──────────────────────────────────────────────────────
+# Shared by everybody, not scoped by uid(): which stores Capsule may take products
+# from, and the products their feeds carry.
+
+STORE_SETTINGS = ("label", "network", "programme_id", "status", "feed_format", "feed_location",
+                  "delivery_note", "disclaimer", "rules")
+PRODUCT_COLUMNS = ("store", "product_id", "group_id", "name", "brand", "category", "gender", "colour",
+                   "colour_key", "material", "composition", "price", "sale_price", "currency", "sizes",
+                   "sizes_in_stock", "available", "image_url", "buy_link", "feed_updated_at", "imported_at")
+
+
+def _store(row: sqlite3.Row) -> dict:
+    d = dict(row)
+    d["rules"] = json.loads(d.get("rules") or "{}")
+    return d
+
+
+def list_stores() -> list[dict]:
+    """Every store in the registry, with how many products it has now."""
+    with connect() as con:
+        rows = con.execute("SELECT s.*, (SELECT COUNT(*) FROM products p WHERE p.store = s.key) AS products "
+                           "FROM stores s ORDER BY s.key").fetchall()
+    return [_store(r) for r in rows]
+
+
+def get_store(key: str) -> dict | None:
+    with connect() as con:
+        row = con.execute("SELECT s.*, (SELECT COUNT(*) FROM products p WHERE p.store = s.key) AS products "
+                          "FROM stores s WHERE s.key = ?", (key,)).fetchone()
+    return _store(row) if row else None
+
+
+def save_store(key: str, values: dict) -> str:
+    """Add a store or update its settings. Returns 'added', 'updated' or 'unchanged'.
+    Its products and its import history are left as they are."""
+    values = {**values, "rules": json.dumps(values.get("rules") or {}, ensure_ascii=False, sort_keys=True)}
+    row = [values.get(name) for name in STORE_SETTINGS]
+    with exclusive() as con:
+        old = con.execute("SELECT * FROM stores WHERE key = ?", (key,)).fetchone()
+        if old is None:
+            con.execute("INSERT INTO stores (key, label, network, programme_id, status, feed_format, feed_location, "
+                        "delivery_note, disclaimer, rules) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (key, *row))
+            return "added"
+        if [old[name] for name in STORE_SETTINGS] == row:
+            return "unchanged"
+        con.execute("UPDATE stores SET label = ?, network = ?, programme_id = ?, status = ?, feed_format = ?, "
+                    "feed_location = ?, delivery_note = ?, disclaimer = ?, rules = ? WHERE key = ?", (*row, key))
+        return "updated"
+
+
+def note_store(key: str, *, error: str | None, feed_update: str | None = None, imported_at: str | None = None) -> None:
+    """Record how a refresh went: the error (None: it worked), and the feed's time and the import's when known."""
+    with connect() as con:
+        con.execute("UPDATE stores SET last_error = ?, last_feed_update = COALESCE(?, last_feed_update), "
+                    "last_import_at = COALESCE(?, last_import_at) WHERE key = ?",
+                    (error, feed_update, imported_at, key))
+
+
+def note_download(key: str, when: str) -> None:
+    """Record that a store's feed began to download at `when`, whether or not it is then imported:
+    a network that limits downloads (Tradedoubler) counts every one."""
+    with connect() as con:
+        con.execute("UPDATE stores SET last_download_at = ? WHERE key = ?", (when, key))
+
+
+def replace_products(store: str, rows: list[dict],
+                     check: Callable[[int, int], None] | None = None) -> tuple[int, int]:
+    """Swap one store's products for these, in one transaction: if anything fails part-way, the old
+    rows stay exactly as they were. Products missing from `rows` are gone afterwards.
+    `check`, if given, is told how many products the store has and how many of them the swap would
+    remove, inside the same transaction and before anything changes; it raises to stop the swap.
+    Returns (products now, products that were there before and are gone)."""
+    marks = ", ".join("?" * len(PRODUCT_COLUMNS))      # only the fixed column names go into the statement
+    statement = f"INSERT INTO products ({', '.join(PRODUCT_COLUMNS)}) VALUES ({marks})"  # nosec
+    with exclusive() as con:
+        before = {r[0] for r in con.execute("SELECT product_id FROM products WHERE store = ?", (store,))}
+        gone = len(before - {row["product_id"] for row in rows})
+        if check is not None:
+            check(len(before), gone)
+        con.execute("DELETE FROM products WHERE store = ?", (store,))
+        for row in rows:
+            con.execute(statement, _product_values(store, row))
+    return len(rows), gone
+
+
+def _product_values(store: str, row: dict) -> list:
+    """A product row in the order of PRODUCT_COLUMNS, its lists written as JSON."""
+    values = []
+    for name in PRODUCT_COLUMNS:
+        value = store if name == "store" else row.get(name)
+        if name in ("composition", "sizes", "sizes_in_stock"):
+            value = json.dumps(value or [], ensure_ascii=False)
+        elif name == "available" and value is not None:
+            value = int(bool(value))
+        values.append(value)
+    return values
+
+
+def end_store(key: str) -> int:
+    """A programme ended, or the store asked: all of its products go at once and it is marked ended.
+    Returns how many products were deleted."""
+    with exclusive() as con:
+        gone = con.execute("DELETE FROM products WHERE store = ?", (key,)).rowcount
+        con.execute("UPDATE stores SET status = 'ended' WHERE key = ?", (key,))
+    return gone
+
+
+def store_products(store: str) -> list[dict]:
+    """One store's products, with the JSON columns read back into lists."""
+    with connect() as con:
+        rows = con.execute("SELECT * FROM products WHERE store = ? ORDER BY product_id", (store,)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        for name in ("composition", "sizes", "sizes_in_stock"):
+            d[name] = json.loads(d[name])
+        if d["available"] is not None:
+            d["available"] = bool(d["available"])
+        out.append(d)
+    return out
+
+
+# ── the owner's view of every store's catalogue (owner.py) ────────────────────
+
+def _has_words(text: str | None, words: str) -> bool:
+    """Whether every word of a search is in the text, whatever their case: 'WEISS merino' finds
+    'Weiß ... Merinowolle' ('ß' folds to 'ss'). `words` comes folded already."""
+    folded = (text or "").casefold()
+    return all(word in folded for word in words.split())
+
+
+# Which products a search finds. Every filter is given, as NULL when it is not used, so the statement is
+# fixed text: nothing from the request is ever written into it. Colour 'unknown' finds the products whose
+# colour Capsule did not recognise. A size is one the feed says is in stock. The words are looked for in the
+# name, brand, category, colour (the feed's and Capsule's: 'navy' finds 'Marineblau'), fabric, id and store.
+_FOUND = """
+    FROM products p JOIN stores s ON s.key = p.store
+    WHERE (:store IS NULL OR p.store = :store)
+      AND (:category IS NULL OR p.category = :category)
+      AND (:colour IS NULL OR p.colour_key = :colour OR (:colour = 'unknown' AND p.colour_key IS NULL))
+      AND (:size IS NULL OR EXISTS (SELECT 1 FROM json_each(p.sizes_in_stock) j WHERE j.value = :size))
+      AND (:words IS NULL OR has_words(p.name || ' ' || COALESCE(p.brand, '') || ' ' || COALESCE(p.category, '')
+                                       || ' ' || COALESCE(p.colour, '') || ' ' || replace(COALESCE(p.colour_key, ''), '-', ' ')
+                                       || ' ' || COALESCE(p.material, '') || ' ' || p.product_id || ' ' || s.label, :words))
+"""
+# Fixed text only (see _FOUND): nothing from a request is written into these two statements. Bandit's
+# check for SQL built from strings (B608) does not flag them, so they carry no nosec.
+_COUNT_FOUND = "SELECT COUNT(*)" + _FOUND
+_LIST_FOUND = ("SELECT p.*, s.label AS store_label" + _FOUND
+               + " ORDER BY s.label, p.name, p.group_id, p.product_id LIMIT :limit OFFSET :offset")
+
+
+def find_products(store: str | None = None, category: str | None = None, colour: str | None = None,
+                  size: str | None = None, words: str | None = None, limit: int = 100,
+                  offset: int = 0) -> tuple[int, list[dict]]:
+    """Every store's products that match, a page at a time: (how many match in all, this page's rows),
+    with the JSON columns read back into lists and the store's label as store_label."""
+    asked = {"store": store, "category": category, "colour": colour, "size": size,
+             "words": " ".join(words.casefold().split()) or None if words else None,
+             "limit": limit, "offset": offset}
+    with connect() as con:
+        con.create_function("has_words", 2, _has_words, deterministic=True)
+        total = con.execute(_COUNT_FOUND, asked).fetchone()[0]
+        rows = con.execute(_LIST_FOUND, asked).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        for name in ("composition", "sizes", "sizes_in_stock"):
+            d[name] = json.loads(d[name])
+        out.append(d)
+    return total, out
+
+
+def product_choices() -> dict[str, list[tuple[str | None, int]]]:
+    """What the filters on the owner's catalogue offer, each with how many products have it: the feeds'
+    own categories, Capsule's colours (None: not recognised) and the sizes the feeds say are in stock."""
+    with connect() as con:
+        return {
+            "categories": [tuple(r) for r in con.execute(
+                "SELECT category, COUNT(*) FROM products WHERE category IS NOT NULL GROUP BY category ORDER BY category")],
+            "colours": [tuple(r) for r in con.execute("SELECT colour_key, COUNT(*) FROM products GROUP BY colour_key")],
+            "sizes": [tuple(r) for r in con.execute(
+                "SELECT j.value, COUNT(*) FROM products p, json_each(p.sizes_in_stock) j GROUP BY j.value")],
+        }

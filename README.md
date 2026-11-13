@@ -62,8 +62,13 @@ python -m wardrobe refresh --slot white-tee     # one slot (ids are shown when y
 python -m wardrobe refresh --max 3              # fewer candidates per slot, faster
 ```
 
+The collector is for your own machine and for testing only: run it by hand,
+never on a schedule, and never as the source for the public site, which is to
+use the stores' licensed product feeds ([PRODUCTION.md](PRODUCTION.md#before-customers)).
+
 A Chrome window opens and reads, for each slot, only the category pages listed
-for that garment type in [config/stores.toml](config/stores.toml). It is slow on
+for that garment type in [config/stores.toml](config/stores.toml) (and, for Zara,
+each shortlisted product page, for fabric and sizes). It is slow on
 purpose: one page at a time, a few seconds apart. Leave the window alone and keep
 working. The result goes to `data/catalog.json` with the collection time; the
 app shows it on the next page load.
@@ -243,6 +248,55 @@ Things to know:
   may have been charged for, so it counts.
 - Pictures are drawn two at a time; the rest wait their turn and say so.
 
+## Store feeds (licensed product data)
+
+The public site will take products only from stores whose affiliate programme
+has accepted Capsule, through the product feed that the programme's network
+licenses to approved partners. None has accepted yet, so for now this runs on
+three invented sample stores (Musterhaus, Nordfaden, Kleiderwerk) whose feeds
+are files in `tests/fixtures/feeds/`.
+
+```bash
+python -m wardrobe stores sync              # copy config/feeds.toml into the database
+python -m wardrobe stores                   # each store: status, products, feed date, stale or failed
+python -m wardrobe feeds                    # every approved store whose feed changed
+python -m wardrobe feeds --store musterhaus --from tests/fixtures/feeds/musterhaus.csv   # a file you have
+python -m wardrobe stores end musterhaus    # a programme ended: all its products go at once
+```
+
+- Stores are listed in [config/feeds.toml](config/feeds.toml) with their network,
+  status, feed format and address. Secrets never go there: an address names
+  them, `{AWIN_API_TOKEN}`, and they are read from environment variables.
+- Formats: Google Shopping (Awin's product API as JSON Lines, Webgains and others
+  as CSV or TSV), Awin's standard CSV and Tradedoubler's JSON. Rakuten's files
+  come in a later round.
+- An import replaces that store's products in one go: whatever is missing from
+  the new file is gone, and a failure part-way keeps the old products, as does
+  a download that stops short of the size its server announced. A product
+  without a price or a link is skipped and counted. A file that would remove
+  more than half of a store's products (once it has 10 or more) is refused and
+  the old products stay, until you import it with `--force`.
+- A download is skipped when the store's `rules.check_url`, or the file's own
+  time for a feed on this computer, says the feed has not changed. Otherwise
+  it is downloaded, and imported unless its Last-Modified time shows it is the
+  version already imported. Only one `feeds` run goes at a time, and Awin's
+  API is asked at most 5 times a minute, from one run to the next too.
+  Tradedoubler allows 3 downloads of one version a day, so its feed is
+  downloaded at most every 8 hours, unless its `check_url` says it changed
+  after the last download. A feed older than its refresh hours plus a day is
+  marked stale.
+- Products come only from approved stores: `--from` imports a file only for an
+  approved store or an invented sample store. Such a file is dated by the
+  newest time its products carry (an old feed copied today still shows as
+  old), or by the file's own time if they carry none.
+- It is separate from the collector: nothing from `refresh` or its snapshot goes
+  into these tables, and the planner does not use them yet.
+- Owners see every listed store and its current products at `/stores`, with
+  filters by store, category, colour, size in stock and words, and no export.
+  On your own machine you are the owner; in production, sign up, then mark the
+  account: `python -m wardrobe owner add you@example.com` (also `owner remove`,
+  `owner list`). Anyone else gets "We can't find that page" there.
+
 ## Checks
 
 ```bash
@@ -267,6 +321,7 @@ config/scoring.toml        quality score rules
 config/stores.toml         which category pages the collector reads, and how slowly
 config/size_charts.toml    each store's size labels and body measurements
 config/looks.toml          AI pictures: service, limits, wording, where the dots sit
+config/feeds.toml          the stores whose licensed product feeds are imported (see "Store feeds")
 data/catalog.json          what the stores sell (rewritten by refresh)
 data/wardrobe.db           your profile, slots, locks, saved outfits (SQLite)
 data/looks/                AI pictures already drawn (safe to delete: they are drawn again when asked for),

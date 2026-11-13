@@ -8,7 +8,7 @@ Shape of the file:
       "stores": {"zara": {"status": "ok", "message": "…", "checked_at": "…"}},
       "candidates": [
         {
-          "id": "zara-05755370-507", "slot_id": "grey-merino-jumper", "store": "zara",
+          "id": "zara-01234567-800", "slot_id": "grey-merino-jumper", "store": "zara",
           "name": "…", "slug": "…", "price": 69.95, "currency": "EUR",
           "colour": "Grau", "colour_hex": "#8d8f92",
           "composition_text": "Aussen: 100% wolle",
