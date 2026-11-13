@@ -57,7 +57,7 @@ class Pages(AppCase):
     def test_missing_images_fall_back_to_a_swatch(self):
         chinos = self.first("chinos")
         html = self.client.get(f"/slot/{chinos.slot['id']}").data.decode()
-        self.assertIn('class="pic noimg"', html)          # Zara chinos have no image in the demo data
+        self.assertIn('class="pic noimg"', html)          # Weekday chinos have no image in the demo data
         self.assertEqual(self.client.get("/mock/img/tee.svg?c=1f2a44").status_code, 200)
         self.assertEqual(self.client.get("/mock/img/does-not-exist.jpg").status_code, 404)
 
@@ -551,7 +551,7 @@ class PiecesWithNothingToBuy(AppCase):
 
     @staticmethod
     def collected(slot_id, sku, colour):
-        return {"id": f"zara-{sku}", "slot_id": slot_id, "store": "zara", "name": "Pullover", "slug": "pullover",
+        return {"id": f"weekday-{sku}", "slot_id": slot_id, "store": "weekday", "name": "Pullover", "slug": "pullover",
                 "price": 39.95, "colour": colour, "colour_hex": None, "sizes_all": ["M"], "sizes_in_stock": ["M"],
                 "url": "https://www.example.com/de/", "image_url": "", "source": "collected"}
 
@@ -561,7 +561,7 @@ class PiecesWithNothingToBuy(AppCase):
             {**self.collected("navy-merino-jumper", "3", "Schwarz"), "source": "manual"}]})     # yours: not on offer
         on_offer = shared.colours_on_offer("knit")
         ids = {key: {product["id"] for product in products} for key, products in on_offer.items()}
-        self.assertEqual((ids["grey"], ids["navy"]), ({"zara-1"}, {"zara-2"}))
+        self.assertEqual((ids["grey"], ids["navy"]), ({"weekday-1"}, {"weekday-2"}))
         self.assertNotIn("black", on_offer)
         self.assertEqual(shared.colours_on_offer("coat"), {})
 
@@ -678,7 +678,7 @@ class BuyingInYourSizes(AppCase):
                               f'rel="noopener noreferrer"><span lang="de">{escape(line.product)}</span>', html_line)
                 self.assertIn(f'Colour: <span lang="de">{escape(line.colour)}</span> · Size: <b>{escape(line.size)}</b>',
                               html_line)
-        # Both kinds were checked: the demo data has products with a photo and one without (the Zara chinos).
+        # Both kinds were checked: the demo data has products with a photo and one without (the Weekday chinos).
         self.assertTrue(any(line.image_url for line in seen) and not all(line.image_url for line in seen))
 
     def test_the_buy_page_leads_with_the_outfits_total_and_says_what_the_prices_leave_out(self):

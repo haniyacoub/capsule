@@ -3,7 +3,7 @@ import csv
 import io
 import unittest
 
-from wardrobe import catalog, db, export, outfits, paths, selection, sizecheck, sizes
+from wardrobe import catalog, db, export, outfits, paths, programmes, selection, sizecheck, sizes
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app
 
@@ -114,9 +114,11 @@ class SizeCheckInTheApp(AppCase):
         w = selection.build()
         trousers = next(s for s in w.slots if s.garment.key == "trousers")
         labels = {c.data["store"]: c.size_to_order for c in trousers.cands}
-        self.assertEqual(labels["zara"], "42")                    # W32 at Zara
         self.assertEqual(labels["cos"], "48")                     # W32 at COS
         self.assertEqual(labels["weekday"], "48")
+        jeans = next(s for s in w.slots if s.garment.key == "jeans")
+        labels = {c.data["store"]: c.size_to_order for c in jeans.cands}
+        self.assertEqual(labels["weekday"], "32/32")              # W32 L32 on Weekday's jeans: the same waist, its own label
 
 
 class SavedOutfits(AppCase):
@@ -167,7 +169,9 @@ class ShoppingList(AppCase):
         w = selection.build()
         sl = export.build(w)
 
-        self.assertEqual([g.key for g in sl.groups], [k for k in export.STORE_ORDER if k in {g.key for g in sl.groups}])
+        # In the order config/stores.toml lists the stores customers are offered.
+        self.assertEqual([g.key for g in sl.groups], [k for k in programmes.offered() if k in {g.key for g in sl.groups}])
+        self.assertEqual([g.key for g in sl.groups], ["cos", "weekday"], "the demo data has products of both")
         self.assertAlmostEqual(sum(g.subtotal for g in sl.groups), w.total, places=2)
         self.assertEqual(sl.pieces, w.n_buy)
         self.assertEqual(sl.owned, [coat.slot["name"]])

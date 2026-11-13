@@ -836,10 +836,10 @@ def run(base: str) -> None:
             # jumpers in grey and navy only. A second customer who likes black, grey and white then has a black
             # jumper with nothing to buy. Every signed-in page picks up a list as soon as it is published, so it is
             # taken away again at the end: the first customer's steps stay on the demo data, whatever their order.
-            jumper = {"category": "knit", "store": "zara", "currency": "EUR", "composition_text": "100% Wolle",
+            jumper = {"category": "knit", "store": "cos", "currency": "EUR", "composition_text": "100% Wolle",
                       "fit": "regular", "sizes_all": ["S", "M", "L"], "sizes_in_stock": ["S", "M", "L"],
                       "image_url": "", "source": "collected"}
-            products = [{**jumper, "id": f"zara-9{n}", "name": f"Pullover aus Wolle {n}", "slug": f"pullover-{n}",
+            products = [{**jumper, "id": f"cos-9{n}", "name": f"Pullover aus Wolle {n}", "slug": f"pullover-{n}",
                          "price": 39.95 + n, "colour": colour, "colour_hex": None, "url": f"https://www.example.com/de/{n}"}
                         for n, colour in enumerate(("Grau", "Marineblau"))]
             listed = DATA / "store_catalog.json"

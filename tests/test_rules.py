@@ -1,7 +1,7 @@
 """The rules that decide things: parsing, scoring, sizes, the capsule proposal."""
 import unittest
 
-from wardrobe import capsule, colours, composition, scoring, sizes
+from wardrobe import capsule, colours, composition, programmes, scoring, sizes
 from wardrobe.profile import EXAMPLE
 
 
@@ -80,8 +80,8 @@ class Scoring(unittest.TestCase):
         return scoring.score({"store": store, "price": price, "composition_text": comp}, category, self.rules)
 
     def test_natural_beats_synthetic(self):
-        merino = self.score("zara", 49.95, "100 % Merinowolle", "knit")
-        acrylic = self.score("zara", 35.95, "45 % Polyacryl, 30 % Polyester, 25 % Wolle", "knit")
+        merino = self.score("weekday", 49.95, "100 % Merinowolle", "knit")
+        acrylic = self.score("weekday", 35.95, "45 % Polyacryl, 30 % Polyester, 25 % Wolle", "knit")
         self.assertGreater(merino.total, 80)
         self.assertLess(acrylic.total, 50)
 
@@ -92,12 +92,17 @@ class Scoring(unittest.TestCase):
         self.assertGreater(self.score("cos", category="knit", **same).total,
                            self.score("weekday", category="knit", **same).total)
 
+    def test_only_the_stores_customers_are_offered_are_rated(self):
+        # A store without a partner programme (programmes.py) is not offered, so it is not rated either.
+        self.assertEqual(sorted(self.rules["brand"]), sorted(programmes.offered()))
+        self.assertNotIn("zara", self.rules["brand"])
+
     def test_mostly_synthetic_penalty_is_explained(self):
-        s = self.score("zara", 35.95, "74 % Polyester, 24 % Viskose, 2 % Elasthan", "trousers")
+        s = self.score("weekday", 35.95, "74 % Polyester, 24 % Viskose, 2 % Elasthan", "trousers")
         fabric = s.parts[0]
         self.assertTrue(any("mostly synthetic" in line for line in fabric.lines))
         # jackets are exempt: technical shells are legitimately synthetic
-        j = self.score("zara", 59.95, "100 % Polyamid", "jacket")
+        j = self.score("weekday", 59.95, "100 % Polyamid", "jacket")
         self.assertFalse(any("mostly synthetic" in line for line in j.parts[0].lines))
 
     def test_price_sanity(self):
@@ -120,8 +125,8 @@ class Scoring(unittest.TestCase):
         self.assertIn("No composition", s.parts[0].lines[0])
 
     def test_a_shoe_is_scored_on_its_upper(self):
-        whole_label = self.score("zara", 69.95, ZARA_SHOE_LABELS["Retro-Leder-Sneaker"], "sneakers")
-        upper_only = self.score("zara", 69.95, "Schnitt: 100% kuhleder", "sneakers")
+        whole_label = self.score("cos", 69.95, ZARA_SHOE_LABELS["Retro-Leder-Sneaker"], "sneakers")
+        upper_only = self.score("cos", 69.95, "Schnitt: 100% kuhleder", "sneakers")
         self.assertEqual(whole_label.total, upper_only.total, "its nylon tongue does not pull the score down")
         self.assertEqual(whole_label.fabric_text, "100% leather")
         self.assertEqual(whole_label.parts[0].lines, upper_only.parts[0].lines, "'Why this score' shows the upper only")

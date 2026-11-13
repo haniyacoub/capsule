@@ -9,6 +9,13 @@
 #
 #  Category addresses change when a store reorganises its menu. If a page comes
 #  back "not found", open the store, copy the new address into the list below.
+#
+#  Which stores customers are offered: every store below has a `programme` line,
+#  the network that runs its partner (affiliate) programme, or "none". Only
+#  stores with a programme are ever shown to customers or collected; a store
+#  with "none" is skipped everywhere, also where its products are still in a
+#  file (wardrobe/programmes.py). Networks: awin, rakuten, tradedoubler,
+#  partnerize, daisycon, webgains, impact.
 # ══════════════════════════════════════════════════════════════════════════════
 
 [collector]
@@ -63,8 +70,8 @@ bomber      = ["bomber"]
 # until you add it by hand (slot page → "Add details").
 [cos]
 label         = "COS"
+programme     = "rakuten"      # COS's programme covers Germany
 base          = "https://www.cos.com"
-product_pages = false
 
 [cos.garments.coat]
 pages   = ["/de-de/men/coats-and-jackets/wool-coats", "/de-de/men/coats-and-jackets"]
@@ -141,8 +148,11 @@ pages   = ["/de-de/men/shoes/boots"]
 # estimated from the name. Weekday sells no men's shoes.
 [weekday]
 label         = "Weekday"
+# Rakuten, but UNCONFIRMED for Germany: Rakuten lists Weekday for Great Britain only, and its
+# Nordic programme (Adtraction) does not cover Germany. Kept on offer until the application
+# says otherwise; set "none" if Weekday has no programme open to a German site.
+programme     = "rakuten"
 base          = "https://www.weekday.com"
-product_pages = false
 
 [weekday.garments.coat]
 pages   = ["/de-de/men/jackets-and-coats/"]
@@ -201,70 +211,9 @@ exclude = ["shorts", "jacke", "jorts"]
 
 
 # ── Zara ──────────────────────────────────────────────────────────────────────
-# Category pages give name, price and colours; each shortlisted product page
-# then gives fabric, sizes in stock and pictures.
+# No partner programme open to a site like this (only an invite-style creator
+# scheme), so Zara is never offered to customers and never collected. Its
+# products in older files are skipped as they are read.
 [zara]
 label         = "Zara"
-base          = "https://www.zara.com"
-product_pages = true
-
-[zara.garments.coat]
-pages   = ["/de/de/herren-jacken-maentel-maentel-l719.html"]
-exclude = ["weste", "leder", "wattiert", "stepp", "daunen", "puffer", "parka", "felloptik", "kunstfell"]
-
-[zara.garments.jacket]
-pages   = ["/de/de/herren-jacken-l640.html"]
-exclude = ["mantel", "weste", "leder", "puffer", "daunen", "stepp", "overshirt", "hemdjacke", "kunstfell", "felloptik", "parka"]
-
-[zara.garments.blazer]
-pages   = ["/de/de/herren-blazer-l608.html"]
-exclude = ["smoking", "samt", "weste", "hose"]
-
-[zara.garments.overshirt]
-pages   = ["/de/de/man-overshirts-l3174.html"]
-exclude = ["leder"]
-
-[zara.garments.cardigan]
-pages   = ["/de/de/herren-strickwaren-cardigans-l685.html"]
-include = ["cardigan", "strickjacke"]
-exclude = ["weste", "pullunder"]
-
-[zara.garments.knit]
-pages   = ["/de/de/herren-pullover-l19632.html"]
-exclude = ["cardigan", "polo", "weste", "pullunder", "reißverschluss", "zip", "kapuze"]
-
-[zara.garments.shirt]
-pages   = ["/de/de/herren-hemden-l737.html"]
-exclude = ["overshirt", "hemdjacke", "kurzarm", "kurzärm", "smoking"]
-
-[zara.garments.polo]
-pages   = ["/de/de/herren-poloshirts-l733.html"]
-
-[zara.garments.tee]
-pages   = ["/de/de/herren-t-shirts-l855.html"]
-exclude = ["langarm", "tank", "ärmellos", "polo"]
-
-[zara.garments.longsleeve]
-pages   = ["/de/de/herren-t-shirts-langarm-l2541.html"]
-exclude = ["polo"]
-
-[zara.garments.trousers]
-pages   = ["/de/de/herren-hosen-l838.html"]
-exclude = ["chino", "jogg", "cargo", "jeans", "shorts", "bermuda", "leder", "sweat"]
-
-[zara.garments.chinos]
-pages   = ["/de/de/herren-hosen-chinos-l845.html"]
-
-[zara.garments.jeans]
-pages   = ["/de/de/herren-jeans-l659.html"]
-exclude = ["shorts", "bermuda", "jacke"]
-
-[zara.garments.sneakers]
-pages   = ["/de/de/herren-schuhe-sneaker-l797.html"]
-
-[zara.garments.shoes]
-pages   = ["/de/de/herren-schuhe-schnurung-l4378.html", "/de/de/herren-schuhe-mokassins-l789.html"]
-exclude = ["sneaker", "stiefel", "boot", "sandal"]
-
-[zara.garments.boots]
-pages   = ["/de/de/herren-schuhe-stiefel-l781.html"]
+programme     = "none"

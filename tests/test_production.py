@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from wardrobe import catalog, config, db, mail, paths, selection, settings, shared
+from wardrobe.collect.browser import Session
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app, eur
 
@@ -725,11 +726,11 @@ class Guards(ProductionCase):
         ada = self.member("ada@example.com")
         with db.as_user(self.user_id("ada@example.com")):
             knit = next(s["id"] for s in db.list_slots() if s["category"] == "knit")
-        with mock.patch("wardrobe.collect.manual.Session", side_effect=AssertionError("a browser was started")):
+        with mock.patch.object(Session, "__init__", side_effect=AssertionError("a browser was started")):
             response = self.post(ada, f"/slot/{knit}/import",
-                                 urls="https://www.zara.com/de/de/grobstrickpullover-100-wolle-p01928374.html")
+                                 urls="https://www.cos.com/de-de/men/knitwear/product/grobstrickpullover-wolle-1092837465")
         self.assertEqual(response.status_code, 302)
-        self.assertIn(b"Grobstrickpullover 100 wolle", ada.get(f"/slot/{knit}").data)
+        self.assertIn(b"Grobstrickpullover wolle", ada.get(f"/slot/{knit}").data)
 
         from wardrobe.__main__ import main
         for command in (["refresh"], ["mock"], ["serve"]):
@@ -1152,10 +1153,10 @@ class SharedStoreCatalogue(ProductionCase):
                 {"id": "grey-merino-jumper", "name": "Grey merino jumper", "category": "knit", "colour": "grey"},
                 {"id": "white-tee", "name": "White tee", "category": "tee", "colour": "white"}, *slots])
             catalog.save({"source": "collected", "collected_at": "2026-11-11T17:00:00+01:00", "stores": {}, "candidates": [
-                product("zara", "1", "Pullover aus Merinowolle", 49.95, "Grau", fabric="100% Merinowolle"),
+                product("weekday", "1", "Pullover aus Merinowolle", 49.95, "Grau", fabric="100% Merinowolle"),
                 product("cos", "2", "Merino jumper", 89.0, "GREY", "#8d8e91"),
-                product("zara", "3", "Pullover", 29.95, "Marineblau"),
-                product("zara", "4", "Basic T-Shirt", 12.95, "Weiß", slot_id="white-tee", fabric="100% Baumwolle"),
+                product("weekday", "3", "Pullover", 29.95, "Marineblau"),
+                product("weekday", "4", "Basic T-Shirt", 12.95, "Weiß", slot_id="white-tee", fabric="100% Baumwolle"),
                 product("cos", "5", "My own find", 10.0, "Grau", source="manual"),
                 *extra]})
             return shared.publish(paths.DATA_DIR)
@@ -1173,8 +1174,8 @@ class SharedStoreCatalogue(ProductionCase):
         page = ada.get("/").data
         self.assertNotIn(b"Demo data", page)
         self.assertIn(b"Pullover aus Merinowolle", page)
-        self.assertEqual(sorted(self.knit("ada@example.com")), ["cos-2", "zara-1"], "grey ones only, from both stores")
-        self.assertEqual(self.knit("ada@example.com", "white-tee"), ["zara-4"])
+        self.assertEqual(sorted(self.knit("ada@example.com")), ["cos-2", "weekday-1"], "grey ones only, from both stores")
+        self.assertEqual(self.knit("ada@example.com", "white-tee"), ["weekday-4"])
         with db.as_user(self.user_id("ada@example.com")):
             w = selection.build()
             self.assertEqual(w.source, "collected")
@@ -1185,16 +1186,16 @@ class SharedStoreCatalogue(ProductionCase):
         self.publish()
         ada = self.member("ada@example.com")
         self.post(ada, "/slots/add", name="A second grey knit", category="knit", colour="grey", qty="1")
-        self.assertEqual(sorted(self.knit("ada@example.com", "a-second-grey-knit")), ["cos-2", "zara-1"])
+        self.assertEqual(sorted(self.knit("ada@example.com", "a-second-grey-knit")), ["cos-2", "weekday-1"])
         self.post(ada, "/slots/grey-merino-jumper/save", name="Navy jumper", category="knit", colour="navy", qty="1")
-        self.assertEqual(self.knit("ada@example.com"), ["zara-3"], "recolouring a slot changes what fits it")
+        self.assertEqual(self.knit("ada@example.com"), ["weekday-3"], "recolouring a slot changes what fits it")
 
     def test_customers_on_demo_data_move_to_real_data_when_it_is_published(self):
         ada = self.member("ada@example.com")
         self.assertIn(b"Demo data", ada.get("/").data)
         self.publish()
         self.assertNotIn(b"Demo data", ada.get("/").data)
-        self.assertEqual(sorted(self.knit("ada@example.com")), ["cos-2", "zara-1"])
+        self.assertEqual(sorted(self.knit("ada@example.com")), ["cos-2", "weekday-1"])
 
     def test_a_newer_catalogue_keeps_what_the_customer_added_and_typed(self):
         self.publish()
@@ -1203,7 +1204,7 @@ class SharedStoreCatalogue(ProductionCase):
         self.post(ada, "/slot/grey-merino-jumper/import", urls="https://www.cos.com/de-de/x/product/another-jumper-grey-1234567890")
         self.publish(extra=[product("weekday", "9", "Wollpullover", 59.99, "Grau")])
         ada.get("/")
-        self.assertEqual(sorted(self.knit("ada@example.com")), ["cos-1234567890", "cos-2", "weekday-9", "zara-1"])
+        self.assertEqual(sorted(self.knit("ada@example.com")), ["cos-1234567890", "cos-2", "weekday-1", "weekday-9"])
         with db.as_user(self.user_id("ada@example.com")):
             cos = next(c for c in selection.build().get("grey-merino-jumper").cands if c.id == "cos-2")
             self.assertEqual(cos.score.fabric_source, "listed", "the fabric she typed in is still there")
@@ -1281,7 +1282,7 @@ class SharedStoreCatalogue(ProductionCase):
         with db.as_user(self.user_id("ada@example.com")):
             slot = db.get_slot("black-merino-jumper")
             self.assertEqual((slot["colour"], slot["name"], slot["locked"]), ("navy", "Navy merino jumper", False))
-            self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "zara-3")
+            self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "weekday-3")
             self.assertFalse(db.get_setting("plan_edited"), "a colour taken on the Wardrobe is no edit of the plan")
         # ... so new answers on the Profile page still rebuild the plan.
         rebuilt = self.post(ada, "/profile", top_size="M", waist="32", length="32", shoe="43", height_cm="180",
@@ -1313,11 +1314,11 @@ class SharedStoreCatalogue(ProductionCase):
             self.assertNotIn("black", {s["colour"] for s in db.list_slots()}, "the plan follows the new colours")
 
     # Jeans for a jeans piece in the operator's plan: denim's blues all match one another (collect/matching.py).
-    DENIM = [product("zara", "j1", "Jeans Straight Fit", 39.95, "Blau", slot_id="denim", sizes_all=[], sizes_in_stock=[]),
+    DENIM = [product("weekday", "j1", "Jeans Straight Fit", 39.95, "Blau", slot_id="denim", sizes_all=[], sizes_in_stock=[]),
              product("cos", "j2", "Regular jeans", 85.0, "Dark Blue", slot_id="denim", sizes_all=[], sizes_in_stock=[]),
              product("weekday", "j3", "Space jeans", 60.0, "Blue Rinse - Dunkelblau", slot_id="denim", sizes_all=[],
                      sizes_in_stock=[]),
-             product("zara", "j4", "Jeans Slim Fit", 35.95, "Indigoblau", slot_id="denim", sizes_all=[], sizes_in_stock=[])]
+             product("weekday", "j4", "Jeans Slim Fit", 35.95, "Indigoblau", slot_id="denim", sizes_all=[], sizes_in_stock=[])]
     DENIM_SLOT = {"id": "denim", "name": "Jeans", "category": "jeans", "colour": "indigo"}
     # The profile form's answers, but for the colours.
     ANSWERS = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "75",
@@ -1344,18 +1345,18 @@ class SharedStoreCatalogue(ProductionCase):
 
         bob = self.member("bob@example.com")              # the example's colours: navy is liked
         self.assertEqual(self.post(bob, "/profile", **form, liked="navy, grey", refused="").status_code, 302)
-        self.assertEqual(jeans("bob@example.com"), {"indigo-jeans": ({"zara-j1", "cos-j2", "weekday-j3", "zara-j4"}, {})},
+        self.assertEqual(jeans("bob@example.com"), {"indigo-jeans": ({"weekday-j1", "cos-j2", "weekday-j3", "weekday-j4"}, {})},
                          "all four are denim blue")
 
         ada = self.member("ada@example.com")              # navy refused: the plan still has indigo jeans
         self.assertEqual(self.post(ada, "/profile", **form, liked="grey, white", refused="navy").status_code, 302)
-        self.assertEqual(jeans("ada@example.com"), {"indigo-jeans": ({"zara-j1", "zara-j4"}, {})})
+        self.assertEqual(jeans("ada@example.com"), {"indigo-jeans": ({"weekday-j1", "weekday-j4"}, {})})
 
         cyd = self.member("cyd@example.com")              # black jeans, which the list has none of: "Use indigo"
         self.assertEqual(self.post(cyd, "/profile", **form, liked="black, white", refused="navy").status_code, 302)
         self.assertEqual(jeans("cyd@example.com"), {"black-jeans": (set(), {"indigo": ["Blau", "Indigoblau"]})})
         self.post(cyd, "/slot/black-jeans/colour", headers=HX, colour="indigo")
-        self.assertEqual(jeans("cyd@example.com"), {"black-jeans": ({"zara-j1", "zara-j4"}, {})})
+        self.assertEqual(jeans("cyd@example.com"), {"black-jeans": ({"weekday-j1", "weekday-j4"}, {})})
         page = html.unescape(cyd.get("/slot/black-jeans").data.decode())
         self.assertIn("Jeans Straight Fit", page)
         self.assertNotIn("Dunkelblau", page)
@@ -1363,16 +1364,16 @@ class SharedStoreCatalogue(ProductionCase):
 
         # A navy piece added by hand with navy refused is his own choice: it has the navy jumper the list has.
         added = self.post(ada, "/slots/add", name="", category="knit", colour="navy", qty="1")
-        self.assertEqual(self.knit("ada@example.com", added.headers["Location"].split("#slot-")[1]), ["zara-3"])
+        self.assertEqual(self.knit("ada@example.com", added.headers["Location"].split("#slot-")[1]), ["weekday-3"])
 
         # Navy refused later, on a plan edited by hand: the plan stays, its jeans lose their navy options all the same.
-        self.assertEqual(self.knit("bob@example.com", "navy-merino-jumper"), ["zara-3"], "the Marineblau jumper")
+        self.assertEqual(self.knit("bob@example.com", "navy-merino-jumper"), ["weekday-3"], "the Marineblau jumper")
         self.post(bob, "/slots/add", name="", category="overshirt", colour="rust", qty="1")
         stays = self.post(bob, "/profile", **form, liked="grey, white", refused="navy")
         self.assertTrue(stays.headers["Location"].endswith("/profile"), "the edited plan is not rebuilt")
-        self.assertEqual(jeans("bob@example.com"), {"indigo-jeans": ({"zara-j1", "zara-j4"}, {})})
+        self.assertEqual(jeans("bob@example.com"), {"indigo-jeans": ({"weekday-j1", "weekday-j4"}, {})})
         # But the navy pieces he kept are navy by his own choice: they keep their navy options.
-        self.assertEqual(self.knit("bob@example.com", "navy-merino-jumper"), ["zara-3"])
+        self.assertEqual(self.knit("bob@example.com", "navy-merino-jumper"), ["weekday-3"])
         jumper = html.unescape(bob.get("/slot/navy-merino-jumper").get_data(as_text=True))
         self.assertIn("Pullover", jumper)
         self.assertNotIn("Not in Capsule's product list in navy yet", jumper)
@@ -1394,7 +1395,7 @@ class SharedStoreCatalogue(ProductionCase):
         message = html.unescape(dan.get("/outfits").get_data(as_text=True))
         self.assertIn("Kept your 1 hand-picked piece.", message)
         self.assertNotIn("Not kept", message)
-        locked = ("locked", "cos-j2", {"zara-j1", "cos-j2", "zara-j4"})
+        locked = ("locked", "cos-j2", {"weekday-j1", "cos-j2", "weekday-j4"})
         self.assertEqual(jeans()[:3], locked)
         # Every customer's products are rebuilt from the list (a newer list, or a new way of reading it): it stays.
         with db.as_user(self.user_id("dan@example.com")):
@@ -1407,7 +1408,7 @@ class SharedStoreCatalogue(ProductionCase):
         # Unlocked, the piece is automatic again, and the automatic pick is never in a colour he refused.
         self.post(dan, "/slot/indigo-jeans/lock")
         state, chosen, options, _ = jeans()
-        self.assertEqual((state, options), ("auto", {"zara-j1", "zara-j4"}))
+        self.assertEqual((state, options), ("auto", {"weekday-j1", "weekday-j4"}))
         self.assertIn(chosen, options)
 
     def test_at_most_three_colours_and_the_liked_ones_first(self):
@@ -1526,7 +1527,8 @@ class SharedStoreCatalogue(ProductionCase):
         ada = self.black_and_white(refused="navy")
         with db.as_user(self.user_id("ada@example.com")):
             missing = selection.build().n_missing
-        self.post(ada, "/slot/black-merino-jumper/import", urls="https://www.zara.com/de/de/strickpullover-schwarz-p01234567.html")
+        self.post(ada, "/slot/black-merino-jumper/import",
+                  urls="https://www.cos.com/de-de/men/knitwear/product/strickpullover-schwarz-1234567001")
         page = html.unescape(ada.get("/").data.decode())
         card = re.search(r'<article [^>]*id="card-black-merino-jumper">.*?</article>', page, re.S).group(0)
         self.assertIn("No price yet: add it under “Add details”", card)
@@ -1540,10 +1542,10 @@ class SharedStoreCatalogue(ProductionCase):
         self.assertIn("No price yet: add it under “Add details”.", piece)
         self.assertIn("missing: price", piece)
         # Its price typed in under "Add details", it is picked and counted with the pieces to buy.
-        self.post(ada, "/slot/black-merino-jumper/details", candidate="zara-01234567", price="45")
+        self.post(ada, "/slot/black-merino-jumper/details", candidate="cos-1234567001", price="45")
         self.assertNotIn("with no price yet", ada.get("/").data.decode())
         with db.as_user(self.user_id("ada@example.com")):
-            self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "zara-01234567")
+            self.assertEqual(selection.build().get("black-merino-jumper").chosen.id, "cos-1234567001")
 
     def test_customers_are_never_told_to_run_a_command(self):
         # On your own machine a new piece that nothing was collected for says to run "python -m wardrobe refresh".

@@ -8,7 +8,7 @@
 {% block main %}
 <section class="hero">
   <h1>A small wardrobe where everything goes with everything.</h1>
-  <p class="hero-lead">Capsule plans a men's wardrobe of about 18 pieces in one colour palette, picks the <span>best-value</span> real product for each from three <span>high-street</span> stores, and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}.</p>
+  <p class="hero-lead">Capsule plans a men's wardrobe of about 18 pieces in one colour palette, picks the <span>best-value</span> real product for each from the <span>high-street</span> stores {{ store_names(STORES) }}, and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}.</p>
   <p class="hero-cta"><a class="btn" href="{{ url_for('auth.signup') }}">Create a free account</a></p>
   <p class="hero-note">Free. You buy straight from the stores, in your sizes. Capsule never takes payment.</p>
   {% if invite %}

@@ -16,12 +16,12 @@ from unittest import mock
 
 from wardrobe import catalog, collect, composition, config, db, paths, scoring, selection, shared
 from wardrobe.app import create_app
-from wardrobe.collect import cos, manual, matching, pages, weekday, zara
+from wardrobe.collect import cos, manual, matching, pages, weekday
 from wardrobe.collect.browser import Blocked, NotAllowed, block_reason
 from wardrobe.collect.robots import Robots
 
 FIXTURES = Path(__file__).parent / "fixtures"
-COS, WEEKDAY, ZARA = "https://www.cos.com", "https://www.weekday.com", "https://www.zara.com"
+COS, WEEKDAY = "https://www.cos.com", "https://www.weekday.com"
 
 
 def fixture(name: str) -> str:
@@ -40,21 +40,18 @@ SETTINGS = config.load("stores.toml")
 class FakeSession:
     """Stands in for the browser: serves fixture pages, or refuses like a store would."""
 
-    def __init__(self, refuse_products=False, refuse_everything=False):
-        self.refuse_products, self.refuse_everything = refuse_products, refuse_everything
+    def __init__(self, refuse_everything=False):
+        self.refuse_everything = refuse_everything
         self.pages_loaded: dict[str, int] = {}
         self.opened: list[str] = []
 
     def fetch(self, store, base, url):
         self.opened.append(url)
         self.pages_loaded[store] = self.pages_loaded.get(store, 0) + 1
-        is_product = "/product/" in url or "/p/" in url or "-p0" in url
-        if self.refuse_everything or (is_product and self.refuse_products):
+        if self.refuse_everything:
             raise Blocked(store, url, "the store answered 403 (Access Denied)")
         if "search" in url:
             raise NotAllowed(url)
-        if store == "zara":
-            return fixture("zara_product.html" if is_product else "zara_listing.html")
         return fixture(f"{store}_listing.html")
 
 
@@ -80,30 +77,6 @@ class Parsers(unittest.TestCase):
         self.assertTrue(all(it["colour_hex"] is None for it in items), "Weekday's swatch is not the real shade")
         self.assertEqual([pages.fit_from(f"{it['name']} {it['slug']}") for it in items], ["relaxed"] * 6,
                          "every name on the page says its cut, as on the store's own page")
-
-    def test_zara_category_page(self):
-        items = zara.parse_listing(fixture("zara_listing.html"), ZARA)
-        self.assertEqual(len(items), 5)
-        first = items[0]
-        self.assertEqual(first["price"], 59.95)                      # the page says 5995 cents
-        self.assertRegex(first["url"], r"^https://www\.zara\.com/de/de/.+-p\d{8}\.html$")
-        self.assertGreater(len(first["colours"]), 1)
-        self.assertTrue(all(c["name"] for c in first["colours"]))
-        self.assertEqual([pages.fit_from(f"{it['name']} {it['slug']}") for it in items],
-                         ["regular", "relaxed", "regular", "regular", "regular"])
-
-    def test_zara_product_page(self):
-        detail = zara.parse_product(fixture("zara_product.html"), ZARA)
-        self.assertEqual(composition.parse(detail["composition_text"]), [("wool", 100.0)],
-                         "the lining is listed after the main fabric and ignored")
-        self.assertEqual(len(detail["colours"]), 4)
-        khaki = detail["colours"][0]
-        self.assertEqual(khaki["price"], 59.95)
-        self.assertEqual(khaki["sizes_all"], ["S", "M", "L", "XL"])
-        self.assertEqual(khaki["sizes_in_stock"], ["S", "M", "XL"])
-        self.assertIn("-e1", khaki["image_url"], "the plain product shot is preferred")
-        self.assertNotIn("{width}", khaki["image_url"])
-        self.assertIsNone(zara.parse_product("<html>not a product</html>", ZARA))
 
     def test_next_page_and_names(self):
         self.assertEqual(pages.next_page_url(fixture("cos_listing.html"), COS + "/de-de/men/knitwear/jumper"),
@@ -134,14 +107,14 @@ class Parsers(unittest.TestCase):
                                         "weitet."), "relaxed")
 
 
-# Two made-up jeans descriptions with the phrases Zara uses for a straight leg. Before the cut reader
+# Two made-up jeans descriptions with the phrases a store uses for a straight leg. Before the cut reader
 # took denied words out, the first read as slim ("schmaler") and the second as relaxed ("weiter");
 # both say the leg is straight.
 STRAIGHT_FIT_JEANS = {
-    "zara-01000001-400": "Jeans mit geradem Bein und einer Passform, die weder schmaler noch weiter wird. Hoher "
-                         "Bund. Fester Baumwoll-Denim. Fünf Taschen und Knopfleiste.",
-    "zara-01000002-405": "Modellgröße 186 cm. Gerade geschnittene Jeans, die weder enger noch weiter wird. Mittlere "
-                         "Leibhöhe. Steifer Denim mit Waschung. Knopfverschluss.",
+    "weekday-0100000140": "Jeans mit geradem Bein und einer Passform, die weder schmaler noch weiter wird. Hoher "
+                          "Bund. Fester Baumwoll-Denim. Fünf Taschen und Knopfleiste.",
+    "weekday-0100000240": "Modellgröße 186 cm. Gerade geschnittene Jeans, die weder enger noch weiter wird. Mittlere "
+                          "Leibhöhe. Steifer Denim mit Waschung. Knopfverschluss.",
 }
 
 
@@ -216,8 +189,8 @@ class Politeness(unittest.TestCase):
         self.assertFalse(robots.allowed(COS + "/api/products"))
         self.assertFalse(robots.allowed(COS + "/de-de/checkout"))
         self.assertTrue(robots.allowed(COS + "/de-de/checkout-help"))            # "$" means end of address
-        self.assertFalse(robots.allowed(ZARA + "/de/de/x-p01234567.html?color=800"))
-        self.assertTrue(robots.allowed(ZARA + "/de/de/x-p01234567.html?v1=123"))
+        self.assertFalse(robots.allowed(WEEKDAY + "/de-de/p/x-1234567001/?color=800"))
+        self.assertTrue(robots.allowed(WEEKDAY + "/de-de/p/x-1234567001/?v1=123"))
         self.assertTrue(robots.allowed(COS + "/de-de/register-return"))           # the longer rule wins
         self.assertTrue(Robots("").allowed(COS + "/anything"))
 
@@ -243,7 +216,7 @@ class Politeness(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stdout(printed):
             main(["refresh", "--help"])
         said = " ".join(printed.getvalue().split())
-        for promise in ("Reads COS, Weekday and Zara category pages (and Zara's product pages for fabric and sizes)",
+        for promise in ("Reads COS and Weekday category pages in a visible Chrome window (never their product pages)",
                         "For your own machine and for testing only", "never on a schedule",
                         "never use what it collects as the source for the public site"):
             self.assertIn(promise, said)
@@ -287,28 +260,13 @@ class Collecting(unittest.TestCase):
             self.assertTrue(c["sizes_all"])
         self.assertEqual([c["fit"] for c in found], ["relaxed", "relaxed"], "the cut each name announces")
 
-    def test_zara_gets_fabric_and_sizes_from_product_pages(self):
-        db.replace_slots([slot("Brown jumper", "knit", "brown")])
-        status = self.run_store("zara", FakeSession())
-        self.assertEqual(status["status"], "ok")
-        found = catalog.load()["candidates"]
-        self.assertTrue(found)
-        c = found[0]
-        self.assertEqual(c["colour"], "Braun")
-        self.assertIn("wolle", c["composition_text"].lower())
-        self.assertEqual(c["sizes_in_stock"], ["S", "M", "L", "XL"])
-        self.assertEqual(c["fit"], "regular", "the cut is read from the product page's name and description")
-        self.assertIn("?v1=", c["url"])
-        self.assertEqual(len({x["id"] for x in found}), len(found), "the same product is not listed twice")
-
     def test_the_first_refusal_stops_that_store_and_keeps_what_was_read(self):
         db.replace_slots([slot("Brown jumper", "knit", "brown"), slot("Grey jumper", "knit", "grey")])
-        session = FakeSession(refuse_products=True)
-        status = self.run_store("zara", session)
+        session = FakeSession(refuse_everything=True)
+        status = self.run_store("weekday", session)
         self.assertEqual(status["status"], "blocked")
         self.assertIn("refused", status["message"])
-        products_tried = [u for u in session.opened if "-p0" in u]
-        self.assertEqual(len(products_tried), 1, "nothing is retried after a refusal")
+        self.assertEqual(len(session.opened), 1, "nothing is retried after a refusal, and no other piece is tried")
 
         everything = FakeSession(refuse_everything=True)
         status = self.run_store("cos", everything)
@@ -388,8 +346,8 @@ class PublishedListReadAgain(unittest.TestCase):
         db.init()
         db.replace_slots([slot("Indigo jeans", "jeans", "indigo"), slot("Grey wool trousers", "trousers", "grey")])
         pool = {"published_at": self.PUBLISHED, "collected_at": "2026-11-11T17:00:18+01:00", "stores": {}, "products": [
-            self.product("zara-01000001-400", "slim", STRAIGHT_FIT_JEANS["zara-01000001-400"]),
-            self.product("zara-01000002-405", "relaxed", STRAIGHT_FIT_JEANS["zara-01000002-405"]),
+            self.product("weekday-0100000140", "slim", STRAIGHT_FIT_JEANS["weekday-0100000140"]),
+            self.product("weekday-0100000240", "relaxed", STRAIGHT_FIT_JEANS["weekday-0100000240"]),
             # Its cut came from its web address ("relaxed-…"): there is no description to read again.
             self.product("cos-1", "relaxed", "", store="cos", name="Hose aus Wolle", category="trousers",
                          colour="Grey", slug="relaxed-wool-trousers-grey-1")]}
@@ -400,25 +358,25 @@ class PublishedListReadAgain(unittest.TestCase):
         catalog._cache = shared._cache = None
 
     @staticmethod
-    def product(pid, fit, description, store="zara", name="Jeans Straight Fit", category="jeans", colour="Blau",
+    def product(pid, fit, description, store="weekday", name="Jeans Straight Fit", category="jeans", colour="Blau",
                 slug=""):
         """A product as `python -m wardrobe publish` writes it, with the cut it was given on 11 Nov."""
         return {"id": pid, "store": store, "name": name, "slug": slug, "price": 39.95, "price_before": None,
                 "currency": "EUR", "colour": colour, "colour_hex": None, "composition_text": "100% baumwolle",
-                "fit": fit, "description": description, "sizes_all": ["40", "42", "44"],
-                "sizes_in_stock": ["40", "42", "44"], "url": f"https://www.example.com/{pid}", "image_url": "",
+                "fit": fit, "description": description, "sizes_all": ["31/32", "32/32", "33/32"],
+                "sizes_in_stock": ["31/32", "32/32", "33/32"], "url": f"https://www.example.com/{pid}", "image_url": "",
                 "source": "collected", "collected_at": "2026-11-11T16:59:22+01:00", "category": category}
 
     def test_the_cut_is_read_again_from_the_stores_own_words(self):
         fits = {p["id"]: p["fit"] for p in shared.load()["products"]}
-        self.assertEqual(fits, {"zara-01000001-400": "regular", "zara-01000002-405": "regular", "cos-1": "relaxed"})
+        self.assertEqual(fits, {"weekday-0100000140": "regular", "weekday-0100000240": "regular", "cos-1": "relaxed"})
         on_disk = json.loads((paths.DATA_DIR / shared.POOL_NAME).read_text(encoding="utf-8"))
         self.assertEqual([p["fit"] for p in on_disk["products"]], ["slim", "relaxed", "relaxed"],
                          "the published file itself is left as it is")
 
     def test_every_customer_gets_the_corrected_cut_once(self):
         # A customer whose products were built from this list before the correction: the jeans say "Slim cut".
-        jeans = {**self.product("zara-01000001-400", "slim", STRAIGHT_FIT_JEANS["zara-01000001-400"]),
+        jeans = {**self.product("weekday-0100000140", "slim", STRAIGHT_FIT_JEANS["weekday-0100000140"]),
                  "slot_id": "indigo-jeans"}
         catalog.save({"source": "collected", "collected_at": "2026-11-11T17:00:18+01:00", "stores": {},
                       "pool": self.PUBLISHED, "candidates": [jeans]})
@@ -430,16 +388,16 @@ class PublishedListReadAgain(unittest.TestCase):
             shared.refresh_customer()
             shared.refresh_customer()                   # the next page they open
         self.assertEqual(rebuild.call_count, 1, "rebuilt once, not on every page")
-        self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#refused")
+        self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#refused#cos,weekday")
         after = selection.build().get("indigo-jeans")
         self.assertEqual({c.id: c.data["fit"] for c in after.cands},
-                         {"zara-01000001-400": "regular", "zara-01000002-405": "regular"})
+                         {"weekday-0100000140": "regular", "weekday-0100000240": "regular"})
         self.assertFalse([note for note in after.chosen.check.notes if "Slim" in note], after.chosen.check.notes)
 
     def test_a_new_customer_starts_on_the_corrected_list(self):
         built = shared.build_catalog(db.list_slots(), None)
         self.assertEqual({c["id"]: c["fit"] for c in built["candidates"]},
-                         {"zara-01000001-400": "regular", "zara-01000002-405": "regular", "cos-1": "relaxed"})
+                         {"weekday-0100000140": "regular", "weekday-0100000240": "regular", "cos-1": "relaxed"})
         db.set_setting("pool", built["pool"])           # what sign-up keeps (onboarding.ensure_setup)
         with mock.patch.object(shared, "build_catalog", wraps=shared.build_catalog) as rebuild:
             shared.refresh_customer()
@@ -470,13 +428,15 @@ class ByHand(unittest.TestCase):
     def cand(self, cand_id):
         return next(c for c in selection.build().get(self.sid).cands if c.id == cand_id)
 
-    def test_links_that_are_not_from_the_three_stores_are_refused(self):
+    def test_links_that_are_not_from_the_stores_offered_are_refused(self):
         self.assertEqual(manual.store_of("https://www.cos.com/de-de/x"), "cos")
-        self.assertEqual(manual.store_of("https://www.zara.com/de/de/x-p01234567.html"), "zara")
+        self.assertEqual(manual.store_of("https://www.weekday.com/de-de/p/x-1234567001/"), "weekday")
+        self.assertIsNone(manual.store_of("https://www.zara.com/de/de/x-p01234567.html"), "Zara has no partner programme")
         self.assertIsNone(manual.store_of("https://www.example.com/cos.com"))
         self.assertIsNone(manual.store_of("javascript:alert(1)"))
-        results = manual.from_urls(["https://shop.example.org/jumper"], self.slot)
-        self.assertIsNone(results[0][1])
+        results = manual.from_urls(["https://shop.example.org/jumper", "https://www.zara.com/de/de/x-p01234567.html"],
+                                   self.slot)
+        self.assertEqual([(cand, note) for _, cand, note in results], [(None, "not a COS or Weekday link")] * 2)
 
     def test_a_cos_link_is_not_opened_and_gives_what_the_link_says(self):
         link = COS + "/de-de/men/menswear/knitwear/jumpers/merino/product/brushed-merino-crew-neck-jumper-black-4100000902"
