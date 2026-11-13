@@ -9,7 +9,7 @@
 <h1 class="page-title">Buy this outfit</h1>
 {% if sl.groups %}
 <p class="buy-head"><b>{{ sl.total|eur }}</b>
-  <span>{{ outfit.label }} · {{ sl.pieces }} {{ 'piece' if sl.pieces == 1 else 'pieces' }} · prices and stock as of {{ sl.collected }}</span></p>
+  <span>{{ outfit.label }} · {{ sl.pieces }} {{ 'piece' if sl.pieces == 1 else 'pieces' }}{% if sl.owned %} to buy{% endif %} · prices and stock as of {{ sl.collected }}</span></p>
 {% include "_your_sizes.html" %}
 {% else %}
 <p class="empty">Nothing to buy: you own every piece of this outfit.</p>

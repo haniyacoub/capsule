@@ -458,7 +458,12 @@ def create_app() -> Flask:
     @app.get("/slot/<slot_id>")
     def slot_page(slot_id: str):
         w = selection.build()
-        return page("slot.html", w=w, tab="wardrobe", **slot_context(w, slot_id))
+        # Opened from an outfit's pop-up ("Compare all 3 options", ?from=outfit&at=<the outfit>): its way back leads
+        # to that outfit, and the Outfits tab stays lit. Otherwise it is part of the Wardrobe.
+        at = request.args.get("at", "")[:400] if request.args.get("from") == "outfit" else ""
+        occasion = request.args.get("occasion", "")
+        back = url_for("outfits_page", at=at, occasion=occasion if occasion in outfits.OCCASIONS else None) if at else ""
+        return page("slot.html", w=w, tab="outfits" if back else "wardrobe", back=back, **slot_context(w, slot_id))
 
     @app.post("/slot/<slot_id>/pick")
     def slot_pick(slot_id: str):
@@ -483,6 +488,8 @@ def create_app() -> Flask:
             abort(404)
         if view.slot["locked"]:
             db.update_slot(slot_id, locked=False, pick=None)       # back to automatic
+            if conf.PRODUCTION and view.chosen and shared.kept_for_its_lock(view.slot, view.chosen.data):
+                sync_catalog()      # a product kept only for its lock, in a colour he refused since, goes with it
         elif view.chosen is not None:
             db.update_slot(slot_id, locked=True, pick=view.chosen.id)  # freeze what's showing
         return after_slot_change(slot_id)
@@ -508,6 +515,9 @@ def create_app() -> Flask:
         if colour not in {c.key for c in view.offers}:     # never a refused colour, nor one that fills nothing
             abort(409, "That colour is not offered for this piece any more. Reload the page.")
         name = recoloured_name(view.slot["name"], view.slot["colour"], colour)
+        # An account from before plan_edited has its answer worked out by comparing the plan with the profile's
+        # own: worked out now, while they still match, as this piece's new colour would make them differ.
+        plan_edited(profile_mod.load())
         db.update_slot(slot_id, colour=colour, name=name, locked=False, pick=None)
         sync_catalog(changed_slot=slot_id)
         w = selection.build()
@@ -674,7 +684,8 @@ def create_app() -> Flask:
         occasion = request.args.get("occasion", "")
         return render_template("_piece.html", w=w, s=view, sig=outfit.sig, others=others[:6], n_others=len(others),
                                swaps=swaps, without=without, worn=worn, n_outfits=len(every),
-                               occasion=occasion if occasion in outfits.OCCASIONS else "")
+                               occasion=occasion if occasion in outfits.OCCASIONS else "",
+                               example_sizes=profile_mod.sizes_unconfirmed(profile_mod.load()))
 
     @app.get("/outfits/buy")
     def outfits_buy():
@@ -886,6 +897,8 @@ def create_app() -> Flask:
             flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
             return redirect(url_for("profile_page"))
         if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
+            if current["refused"] != new["refused"]:
+                sync_catalog()          # its pieces stay, but no longer with products in a colour now refused
             flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
                          "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
             return redirect(url_for("profile_page"))

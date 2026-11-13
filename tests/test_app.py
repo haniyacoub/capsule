@@ -631,6 +631,10 @@ class BuyingInYourSizes(AppCase):
         self.assertNotIn('id="summary"', page, "no budget bar: the wardrobe's total is not this outfit's")
         self.assertIn(f'<p class="buy-head"><b>{eur(outfit.cost)}</b>', page)
         self.assertIn(f"{outfit.label} · {len(outfit.pieces)} pieces · prices and stock as of ", page)
+        # A piece of it he owns is not bought: the count says what is.
+        self.post(f"/slot/{outfit.slots[0]}/own")
+        owning = self.client.get("/outfits/buy", query_string={"at": outfit.sig}).data.decode()
+        self.assertIn(f"{outfit.label} · {len(outfit.pieces) - 1} pieces to buy · prices and stock as of ", owning)
         self.assertIn('id="summary"', self.client.get("/list").data.decode(), "the list keeps it")
         for name, words in self.both().items():
             self.assertIn("Prices include VAT. Each store adds its own delivery costs at checkout.", words, name)

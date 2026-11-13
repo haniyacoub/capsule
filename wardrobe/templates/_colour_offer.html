@@ -1,7 +1,8 @@
 {# A piece the product list has nothing for (selection._offer): the colours Capsule has its garment in, one
    tap each (app.slot_colour), or why the piece stays out. `offer_args` carries the page's own address
    arguments, so the answer is that page's view. The colour's name is said on the button: stepping outside
-   the palette is the customer's own choice. #}
+   the palette is the customer's own choice. `plan_link` (the piece's own page) ends the reason a piece is left
+   out with the way to change it. #}
 <div class="offer">
   {% for colour in s.offers %}
   {% set to = url_for('slot_colour', slot_id=s.slot.id, **(offer_args or {})) %}
@@ -10,6 +11,6 @@
     <button class="btn ghost small"><i class="dot" style="background:{{ colour.hex }}"></i>Use {{ colour.label|lower }}<span class="sr"> for {{ s.slot.name }}</span></button>
   </form>
   {% else %}
-  <p class="left-out">{{ s.left_out }}</p>
+  <p class="left-out">{{ s.left_out }}{% if plan_link %} <a href="{{ url_for('slots_page') }}#slot-{{ s.slot.id }}">Edit the plan</a>{% endif %}</p>
   {% endfor %}
 </div>

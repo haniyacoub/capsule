@@ -8,7 +8,9 @@ It starts the app in production mode on a spare port, with a throwaway data fold
 stand-in for the image service (nothing is sent anywhere and nothing is billed), then does
 what a new customer would: signs up, changes the price level, watches an outfit's picture
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
-page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
+page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, opens a piece on a phone
+(named by its product, the quick changes on the first screen, the page behind it staying put, and back from
+comparing all options to the same outfit), moves between outfits,
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
 logs in again and lands on the outfits, puts a model together, uploads a photo, saves new colours
 (the plan is rebuilt, keeping the swapped piece), sees that a phone's first screen shows the outfit
@@ -460,6 +462,69 @@ def run(base: str) -> None:
             page.wait_for_load_state("networkidle")
             assert page.locator(f"{first} .piece-row").count() == before - 1, "the piece is still there"
 
+        def the_piece_pop_up_on_a_phone():
+            # Tapping a dot on a phone (390 x 844): the pop-up is named by the product, says 'Quality' next to the
+            # number and what each option costs next to the piece, and shows the quick changes to this outfit ('In
+            # this outfit') on its first screen. Swiping inside it never moves the page behind it, and its close
+            # button is a 44px target. 'Compare all N options' leads to the piece's page, whose way back returns to
+            # the same outfit with the Outfits tab lit.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            other = context.new_page()
+            other.goto(base + "/login", wait_until="networkidle")
+            other.fill("input[name=email]", EMAIL)
+            other.fill("input[name=password]", PASSWORD)
+            other.click("button:has-text('Log in')")
+            other.wait_for_load_state("networkidle")
+            other.goto(base + "/outfits", wait_until="networkidle")
+            other.wait_for_selector(f"{first} .look-pic img")
+            other.evaluate("() => window.scrollTo(0, 120)")
+            other.wait_for_timeout(300)
+            still = other.evaluate("scrollY")
+            coat = other.locator(f"{first} .spot[title*=coat i]")              # the tallest pop-up: the coat's
+            spot = coat.first if coat.count() else other.locator(f"{first} .spot").first
+            sig = re.search(r"at=([^&]+)", spot.get_attribute("hx-get")).group(1)
+            spot.tap()
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            sheet = other.locator("dialog#piece")
+            expect(sheet, "the pop-up is not named by the product").to_have_accessible_name(
+                other.locator("#piece-title").inner_text().strip())
+            said = other.locator("#piece-body").inner_text()
+            assert re.search(r"Quality\s+\d+", said), f"no 'Quality' next to the number: {said[:200]!r}"
+            priced = other.locator("#piece-body .swap li form").count()      # an option without a price has no Choose
+            differences = re.findall(r"[−+]\d[\d,.]*\s€|same price", said)
+            assert priced and len(differences) == priced, f"{priced} options with a price, {len(differences)} price differences"
+            seen = other.evaluate("""() => {
+                const sheet = document.querySelector('dialog#piece'), box = sheet.getBoundingClientRect();
+                const heads = [...sheet.querySelectorAll('h3')].map(h => h.textContent.trim());
+                const chips = [...sheet.querySelectorAll('.chips a')], close = sheet.querySelector('.sheet-close').getBoundingClientRect();
+                return {heads, scrolled: sheet.scrollTop, bottom: box.bottom, close: [close.width, close.height],
+                        chips: chips.length ? chips[chips.length - 1].getBoundingClientRect().bottom : null};
+            }""")
+            assert seen["heads"][:2] == ["In this outfit", "Swap it for"], f"the pop-up's parts are {seen['heads']}"
+            assert seen["scrolled"] == 0 and seen["chips"] <= seen["bottom"], \
+                f"'In this outfit' ends at {seen['chips']:.0f}px, under the sheet's first screen ({seen['bottom']:.0f}px)"
+            assert min(seen["close"]) >= 44, f"the close button is {seen['close'][0]:.0f} x {seen['close'][1]:.0f}px"
+            touch, box = context.new_cdp_session(other), sheet.bounding_box()
+            for _ in range(3):
+                touch.send("Input.synthesizeScrollGesture", {"x": 195, "y": int(box["y"] + box["height"] - 60), "xDistance": 0,
+                                                            "yDistance": -300, "speed": 1200, "gestureSourceType": "touch"})
+                other.wait_for_timeout(300)
+            other.locator("dialog#piece .sheet-close").tap()
+            other.wait_for_selector("dialog#piece:not([open])", state="attached")
+            assert other.evaluate("scrollY") == still, f"swiping inside the pop-up moved the page from {still} to {other.evaluate('scrollY')}"
+            spot.tap()
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            other.locator("#piece-body a", has_text=re.compile(r"^Compare all \d+ options$")).click()
+            other.wait_for_load_state("networkidle")
+            crumb = other.locator(".crumb a")
+            assert crumb.inner_text().strip() == "Back to the outfit", f"the piece page's way back reads {crumb.inner_text()!r}"
+            assert other.locator(".tabs a[aria-current=page]").inner_text() == "Outfits", "the Outfits tab is not lit"
+            crumb.click()
+            other.wait_for_load_state("networkidle")
+            back = re.search(r"at=([^&]+)", other.locator(f"{first} .piece-row").first.get_attribute("hx-get")).group(1)
+            assert back == sig, f"back on {back}, not on the outfit the pop-up was opened from ({sig})"
+            context.close()
+
         def arrows_move():
             def shown() -> int:
                 return page.evaluate("() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth); }")
@@ -565,6 +630,8 @@ def run(base: str) -> None:
             sizes = page.locator(".your-sizes")
             assert "Your sizes: Tops M" in sizes.inner_text() and "example sizes" in sizes.inner_text(), \
                 "the example sizes are not called example sizes"
+            change = sizes.locator("a[href$='#sizes']").bounding_box()
+            assert change["height"] >= 24, f"'Change' (your sizes) is {change['height']:.1f}px tall: under 24px to tap"
             buy_page = page.url
             sizes.locator("button:has-text('These are my sizes')").click()
             page.wait_for_load_state("networkidle")
@@ -966,6 +1033,7 @@ def run(base: str) -> None:
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
+                 ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
                  ("arrows and arrow keys", arrows_move),
                  ("arrows for every mouse, your place kept on Back", arrows_for_every_mouse_and_your_place_kept),
                  ("save an outfit and buy it", save_and_buy),

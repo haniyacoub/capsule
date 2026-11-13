@@ -397,7 +397,7 @@ class PublishedListReadAgain(unittest.TestCase):
             shared.refresh_customer()
             shared.refresh_customer()                   # the next page they open
         self.assertEqual(rebuild.call_count, 1, "rebuilt once, not on every page")
-        self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#fit2")
+        self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#refused")
         after = selection.build().get("indigo-jeans")
         self.assertEqual({c.id: c.data["fit"] for c in after.cands},
                          {"zara-00774360-400": "regular", "zara-03991345-405": "regular"})
