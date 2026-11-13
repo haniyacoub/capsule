@@ -1508,6 +1508,10 @@ def run(base: str) -> None:
             # product by link' section the page comes back to, on the screen, with JavaScript on and off. The piece
             # used is one Capsule picks (not the one swapped earlier), and it is left that way.
             ACTIVE = "() => ({id: document.activeElement.id, text: document.activeElement.textContent.replace(/\\s+/g, ' ').trim()})"
+            # HTMX puts the new part of the page in at once and hooks up its buttons a moment later (its "settle", about
+            # 20 ms): a key pressed in between sends the form without HTMX. A person never presses that fast; the
+            # walk-through waits for it, as it waits for the new words.
+            SETTLED = "() => !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling')"
             page.goto(base + "/", wait_until="networkidle")
             pieces = [href for href in page.locator("a[href^='/slot/']").evaluate_all("as => as.map(a => a.getAttribute('href'))")
                       if href.split("?")[0].split("#")[0].split("/")[2] != swapped.get("slot")]
@@ -1521,11 +1525,13 @@ def run(base: str) -> None:
             page.locator("#slot-lock").focus()
             page.keyboard.press("Enter")
             page.wait_for_selector("#slot-lock:has-text('Unlock')")
+            page.wait_for_function(SETTLED)
             page.wait_for_load_state("networkidle")
             seen = page.evaluate(ACTIVE)
             assert seen == {"id": "slot-lock", "text": "Unlock (back to automatic)"}, f"after Lock this choice focus is on {seen}"
             page.keyboard.press("Enter")
             page.wait_for_selector("#slot-lock:has-text('Lock this choice')")
+            page.wait_for_function(SETTLED)
             page.wait_for_load_state("networkidle")
             seen = page.evaluate(ACTIVE)
             assert seen == {"id": "slot-lock", "text": "Lock this choice"}, f"after Unlock focus is on {seen}"
@@ -1534,6 +1540,7 @@ def run(base: str) -> None:
             choose.focus()
             page.keyboard.press("Enter")
             page.wait_for_selector(f"span#{option}")
+            page.wait_for_function(SETTLED)
             page.wait_for_load_state("networkidle")
             seen = page.evaluate(ACTIVE)
             assert seen["id"] == option and seen["text"] in ("Current pick", "Chosen and locked"), \
@@ -1544,6 +1551,7 @@ def run(base: str) -> None:
             page.locator("#slot-lock").focus()                     # back to what Capsule picks
             page.keyboard.press("Enter")
             page.wait_for_selector("#slot-lock:has-text('Lock this choice')")
+            page.wait_for_function(SETTLED)
             page.wait_for_load_state("networkidle")
 
             for javascript in (True, False):
