@@ -29,9 +29,11 @@ def add(sub) -> None:
 
     p_feeds = sub.add_parser("feeds", help="fetch the approved stores' feeds when they changed, and import them")
     p_feeds.add_argument("--store", metavar="KEY", help="only this store")
-    p_feeds.add_argument("--force", action="store_true", help="download even when the feed says it has not changed")
+    p_feeds.add_argument("--force", action="store_true", help="download even when the feed says it has not changed "
+                              "(the networks' download limits still apply)")
     p_feeds.add_argument("--from", dest="from_file", metavar="FILE",
-                         help="import this file for the store given with --store; nothing is downloaded")
+                         help="import this file for the store given with --store (an approved store, or an "
+                              "invented sample); nothing is downloaded")
     p_feeds.set_defaults(func=feeds)
 
 

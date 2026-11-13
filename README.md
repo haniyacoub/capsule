@@ -268,9 +268,15 @@ python -m wardrobe stores end musterhaus    # a programme ended: all its product
 - An import replaces that store's products in one go: whatever is missing from
   the new file is gone, and a failure part-way keeps the old products. A
   product without a price or a link is skipped and counted.
-- A feed is downloaded only when it changed, within the networks' limits (Awin
-  5 requests a minute, Tradedoubler 3 downloads of one version a day). One
-  older than its refresh hours plus a day is marked stale.
+- A download is skipped when the store's `rules.check_url`, or the file's own
+  time for a feed on this computer, says the feed has not changed. Otherwise
+  it is downloaded, and imported only if its Last-Modified time is new. Awin's
+  API is asked at most 5 times a minute. Tradedoubler allows 3 downloads of one
+  version a day, so its feed is downloaded at most every 8 hours, unless its
+  `check_url` says it changed after the last download. A feed older than its
+  refresh hours plus a day is marked stale.
+- Products come only from approved stores: `--from` imports a file only for an
+  approved store or an invented sample store.
 - It is separate from the collector: nothing from `refresh` or its snapshot goes
   into these tables, and the planner does not use them yet.
 

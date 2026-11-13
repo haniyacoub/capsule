@@ -4,8 +4,10 @@ one row of the `products` table.
 Each importer (google.py, awin_csv.py, tradedoubler.py) only says which of its feed's fields means
 what. The rules for turning those values into a row are here, once:
 
-    a product needs an id, a name, a price above zero and a buy link, or it is skipped and counted
-    prices:  "39,95 EUR", "39.95 EUR", "EUR 39.95", "€39,95", 39.95 or {"value": "39.95", "currency": "EUR"}
+    a product needs an id, a name, a price above zero and a buy link, or it is skipped and counted;
+             so is a record with a value the mapping cannot read: one bad record never stops a file
+    prices:  "39,95 EUR", "39.95 EUR", "EUR 39.95", "€39,95", 39.95 or {"value": "39.95", "currency": "EUR"};
+             a sale price is kept only when it is below the price
     sizes:   only what the feed says. A size the feed does not name stays unknown (an empty list),
              and a size counts as in stock only when the feed says so for that size
 """
@@ -63,6 +65,9 @@ def collect(records: Iterable[dict | None], make: Callable[[dict], dict]) -> Res
                 raise Skip("with an id seen before in the file")
         except Skip as why:
             result.skipped[str(why)] += 1
+            continue
+        except (TypeError, ValueError, AttributeError):   # a value of a shape the mapping cannot read
+            result.skipped["unreadable"] += 1             # costs this record only, never the whole file
             continue
         seen.add(row["product_id"])
         result.rows.append(row)
@@ -135,9 +140,13 @@ def parse_price(value: Any, currency: str | None = None) -> tuple[float | None, 
     number = re.search(r"\d[\d.,]*", words)
     if not number:
         return None, None
+    try:
+        amount = _number(number.group())
+    except ValueError:                       # digits in no order a price is written in, such as '1,2.3,4'
+        return None, None
     code = re.search(rf"(?<![A-Z])({'|'.join(_CURRENCIES)})(?![A-Z])", words.upper())
     sign = next((c for s, c in (("€", "EUR"), ("£", "GBP"), ("$", "USD")) if s in words), None)
-    return _number(number.group()), (code.group(1) if code else sign) or currency
+    return amount, (code.group(1) if code else sign) or currency
 
 
 _CURRENCIES = ("EUR", "GBP", "USD", "CHF", "SEK", "DKK", "NOK", "PLN", "CZK")
@@ -163,25 +172,25 @@ def _number(digits: str) -> float:
 def parse_time(value: Any) -> str | None:
     """A feed's time as ISO text with a time zone, from ISO text ('2026-11-12T06:00:00Z',
     '2026-11-12 06:00:00'), an HTTP date (Last-Modified), or seconds or milliseconds since 1970.
-    A time without a zone is taken as this computer's. None when it is not a time."""
+    A time without a zone is taken as this computer's. None when it is not a time, or one so far
+    away that no calendar here can hold it."""
     if value is None or isinstance(value, bool) or value == "":
         return None
-    when: datetime | None = None
-    if isinstance(value, (int, float)) or re.fullmatch(r"\s*\d{9,13}(\.\d+)?\s*", str(value)):
-        seconds = float(value)
-        if seconds > 1e11:                      # milliseconds, as Tradedoubler gives them
-            seconds /= 1000
-        when = datetime.fromtimestamp(seconds, timezone.utc)
-    else:
-        words = str(value).strip()
-        try:
-            when = datetime.fromisoformat(words.replace("Z", "+00:00"))
-        except ValueError:
+    try:
+        if isinstance(value, (int, float)) or re.fullmatch(r"\s*\d{9,13}(\.\d+)?\s*", str(value)):
+            seconds = float(value)
+            if seconds > 1e11:                  # milliseconds, as Tradedoubler gives them
+                seconds /= 1000
+            when = datetime.fromtimestamp(seconds, timezone.utc)
+        else:
+            words = str(value).strip()
             try:
+                when = datetime.fromisoformat(words.replace("Z", "+00:00"))
+            except ValueError:
                 when = parsedate_to_datetime(words)
-            except (TypeError, ValueError, IndexError):
-                return None
-    return when.astimezone().isoformat(timespec="seconds")
+        return when.astimezone().isoformat(timespec="seconds")
+    except (TypeError, ValueError, IndexError, OverflowError, OSError):
+        return None
 
 
 # Words for "can be bought now" and "cannot". Google's own are in_stock, out_of_stock, preorder and
@@ -282,7 +291,7 @@ def product(*, product_id: Any, name: Any, price: Any, buy_link: Any, sale_price
         "material": material_words,
         "composition": [[fibre, share] for fibre, share in composition.parse(material_words)],
         "price": amount,
-        "sale_price": reduced if reduced and reduced > 0 else None,
+        "sale_price": reduced if reduced and 0 < reduced < amount else None,    # a reduction, or none at all
         "currency": money or reduced_money or DEFAULT_CURRENCY,
         "sizes": labels,
         "sizes_in_stock": stocked,

@@ -4,14 +4,18 @@
     python -m wardrobe feeds --store KEY                  one store
     python -m wardrobe feeds --force                      download even when the feed says it has not changed
     python -m wardrobe feeds --store KEY --from FILE      import a file you have: nothing is downloaded
+                                                          (an approved store's, or an invented sample's)
 
 This runs from the command line (later from a timer on the server), never inside a web worker.
 For each store:
 
  1. Ask when its feed last changed, where the network offers a way (rules.check_url in
     config/feeds.toml), or look at the file's time for a feed on this computer.
- 2. Download it only when it changed (or with --force), within the networks' limits: Awin's API
-    takes at most 5 requests a minute, Tradedoubler allows 3 downloads of one file version a day.
+ 2. Download it only when that says it changed (or with --force). Where there is nothing to ask,
+    it is downloaded, and its Last-Modified time decides whether it is imported. Either way the
+    networks' limits are kept: Awin's API is asked at most 5 times a minute, and Tradedoubler,
+    which allows 3 downloads of one file version a day, gets at most one download every 8 hours,
+    unless its rules.check_url says the feed changed after the last download.
  3. Read it with the store's importer and replace all of that store's products in one
     transaction: products missing from the new file are gone, and a failure part-way keeps the
     old ones exactly as they were. A file in which no product can be read changes nothing.
@@ -93,9 +97,12 @@ def chosen(store_key: str | None, from_file: str | None) -> list[dict]:
     if store["status"] == "ended":
         raise FeedError(f"{store_key} has ended: its products were deleted and stay deleted. If its programme "
                         f"takes Capsule back: python -m wardrobe stores sync --reopen {store_key}")
-    if store["status"] != "approved" and not from_file:
-        raise FeedError(f"{store_key} is {store['status']!r}, not approved: its feed is fetched only once its "
-                        "programme has approved Capsule")
+    # Products come only from a programme that has approved Capsule: its feed is licensed, a file
+    # of it before then is not. An invented sample store's file may be tried whatever its status.
+    if store["status"] != "approved" and not (from_file and store["rules"].get("sample")):
+        raise FeedError(f"{store_key} is {store['status']!r}, not approved: Capsule takes a store's products "
+                        "only once its programme has approved it"
+                        + (", so no file of it is imported either" if from_file else ""))
     return [store]
 
 
@@ -131,7 +138,8 @@ def refresh_store(store: dict, force: bool = False, from_file: Path | None = Non
         return wait
     target = paths.DATA_DIR / "feeds" / f"{store['key']}.download"
     try:
-        modified = _download(store, expand(where, store), target, float(store["rules"].get("max_mb", DEFAULT_MAX_MB)))
+        modified = _download(store, expand(where, store), target, float(store["rules"].get("max_mb", DEFAULT_MAX_MB)),
+                             feed=True)
         if not asked and modified and not force and _same(modified, store["last_feed_update"]):
             return _unchanged(store, modified)            # nowhere to ask first: the download's own time says
         return _import(store, target, asked or modified)
@@ -178,18 +186,22 @@ def _same(a: str | None, b: str | None) -> bool:
 
 
 def _too_soon(store: dict, version: str | None) -> str:
-    """Tradedoubler allows a few downloads of one file version a day. Without a newer version to
-    fetch, the next download waits its share of the day. '' when nothing stands in the way."""
+    """Tradedoubler allows 3 downloads of one file version a day, and counts every download, imported
+    or not. So downloads are kept a third of a day apart (8 hours), unless the feed says it changed
+    after the last download (`version`, from rules.check_url): that version is new here, and may be
+    fetched now. '' when nothing stands in the way."""
     per_day = DOWNLOADS_PER_VERSION_PER_DAY.get(store.get("network") or "")
-    last = store.get("last_import_at")
-    if not per_day or not last or (version and not _same(version, store["last_feed_update"])):
+    last = store.get("last_download_at")
+    if not per_day or not last:
+        return ""
+    if version and datetime.fromisoformat(version) > datetime.fromisoformat(last):
         return ""
     now = datetime.now().astimezone()
     wait = timedelta(hours=24 / per_day) - (now - datetime.fromisoformat(last))
     if wait <= timedelta(0):
         return ""
-    return (f"not downloaded: the network allows {per_day} downloads of one feed version a day, and this one "
-            f"was imported at {last[11:16]}. Next after {(now + wait).strftime('%H:%M')}")
+    return (f"not downloaded: the network allows {per_day} downloads of one feed version a day, and the last "
+            f"download was at {last[11:16]}. Next after {(now + wait).strftime('%H:%M')}")
 
 
 # ── the address, and the download ─────────────────────────────────────────────
@@ -211,7 +223,10 @@ def expand(template: str, store: dict, quote: bool = True) -> str:
 
 
 def _stand_in(url: str) -> bool:
-    """A file, or a stand-in server on this computer: what the tests fetch instead of a network."""
+    """A file, or a stand-in server on this computer: what the tests fetch instead of a network.
+    Never in production: there a feed, and wherever it sends the downloader, is https only."""
+    if settings.PRODUCTION:
+        return False
     parts = urllib.parse.urlsplit(url)
     return parts.scheme == "file" or (parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost", "::1"))
 
@@ -248,9 +263,11 @@ def _pace(network: str | None) -> None:
     _last_request[network] = time.monotonic()
 
 
-def _download(store: dict, url: str, target: Path, limit_mb: float) -> str | None:
+def _download(store: dict, url: str, target: Path, limit_mb: float, feed: bool = False) -> str | None:
     """Fetch one address into `target`, at most `limit_mb` megabytes. Returns the answer's Last-Modified
-    time, if it gave one. Only https is fetched (and, for the tests, a file or a stand-in here)."""
+    time, if it gave one. Only https is fetched (and, for the tests, a file or a stand-in here).
+    feed=True for the feed itself (not the question when it changed): once it begins to arrive, the
+    download is recorded on the store, finished or not, as the networks count it."""
     if not (url.lower().startswith("https://") or _stand_in(url)):
         raise FeedError("only https:// feed addresses are fetched")
     _pace(store.get("network"))
@@ -262,6 +279,8 @@ def _download(store: dict, url: str, target: Path, limit_mb: float) -> str | Non
     done = False
     try:
         with _opener().open(request, timeout=TIMEOUT) as answer, target.open("wb") as out:
+            if feed:
+                db.note_download(store["key"], db.now_iso())
             size, limit = 0, limit_mb * 1024 * 1024
             while chunk := answer.read(1024 * 1024):
                 size += len(chunk)

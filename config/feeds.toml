@@ -32,7 +32,10 @@
 #                delete_on_exit  the programme wants its data deleted when it ends
 #                images          what the programme allows with its photos
 #                answers         what the programme said in writing (e.g. about AI pictures)
-#                check_url       where to ask when the feed last changed, before downloading it
+#                check_url       where to ask when the feed last changed, before downloading it.
+#                                Give it for every Tradedoubler store (its productsUnlimited/
+#                                lastUpdated address): without it, its feed is downloaded at most
+#                                every 8 hours, as Tradedoubler allows 3 downloads of one version a day
 #                headers         request headers, e.g. { Authorization = "Bearer {SOME_TOKEN}" }
 #                max_mb          the largest feed accepted (default 300)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -77,7 +80,8 @@ delivery_note = "Versand 3,95 €"
 rules         = { refresh_hours = 12, delete_on_exit = true }
 
 
-# ── A real store, once you apply (remove the # signs and fill it in) ─────────
+# ── A real store, once you apply ────────────────────────────────────────────
+# Copy the lines below, remove the first # of each one, and fill them in.
 #
 # [stores.yourstore]
 # label         = "Your Store"
@@ -85,8 +89,8 @@ rules         = { refresh_hours = 12, delete_on_exit = true }
 # programme_id  = "12345"                      # the store's advertiser id in Awin
 # status        = "applied"
 # feed_format   = "google"
+# # the address Awin's product API documentation gives; check the language part (de_DE) there
 # feed_location = "https://api.awin.com/publishers/{AWIN_PUBLISHER_ID}/awinfeeds/download/{programme_id}-retail-de_DE.jsonl"
-#                 (the address Awin's product API documentation gives; check the language part there)
 # delivery_note = "Versand 4,95 €, ab 50 € frei"
 # disclaimer    = ""
 # [stores.yourstore.rules]

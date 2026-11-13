@@ -1,15 +1,17 @@
 """Tradedoubler's Products API, as JSON: the whole feed of one store (its `productsUnlimited` download).
 
-Where the field names come from: Tradedoubler's public developer documentation,
-    https://dev.tradedoubler.com/products/publisher
-which lists for each product its name, brand, productImage (url, width, height), size, groupingId,
-`fields` (the store's own extra fields: colour is the documentation's example), and per offer the
-tracked productUrl, price and priceHistory, availability, inStock (a count) and modified.
+Each mapping line below ends with the tag of the public documentation its field name comes from:
 
-Unsure: exactly where `size` and the price sit. This reads `size` on the product and, failing that,
-a store field called "size"; the price from the newest entry of the offer's priceHistory and, failing
-that, the offer's own `price`. The id is the offer's sourceProductId (the store's own id), else the
-product's sku. Check these against the first real file, and change them here, in this one place.
+    [TD]      Tradedoubler's public developer documentation:
+                  https://dev.tradedoubler.com/products/publisher
+              which lists for each product its name, brand, ean, sku, productImage (url, width,
+              height), size, groupingId, `fields` (the store's own extra fields: colour is the
+              documentation's example), and per offer the tracked productUrl, sourceProductUrl,
+              price and priceHistory, availability, inStock (a count), deliveryTime and modified.
+    unsure    where exactly the field sits in the JSON, or what a store calls its own field, was
+              not confirmed in that page: check it against the first real file, and change it
+              here, in this one place.
+
 When a product has several offers, the first is used: a store's own feed has one.
 """
 from __future__ import annotations
@@ -37,20 +39,27 @@ def product(record: dict) -> dict:
     identifiers = identifiers if isinstance(identifiers, dict) else {}
     categories = [c.get("name") for c in record.get("categories") or [] if isinstance(c, dict)]
     return rows.product(
-        product_id=offer.get("sourceProductId") or identifiers.get("sku") or record.get("sku"),
-        group_id=record.get("groupingId"),
-        name=record.get("name"),
-        brand=record.get("brand"),
-        category=categories[0] if categories else None,
-        gender=fields.get("gender"),
-        colour=fields.get("colour") or fields.get("color"),
-        material=fields.get("material"),
-        price=_current_price(offer),                     # {"value": "49.95", "currency": "EUR"}
-        sizes=record.get("size") or fields.get("size"),
-        available=rows.in_stock(offer.get("availability"), offer.get("inStock")),   # words, then the count
-        image_url=image.get("url") if isinstance(image, dict) else image,          # as given, unchanged
-        buy_link=offer.get("productUrl"),                # the tracked link
-        feed_updated_at=offer.get("modified"),           # milliseconds since 1970
+        product_id=(offer.get("sourceProductId")     # [TD] unsure: the store's own id on the offer (the
+                                                     #      page names sourceProductUrl)
+                    or identifiers.get("sku")        # [TD] sku; unsure: that it sits under "identifiers"
+                    or record.get("sku")),           # [TD] sku
+        group_id=record.get("groupingId"),           # [TD] groupingId
+        name=record.get("name"),                     # [TD] name
+        brand=record.get("brand"),                   # [TD] brand
+        category=categories[0] if categories else None,      # [TD] unsure: not in its list, a guess: the first
+                                                             #      of the product's "categories", by "name"
+        gender=fields.get("gender"),                 # [TD] a store field; unsure: that a store calls it "gender"
+        colour=fields.get("colour") or fields.get("color"),  # [TD] a store field, the page's own example;
+                                                             #      unsure: its exact name
+        material=fields.get("material"),             # [TD] a store field; unsure: that a store calls it "material"
+        price=_current_price(offer),                 # [TD] priceHistory, else price; unsure: their shape,
+                                                     #      taken to be {"value": "49.95", "currency": "EUR"}
+        sizes=record.get("size") or fields.get("size"),      # [TD] size; unsure: on the product or a store field
+        available=rows.in_stock(offer.get("availability"),   # [TD] availability, in words
+                                offer.get("inStock")),       # [TD] inStock, a count
+        image_url=image.get("url") if isinstance(image, dict) else image,   # [TD] productImage's url, unchanged
+        buy_link=offer.get("productUrl"),            # [TD] productUrl, the tracked link
+        feed_updated_at=offer.get("modified"),       # [TD] modified; unsure: milliseconds since 1970, as read here
     )
 
 

@@ -7,6 +7,7 @@ replaced in every test, and a test fails if it was used, except where a test han
 address or a stand-in server on this computer on purpose.
 """
 import contextlib
+import email.utils
 import gzip
 import io
 import json
@@ -16,6 +17,7 @@ import sqlite3
 import tempfile
 import threading
 import time
+import tomllib
 import unittest
 import urllib.request
 from collections import Counter
@@ -49,6 +51,79 @@ def a_store(**values) -> dict:
     return {"label": "A test store", "network": None, "programme_id": None, "status": "approved",
             "feed_format": "google", "feed_location": None, "delivery_note": None, "disclaimer": None,
             "rules": {}, **values}
+
+
+# What a database made by version 4 holds: wardrobe/db.py's SCHEMA and SCHEMA_PICTURES as they were
+# at version 4, copied here word for word. Never edit it: databases made by version 4 are still in use.
+VERSION_4 = """
+CREATE TABLE users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    session_epoch INTEGER NOT NULL DEFAULT 0     -- raised to sign out every device
+);
+CREATE TABLE settings (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key     TEXT NOT NULL,
+    value   TEXT NOT NULL,              -- JSON: profile, mode, threshold, …
+    PRIMARY KEY (user_id, key)
+);
+CREATE TABLE slots (
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id        TEXT NOT NULL,            -- stable slug, e.g. 'white-tee'
+    position  INTEGER NOT NULL,
+    name      TEXT NOT NULL,
+    category  TEXT NOT NULL,            -- a key from garments.py
+    colour    TEXT NOT NULL,            -- a key from colours.py
+    keywords  TEXT NOT NULL DEFAULT '',
+    qty       INTEGER NOT NULL DEFAULT 1,
+    owned     INTEGER NOT NULL DEFAULT 0,   -- 1 = already own, costs nothing
+    locked    INTEGER NOT NULL DEFAULT 0,   -- 1 = the price level must not change it
+    pick      TEXT,                     -- candidate id, set while locked
+    PRIMARY KEY (user_id, id)
+);
+CREATE TABLE saved_outfits (
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key       TEXT NOT NULL,            -- fingerprint of the pieces
+    saved_at  TEXT NOT NULL,
+    label     TEXT NOT NULL,
+    pieces    TEXT NOT NULL,            -- JSON snapshot, so a favourite survives a refresh
+    PRIMARY KEY (user_id, key)
+);
+CREATE TABLE catalogs (                 -- production: each customer's candidates (JSON)
+    user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    updated_at TEXT NOT NULL,
+    data       TEXT NOT NULL
+);
+CREATE TABLE login_attempts (           -- failed logins, to slow down guessing
+    email TEXT NOT NULL,
+    ip    TEXT NOT NULL,
+    at    REAL NOT NULL
+);
+CREATE INDEX login_attempts_at ON login_attempts (at);
+CREATE TABLE signups (ip TEXT NOT NULL, at REAL NOT NULL);
+CREATE TABLE reset_tokens (             -- only a hash of each emailed token is kept
+    token_hash TEXT PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS looks (      -- one row per picture, the files are in <data>/looks/
+    key        TEXT PRIMARY KEY,        -- fingerprint of what was sent to the image service
+    user_id    INTEGER REFERENCES users(id) ON DELETE CASCADE,   -- only for a picture of someone's own photo
+    status     TEXT NOT NULL,           -- waiting (its turn) | working | ready | failed
+    started_at REAL NOT NULL,
+    file       TEXT,                    -- the picture, once there is one
+    error      TEXT,                    -- why the last attempt failed
+    service    TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS look_requests (   -- when a picture was asked for: the daily limits
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS look_requests_at ON look_requests (at);
+"""
 
 
 class FeedCase(unittest.TestCase):
@@ -102,7 +177,7 @@ class Schema(FeedCase):
         # The owner's own server runs a database made by version 4: the tables below, holding data.
         fresh_database()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
-            for statement in (db.SCHEMA + db.SCHEMA_PICTURES).split(";"):    # what version 4 was made of
+            for statement in VERSION_4.split(";"):
                 if statement.strip():
                     con.execute(statement)
             con.executescript("""
@@ -154,7 +229,7 @@ class Values(unittest.TestCase):
             ("19 GBP", (19.0, "GBP")), ("39.95 incl. VAT", (39.95, None)),
             ({"value": "39.95", "currency": "EUR"}, (39.95, "EUR")), ({"value": 12}, (12.0, None)),
             ("", (None, None)), (None, (None, None)), ("free", (None, None)), (True, (None, None)),
-            (float("nan"), (None, None)),
+            (float("nan"), (None, None)), ("1,2.3,4 EUR", (None, None)), ("1.2,3.4 EUR", (None, None)),
         ]:
             self.assertEqual(rows.parse_price(given), wanted, given)
         self.assertEqual(rows.parse_price(39.95, "EUR"), (39.95, "EUR"), "a number takes the feed's currency")
@@ -193,8 +268,13 @@ class Values(unittest.TestCase):
         for given in ("2026-11-12T06:00:00Z", "2026-11-12T07:00:00+01:00", 1794463200, 1794463200000,
                       "1794463200000", "Thu, 12 Nov 2026 06:00:00 GMT"):
             self.assertEqual(datetime.fromisoformat(rows.parse_time(given)), noon, given)
-        for given in (None, "", "soon", True):
-            self.assertIsNone(rows.parse_time(given))
+        for given in (None, "", "soon", True, 1e300, -1e300, float("inf"), float("nan"), "9999-12-31T23:59:59-12:00"):
+            self.assertIsNone(rows.parse_time(given), given)          # not a time, or none a calendar here can hold
+
+    def test_a_sale_price_counts_only_below_the_price(self):
+        base = {"product_id": "1", "name": "Shirt", "price": "10 EUR", "buy_link": "https://shop.example.com/1"}
+        for sale, kept in (("8 EUR", 8.0), ("10 EUR", None), ("15 EUR", None), ("0 EUR", None), ("soon", None), (None, None)):
+            self.assertEqual(rows.product(**base, sale_price=sale)["sale_price"], kept, sale)
 
 
 # ── the importers ─────────────────────────────────────────────────────────────
@@ -296,6 +376,24 @@ class Importers(FeedCase):
         self.assertEqual([r["product_id"] for r in result.rows], ["A1"])
         self.assertEqual(result.skipped, Counter({"unreadable": 2, "with an id seen before in the file": 1}))
 
+    def test_one_garbled_record_costs_that_record_only(self):
+        good = '{"id": "A%d", "title": "Hemd", "price": "25 EUR", "link": "https://shop.example.com/a"}\n'
+        garbled = '{"id": "A3", "title": "Hemd", "price": "1,2.3,4 EUR", "link": "https://shop.example.com/a"}\n'
+        result = google.read(self.write("garbled.jsonl", good % 1 + good % 2 + garbled))
+        self.assertEqual(([r["product_id"] for r in result.rows], result.summary()), (["A1", "A2"], "1 skipped: 1 without a price"))
+
+        td = json.loads((FEEDS / "kleiderwerk.json").read_text(encoding="utf-8"))
+        td["products"][0]["fields"], td["products"][1]["offers"][0]["priceHistory"] = 5, 7    # shapes nobody expects
+        td["products"][3]["offers"][0]["modified"] = 1e300                                    # a time out of range
+        result = tradedoubler.read(self.write("odd.json", json.dumps(td)))
+        self.assertEqual({r["product_id"]: r["feed_updated_at"] for r in result.rows},
+                         {"KW-20-3234": rows.parse_time(1794456000000), "KW-30": None}, "a time out of range is no time")
+        self.assertEqual(result.skipped, Counter({"unreadable": 2, "without a link": 1, "without a price": 1}))
+
+        registry.sync()                                         # and through the command line: the rest is imported
+        said = self.cli("feeds", "--store", "musterhaus", "--from", str(self.folder / "garbled.jsonl"))
+        self.assertIn("musterhaus: 2 products imported, 1 skipped: 1 without a price", said)
+
     def test_a_gzipped_feed_is_read_like_the_plain_one(self):
         packed = self.folder / "musterhaus.jsonl.gz"
         packed.write_bytes(gzip.compress((FEEDS / "musterhaus.jsonl").read_bytes()))
@@ -312,6 +410,16 @@ class Registry(FeedCase):
             self.assertTrue(values["rules"]["sample"], key)
             self.assertIn("(sample)", values["label"])
             self.assertTrue((paths.ROOT / values["feed_location"]).is_file(), key)
+
+    def test_the_example_of_a_real_store_is_valid_once_the_first_hash_of_each_line_is_removed(self):
+        text = (paths.CONFIG_DIR / "feeds.toml").read_text(encoding="utf-8")
+        example = text[text.index("# [stores.yourstore]"):]
+        uncommented = "\n".join(line.removeprefix("#") for line in example.splitlines())
+        store = registry.load(tomllib.loads(uncommented))["yourstore"]
+        self.assertEqual((store["label"], store["network"], store["status"], store["feed_format"]),
+                         ("Your Store", "awin", "applied", "google"))
+        self.assertIn("{AWIN_PUBLISHER_ID}", store["feed_location"])
+        self.assertEqual(store["rules"]["headers"], {"Authorization": "Bearer {AWIN_API_TOKEN}"})
 
     def test_sync_adds_updates_and_never_deletes(self):
         data = {"stores": {"one": {"label": "One", "status": "approved", "feed_format": "google", "programme_id": 41},
@@ -521,8 +629,18 @@ class Importing(FeedCase):
             self.cli("feeds", "--store", "musterhaus")
         self.assertIn("not approved", str(refused.exception))
         self.assertIn("8 products imported", self.cli("feeds", "--store", "musterhaus", "--from", str(FEEDS / "musterhaus.csv")),
-                      "a file you have may be tried before the programme says yes")
+                      "an invented sample store's file may be tried whatever its status")
         self.assertNotIn("musterhaus", self.cli("feeds"), "only approved stores are fetched")
+        # A real store's file is not licensed until its programme has approved Capsule: nothing of it is kept.
+        for status in ("none", "applied", "refused"):
+            db.save_store("real", a_store(status=status))
+            with self.assertRaises(SystemExit) as refused:
+                self.cli("feeds", "--store", "real", "--from", str(FEEDS / "musterhaus.jsonl"))
+            self.assertEqual(str(refused.exception), f"real is {status!r}, not approved: Capsule takes a store's products "
+                                                     "only once its programme has approved it, so no file of it is imported either")
+            self.assertEqual(db.store_products("real"), [], status)
+        db.save_store("real", a_store(status="approved"))
+        self.assertIn("real: 8 products imported", self.cli("feeds", "--store", "real", "--from", str(FEEDS / "musterhaus.jsonl")))
         db.save_store("musterhaus", {**musterhaus, "feed_format": None})
         with self.assertRaises(SystemExit):
             self.cli("feeds", "--store", "musterhaus", "--from", str(FEEDS / "musterhaus.csv"))
@@ -538,14 +656,22 @@ class Importing(FeedCase):
 # ── downloading ───────────────────────────────────────────────────────────────
 
 class StandIn(BaseHTTPRequestHandler):
-    """A feed server on this computer: /feed.jsonl, and /last-updated saying when it changed."""
+    """A feed server on this computer: /feed.jsonl, /last-updated saying when it changed, and /moved,
+    which sends the downloader on to /feed.jsonl."""
     feed = b""
     changed = 1794456000000
+    last_modified = ""          # the feed's Last-Modified header, if any
     refuse = False
     seen: list = []
 
     def do_GET(self):
         type(self).seen.append((self.path, self.headers.get("Authorization")))
+        if self.path.startswith("/moved"):
+            self.send_response(302)
+            self.send_header("Location", "/feed.jsonl")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if self.path.startswith("/last-updated"):
             body = json.dumps({"lastUpdated": type(self).changed}).encode()
         elif self.path.startswith("/feed.jsonl") and not type(self).refuse:
@@ -556,6 +682,8 @@ class StandIn(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header("Content-Length", str(len(body)))
+        if self.path.startswith("/feed.jsonl") and type(self).last_modified:
+            self.send_header("Last-Modified", type(self).last_modified)
         self.end_headers()
         self.wfile.write(body)
 
@@ -575,6 +703,7 @@ class Downloads(FeedCase):
     def stand_in(self) -> str:
         StandIn.feed = (FEEDS / "musterhaus.jsonl").read_bytes()
         StandIn.changed, StandIn.refuse, StandIn.seen = int(time.time() - 3600) * 1000, False, []   # an hour ago
+        StandIn.last_modified = ""
         server = ThreadingHTTPServer(("127.0.0.1", 0), StandIn)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
@@ -615,6 +744,9 @@ class Downloads(FeedCase):
             self.assertEqual(datetime.fromisoformat(db.get_store("remote")["last_feed_update"]),
                              datetime.fromtimestamp(StandIn.changed / 1000, timezone.utc), "the feed's own time")
 
+            self.assertIsNotNone(db.get_store("remote")["last_download_at"], "the download is recorded")
+            db.note_download("remote", "2026-11-01T06:00:00+01:00")
+
             StandIn.seen = []
             refresh.run("remote", say=said.append)
             self.assertIn("unchanged since", said[-1])
@@ -624,11 +756,12 @@ class Downloads(FeedCase):
             refresh.run("remote", say=said.append)
             self.assertEqual(said[-1], "remote: failed, and its products are kept as they were: its feed address answered 403")
             self.assertEqual(self.ids("remote"), MUSTERHAUS)
+            self.assertEqual(db.get_store("remote")["last_download_at"], "2026-11-01T06:00:00+01:00",
+                             "neither the question nor a refusal counts as a download")
             for text in (said[-1], db.get_store("remote")["last_error"]):
                 self.assertNotIn("secret", text)
 
     def test_a_missing_secret_is_named_and_nothing_is_fetched(self):
-        self.use_the_real_opener()
         self.store(feed_location="https://feeds.example.com/{programme_id}.jsonl?key={CAPSULE_TEST_MISSING}",
                    programme_id="77")
         with mock.patch.dict(os.environ, {}, clear=False):
@@ -656,6 +789,7 @@ class Downloads(FeedCase):
         refresh.run("musterhaus", force=True, say=said.append)
         self.assertIn("the feed is larger than 0.001 MB; rules.max_mb can allow more", said[0])
         self.assertEqual(self.ids("musterhaus"), MUSTERHAUS, "the old products stay")
+        self.assertIsNotNone(db.get_store("musterhaus")["last_download_at"], "a download that broke off counts too")
         self.assertFalse((paths.DATA_DIR / "feeds" / "musterhaus.download").exists())
 
     def test_awin_is_asked_at_most_once_every_12_seconds(self):
@@ -668,21 +802,83 @@ class Downloads(FeedCase):
         self.assertEqual(sleep.call_count, 1, "the second request waited")
         self.assertTrue(11 < sleep.call_args[0][0] <= 12, sleep.call_args)
 
+    def ago(self, **how_long) -> str:
+        return (datetime.now().astimezone() - timedelta(**how_long)).isoformat(timespec="seconds")
+
     def test_tradedoubler_downloads_of_one_version_are_spread_over_the_day(self):
         self.use_the_real_opener()
         base = self.stand_in()
-        version = rows.parse_time(StandIn.changed)
-        an_hour_ago = (datetime.now().astimezone() - timedelta(hours=1)).isoformat(timespec="seconds")
+        StandIn.changed = int(time.time() - 3 * 3600) * 1000                      # the feed changed 3 hours ago
         self.store(network="tradedoubler", feed_location=base + "/feed.jsonl", rules={"check_url": base + "/last-updated"})
-        db.note_store("remote", error=None, feed_update=version, imported_at=an_hour_ago)
+        db.note_store("remote", error=None, feed_update=rows.parse_time(StandIn.changed), imported_at=self.ago(hours=3))
+        db.note_download("remote", self.ago(minutes=30))
         said = []
-        refresh.run("remote", force=True, say=said.append)
-        self.assertIn("not downloaded: the network allows 3 downloads of one feed version a day", said[0])
+        refresh.run("remote", force=True, say=said.append)          # that version was downloaded half an hour ago
+        self.assertIn("not downloaded: the network allows 3 downloads of one feed version a day", said[-1])
         self.assertEqual([p for p, _ in StandIn.seen], ["/last-updated"])
-        nine_hours_ago = (datetime.now().astimezone() - timedelta(hours=9)).isoformat(timespec="seconds")
-        db.note_store("remote", error=None, imported_at=nine_hours_ago)
-        refresh.run("remote", force=True, say=said.append)
+        db.note_download("remote", self.ago(hours=9))
+        refresh.run("remote", force=True, say=said.append)          # 9 hours later it may be fetched again
         self.assertIn("8 products imported", said[-1])
+
+        StandIn.changed, StandIn.seen = int(time.time() - 600) * 1000, []         # it changed after that download
+        db.note_download("remote", self.ago(minutes=20))
+        refresh.run("remote", say=said.append)
+        self.assertIn("8 products imported", said[-1], "a new version is fetched at once")
+
+        # Changed once more, after the last download, but this file cannot be read. It was still downloaded,
+        # so the next run does not fetch the same version again.
+        StandIn.changed, StandIn.feed, StandIn.seen = StandIn.changed + 1000, b"<html>Service unavailable</html>", []
+        db.note_download("remote", self.ago(minutes=20))
+        refresh.run("remote", say=said.append)
+        self.assertIn("no product in the file could be read", said[-1])
+        refresh.run("remote", say=said.append)
+        self.assertIn("not downloaded", said[-1])
+        self.assertEqual([p for p, _ in StandIn.seen], ["/last-updated", "/feed.jsonl", "/last-updated"])
+
+    def test_tradedoubler_without_a_check_url_is_downloaded_at_most_3_times_a_day(self):
+        # Nowhere to ask first, and the feed's Last-Modified never changes. An hourly timer still makes
+        # at most 3 downloads of that one version a day, counting the ones that were not imported.
+        self.use_the_real_opener()
+        base = self.stand_in()
+        StandIn.last_modified = email.utils.formatdate(time.time() - 3600, usegmt=True)     # an hour ago, and it stays
+        self.store(network="tradedoubler", feed_location=base + "/feed.jsonl")
+        said: list[str] = []
+        for hour in range(24):        # a day of an hourly timer: each hour the last download moves an hour back
+            this_run: list[str] = []
+            refresh.run("remote", force=hour == 5, say=this_run.append)
+            said.append(this_run[0])
+            last = datetime.fromisoformat(db.get_store("remote")["last_download_at"])
+            db.note_download("remote", (last - timedelta(hours=1)).isoformat(timespec="seconds"))
+        self.assertEqual(len(StandIn.seen), 3, said)
+        self.assertEqual([i for i, line in enumerate(said) if "not downloaded" not in line], [0, 8, 16], "every 8 hours")
+        self.assertIn("8 products imported", said[0])
+        self.assertIn("unchanged since", said[8])
+        self.assertIn("not downloaded: the network allows 3 downloads of one feed version a day", said[5], "--force too")
+
+    def test_a_token_header_is_not_passed_on_when_the_feed_moves(self):
+        self.use_the_real_opener()
+        base = self.stand_in()
+        self.store(feed_location=base + "/moved", rules={"headers": {"Authorization": "Bearer {CAPSULE_TEST_TOKEN}"}})
+        with mock.patch.dict(os.environ, {"CAPSULE_TEST_TOKEN": "a-secret"}):
+            said = []
+            refresh.run("remote", say=said.append)
+        self.assertIn("remote: 8 products imported", said[0])
+        self.assertEqual(StandIn.seen, [("/moved", "Bearer a-secret"), ("/feed.jsonl", None)])
+
+    def test_in_production_only_https_is_fetched_or_followed(self):
+        self.store(feed_location=(FEEDS / "musterhaus.jsonl").as_uri())
+        moved, asked = refresh._OnlyHttps(), urllib.request.Request("https://feeds.example.com/feed.jsonl")
+        self.assertIsNotNone(moved.redirect_request(asked, None, 302, "Found", {}, "http://127.0.0.1:8102/feed"),
+                             "on this computer the tests' stand-in may be followed")
+        with mock.patch.object(settings, "PRODUCTION", True):
+            said = []
+            refresh.run("remote", say=said.append)
+            self.assertIn("only https:// feed addresses are fetched", said[0])
+            for where in ("http://127.0.0.1:8000/x", "http://localhost/x", "http://[::1]/x", "file:///etc/passwd",
+                          "http://feeds.example.com/x"):
+                self.assertIsNone(moved.redirect_request(asked, None, 302, "Found", {}, where), where)
+            self.assertIsNotNone(moved.redirect_request(asked, None, 302, "Found", {}, "https://cdn.example.com/feed"))
+        self.opener.assert_not_called()
 
     def test_the_opener_never_asks_the_computer_for_its_proxy_settings(self):
         def trap(*args, **kwargs):

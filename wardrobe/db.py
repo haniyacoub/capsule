@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS stores (     -- copied from config/feeds.toml by `pyt
     rules            TEXT NOT NULL DEFAULT '{}',     -- JSON: refresh hours, delete on exit, images, answers
     last_feed_update TEXT,              -- when the feed itself last changed
     last_import_at   TEXT,              -- when its products were last imported here
+    last_download_at TEXT,              -- when its feed last began to download (Tradedoubler counts downloads)
     last_error       TEXT               -- why the last refresh failed, NULL after one that worked
 );
 CREATE TABLE IF NOT EXISTS products (   -- one row per product per store, replaced at each import of its feed
@@ -139,8 +140,10 @@ CREATE TABLE IF NOT EXISTS products (   -- one row per product per store, replac
     colour_key      TEXT,               -- Capsule's colour (colours.py), NULL when not recognised
     material        TEXT,               -- the feed's own words
     composition     TEXT NOT NULL DEFAULT '[]',      -- JSON [[fibre, percent], ...] from composition.py
-    price           REAL NOT NULL,      -- the regular price
-    sale_price      REAL,               -- the reduced price, when the feed gives one
+    price           REAL NOT NULL,      -- Google format: the regular price. Awin CSV: search_price, the price now
+    sale_price      REAL,               -- a reduced price below `price`, when the feed gives one. The price
+                                        -- to show is COALESCE(sale_price, price), and no "was" price
+                                        -- until a lawyer has said how one must be shown
     currency        TEXT NOT NULL,
     sizes           TEXT NOT NULL DEFAULT '[]',      -- JSON, every size the feed names (empty: it does not say)
     sizes_in_stock  TEXT NOT NULL DEFAULT '[]',      -- JSON, the sizes it says are in stock (empty: it does not say)
@@ -714,6 +717,13 @@ def note_store(key: str, *, error: str | None, feed_update: str | None = None, i
         con.execute("UPDATE stores SET last_error = ?, last_feed_update = COALESCE(?, last_feed_update), "
                     "last_import_at = COALESCE(?, last_import_at) WHERE key = ?",
                     (error, feed_update, imported_at, key))
+
+
+def note_download(key: str, when: str) -> None:
+    """Record that a store's feed began to download at `when`, whether or not it is then imported:
+    a network that limits downloads (Tradedoubler) counts every one."""
+    with connect() as con:
+        con.execute("UPDATE stores SET last_download_at = ? WHERE key = ?", (when, key))
 
 
 def replace_products(store: str, rows: list[dict]) -> tuple[int, int]:
