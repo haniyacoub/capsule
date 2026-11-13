@@ -440,8 +440,8 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
     wears was passed over: its products are already another piece's, or not in his size.
     """
     category = view.slot["category"]
-    on_offer = shared.colours_on_offer(category)
-    refused = capsule.banned(profile.get("refused", []))      # refusing "green" refuses olive too
+    refused = frozenset(capsule.banned(profile.get("refused", [])))      # refusing "green" refuses olive too
+    on_offer = shared.colours_on_offer(category, refused)      # never a product in a refused colour, either
     taken = {c.id for other in views if other is not view and other.slot["category"] == category
              for c in other.cands}
     liked = [key for key in profile.get("liked", []) if key in on_offer]
@@ -464,7 +464,7 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
     if not view.offers:
         kind = view.garment.plural
         verb = "are" if kind.endswith("s") else "is"        # "T-shirts are", "knitwear is"
-        if not on_offer:
+        if not shared.colours_on_offer(category):    # none at all, in any colour (on_offer leaves out the refused)
             why = f"Capsule has no {kind} yet"
         elif in_your_plan:      # say so: "Capsule has none" would be untrue beside the grey jumper that has them
             why = f"Capsule's {kind} in other colours you wear {verb} already in your plan"

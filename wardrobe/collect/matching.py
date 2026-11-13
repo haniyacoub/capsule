@@ -52,6 +52,13 @@ def colour_level(slot: dict, name: str | None, hex_: str | None, skip_words: tup
     return 1 if a.family == b.family and colours.distance(a.hex, b.hex) <= CLOSE else 0
 
 
+def refused(name: str | None, banned: set[str] | frozenset[str]) -> bool:
+    """Whether a product's own colour, as the store names it, is one the customer refused. A slot is never
+    planned in a refused colour, but a product can still reach it in one: denim's blues all match one another
+    (above), so with navy refused, blue jeans would bring back "Dunkelblau" and "Dark Blue"."""
+    return bool(banned) and colours.find(name) in banned
+
+
 def keyword_hits(keywords: str, text: str, vocabulary: dict) -> int:
     """How many of the slot's keywords the product name satisfies."""
     hits = 0

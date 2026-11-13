@@ -6,17 +6,22 @@ Needs the packages in requirements.txt and, once, `python -m playwright install 
 
 It starts the app in production mode on a spare port, with a throwaway data folder and a
 stand-in for the image service (nothing is sent anywhere and nothing is billed), then does
-what a new customer would: signs up, changes the price level, watches an outfit's picture
+what a new customer would: signs up and lands on the starter outfits (a banner where the budget bar would be,
+the whole picture above the tab bar on three phones), changes the price level, watches an outfit's picture
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
-page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, moves between outfits,
+page on a phone jumping), opens a piece from its dot, swaps it, leaves a layer off, opens a piece on a phone
+(named by its product, the quick changes on the first screen, the page behind it staying put, and back from
+comparing all options to the same outfit), moves between outfits,
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
-logs in again and lands on the outfits, puts a model together, uploads a photo, saves new colours
-(the plan is rebuilt, keeping the swapped piece), sees that a phone's first screen shows the outfit
-on the model with its price and the heart, tabs through three pages to see that nothing with
-keyboard focus is hidden under the budget bar or the tab bar, and deletes the account.
+logs in again and lands on the outfits, puts a model together, uploads a photo, sees Profile ask before a
+budget or colours changed and not saved would be lost, saves new colours (the plan is rebuilt,
+keeping the swapped piece, and the budget bar takes the banner's place), sees that a phone's first
+screen shows the outfit on the model with its price and the heart (and every chip over it, whole,
+by keyboard), tabs through three pages to see that nothing with keyboard focus is hidden under the
+budget bar or the tab bar, and deletes the account.
 
-On the way a second customer, on a small product list published for that step alone, fills a
-piece the list has nothing for with one tap.
+On the way a second customer, on a small product list published for that step alone, goes from the
+starter outfits to his profile with "Make them mine" and fills a piece the list has nothing for with one tap.
 
 It exits with an error if a step fails, if any request to the app fails, or if a script on
 a page throws. The GitHub checks run it on every push (.github/workflows/checks.yml).
@@ -55,6 +60,7 @@ from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
 from wardrobe import colours, imagegen  # noqa: E402
+from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
 
@@ -120,12 +126,69 @@ def run(base: str) -> None:
             }""")
             assert where == "in view", f"the message {words!r} is {where} after the page has jumped to it"
 
+        def starter(where_page) -> dict:
+            """The starter banner over a new customer's outfits, and the budget bar it stands in for."""
+            return where_page.evaluate("""() => {
+                const banner = document.querySelector('.starter'), link = banner && banner.querySelector('a');
+                return {words: banner ? banner.querySelector('p').textContent.replace(/\\s+/g, ' ').trim() : null,
+                        link: link ? [link.textContent.trim(), link.getAttribute('href')] : null,
+                        height: banner ? banner.getBoundingClientRect().height : null,
+                        bar: !!document.getElementById('summary'),
+                        flashes: [...document.querySelectorAll('main > .flash')].map(f => f.textContent.trim())};
+            }""")
+
+        def example_notes(where_page) -> list[str]:
+            """Every line on the Profile page that speaks of example values."""
+            return where_page.evaluate("""() => [...document.querySelectorAll('main p')]
+                .map(p => p.textContent.replace(/\\s+/g, ' ').trim()).filter(t => /example/i.test(t))""")
+
+        # Said from the example values every account starts with (wardrobe/profile.py), never typed.
+        liked = [colours.get(key).label.lower() for key in profile_mod.EXAMPLE["liked"]]
+        starter_words = (f"Starter outfits for a man of {profile_mod.EXAMPLE['height_cm']} cm, size "
+                         f"{profile_mod.EXAMPLE['top_size']}, who likes {', '.join(liked[:-1])} and {liked[-1]}.")
+
         def sign_up():
+            # A new customer sees the starter outfits on the model first, not a form of someone else's values: no
+            # message to read, and in the budget bar's place a banner that says whose outfits these are, with one way
+            # to make them his.
             page.goto(base + "/signup", wait_until="networkidle")
             page.fill("input[name=email]", EMAIL)
             page.fill("input[name=password]", PASSWORD)
             page.click("button:has-text('Create account')")
-            page.wait_for_url("**/profile")
+            page.wait_for_url(base + "/outfits")
+            page.wait_for_load_state("networkidle")
+            seen = starter(page)
+            assert seen["words"] == starter_words, f"the starter banner reads {seen['words']!r}"
+            assert seen["link"] == ["Make them mine", "/profile"], f"the banner's way to the profile: {seen['link']}"
+            assert not seen["bar"], "the budget bar is over a new customer's outfits, for a budget he never set"
+            assert not seen["flashes"], f"a message to read before the outfits: {seen['flashes']}"
+            assert page.locator(f"{first} .collage .tile").count() >= 2, "no outfit under the banner"
+
+        def starter_outfits_fit_a_phone():
+            # On three phones, the starter banner is at most 96px tall, and the picture is sized from its real height:
+            # the whole picture, its lowest dot included, still ends above the tab bar.
+            for width, height in ((390, 844), (375, 667), (360, 740)):
+                context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=True, has_touch=True)
+                other = context.new_page()
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_url(base + "/outfits")
+                other.wait_for_selector(f"{first} .look-pic img")
+                # Invented products here, so the page opens with the "Demo data" notice that customers never see.
+                other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                seen = {**starter(other), **other.evaluate("""s => {
+                    const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
+                    return {bottom: Math.max(box(slide.querySelector('.look-pic')).bottom,
+                                             ...[...slide.querySelectorAll('.spot')].map(d => box(d).bottom)),
+                            tabs: box(document.querySelector('nav.tabs')).top};
+                }""", first)}
+                context.close()
+                assert seen["words"] and not seen["bar"], f"at {width} x {height} no starter banner in the bar's place: {seen}"
+                assert seen["height"] <= 96, f"at {width} x {height} the starter banner is {seen['height']:.0f}px tall"
+                assert seen["bottom"] <= seen["tabs"], \
+                    f"at {width} x {height} the picture ends at {seen['bottom']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
 
         def own_typefaces():
             # The text font and the serif for titles come from Capsule itself. They must really load, under the
@@ -368,8 +431,9 @@ def run(base: str) -> None:
             assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
             page.wait_for_selector(f"{first} .look-bar.wait")              # asked for by itself, then waited for
             status = drawing_status(page)
-            assert status["words"] and re.match(r"(Drawing this outfit|Waiting its turn)", status["words"]) and status["inside"], \
-                f"while the picture is drawn, the status is not said inside the picture's box: {status}"
+            # Nothing else is being drawn, so it is drawn at once: it must not be said to be waiting its turn.
+            assert status["words"] and status["words"].startswith("Drawing this outfit") and status["inside"], \
+                f"while the only picture is drawn, the status is not 'Drawing this outfit…' inside the picture's box: {status}"
             page.wait_for_selector(f"{first} .look-pic img")
             shows(f"{first} .look-pic img", "the picture of the outfit")
             assert page.locator(f"{first} .collage").is_hidden(), "the product photos still show under the picture"
@@ -458,6 +522,69 @@ def run(base: str) -> None:
             page.wait_for_load_state("networkidle")
             assert page.locator(f"{first} .piece-row").count() == before - 1, "the piece is still there"
 
+        def the_piece_pop_up_on_a_phone():
+            # Tapping a dot on a phone (390 x 844): the pop-up is named by the product, says 'Quality' next to the
+            # number and what each option costs next to the piece, and shows the quick changes to this outfit ('In
+            # this outfit') on its first screen. Swiping inside it never moves the page behind it, and its close
+            # button is a 44px target. 'Compare all N options' leads to the piece's page, whose way back returns to
+            # the same outfit with the Outfits tab lit.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            other = context.new_page()
+            other.goto(base + "/login", wait_until="networkidle")
+            other.fill("input[name=email]", EMAIL)
+            other.fill("input[name=password]", PASSWORD)
+            other.click("button:has-text('Log in')")
+            other.wait_for_load_state("networkidle")
+            other.goto(base + "/outfits", wait_until="networkidle")
+            other.wait_for_selector(f"{first} .look-pic img")
+            other.evaluate("() => window.scrollTo(0, 120)")
+            other.wait_for_timeout(300)
+            still = other.evaluate("scrollY")
+            coat = other.locator(f"{first} .spot[title*=coat i]")              # the tallest pop-up: the coat's
+            spot = coat.first if coat.count() else other.locator(f"{first} .spot").first
+            sig = re.search(r"at=([^&]+)", spot.get_attribute("hx-get")).group(1)
+            spot.tap()
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            sheet = other.locator("dialog#piece")
+            expect(sheet, "the pop-up is not named by the product").to_have_accessible_name(
+                other.locator("#piece-title").inner_text().strip())
+            said = other.locator("#piece-body").inner_text()
+            assert re.search(r"Quality\s+\d+", said), f"no 'Quality' next to the number: {said[:200]!r}"
+            priced = other.locator("#piece-body .swap li form").count()      # an option without a price has no Choose
+            differences = re.findall(r"[−+]\d[\d,.]*\s€|same price", said)
+            assert priced and len(differences) == priced, f"{priced} options with a price, {len(differences)} price differences"
+            seen = other.evaluate("""() => {
+                const sheet = document.querySelector('dialog#piece'), box = sheet.getBoundingClientRect();
+                const heads = [...sheet.querySelectorAll('h3')].map(h => h.textContent.trim());
+                const chips = [...sheet.querySelectorAll('.chips a')], close = sheet.querySelector('.sheet-close').getBoundingClientRect();
+                return {heads, scrolled: sheet.scrollTop, bottom: box.bottom, close: [close.width, close.height],
+                        chips: chips.length ? chips[chips.length - 1].getBoundingClientRect().bottom : null};
+            }""")
+            assert seen["heads"][:2] == ["In this outfit", "Swap it for"], f"the pop-up's parts are {seen['heads']}"
+            assert seen["scrolled"] == 0 and seen["chips"] <= seen["bottom"], \
+                f"'In this outfit' ends at {seen['chips']:.0f}px, under the sheet's first screen ({seen['bottom']:.0f}px)"
+            assert min(seen["close"]) >= 44, f"the close button is {seen['close'][0]:.0f} x {seen['close'][1]:.0f}px"
+            touch, box = context.new_cdp_session(other), sheet.bounding_box()
+            for _ in range(3):
+                touch.send("Input.synthesizeScrollGesture", {"x": 195, "y": int(box["y"] + box["height"] - 60), "xDistance": 0,
+                                                            "yDistance": -300, "speed": 1200, "gestureSourceType": "touch"})
+                other.wait_for_timeout(300)
+            other.locator("dialog#piece .sheet-close").tap()
+            other.wait_for_selector("dialog#piece:not([open])", state="attached")
+            assert other.evaluate("scrollY") == still, f"swiping inside the pop-up moved the page from {still} to {other.evaluate('scrollY')}"
+            spot.tap()
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            other.locator("#piece-body a", has_text=re.compile(r"^Compare all \d+ options$")).click()
+            other.wait_for_load_state("networkidle")
+            crumb = other.locator(".crumb a")
+            assert crumb.inner_text().strip() == "Back to the outfit", f"the piece page's way back reads {crumb.inner_text()!r}"
+            assert other.locator(".tabs a[aria-current=page]").inner_text() == "Outfits", "the Outfits tab is not lit"
+            crumb.click()
+            other.wait_for_load_state("networkidle")
+            back = re.search(r"at=([^&]+)", other.locator(f"{first} .piece-row").first.get_attribute("hx-get")).group(1)
+            assert back == sig, f"back on {back}, not on the outfit the pop-up was opened from ({sig})"
+            context.close()
+
         def arrows_move():
             def shown() -> int:
                 return page.evaluate("() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth); }")
@@ -478,6 +605,75 @@ def run(base: str) -> None:
             page.locator(".reel-nav.prev").click()
             wait_for_outfit(1)
 
+        def arrows_for_every_mouse_and_your_place_kept():
+            # With a mouse the arrows show at every width (a touch screen swipes, see the phone's first screen), and on a
+            # computer they sit beside the outfit: within 48px of the picture's left edge and of the list's right edge,
+            # centred on the picture. With "reduce motion" asked for, Next shows the next outfit at once, without
+            # sliding. The outfit on screen is kept in the address without a new step in the history, so Back from
+            # 'Buy this outfit' and a reload come back to it.
+            def shown() -> int:
+                return page.evaluate("() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth); }")
+
+            def wait_for_outfit(index: int, after: str):
+                try:
+                    page.wait_for_function("i => { const r = document.getElementById('reel'); "
+                                           "return Math.round(r.scrollLeft / r.clientWidth) === i; }", arg=index, timeout=5000)
+                except Exception:  # noqa: BLE001
+                    raise AssertionError(f"{after}, outfit {index + 1} should be on screen; it is outfit {shown() + 1}") from None
+
+            try:
+                page.set_viewport_size({"width": 700, "height": 800})
+                page.goto(base + "/outfits", wait_until="networkidle")
+                both = page.evaluate("""() => [...document.querySelectorAll('.reel-nav')].map(b => { const r = b.getBoundingClientRect();
+                    return getComputedStyle(b).display !== 'none' && r.width >= 44 && r.left >= 0 && r.right <= innerWidth; })""")
+                assert both == [True, True], f"in a 700px window with a mouse the two arrows do not both show: {both}"
+                page.locator(".reel-nav.next").click()
+                wait_for_outfit(1, "in a 700px window, after Next")
+
+                page.set_viewport_size({"width": 1280, "height": 900})
+                page.goto(base + "/outfits", wait_until="networkidle")
+                near = page.evaluate("""() => {
+                    const box = s => document.querySelector(s).getBoundingClientRect(), middle = r => (r.top + r.bottom) / 2;
+                    const picture = box('#reel .slide .collage'), list = box('#reel .slide .about');
+                    const prev = box('.reel-nav.prev'), next = box('.reel-nav.next');
+                    return {prev: picture.left - prev.right, next: next.left - list.right,
+                            off_centre: Math.max(Math.abs(middle(prev) - middle(picture)), Math.abs(middle(next) - middle(picture)))};
+                }""")
+                assert 0 <= near["prev"] <= 48 and 0 <= near["next"] <= 48 and near["off_centre"] <= 2, \
+                    f"at 1280 x 900 the arrows are not beside the outfit (px from the picture, from the list, off its middle): {near}"
+
+                page.emulate_media(reduced_motion="reduce")
+                seen = page.evaluate("""() => new Promise(done => {
+                    const reel = document.getElementById('reel'), seen = [Math.round(reel.scrollLeft)];
+                    document.querySelector('.reel-nav.next').click();
+                    let n = 0;
+                    const every = setInterval(() => { seen.push(Math.round(reel.scrollLeft)); if (++n === 25) { clearInterval(every); done(seen); } }, 30);
+                })""")
+                width = page.evaluate("() => document.getElementById('reel').clientWidth")
+                assert sorted(set(seen)) == [0, width], \
+                    f"with reduced motion Next slides the row (positions every 30 ms: {sorted(set(seen))}), not one step to {width}"
+            finally:
+                page.emulate_media(reduced_motion="no-preference")
+                page.set_viewport_size({"width": 1280, "height": 860})
+
+            page.goto(base + "/outfits", wait_until="networkidle")
+            steps = page.evaluate("history.length")
+            for index in (1, 2):
+                page.locator(".reel-nav.next").click()
+                wait_for_outfit(index, "after Next")
+            third = page.locator("#reel [data-slide]").nth(2)
+            page.wait_for_function("id => location.hash === '#' + id", arg=third.get_attribute("id"))
+            assert page.evaluate("history.length") == steps, "moving between outfits added steps to the browser's history"
+            count = third.locator(".count").inner_text().strip()
+            assert count.startswith("3 / "), f"the third outfit counts itself {count!r}"
+            third.locator(".about-actions a").click()
+            page.wait_for_url("**/outfits/buy?**")
+            page.go_back(wait_until="networkidle")
+            wait_for_outfit(2, "back from 'Buy this outfit'")
+            assert page.locator("#reel [data-slide]").nth(2).locator(".count").inner_text().strip() == count, "Back shows another outfit"
+            page.reload(wait_until="networkidle")
+            wait_for_outfit(2, "after a reload")
+
         def save_and_buy():
             page.goto(base + "/outfits", wait_until="networkidle")
             page.locator(f"{first} .heart").click()
@@ -494,6 +690,8 @@ def run(base: str) -> None:
             sizes = page.locator(".your-sizes")
             assert "Your sizes: Tops M" in sizes.inner_text() and "example sizes" in sizes.inner_text(), \
                 "the example sizes are not called example sizes"
+            change = sizes.locator("a[href$='#sizes']").bounding_box()
+            assert change["height"] >= 24, f"'Change' (your sizes) is {change['height']:.1f}px tall: under 24px to tap"
             buy_page = page.url
             sizes.locator("button:has-text('These are my sizes')").click()
             page.wait_for_load_state("networkidle")
@@ -578,6 +776,58 @@ def run(base: str) -> None:
             page.wait_for_load_state("networkidle")
             assert page.locator(".me img").count() == 0, "the photo is still shown after deleting it"
 
+        def unsaved_changes_are_not_lost_silently():
+            # Profile has three forms: About you, the model and the photo. Sending the model's or the photo's loads the
+            # page again, so a budget or a colour changed in About you and not saved would be lost without a word. The
+            # page asks first, and only then; told no, it stays as it is. (A page of its own, to answer the question.)
+            question = "You changed your sizes, colours or budget but didn't save them. Leave those changes unsaved?"
+            said: list[str] = []
+            reply = {"leave them": False}
+            other = page.context.new_page()
+            other.on("dialog", lambda d: (said.append(d.message), d.accept() if reply["leave them"] else d.dismiss()))
+            other.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+            try:
+                other.goto(base + "/profile", wait_until="networkidle")
+                other.click("button:has-text('Save model')")
+                other.wait_for_load_state("networkidle")
+                assert not said, f"'Save model' asked although nothing had changed: {said}"
+                assert "Model saved" in other.locator("#model .flash").inner_text(), "the model was not saved"
+
+                other.goto(base + "/profile", wait_until="networkidle")
+                budget = other.input_value("#budget")
+                other.fill("#budget", str(int(budget) + 111))
+                other.evaluate("() => { window.stayed = true; }")
+                with other.expect_event("dialog"):
+                    other.click("button:has-text('Save model')")
+                assert said == [question], f"with the budget changed, 'Save model' asked {said}"
+                assert other.evaluate("() => window.stayed === true") and other.locator("#model .flash").count() == 0, \
+                    "told no, the page was sent all the same"
+                assert other.input_value("#budget") == str(int(budget) + 111), "told no, the changed budget is gone"
+
+                # The photo's button asks the same, once a photo is chosen and the box ticked (the browser's own checks
+                # come first).
+                photo = HOME / "me-again.png"
+                photo.write_bytes(picture(600, 800, (150, 130, 120)))
+                other.fill("input[name=refused]", "yellow")
+                other.set_input_files("[data-photo-form] input[type=file]", str(photo))
+                other.wait_for_selector("[data-photo-form] [data-photo-ready]:not(.bad) img:not([hidden])")
+                other.check("[data-photo-form] input[name=agree]")
+                with other.expect_event("dialog"):
+                    other.click("[data-photo-form] button")
+                assert said == [question, question], f"with a colour changed, 'Use this photo' asked {said[1:]}"
+                assert other.evaluate("() => window.stayed === true") and other.locator(".me img").count() == 0, \
+                    "told no, the photo was sent all the same"
+
+                reply["leave them"] = True        # told yes: the model is saved, the changes above are left unsaved
+                other.click("button:has-text('Save model')")
+                other.wait_for_load_state("networkidle")
+                assert len(said) == 3 and "Model saved" in other.locator("#model .flash").inner_text(), \
+                    "told yes, the model was not saved"
+                assert other.input_value("#budget") == budget and other.input_value("input[name=refused]") == "", \
+                    "the changes left unsaved were saved after all"
+            finally:
+                other.close()
+
         def one_tap_colour():
             # A piece the store list has nothing for says so and offers, in one tap, a colour Capsule has. The demo
             # data has something for every piece, so a small list is published first, the way the operator does:
@@ -603,10 +853,19 @@ def run(base: str) -> None:
                 phone.fill("input[name=email]", "colours-" + EMAIL)
                 phone.fill("input[name=password]", PASSWORD)
                 phone.click("button:has-text('Create account')")
-                phone.wait_for_url("**/profile")
+                phone.wait_for_url(base + "/outfits")
+                assert starter(phone)["words"] == starter_words, "the second customer's outfits have no starter banner"
+                phone.locator(".starter a", has_text="Make them mine").click()
+                phone.wait_for_url(base + "/profile")
+                notes = example_notes(phone)
+                assert notes == ["These are example values. Change them to yours and save: your plan is rebuilt around them, "
+                                 "then you see the outfits."], f"a new account's Profile says of its example values: {notes}"
                 phone.fill("input[name=liked]", "black, grey, white")
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/outfits")
+                phone.wait_for_load_state("networkidle")
+                seen = starter(phone)
+                assert seen["words"] is None and seen["bar"], f"after the first save the banner stays or the bar is not back: {seen}"
                 phone.goto(base + "/", wait_until="networkidle")
                 seen = phone.evaluate("() => [innerWidth, document.documentElement.scrollWidth]")
                 assert seen[1] <= seen[0] + 1, f"with colours on offer the Wardrobe is {seen[1]}px wide on a {seen[0]}px phone"
@@ -651,11 +910,17 @@ def run(base: str) -> None:
             # New colours and a new use rebuild the plan, although a piece was swapped inside an outfit
             # earlier: that swap is kept when the new plan has the same garment in the same colour.
             page.goto(base + "/profile", wait_until="networkidle")
+            # He kept the example sizes as his on the Buy page: the one note about example values no longer calls them so.
+            notes = example_notes(page)
+            assert len(notes) == 1 and notes[0].startswith("You said these sizes are yours; the rest are example values."), \
+                f"after 'These are my sizes' the Profile says of its example values: {notes}"
             page.fill("input[name=liked]", "black, grey, white")
             page.locator("input[name=use][value=office]").check(force=True)
             page.click("button:has-text('Save profile')")
             page.wait_for_url(base + "/outfits")
             in_view("main > .flash", "Your plan now has")
+            seen = starter(page)
+            assert seen["words"] is None and seen["bar"], f"after the first save the banner stays or the bar is not back: {seen}"
             said = page.locator("main > .flash").first.inner_text()
             page.goto(base + "/slots", wait_until="networkidle")
             names = [name.strip() for name in page.locator(".slot-list .nm").all_inner_texts()]
@@ -676,10 +941,11 @@ def run(base: str) -> None:
             # The model view is the heart of Capsule. On a phone (390 x 844) the first screen shows the AI picture and,
             # under it, the outfit's title, its price and the heart, above the tab bar; on a shorter one (Safari's
             # 390 x 664) at least the whole picture with its lowest dot, also under a message at the top of the page.
-            # The chips and Shuffle are one row (on a narrow phone the chips scroll sideways inside it), the chip that
-            # is on is marked, the line over the outfits says how to see the next one (swipe on a touch screen, the
-            # arrows with a mouse), each outfit's title is a heading that agrees with the chip, 'Buy this outfit' is the
-            # main button, and the outfit row does not cut off the focus ring of the heart or of 'Buy this outfit'.
+            # The chips and Shuffle are one row (on a narrow phone the chips scroll sideways inside it, and a chip reached
+            # by keyboard comes whole into it, ring and all), the chip that is on is marked, the line over the outfits
+            # says how to see the next one (swipe on a touch screen, the arrows with a mouse), each outfit's title is a
+            # heading that agrees with the chip, 'Buy this outfit' is the main button, and the outfit row does not cut
+            # off the focus ring of the heart or of 'Buy this outfit'.
             def opened(width: int, height: int, touch: bool, path: str = "/outfits"):
                 context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=touch, has_touch=touch)
                 other = context.new_page()
@@ -738,6 +1004,8 @@ def run(base: str) -> None:
             assert row["group"] == "group" and len(row["current"]) == 1 and row["current"][0], f"the chip that is on is not marked: {row}"
             lead = other.locator(".lead").inner_text()
             assert "swipe" in lead and "arrow" not in lead and "←" not in lead, f"on a touch screen the line over the outfits reads {lead!r}"
+            assert not other.locator(".reel-nav").first.is_visible() and not other.locator(".reel-nav").last.is_visible(), \
+                "on a touch screen the arrows show over the outfits, which are swiped"
             buy, pieces = other.locator(f"{first} .about-actions a").bounding_box(), other.locator(f"{first} .pieces").bounding_box()
             assert buy["height"] >= 48 and abs(buy["width"] - pieces["width"]) < 1, \
                 f"at 390px 'Buy this outfit' is {buy['width']:.0f} x {buy['height']:.0f}px, the list {pieces['width']:.0f}px wide"
@@ -770,6 +1038,26 @@ def run(base: str) -> None:
             }""")
             assert narrow["rows"] == 1 and narrow["last_in_reach"] and narrow["page"] <= 360, \
                 f"at 360px the chips do not scroll sideways in one row, or the page is wider than the screen: {narrow}"
+            # By keyboard too: with the row back at its start, Tab to the last chip (Saved, partly outside the row),
+            # then Shift+Tab back to the first: each comes whole into the row, its focus ring included.
+            other.evaluate("() => { document.querySelector('.toolbar .chips').scrollLeft = 0; document.activeElement.blur(); }")
+            for key, which in (("Tab", "lastElementChild"), ("Shift+Tab", "firstElementChild")):
+                for _ in range(40):
+                    other.keyboard.press(key)
+                    if other.evaluate(f"() => document.activeElement === document.querySelector('.toolbar .chips').{which}"):
+                        break
+                ring = other.evaluate("""() => {
+                    const el = document.activeElement, row = document.querySelector('.toolbar .chips');
+                    if (!row.contains(el)) return {chip: null};
+                    const style = getComputedStyle(el), r = el.getBoundingClientRect(), b = row.getBoundingClientRect();
+                    const reach = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
+                    return {chip: el.textContent.trim(), shown: el.matches(':focus-visible') && style.outlineStyle !== 'none',
+                            cut: [['left', r.left - reach < b.left - 0.5], ['right', r.right + reach > b.right + 0.5],
+                                  ['top', r.top - reach < b.top - 0.5], ['bottom', r.bottom + reach > b.bottom + 0.5]]
+                                 .filter(side => side[1]).map(side => side[0])};
+                }""")
+                assert ring["chip"] and ring["shown"] and not ring["cut"], \
+                    f"at 360px, after {key}, the focus ring of the chip {ring['chip']!r} is cut off by the chip row: {ring}"
             context.close()
 
             context, other = opened(1280, 900, False)
@@ -878,10 +1166,14 @@ def run(base: str) -> None:
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
                  ("an option not in your size fades only its photo", out_of_size_fades_only_the_photo),
                  ("the picture of an outfit arrives by itself", picture_arrives),
+                 ("the starter outfits fit three phones", starter_outfits_fit_a_phone),
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
-                 ("arrows and arrow keys", arrows_move), ("save an outfit and buy it", save_and_buy),
+                 ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
+                 ("arrows and arrow keys", arrows_move),
+                 ("arrows for every mouse, your place kept on Back", arrows_for_every_mouse_and_your_place_kept),
+                 ("save an outfit and buy it", save_and_buy),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("the landing page says what Capsule is", the_landing_page),
@@ -889,6 +1181,7 @@ def run(base: str) -> None:
                  ("moving between tabs fetches only the page", tabs_fetch_only_the_page),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
+                 ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
                  ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),

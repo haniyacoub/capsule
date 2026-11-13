@@ -65,6 +65,23 @@ class Pages(AppCase):
         r = self.client.post("/settings", data={"mode": "cheapest"}, headers={"Origin": "http://evil.example"})
         self.assertEqual(r.status_code, 403)
 
+    def test_an_edit_to_the_stylesheet_shows_at_the_next_reload(self):
+        # On your own machine the version in the stylesheet's address (?v=) is worked out for every page, so the
+        # browser fetches an edited file at once. (In production it is worked out once per start: test_production.py.)
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as folder, mock.patch("wardrobe.app.ROOT", Path(folder)):
+            css = Path(folder) / "wardrobe" / "static" / "app.css"
+            css.parent.mkdir(parents=True)
+            css.write_text("body {}")
+            client = create_app().test_client()
+
+            def version() -> str:
+                return re.search(r"/static/app\.css\?v=(\w+)", client.get("/outfits").get_data(as_text=True)).group(1)
+
+            before = version()
+            css.write_text("body { color: red }")
+            self.assertNotEqual(version(), before)
+
 
 class Selection(AppCase):
     def test_cheapest_takes_the_lowest_price_in_stock(self):
@@ -229,6 +246,31 @@ class SlotsAndProfile(AppCase):
         after = self.view("white-tee")
         self.assertEqual((after.state, after.chosen.id), ("locked", other.id), "the choice made by hand is kept")
         self.assertIn("Kept your 1 hand-picked piece.", self.client.get("/outfits").data.decode())
+
+    def test_the_profile_says_what_each_field_is(self):
+        page = self.client.get("/profile").data.decode()
+        self.assertEqual(re.findall(r"<h1[^>]*>([^<]*)</h1>", page), ["About you"], "one main heading")
+        self.assertIn("<h2>Your model</h2>", page)
+        about = page[page.index('<form class="form" id="about-you"'):]
+        about = about[:about.index("</form>")]
+        labels = [html.unescape(re.sub(r"<[^>]+>", "", label)).strip()
+                  for label in re.findall(r'<label class="field"><span>(.*?)</span>', about)]
+        self.assertEqual(labels, ["Tops", "Shoes (EU)", "Trouser waist (inches)", "Trouser length (inches)", "Height (cm)",
+                                  "Weight (kg)", "Chest (cm, optional)", "Body waist (cm, optional)",
+                                  "For the whole wardrobe (EUR)",
+                                  "Colours you like (most important first, separated by commas)", "Colours to avoid",
+                                  "Things to build around (one per line, e.g. “white leather sneakers”)"])
+        self.assertIn("We use these to warn you when a cut runs slim or large, or a size may not fit. Add your chest and "
+                      "body waist to compare yourself with each store's size chart.", about)
+        self.assertIn('<h2 class="sec" id="use-label">What do you dress for?</h2>', about)
+        self.assertIn('role="radiogroup" aria-labelledby="use-label"', about, "the choice is named by its heading")
+        self.assertIn('<h2 class="sec" id="sizes">Sizes</h2>', about)
+        for name in ("liked", "refused"):        # colour names: a phone's autocorrect would only change them
+            field = re.search(rf'<input [^>]*name="{name}"[^>]*>', about).group(0)
+            self.assertIn('autocorrect="off"', field, name)
+            self.assertIn('spellcheck="false"', field, name)
+        for jargon in ("slot", "size check", "Colours I ", "comma-separated", "What it is for", "Trousers "):
+            self.assertNotIn(jargon, about)
 
     def test_budget_change_alone_keeps_everything(self):
         s = self.first("coat")
@@ -462,12 +504,26 @@ class RebuildingThePlan(AppCase):
                          "pressing Save on the plan page without changing anything is no edit")
 
     def test_sizes_or_budget_alone_stay_on_the_profile(self):
+        self.save_profile()                                  # the customer's own answers, saved once before
+        self.messages()                                      # (what that save said, read on the outfits)
         self.post("/slot/white-oxford-shirt/lock")
         before = db.list_slots()
         saved = self.save_profile(budget="2000", top_size="L")
         self.assertTrue(saved.headers["Location"].endswith("/profile"))
         self.assertEqual(db.list_slots(), before, "every piece, choice and lock as it was")
         self.assertEqual(self.messages("/profile"), 'Profile saved. <a href="/outfits">See your outfits</a>')
+
+    def test_the_first_save_shows_the_outfits_even_when_only_sizes_or_budget_changed(self):
+        # The note on a new customer's Profile says: change the example values to yours and save, then you see the
+        # outfits. With the example's colours and use kept, the plan is already built from them: it stays as it is.
+        self.assertIn("then you see the outfits.", self.client.get("/profile").data.decode())
+        self.post("/slot/white-oxford-shirt/lock")
+        before = db.list_slots()
+        saved = self.save_profile(budget="2000", top_size="L")
+        self.assertEqual(saved.headers["Location"], "/outfits")
+        self.assertEqual(db.list_slots(), before, "every piece, choice and lock as it was")
+        self.assertEqual(self.messages(), "Profile saved.")
+        self.assertFalse(profile_mod.load()["example"])
 
     def test_an_older_account_that_only_picked_things_gets_its_profile_applied(self):
         # Before plan_edited, one setting stood for every change made by hand, and new answers saved
@@ -631,6 +687,10 @@ class BuyingInYourSizes(AppCase):
         self.assertNotIn('id="summary"', page, "no budget bar: the wardrobe's total is not this outfit's")
         self.assertIn(f'<p class="buy-head"><b>{eur(outfit.cost)}</b>', page)
         self.assertIn(f"{outfit.label} · {len(outfit.pieces)} pieces · prices and stock as of ", page)
+        # A piece of it he owns is not bought: the count says what is.
+        self.post(f"/slot/{outfit.slots[0]}/own")
+        owning = self.client.get("/outfits/buy", query_string={"at": outfit.sig}).data.decode()
+        self.assertIn(f"{outfit.label} · {len(outfit.pieces) - 1} pieces to buy · prices and stock as of ", owning)
         self.assertIn('id="summary"', self.client.get("/list").data.decode(), "the list keeps it")
         for name, words in self.both().items():
             self.assertIn("Prices include VAT. Each store adds its own delivery costs at checkout.", words, name)
@@ -738,6 +798,9 @@ class EditingTheRules(AppCase):
         r = self.client.get("/")
         self.assertEqual(r.status_code, 500)
         self.assertIn(b"config/scoring.toml has a syntax error", r.data)
+        # On your own machine the page is for the one who edits the files (production shows Capsule's own 500 page).
+        self.assertIn(b"A config file needs fixing", r.data)
+        self.assertIn(b"Fix the file, save it, and reload this page", r.data)
 
     def test_a_nonsense_value_is_named(self):
         self.edit("polyester      = 25", 'polyester      = "low"')
@@ -760,7 +823,10 @@ class Safety(AppCase):
 
     def test_try_on_is_an_extension_point_not_a_feature(self):
         self.assertNotIn(b"Try on", self.client.get("/outfits").data)
-        self.assertEqual(self.client.post("/outfits/tryon").status_code, 501)
+        refused = self.client.post("/outfits/tryon")
+        self.assertEqual(refused.status_code, 501)
+        self.assertIn("Trying outfits on yourself isn&#39;t built yet.", refused.get_data(as_text=True))
+        self.assertNotIn("tryon.py", refused.get_data(as_text=True), "a file name, on a page customers can see")
 
     def test_unpriced_items_are_never_picked_automatically(self):
         s = self.first("coat")
@@ -773,6 +839,11 @@ class Safety(AppCase):
         after = self.view(s.slot["id"])
         self.assertNotEqual(after.chosen.id, s.chosen.id)
         self.assertGreater(after.chosen.price, 0)
+        # Nor by hand: the page says where to add the price, in the customer's words ("piece", not "slot").
+        refused = self.client.post(f"/slot/{s.slot['id']}/pick", data={"candidate": s.chosen.id})
+        self.assertEqual(refused.status_code, 409)
+        self.assertIn("That item has no price yet. Add its price on the piece&#39;s page first.",
+                      refused.get_data(as_text=True))
 
 
 class DemoData(AppCase):

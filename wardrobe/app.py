@@ -50,6 +50,9 @@ PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_ima
           "auth.signup", "auth.login", "auth.forgot", "auth.reset",
           "favicon"}
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
+# The date of the words a customer agrees to when he uploads his photo (the box on Profile, profile.html). It is
+# stored with the photo, so it is known which words he agreed to. Give it a new date whenever those words change.
+PHOTO_CONSENT = "2026-11-12"
 
 
 def bootstrap() -> None:
@@ -158,6 +161,19 @@ def recoloured_name(name: str, old: str, new: str) -> str:
     return ((after if name[:1].isupper() else after.lower()) + rest)[:60]
 
 
+def starter_line() -> str:
+    """Whose the starter outfits are, at the top of Outfits until the customer saves his profile: 'Starter outfits for
+    a man of 180 cm, size M, who likes navy, grey, white and olive.' Said from the example values every account
+    starts with (profile.EXAMPLE), so it changes with them."""
+    example = profile_mod.EXAMPLE
+    keys = example["liked"]
+    liked = [colours.get(key).label.lower() for key in keys] if isinstance(keys, list) else []
+    likes = ", ".join(liked[:-1]) + " and " + liked[-1] if len(liked) > 1 else "".join(liked)
+    nbsp = "\u00a0"         # "180 cm" and "size M" are never split over two lines
+    return (f"Starter outfits for a man of {example['height_cm']}{nbsp}cm, size{nbsp}{example['top_size']}"
+            + (f", who likes {likes}." if likes else "."))
+
+
 def eur(value) -> str:
     value = float(value or 0)
     text = f"{value:,.0f}" if abs(value - round(value)) < 0.005 else f"{value:,.2f}"
@@ -176,7 +192,8 @@ def _asset_version() -> str:
     Browsers keep those files for a year without asking again (static_files_kept, in create_app), so the
     address must change whenever one of them does. It is made from the name, size and time of change of
     every file under static/, htmx in static/vendor/ included: an edit, a new file or an older copy put
-    back all change it.
+    back all change it. Looking at every file takes about half a millisecond, so in production it is done
+    once per start (asset_version, in create_app), not for every page.
     """
     static = ROOT / "wardrobe" / "static"
     files = sorted((str(p.relative_to(static)), p.stat().st_size, p.stat().st_mtime_ns)
@@ -250,6 +267,14 @@ def create_app() -> Flask:
     )
     bootstrap()
 
+    # In production the files under static/ don't change while Capsule runs (an update restarts it, see
+    # PRODUCTION.md), so their version is worked out once, here. On your own machine it is worked out for every
+    # page, so an edit to the stylesheet shows at the next reload.
+    version_at_start = _asset_version() if conf.PRODUCTION else None
+
+    def asset_version() -> str:
+        return version_at_start or _asset_version()
+
     def csrf_field() -> Markup:
         """The hidden input every form carries in production (nothing on your own machine)."""
         if not conf.PRODUCTION:
@@ -258,10 +283,14 @@ def create_app() -> Flask:
 
     @app.context_processor
     def per_request_values():
-        return {"asset_v": _asset_version(), "tryon_available": tryon.available(),
+        return {"asset_v": asset_version(), "tryon_available": tryon.available(),
                 "production": conf.PRODUCTION, "user": g.get("user"), "csrf_field": csrf_field,
                 "csrf_token": auth.csrf_token if conf.PRODUCTION else (lambda: ""),
                 "legal_pages": LEGAL_PAGES, "site_name": conf.SITE_NAME}
+
+    if conf.PRODUCTION:     # first: a page that refuses a request still knows who asked (its way home, error.html)
+        app.before_request(auth.load_user)
+        app.teardown_request(auth.unload_user)
 
     @app.before_request
     def same_origin_only():
@@ -275,9 +304,6 @@ def create_app() -> Flask:
             request.max_content_length = person.MAX_PHOTO + 64 * 1024
 
     if conf.PRODUCTION:
-        app.before_request(auth.load_user)
-        app.teardown_request(auth.unload_user)
-
         @app.before_request
         def accounts_and_csrf():
             if request.endpoint in auth.FILES:      # a stylesheet, script, font or icon: no account, no form
@@ -316,7 +342,8 @@ def create_app() -> Flask:
         """How long browsers keep Capsule's own files (static/), so that moving between pages fetches only the page.
 
         For a year, without asking again: the stylesheet and the scripts at their current ?v= (the address changes
-        whenever a file does, see _asset_version), and the fonts (a changed font gets a new file name, see app.css).
+        with every update of the files, see _asset_version), and the fonts (a changed font gets a new file name, see
+        app.css).
         For a day: the manifest and the icons, whose addresses phones and browsers remember (like /favicon.ico).
         Never without asking (Flask's "no-cache"): a ?v= that is no longer the current one, from a page made before
         an update, so that an address is never kept with a file it did not name.
@@ -324,15 +351,11 @@ def create_app() -> Flask:
         if request.endpoint != "static" or resp.status_code not in (200, 304):
             return resp
         version, name = request.args.get("v"), (request.view_args or {}).get("filename", "")
-        if version == _asset_version() or (version is None and name.startswith("fonts/")):
+        if version == asset_version() or (version is None and name.startswith("fonts/")):
             resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         elif version is None:
             resp.headers["Cache-Control"] = "public, max-age=86400"
         return resp
-
-    @app.errorhandler(ConfigError)
-    def config_error(err: ConfigError):
-        return render_template("error.html", title="A config file needs fixing", message=str(err)), 500
 
     # Each error page in Capsule's own words: a title and one line (error.html adds the way home). Werkzeug's
     # own sentences ("The requested URL was not found on the server…") are written for developers and never
@@ -352,6 +375,16 @@ def create_app() -> Flask:
     def error_page(code: int, own: str | None = None):
         title, line = error_words.get(code) or error_words[400 if code < 500 else 500]
         return render_template("error.html", title=title, message=own or line, plain=True), code
+
+    @app.errorhandler(ConfigError)
+    def config_error(err: ConfigError):
+        """A config file with a typo. On your own machine the page names the file and the line to fix. In production
+        visitors and customers see Capsule's own 500 page: the file, its line and the TOML text are for the operator,
+        and are in the log."""
+        if conf.PRODUCTION:
+            app.logger.error("A config file needs fixing (%s %s): %s", request.method, request.path, err)
+            return error_page(500)
+        return render_template("error.html", title="A config file needs fixing", message=str(err)), 500
 
     @app.errorhandler(HTTPException)
     def http_error(err: HTTPException):
@@ -458,7 +491,12 @@ def create_app() -> Flask:
     @app.get("/slot/<slot_id>")
     def slot_page(slot_id: str):
         w = selection.build()
-        return page("slot.html", w=w, tab="wardrobe", **slot_context(w, slot_id))
+        # Opened from an outfit's pop-up ("Compare all 3 options", ?from=outfit&at=<the outfit>): its way back leads
+        # to that outfit, and the Outfits tab stays lit. Otherwise it is part of the Wardrobe.
+        at = request.args.get("at", "")[:400] if request.args.get("from") == "outfit" else ""
+        occasion = request.args.get("occasion", "")
+        back = url_for("outfits_page", at=at, occasion=occasion if occasion in outfits.OCCASIONS else None) if at else ""
+        return page("slot.html", w=w, tab="outfits" if back else "wardrobe", back=back, **slot_context(w, slot_id))
 
     @app.post("/slot/<slot_id>/pick")
     def slot_pick(slot_id: str):
@@ -468,7 +506,7 @@ def create_app() -> Flask:
         if wanted is None:
             abort(404)
         if wanted.price <= 0:           # an item without a price would silently make the wardrobe cheaper
-            abort(409, "That item has no price yet. Add its price on the slot's page first.")
+            abort(409, "That item has no price yet. Add its price on the piece's page first.")
         # Choosing by hand locks the choice, so the price level can't undo it.
         db.update_slot(slot_id, pick=cand_id, locked=True, owned=False)
         if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
@@ -483,6 +521,8 @@ def create_app() -> Flask:
             abort(404)
         if view.slot["locked"]:
             db.update_slot(slot_id, locked=False, pick=None)       # back to automatic
+            if conf.PRODUCTION and view.chosen and shared.kept_for_its_lock(view.slot, view.chosen.data):
+                sync_catalog()      # a product kept only for its lock, in a colour he refused since, goes with it
         elif view.chosen is not None:
             db.update_slot(slot_id, locked=True, pick=view.chosen.id)  # freeze what's showing
         return after_slot_change(slot_id)
@@ -508,6 +548,9 @@ def create_app() -> Flask:
         if colour not in {c.key for c in view.offers}:     # never a refused colour, nor one that fills nothing
             abort(409, "That colour is not offered for this piece any more. Reload the page.")
         name = recoloured_name(view.slot["name"], view.slot["colour"], colour)
+        # An account from before plan_edited has its answer worked out by comparing the plan with the profile's
+        # own: worked out now, while they still match, as this piece's new colour would make them differ.
+        plan_edited(profile_mod.load())
         db.update_slot(slot_id, colour=colour, name=name, locked=False, pick=None)
         sync_catalog(changed_slot=slot_id)
         w = selection.build()
@@ -655,6 +698,9 @@ def create_app() -> Flask:
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved),
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
                     looks_on=looks_on,
+                    # Until the profile is saved, the starter banner stands where the budget bar would: a budget
+                    # the customer never set says nothing yet. Saving the profile brings the bar back.
+                    starter=starter_line() if prof["example"] else "",
                     auto=looks_on and looks.load_rules()["pictures"]["auto"] and not looks.held_off())
 
     @app.get("/outfits/piece")
@@ -674,7 +720,8 @@ def create_app() -> Flask:
         occasion = request.args.get("occasion", "")
         return render_template("_piece.html", w=w, s=view, sig=outfit.sig, others=others[:6], n_others=len(others),
                                swaps=swaps, without=without, worn=worn, n_outfits=len(every),
-                               occasion=occasion if occasion in outfits.OCCASIONS else "")
+                               occasion=occasion if occasion in outfits.OCCASIONS else "",
+                               example_sizes=profile_mod.sizes_unconfirmed(profile_mod.load()))
 
     @app.get("/outfits/buy")
     def outfits_buy():
@@ -772,7 +819,7 @@ def create_app() -> Flask:
     def outfits_tryon():
         """Hook for the future virtual try-on — see tryon.py. Not built."""
         if not tryon.available():
-            abort(501, "Virtual try-on is not built yet — see wardrobe/tryon.py.")
+            abort(501, "Trying outfits on yourself isn't built yet.")
         w = selection.build()
         outfit = outfits.find(w, request.form.get("key", ""))
         if outfit is None:
@@ -872,7 +919,11 @@ def create_app() -> Flask:
                         model_words=person.describe(model)[0] or rules["text"]["model"],
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the image service",
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
-                        photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}))
+                        photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
+                        # The one note while the answers are still the example's: the sizes may already be his
+                        # ("These are my sizes"), and a plan edited on the plan page is not rebuilt by a save.
+                        sizes_kept=current["example"] and not profile_mod.sizes_unconfirmed(current),
+                        plan_kept=current["example"] and plan_edited(current))
 
         new, notes = profile_mod.from_form(request.form, current)
         profile_mod.save(new)
@@ -882,13 +933,21 @@ def create_app() -> Flask:
         shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned")
         # The plan has no tab of its own, so a message that sends you to it carries the link.
         # (Markup: the link is shown as a link; what the customer typed is still escaped.)
-        if all(current[f] == new[f] for f in shapes_capsule):      # sizes or budget: the plan stays as it is
+        same_plan = all(current[f] == new[f] for f in shapes_capsule)
+        if same_plan and not current["example"]:        # sizes or budget: the plan stays as it is
             flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
             return redirect(url_for("profile_page"))
         if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
+            if current["refused"] != new["refused"]:
+                sync_catalog()          # its pieces stay, but no longer with products in a colour now refused
             flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
                          "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
             return redirect(url_for("profile_page"))
+        if same_plan:
+            # The first save, with the example's colours and use kept: the plan is built from them already. As the
+            # note on Profile says, the outfits follow, now under the budget bar instead of the starter banner.
+            flash("Profile saved.")
+            return redirect(url_for("outfits_page"))
 
         plan, needs_refresh = rebuild_plan(new, current)
         flash(rebuilt_message(plan) + (f" {REFRESH_HINT}" if needs_refresh else ""))
@@ -931,10 +990,13 @@ def create_app() -> Flask:
         if not data:
             flash("No photo arrived. Choose a photo first.", "photo")
         elif request.form.get("agree") != "on":
-            flash("Not saved. Tick the box to confirm that it is a photo of you and may be sent to the image service.", "photo")
+            chosen = looks.service()
+            flash(f"Not saved. Tick the box to confirm that this is you, that you're 18 or over and that the photo "
+                  f"may be sent to {chosen.label if chosen else 'the image service'}.", "photo")   # as the box says
         else:
             problem = person.save_photo(data)
             if problem is None:
+                db.set_setting("photo_consent", PHOTO_CONSENT)      # beside photo_added: which words he agreed to
                 looks.forget_pictures_of(db.uid())      # those showed the previous photo
             flash(f"Not saved. {problem}" if problem
                   else "Photo saved. Pictures drawn from now on show you.", "photo")

@@ -3,6 +3,7 @@ import html
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from pathlib import Path
 from unittest import mock
 
 from wardrobe import catalog, config, db, mail, paths, selection, settings, shared
+from wardrobe import profile as profile_mod
 from wardrobe.app import create_app, eur
 
 PASSWORD = "correct horse battery"
@@ -404,6 +406,7 @@ class SaysWhatReallyHappens(ProductionCase):
             self.assertIn(what, kept)
             self.assertIn(what, deleted)
         self.assertIn("the pictures made from it", deleted)
+        self.assertIn("your photo and the pictures made from it (see or delete them on Profile).", kept)
         self.assertIn('href="/profile#photo">Profile</a>', page, "where to see or delete the photo")
         text = self.said(page)
         self.assertIn("Logged in as ada@example.com.", text)
@@ -429,8 +432,8 @@ class SaysWhatReallyHappens(ProductionCase):
         from werkzeug.http import parse_date
 
         text = self.said(self.app.test_client().get("/legal/privacy").get_data(as_text=True))
-        for fact in ("Network (IP) addresses: of each attempt to create an account, whether or not it succeeds, "
-                     "kept for 1 hour",
+        for fact in ("Network (IP) addresses: of each attempt to create an account with a valid email address and "
+                     "password, whether or not it then succeeds, kept for 1 hour",
                      "of each wrong password, with the email address that was tried, kept for 24 hours",
                      "The times you asked for a picture are kept for 48 hours",
                      f"keep you logged in for {settings.SESSION_DAYS} days after your last visit",
@@ -465,6 +468,12 @@ class SaysWhatReallyHappens(ProductionCase):
         refused = self.post(self.app.test_client(), "/signup", email="ada@example.com", password=PASSWORD)
         self.assertEqual(refused.status_code, 400)
         self.assertIn("already an account", refused.get_data(as_text=True))
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM signups WHERE ip = ?", ("127.0.0.1",)).fetchone()[0], 2)
+        # ...and only attempts with a valid email address and password, as the outline says: these two are not kept.
+        for email, password in (("not an address", PASSWORD), ("eve@example.com", "short")):
+            refused = self.post(self.app.test_client(), "/signup", email=email, password=password)
+            self.assertEqual(refused.status_code, 400, email)
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(con.execute("SELECT COUNT(*) FROM signups WHERE ip = ?", ("127.0.0.1",)).fetchone()[0], 2)
 
@@ -566,6 +575,86 @@ class OutfitsIsHome(ProductionCase):
         for page in (rebuilt, kept):
             for gone in self.GONE:
                 self.assertNotIn(gone, page)
+
+
+class StartsOnTheOutfits(ProductionCase):
+    """A new customer is shown the starter outfits on the model first, not a long form of someone else's values.
+    A banner over them says whose they are and leads to the Profile page, which has one note about the example
+    values; the first save there brings the budget bar back."""
+
+    STARTER = re.compile(r'<section class="starter"[^>]*>(.*?)</section>', re.S)
+    EXAMPLE_FORM = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
+                    "budget": "1500", "liked": "navy, grey, white, olive", "refused": "", "use": "both", "shoes": "on",
+                    "outerwear": "on", "owned": ""}
+
+    @staticmethod
+    def example_notes(page: str) -> list[str]:
+        """Every paragraph on the page that speaks of example values, as the customer reads it."""
+        main = page.split("<main>", 1)[1].split("</main>", 1)[0]
+        return [text for text in (words(p) for p in re.findall(r"<p[^>]*>.*?</p>", main, re.S)) if "example" in text.lower()]
+
+    def test_signing_up_opens_the_starter_outfits_with_one_way_to_make_them_yours(self):
+        ada = self.app.test_client()
+        signed_up = self.post(ada, "/signup", email="ada@example.com", password=PASSWORD)
+        self.assertEqual((signed_up.status_code, signed_up.headers["Location"]), (302, "/outfits"))
+        with ada.session_transaction() as session:
+            self.assertNotIn("_flashes", session, "no welcome message to read before the outfits")
+        page = ada.get("/outfits").data.decode()
+        starter = self.STARTER.search(page)
+        self.assertIsNotNone(starter, "no starter banner over a new customer's outfits")
+        self.assertEqual(words(starter.group(1)),
+                         "Starter outfits for a man of 180 cm, size M, who likes navy, grey, white and olive. Make them mine")
+        self.assertIn("180\xa0cm, size\xa0M,", starter.group(1), "'180 cm' and 'size M' split over two lines")
+        self.assertIn('<a class="btn ghost small" href="/profile">Make them mine</a>', starter.group(1))
+        self.assertLess(page.index('class="starter"'), page.index('class="toolbar"'), "the banner is above the outfits")
+        self.assertNotIn('id="summary"', page, "no budget bar for a budget the customer never set")
+        self.assertNotIn('class="flash"', page)
+        for url in ("/", "/list", "/profile"):          # only the outfits trade the bar for the banner
+            self.assertIn('id="summary"', ada.get(url).data.decode(), url)
+            self.assertNotIn('class="starter"', ada.get(url).data.decode(), url)
+        again = ada.get("/signup")
+        self.assertEqual((again.status_code, again.headers["Location"]), (302, "/outfits"), "already has an account")
+
+    def test_the_banner_is_said_from_the_example_values_never_typed(self):
+        ada = self.member("ada@example.com")
+        with mock.patch.dict(profile_mod.EXAMPLE, {"height_cm": 176, "top_size": "L", "liked": ["black", "stone"]}):
+            banner = words(self.STARTER.search(ada.get("/outfits").data.decode()).group(1))
+        self.assertTrue(banner.startswith("Starter outfits for a man of 176 cm, size L, who likes black and stone."), banner)
+
+    def test_the_first_profile_save_shows_the_outfits_with_the_budget_bar_back(self):
+        ada = self.member("ada@example.com")
+        saved = self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "budget": "900"})     # the budget alone, changed
+        self.assertEqual(saved.headers["Location"], "/outfits", "the note promised the outfits after saving")
+        page = ada.get("/outfits").data.decode()
+        self.assertNotIn('class="starter"', page, "the banner stays after the profile was saved")
+        self.assertIn('id="summary"', page)
+        self.assertIn(f"of </span><a href=\"/profile#budget\" title=\"Change your budget\"><b>{eur(900)}</b>", page)
+        self.assertIn('<p class="flash" role="status">Profile saved.</p>', page)
+        self.assertEqual(self.example_notes(ada.get("/profile").data.decode()), [], "no note about example values left")
+
+    def test_a_new_accounts_profile_has_one_note_about_the_example_values(self):
+        ada = self.member("ada@example.com")
+        self.assertEqual(self.example_notes(ada.get("/profile").data.decode()),
+                         ["These are example values. Change them to yours and save: your plan is rebuilt around them, "
+                          "then you see the outfits."])
+        # "These are my sizes" on Buy this outfit or the shopping list: the note no longer calls the sizes examples.
+        self.post(ada, "/profile/sizes-ok")
+        notes = self.example_notes(ada.get("/profile").data.decode())
+        self.assertEqual(len(notes), 1, notes)
+        self.assertTrue(notes[0].startswith("You said these sizes are yours; the rest are example values."), notes)
+        # A plan edited on the plan page is not rebuilt by a save: the note doesn't promise it, and leads to the plan.
+        with db.as_user(self.user_id("ada@example.com")):
+            first = db.list_slots()[0]
+        self.post(ada, f"/slots/{first['id']}/save", name="My own name", category=first["category"],
+                  colour=first["colour"], qty=str(first["qty"]))
+        page = ada.get("/profile").data.decode()
+        notes = self.example_notes(page)
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("Your plan stays as you edited it", notes[0])
+        self.assertNotIn("rebuilt around them", notes[0])
+        self.assertIn('on <a href="/slots">the plan page</a>.</p>', page)
+        saved = self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "liked": "black, grey"})
+        self.assertEqual(saved.headers["Location"], "/profile", "the edited plan stays, as the note said")
 
 
 class Isolation(ProductionCase):
@@ -716,6 +805,61 @@ class ErrorPages(ProductionCase):
         self.assertIn("That changed in the meantime That outfit no longer exists — reload the page.",
                       unescape(words(gone.get_data(as_text=True))))
 
+    def test_every_error_page_leads_a_customer_back_to_the_outfits(self):
+        # Whatever went wrong, the way home for someone logged in is Capsule's home, the outfits: also when the request
+        # is refused before anything else is looked at (a form sent from another website).
+        ada = self.member("ada@example.com")
+        with mock.patch("wardrobe.selection.build", side_effect=ValueError("a crash")):
+            crash = ada.get("/outfits")
+        answers = {
+            400: ada.post("/settings", data={"mode": "cheapest"}),
+            403: ada.post("/settings", data={"mode": "cheapest", "csrf_token": self.token(ada)},
+                          headers={"Origin": "https://evil.example"}),
+            404: ada.get("/no-such-page"),
+            405: ada.get("/logout"),
+            409: self.post(ada, "/outfits/save", key="no-such-outfit"),
+            500: crash,
+            501: self.post(ada, "/outfits/tryon", key="any"),
+        }
+        for code, response in answers.items():
+            page = response.get_data(as_text=True)
+            self.assertEqual(response.status_code, code)
+            home = [("/outfits", "Capsule"), ("/outfits", "Go to your outfits"), *self.LEGAL]
+            self.assertEqual(self.links(page), home, code)
+        # Capsule's own words, not the code's: no file names.
+        tryon = unescape(words(answers[501].get_data(as_text=True)))
+        self.assertIn("Not available yet Trying outfits on yourself isn't built yet.", tryon)
+        self.assertNotIn(".py", tryon)
+
+    def test_a_config_file_with_a_typo_shows_capsules_own_page_and_tells_only_the_log(self):
+        # The file's name, its line and the TOML reader's words are for whoever runs Capsule: in production they go to
+        # the log, and visitors and customers see the page for any fault on Capsule's side. (On your own machine the
+        # page names the file and the line: test_app.py, EditingTheRules.)
+        ada = self.member("ada@example.com")
+        with tempfile.TemporaryDirectory() as folder:
+            shutil.copytree(config.CONFIG_DIR, Path(folder) / "config")
+            scoring = Path(folder) / "config" / "scoring.toml"
+            typed = scoring.read_text(encoding="utf-8").replace("[weights]", "[weights", 1)     # a bracket left out
+            scoring.write_text(typed, encoding="utf-8")
+            with mock.patch.object(config, "CONFIG_DIR", Path(folder) / "config"), \
+                    self.assertLogs(self.app.logger, "ERROR") as log:
+                config._cache.clear()
+                try:
+                    with self.assertRaises(config.ConfigError) as typo:
+                        config.load("scoring.toml")
+                    response = ada.get("/outfits")
+                finally:
+                    config._cache.clear()
+        page = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("Something went wrong on our side It's not you. Try again in a minute. Go to your outfits",
+                      unescape(words(page)))
+        detail = str(typo.exception)
+        self.assertIn("config/scoring.toml has a syntax error", detail)
+        for secret in (detail, detail.split(": ", 1)[1], "scoring.toml", "config/", "needs fixing"):
+            self.assertNotIn(secret, unescape(page))
+        self.assertIn(detail, "\n".join(log.output), "the operator finds the detail in the log")
+
 
 class CapsulesOwnFiles(ProductionCase):
     """The stylesheet, the scripts and the fonts are kept by browsers for a year without asking again, so moving between
@@ -754,6 +898,50 @@ class CapsulesOwnFiles(ProductionCase):
         self.assertEqual((again.status_code, again.headers.get("Cache-Control")), (304, self.YEAR))
         # Every page still renews the login cookie, so a customer's login is counted from the last visit.
         self.assertIn("session=", ada.get("/outfits").headers.get("Set-Cookie", ""))
+
+    def test_the_icon_browsers_ask_for_by_themselves_carries_no_cookie(self):
+        # /favicon.ico is one of Capsule's own files, the same for everyone: no account is looked up for it, and it
+        # neither sets the login cookie nor says "Vary: Cookie" (a shared cache keeps neither).
+        ada = self.member("ada@example.com")
+        with mock.patch("wardrobe.db.get_user", side_effect=AssertionError("an account was looked up")):
+            for who, client in (("a visitor", self.app.test_client()), ("a customer", ada)):
+                for ask in (client.get, client.head):
+                    response = ask("/favicon.ico")
+                    said = f"{ask.__name__.upper()} /favicon.ico for {who}"
+                    self.assertEqual((response.status_code, response.mimetype), (200, "image/x-icon"), said)
+                    self.assertNotIn("Set-Cookie", response.headers, said)
+                    self.assertNotIn("cookie", response.headers.get("Vary", "").lower(), said)
+                    response.close()
+
+    def test_the_version_is_worked_out_once_per_start(self):
+        # Looking at every file under static/ takes about half a millisecond, and one click on a price level renders
+        # eight templates. In production the files don't change while Capsule runs (an update restarts it), so their
+        # version is worked out once, at the start: no page looks at the files again. The next start sees an edit.
+        # (On your own machine an edit shows at once: test_app.py.)
+        from wardrobe.app import _asset_version
+        with tempfile.TemporaryDirectory() as folder, mock.patch("wardrobe.app.ROOT", Path(folder)):
+            css = Path(folder) / "wardrobe/static/app.css"
+            css.parent.mkdir(parents=True)
+            css.write_text("body {}")
+            self.app = create_app()
+            ada, visitor = self.member("ada@example.com"), self.app.test_client()
+            started = self.versioned(ada.get("/outfits").get_data(as_text=True))["app.css"]
+            css.write_text("body { color: red }")               # an edit while it runs
+            with mock.patch("wardrobe.app._asset_version", side_effect=AssertionError("the files were looked at")):
+                pages = [ada.get("/outfits"), ada.get("/list"), ada.get("/profile"), visitor.get("/"),
+                         visitor.get("/no-such-page")]
+                click = self.post(ada, "/settings", headers=HX, mode="cheap")
+                stylesheet = ada.get(started)
+            self.assertEqual([p.status_code for p in pages], [200, 200, 200, 200, 404])
+            self.assertEqual(click.status_code, 200, "a price-level click")
+            for response in pages:
+                self.assertEqual(self.versioned(response.get_data(as_text=True))["app.css"], started)
+            self.assertEqual(stylesheet.headers.get("Cache-Control"), self.YEAR, "the address the pages name")
+            stylesheet.close()
+            self.app = create_app()                             # the next start
+            restarted = self.versioned(self.app.test_client().get("/").get_data(as_text=True))["app.css"]
+            self.assertNotEqual(restarted, started)
+            self.assertEqual(restarted, f"/static/app.css?v={_asset_version()}")
 
     def test_an_address_is_never_kept_with_a_file_it_did_not_name(self):
         from wardrobe.app import _asset_version
@@ -836,7 +1024,11 @@ class ByInvitation(ProductionCase):
     def test_the_pages_say_so(self):
         visitor = self.app.test_client()
         self.assertIn(b"by invitation", visitor.get("/").data)
-        self.assertIn(b'name="code"', visitor.get("/signup").data)
+        signup = visitor.get("/signup").get_data(as_text=True)
+        self.assertIn('name="code"', signup)
+        # One paragraph: two lines one under the other, with no space between them, read as one broken paragraph.
+        self.assertIn('<p class="muted">Capsule is open by invitation for now. You need the code you were given. '
+                      'Free. No card. Delete your account and everything in it at any time.</p>', signup)
 
     def test_no_account_without_the_code(self):
         for attempt in ({}, {"code": ""}, {"code": "by-invitation-2025"}, {"code": CODE.upper()}):
@@ -950,14 +1142,15 @@ def product(store, sku, name, price, colour, hex_=None, **more):
 class SharedStoreCatalogue(ProductionCase):
     """Real products for customers: published once, matched to each customer's own slots."""
 
-    def publish(self, extra=()):
-        """What `python -m wardrobe publish <this service's folder>` does on the operator's machine."""
+    def publish(self, extra=(), slots=()):
+        """What `python -m wardrobe publish <this service's folder>` does on the operator's machine. `slots`: more of
+        the operator's pieces, whose garment type the products collected for them (`extra`) are published with."""
         settings.PRODUCTION = False
         try:
             db.ensure_local_user()
             db.replace_slots([
                 {"id": "grey-merino-jumper", "name": "Grey merino jumper", "category": "knit", "colour": "grey"},
-                {"id": "white-tee", "name": "White tee", "category": "tee", "colour": "white"}])
+                {"id": "white-tee", "name": "White tee", "category": "tee", "colour": "white"}, *slots])
             catalog.save({"source": "collected", "collected_at": "2026-11-11T17:00:00+01:00", "stores": {}, "candidates": [
                 product("zara", "1", "Pullover aus Merinowolle", 49.95, "Grau", fabric="100% Merinowolle"),
                 product("cos", "2", "Merino jumper", 89.0, "GREY", "#8d8e91"),
@@ -1096,6 +1289,127 @@ class SharedStoreCatalogue(ProductionCase):
                             outerwear="on", owned="")
         self.assertEqual(rebuilt.headers["Location"], "/outfits")
 
+    def test_one_tap_on_an_older_account_still_lets_new_answers_rebuild_the_plan(self):
+        # Accounts from before the "plan_edited" setting have "slots_customised" instead, set by any lock, choice or
+        # owned mark, and their answer is worked out from whether the plan is still the profile's own. The tap
+        # recolours a piece, so it is worked out before the tap: after it the two would differ.
+        ada = self.black_and_white()
+        with db.as_user(self.user_id("ada@example.com")):
+            with db.connect() as con:
+                con.execute("DELETE FROM settings WHERE user_id = ? AND key = 'plan_edited'", (db.uid(),))
+            db.set_setting("slots_customised", True)
+            self.assertIsNone(db.get_setting("plan_edited"), "an account from before plan_edited")
+        self.assertEqual(self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy").status_code, 200)
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(db.get_slot("black-merino-jumper")["colour"], "navy")
+        rebuilt = self.post(ada, "/profile", top_size="M", waist="32", length="32", shoe="43", height_cm="180",
+                            weight_kg="75", budget="1500", liked="navy, grey", refused="", use="both", shoes="on",
+                            outerwear="on", owned="")
+        self.assertEqual(rebuilt.headers["Location"], "/outfits", "new answers still rebuild the plan")
+        self.assertNotIn("Your plan stays as you edited it", ada.get("/outfits").get_data(as_text=True))
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertIs(db.get_setting("plan_edited"), False, "the tap was no edit of the plan")
+            self.assertIn("navy", {s["colour"] for s in db.list_slots()})
+            self.assertNotIn("black", {s["colour"] for s in db.list_slots()}, "the plan follows the new colours")
+
+    # Jeans for a jeans piece in the operator's plan: denim's blues all match one another (collect/matching.py).
+    DENIM = [product("zara", "j1", "Jeans Straight Fit", 39.95, "Blau", slot_id="denim", sizes_all=[], sizes_in_stock=[]),
+             product("cos", "j2", "Regular jeans", 85.0, "Dark Blue", slot_id="denim", sizes_all=[], sizes_in_stock=[]),
+             product("weekday", "j3", "Space jeans", 60.0, "Blue Rinse - Dunkelblau", slot_id="denim", sizes_all=[],
+                     sizes_in_stock=[]),
+             product("zara", "j4", "Jeans Slim Fit", 35.95, "Indigoblau", slot_id="denim", sizes_all=[], sizes_in_stock=[])]
+    DENIM_SLOT = {"id": "denim", "name": "Jeans", "category": "jeans", "colour": "indigo"}
+    # The profile form's answers, but for the colours.
+    ANSWERS = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "75",
+               "budget": "1500", "use": "both", "shoes": "on", "outerwear": "on", "owned": ""}
+
+    def test_a_refused_colour_never_comes_back_through_denim(self):
+        """With navy refused, "Dunkelblau" and "Dark Blue" jeans (navy, in Capsule's colour table) are never options:
+        not for the jeans the plan has, nor through a "Use …" offer on jeans the list has nothing for. A piece he keeps
+        or adds in navy himself is another matter: it keeps its navy options."""
+        self.publish(extra=self.DENIM, slots=[self.DENIM_SLOT])
+        form = self.ANSWERS
+
+        def jeans(email) -> dict:
+            """Each jeans piece of the plan: its options' ids, and the products each colour offered for it reaches."""
+            with db.as_user(self.user_id(email)):
+                out = {}
+                for view in selection.build().slots:
+                    if view.slot["category"] == "jeans":
+                        refused = shared.refused_colours()
+                        reached = {c.key: sorted(p["colour"] for p in shared.colours_on_offer("jeans", refused)[c.key])
+                                   for c in view.offers}
+                        out[view.slot["id"]] = ({c.id for c in view.cands}, reached)
+                return out
+
+        bob = self.member("bob@example.com")              # the example's colours: navy is liked
+        self.assertEqual(self.post(bob, "/profile", **form, liked="navy, grey", refused="").status_code, 302)
+        self.assertEqual(jeans("bob@example.com"), {"indigo-jeans": ({"zara-j1", "cos-j2", "weekday-j3", "zara-j4"}, {})},
+                         "all four are denim blue")
+
+        ada = self.member("ada@example.com")              # navy refused: the plan still has indigo jeans
+        self.assertEqual(self.post(ada, "/profile", **form, liked="grey, white", refused="navy").status_code, 302)
+        self.assertEqual(jeans("ada@example.com"), {"indigo-jeans": ({"zara-j1", "zara-j4"}, {})})
+
+        cyd = self.member("cyd@example.com")              # black jeans, which the list has none of: "Use indigo"
+        self.assertEqual(self.post(cyd, "/profile", **form, liked="black, white", refused="navy").status_code, 302)
+        self.assertEqual(jeans("cyd@example.com"), {"black-jeans": (set(), {"indigo": ["Blau", "Indigoblau"]})})
+        self.post(cyd, "/slot/black-jeans/colour", headers=HX, colour="indigo")
+        self.assertEqual(jeans("cyd@example.com"), {"black-jeans": ({"zara-j1", "zara-j4"}, {})})
+        page = html.unescape(cyd.get("/slot/black-jeans").data.decode())
+        self.assertIn("Jeans Straight Fit", page)
+        self.assertNotIn("Dunkelblau", page)
+        self.assertNotIn("Dark Blue", page)
+
+        # A navy piece added by hand with navy refused is his own choice: it has the navy jumper the list has.
+        added = self.post(ada, "/slots/add", name="", category="knit", colour="navy", qty="1")
+        self.assertEqual(self.knit("ada@example.com", added.headers["Location"].split("#slot-")[1]), ["zara-3"])
+
+        # Navy refused later, on a plan edited by hand: the plan stays, its jeans lose their navy options all the same.
+        self.assertEqual(self.knit("bob@example.com", "navy-merino-jumper"), ["zara-3"], "the Marineblau jumper")
+        self.post(bob, "/slots/add", name="", category="overshirt", colour="rust", qty="1")
+        stays = self.post(bob, "/profile", **form, liked="grey, white", refused="navy")
+        self.assertTrue(stays.headers["Location"].endswith("/profile"), "the edited plan is not rebuilt")
+        self.assertEqual(jeans("bob@example.com"), {"indigo-jeans": ({"zara-j1", "zara-j4"}, {})})
+        # But the navy pieces he kept are navy by his own choice: they keep their navy options.
+        self.assertEqual(self.knit("bob@example.com", "navy-merino-jumper"), ["zara-3"])
+        jumper = html.unescape(bob.get("/slot/navy-merino-jumper").get_data(as_text=True))
+        self.assertIn("Pullover", jumper)
+        self.assertNotIn("Not in Capsule's product list in navy yet", jumper)
+
+    def test_a_product_chosen_by_hand_stays_when_its_colour_is_refused_later(self):
+        """"Dark Blue" jeans (navy, in Capsule's colour table) that he chose himself stay his choice when he refuses
+        navy afterwards, also when every customer's products are rebuilt from the list. Unlocked, they go."""
+        self.publish(extra=self.DENIM, slots=[self.DENIM_SLOT])
+        dan = self.member("dan@example.com")              # the example's colours: navy is liked
+        self.assertEqual(self.post(dan, "/slot/indigo-jeans/pick", candidate="cos-j2").status_code, 302)
+
+        def jeans() -> tuple:
+            with db.as_user(self.user_id("dan@example.com")):
+                view = selection.build().get("indigo-jeans")
+                return view.state, view.chosen.id, {c.id for c in view.cands}, view.note
+
+        rebuilt = self.post(dan, "/profile", **self.ANSWERS, liked="grey, white", refused="navy")
+        self.assertEqual(rebuilt.headers["Location"], "/outfits", "the plan is rebuilt from the new answers")
+        message = html.unescape(dan.get("/outfits").get_data(as_text=True))
+        self.assertIn("Kept your 1 hand-picked piece.", message)
+        self.assertNotIn("Not kept", message)
+        locked = ("locked", "cos-j2", {"zara-j1", "cos-j2", "zara-j4"})
+        self.assertEqual(jeans()[:3], locked)
+        # Every customer's products are rebuilt from the list (a newer list, or a new way of reading it): it stays.
+        with db.as_user(self.user_id("dan@example.com")):
+            db.set_setting("pool", "an older list")
+        page = html.unescape(dan.get("/slot/indigo-jeans").get_data(as_text=True))
+        self.assertEqual(jeans()[:3], locked)
+        self.assertNotIn("no longer in the catalogue", page)
+        self.assertNotIn("no longer in the catalogue", jeans()[3] or "")
+
+        # Unlocked, the piece is automatic again, and the automatic pick is never in a colour he refused.
+        self.post(dan, "/slot/indigo-jeans/lock")
+        state, chosen, options, _ = jeans()
+        self.assertEqual((state, options), ("auto", {"zara-j1", "zara-j4"}))
+        self.assertIn(chosen, options)
+
     def test_at_most_three_colours_and_the_liked_ones_first(self):
         tees = [product("weekday", f"t{n}", "T-Shirt", 15.0 + n, colour, slot_id="white-tee")
                 for n, colour in enumerate(("Navy", "Navy", "Olivgrün", "Bordeaux", "Rostrot"))]
@@ -1141,9 +1455,14 @@ class SharedStoreCatalogue(ProductionCase):
             self.assertNotIn(gone, page)
         coat = html.unescape(ada.get("/slot/charcoal-wool-coat").data.decode())
         self.assertIn("Capsule has no coats yet, so this piece is left out of your outfits and your total.", coat)
-        self.assertIn('<p class="add-own">Add one you found yourself, by its link below.</p>',
-                      re.search(r'<header class="slot-head">.*?</header>', coat, re.S).group(0))
+        coat_head = re.search(r'<header class="slot-head">.*?</header>', coat, re.S).group(0)
+        self.assertIn('<p class="add-own">Add one you found yourself, by its link below.</p>', coat_head)
         self.assertNotIn("Or add", coat, "no 'Or' where no colour is offered")
+        # Left out, it has one more way forward: the plan, where the piece can take another colour or go.
+        self.assertIn('<p class="left-out">Capsule has no coats yet, so this piece is left out of your outfits and your '
+                      'total. <a href="/slots#slot-charcoal-wool-coat">Edit the plan</a></p>', coat_head)
+        self.assertIn('<li id="slot-charcoal-wool-coat">', ada.get("/slots").get_data(as_text=True), "where it leads")
+        self.assertNotIn('href="/slots#slot-black-tee"', page, "a piece with a colour on offer is not left out")
 
         swapped = self.post(ada, "/slot/black-tee/colour?view=slot&sort=price", headers=HX, colour="navy")
         body = html.unescape(swapped.data.decode())

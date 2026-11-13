@@ -19,7 +19,8 @@
     {% endif %}
     {% if s.note and s.chosen and s.state != 'owned' %}<span class="note">{{ s.note }}.</span>{% endif %}
   </p>
-  {% if s.offers or s.left_out %}{% set offer_args = {'view': 'slot', 'sort': sort} %}{% include "_colour_offer.html" %}{% endif %}
+  {# `plan_link`: a piece left out has one more way forward on its own page: the plan, where it can be recoloured or removed. #}
+  {% if s.offers or s.left_out %}{% set offer_args = {'view': 'slot', 'sort': sort} %}{% set plan_link = true %}{% include "_colour_offer.html" %}{% endif %}
   {% if not cands and not demo and s.state != 'owned' %}
   {# The other way to fill an empty piece: the form at the bottom of this page. #}
   <p class="add-own">{% if production %}{{ 'Or add' if s.offers else 'Add' }} one you found yourself, by its link below.

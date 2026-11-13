@@ -1,5 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Outfits · Capsule{% endblock %}
+{# The starter banner: until a new customer saves his profile, it stands above the outfits where the budget bar would
+   (a budget he never set says nothing yet), says whose outfits these are and leads to the Profile page to make them
+   his. app.js sizes the picture from its real height (--bar-h, app.css "Starter banner"). #}
+{% block summary %}
+{% if starter %}
+<section class="starter" aria-label="Starter outfits">
+  <div class="starter-in">
+    <p>{{ starter }}</p>
+    <a class="btn ghost small" href="{{ url_for('profile_page') }}">Make them mine</a>
+  </div>
+</section>
+{% else %}{{ super() }}{% endif %}
+{% endblock %}
 {% block main %}
 {% from "_macros.html" import icon, pic %}
 <h1 class="sr">Outfits</h1>
@@ -120,8 +133,9 @@
   <button class="reel-nav next" type="button" data-reel="1" aria-label="Next outfit">{{ icon('back') }}</button>
 </section>
 
-{# The pop-up for one piece. Its content comes from /outfits/piece when a piece is tapped. #}
-<dialog class="sheet" id="piece" aria-label="This piece">
+{# The pop-up for one piece. Its content comes from /outfits/piece when a piece is tapped; its title there
+   (#piece-title, the product's name) names it. #}
+<dialog class="sheet" id="piece" aria-labelledby="piece-title">
   <button class="sheet-close" type="button" data-close aria-label="Close">&times;</button>
   <div id="piece-body"></div>
 </dialog>

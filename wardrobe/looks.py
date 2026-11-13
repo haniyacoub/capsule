@@ -22,6 +22,7 @@ import re
 import threading
 import time
 import traceback
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -367,7 +368,22 @@ def request(pieces: list[dict], again: bool = False) -> Look | None:
     owner = db.uid() if who.photo else None
     if db.start_look(key, chosen.tag, now - STALE_SECONDS, now - QUEUE_SECONDS, again=again or lost, owner=owner):
         photo = who.photo.read_bytes() if who.photo else None
-        _spawn(lambda: _draw(key, chosen, text, photo, ticket))
+        # A drawing turn that is free now is taken here, and the picture marked as being drawn, before the page is
+        # answered: so the page says "Drawing this outfit", not "Waiting its turn", when nothing else is drawn.
+        # Only when both turns are taken does the picture wait in line (in _draw), and the page says that.
+        turn = _TURNS.acquire(blocking=False)
+        handed_over = False
+        try:
+            if turn and not db.touch_look(key):  # gone already: its account was deleted a moment ago
+                db.drop_look_request(ticket)
+            else:
+                _spawn(lambda: _draw(key, chosen, text, photo, ticket, turn))
+                handed_over = True               # from here the drawing gives the turn back when it is done
+        finally:
+            # A turn taken here and not handed to a drawing (gone already, or an error before the drawing started)
+            # is given back at once: otherwise it would stay taken until the server restarts.
+            if turn and not handed_over:
+                _TURNS.release()
     else:
         db.drop_look_request(ticket)             # somebody else asked for the same picture a moment ago
     return get(key) or Look(key, "working")
@@ -378,19 +394,33 @@ def _spawn(job) -> None:
     threading.Thread(target=job, name="look", daemon=True).start()
 
 
-def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ticket: int) -> None:
+@contextmanager
+def _a_turn(taken: bool):
+    """One of the two drawing turns, held while a picture is drawn. `taken`: request() took it already;
+    otherwise this waits in line until one is free."""
+    if not taken:
+        _TURNS.acquire()
+    try:
+        yield
+    finally:
+        _TURNS.release()
+
+
+def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ticket: int, turn: bool = False) -> None:
     """Background: have the picture drawn and record how it went. Never raises.
     `ticket` is this request's entry in the day's count. It is given back only when the service
-    certainly drew (and billed) nothing; anything else counts, which is what bounds "Try again"."""
+    certainly drew (and billed) nothing; anything else counts, which is what bounds "Try again".
+    `turn`: request() found a drawing turn free, took it and marked the picture as being drawn.
+    Without it, the picture waits in line here, and is checked again once its turn comes."""
     global _held
-    with _TURNS:
+    with _a_turn(turn):
         try:
-            waiting = held_off()
+            waiting = None if turn else held_off()
             if waiting:                                  # the service failed for another picture meanwhile
                 db.fail_look(key, waiting)
                 db.drop_look_request(ticket)
                 return
-            if not db.touch_look(key):                   # no longer wanted: its account went, or it was started afresh
+            if not turn and not db.touch_look(key):      # no longer wanted: its account went, or it was started afresh
                 db.drop_look_request(ticket)
                 return
             data, ext = imagegen.draw(chosen, text, photo)

@@ -1,57 +1,52 @@
-{# The pop-up for one piece of an outfit: what it is, what else could fill its
-   slot, and what else could be worn in its place. `s` is the slot, `sig` the
-   outfit it was opened from. #}
+{# The pop-up for one piece of an outfit (outfits.html opens it from a dot or a row). `s` is the piece, `sig` the
+   outfit it was opened from. First what it is: the product with its price, store, quality, fabric, your size and
+   how it fits. Then the quick changes to this one outfit, which are easy to undo ("In this outfit"), so that on a
+   phone they are on the pop-up's first screen. Then other products for the piece, which change every outfit, and
+   the way to compare them all on the piece's own page, which leads back to this outfit. #}
 {% from "_macros.html" import icon, pic, pill, store %}
-{% set c = s.chosen %}
+{% set c = s.chosen if s.state != 'owned' else none %}
+{% set back = {'from': 'outfit', 'at': sig, 'occasion': occasion or none} %}
+{% if c %}
+{# The piece's name in a small line beside the close button, then the store's own name for the product, which
+   names the pop-up (outfits.html: aria-labelledby) and is how the customer finds it at the store. #}
+<p class="piece-top piece-slot">{{ s.slot.name }}</p>
 <div class="piece-head">
-  {% if s.state == 'owned' or not c %}{{ pic('', s.colour.hex) }}{% else %}{{ pic(c.data.image_url, c.colour_hex, c.data.name) }}{% endif %}
+  {{ pic(c.data.image_url, c.colour_hex) }}
   <div class="piece-facts">
-    <p class="piece-slot">{{ s.slot.name }}</p>
-    {% if s.state == 'owned' or not c %}
-    <h2>You already own this</h2>
-    <p class="muted">It costs nothing and still counts in your outfits.</p>
-    {% else %}
-    <h2>{{ c.data.name }}</h2>
-    <p class="piece-cost"><b>{{ c.price|eur }}</b> {{ store(c.data.store) }} {{ pill(c.score) }}</p>
+    <h2 id="piece-title" lang="de">{{ c.data.name }}</h2>
+    <p class="piece-cost"><b>{{ c.price|eur }}</b> {{ store(c.data.store) }} <span class="quality">Quality {{ pill(c.score) }}<span class="sr"> out of 100</span></span></p>
     <p class="fabric">{{ c.fabric }}{% if c.score.fabric_source in ('name', 'assumed') %} <span class="est">estimated</span>{% endif %}</p>
+    {# While the sizes are still the example's (profile.sizes_unconfirmed), the size is said to be ours, as on Buy
+       this outfit and the shopping list, with the way to change it: in stock, that is a caution (amber), not yet a
+       yes (green). Sold out or not made in it stays red. #}
     <p class="sizeline">
       {% if not c.size.known %}<span class="unk">Check that your size is in stock</span>
-      {% elif c.available %}<span class="yes">Your size: {{ c.size.text }}</span>
-      {% else %}<span class="no">{{ c.size.text }}</span>{% endif %}
+      {% else %}<span class="{{ 'no' if not c.available else 'ex' if example_sizes else 'yes' }}">{% if c.size.label %}Your size: {% endif %}{{ c.size.text }}{% if example_sizes %} (example&nbsp;size){% endif %}</span>{% endif %}
+      {% if example_sizes %}<a href="{{ url_for('profile_page') }}#sizes">Change<span class="sr"> your sizes</span></a>{% endif %}
     </p>
-    <a class="extlink" href="{{ c.data.url|weblink }}" target="_blank" rel="noopener noreferrer">Open at {{ STORES.get(c.data.store, c.data.store) }} {{ icon('ext') }}</a>
-    {% endif %}
-    <p class="muted small">In {{ worn }} of the {{ n_outfits }} outfits your pieces make.{% if c and s.state != 'owned' %} Price and stock as of {{ w.collected }}.{% endif %}</p>
+    {# The first thing to know about the fit (sizecheck: the cut comes first). "The store page gave no sizes", always
+       the last note, is left out: the size line above says it already. #}
+    {% set notes = c.check.notes if c.size.known else c.check.notes[:-1] %}
+    {% if notes %}<p class="size-notes">{{ icon('flag') }} {{ notes[0] }}</p>{% endif %}
+    <a class="extlink" href="{{ c.data.url|weblink }}" target="_blank" rel="noopener noreferrer">Open at {{ STORES.get(c.data.store, c.data.store) }} {{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>
+    {% if s.state == 'locked' %}<p class="piece-state">{{ icon('lock') }} Locked: kept when you change the price level</p>{% endif %}
   </div>
 </div>
-
-{% if others %}
-<h3 class="sec">Swap it for</h3>
-<ul class="swap">
-  {% for o in others %}
-  <li{% if not o.available %} class="out"{% endif %}>
-    {{ pic(o.data.image_url, o.colour_hex, o.data.name) }}
-    <span class="swap-text">
-      <b>{{ o.data.name }}</b>
-      <span>{{ store(o.data.store) }} {{ pill(o.score) }} {% if o.price > 0 %}{{ o.price|eur }}{% else %}no price{% endif %}{% if not o.available %} · not in your size{% endif %}</span>
-    </span>
-    {% if o.price > 0 %}
-    <form method="post" action="{{ url_for('slot_pick', slot_id=s.slot.id) }}">{{ csrf_field() }}
-      <input type="hidden" name="candidate" value="{{ o.id }}">
-      <input type="hidden" name="outfit" value="{{ sig }}">
-      <input type="hidden" name="occasion" value="{{ occasion }}">
-      <button class="btn ghost small">Choose</button>
-    </form>
+{% else %}
+{# A piece the customer already has (or, should it ever be in an outfit, one with nothing picked): no product, so
+   the piece's own name names the pop-up. #}
+<h2 class="piece-top" id="piece-title">{{ s.slot.name }}</h2>
+<div class="piece-head">
+  {{ pic('', s.colour.hex) }}
+  <div class="piece-facts">
+    {% if s.state == 'owned' %}
+    <p class="piece-state">{{ icon('check') }} You have this</p>
+    <p class="muted small">It costs nothing and still counts in your outfits.</p>
     {% else %}
-    <a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id) }}#cand-{{ o.id }}">Add its price</a>
+    <p class="muted small">Nothing is picked for this piece.</p>
     {% endif %}
-  </li>
-  {% endfor %}
-</ul>
-<p class="muted small">Choosing one makes it your pick for “{{ s.slot.name }}” in every outfit, and locks it.
-  <a href="{{ url_for('slot_page', slot_id=s.slot.id) }}">All {{ s.cands|length }} options, with scores and sizes</a></p>
-{% elif s.state != 'owned' %}
-<p class="muted small">There is no other candidate for this slot. <a href="{{ url_for('slot_page', slot_id=s.slot.id) }}#add">Add one by link</a></p>
+  </div>
+</div>
 {% endif %}
 
 {% if swaps or without %}
@@ -65,3 +60,42 @@
   {% endif %}
 </div>
 {% endif %}
+
+{% if others %}
+{# Each option with what it costs next to the piece in the outfit now: "−69.05 €" is that much less. #}
+<h3 class="sec">Swap it for</h3>
+<ul class="swap">
+  {% for o in others %}
+  <li{% if not o.available %} class="out"{% endif %}>
+    {{ pic(o.data.image_url, o.colour_hex) }}
+    <span class="swap-text">
+      <b lang="de">{{ o.data.name }}</b>
+      <span>{{ store(o.data.store) }} <span class="sr">Quality </span>{{ pill(o.score) }}{% if not o.available %} · not in your size{% endif %}</span>
+      <span class="swap-price">
+        {% if o.price > 0 %}{{ o.price|eur }}{% else %}no price{% endif %}
+        {% if o.price > 0 and c and c.price > 0 %}{% set cents = ((o.price - c.price) * 100)|round|int %}
+        {% if cents == 0 %}<span class="diff">same price</span>
+        {% else %}<span class="diff" aria-hidden="true">{{ '−' if cents < 0 else '+' }}{{ (cents|abs / 100)|eur }}</span><span class="sr">, {{ (cents|abs / 100)|eur }} {{ 'less' if cents < 0 else 'more' }}</span>{% endif %}
+        {% endif %}
+      </span>
+    </span>
+    {% if o.price > 0 %}
+    <form method="post" action="{{ url_for('slot_pick', slot_id=s.slot.id) }}">{{ csrf_field() }}
+      <input type="hidden" name="candidate" value="{{ o.id }}">
+      <input type="hidden" name="outfit" value="{{ sig }}">
+      <input type="hidden" name="occasion" value="{{ occasion }}">
+      <button class="btn ghost small">Choose</button>
+    </form>
+    {% else %}
+    <a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id, **back) }}#cand-{{ o.id }}">Add its price</a>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+<p class="muted small">Choosing one uses it in all your outfits and keeps it when you change the price level.</p>
+<p class="sheet-more"><a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id, **back) }}">Compare all {{ s.cands|length }} options</a></p>
+{% elif s.state != 'owned' %}
+<p class="muted small sheet-more">No other option for this piece yet. <a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id, **back) }}#add">Add one you found yourself</a></p>
+{% endif %}
+
+<p class="muted small sheet-foot">In {{ worn }} of the {{ n_outfits }} outfits your pieces make.{% if c %} Price and stock as of {{ w.collected }}.{% endif %}</p>

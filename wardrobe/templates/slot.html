@@ -2,7 +2,12 @@
 {% block title %}{{ s.slot.name }} · Capsule{% endblock %}
 {% block main %}
 {% from "_macros.html" import icon %}
+{# `back`: opened from an outfit's pop-up, the way back is to that outfit (app.slot_page). #}
+{% if back %}
+<p class="crumb"><a href="{{ back }}">{{ icon('back') }} Back to the outfit</a></p>
+{% else %}
 <p class="crumb"><a href="{{ url_for('wardrobe') }}#card-{{ s.slot.id }}">{{ icon('back') }} Wardrobe</a></p>
+{% endif %}
 <div id="slot-body" hx-target="this" hx-swap="innerHTML" hx-sync="this:queue all">
   {% include "_slot_body.html" %}
 </div>

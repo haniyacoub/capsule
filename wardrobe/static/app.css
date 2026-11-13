@@ -186,6 +186,25 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 /* A field scrolled into view brings its label, just above it, along. */
 .field > :is(input, select, textarea) { scroll-margin-top: calc(var(--t-s) * var(--lh-m) + var(--s-1)); }
 
+/* ── Starter banner (Outfits, until the profile is saved) ────────────────── */
+/* A new customer's outfits are the starter ones: this strip says whose they are and leads to the Profile page to make
+   them his. It stands where the budget bar would (a budget he never set says nothing yet), the same strip on the page's
+   ground with a hairline under it. Its height is --bar-h, which sizes the picture on a phone (see .stage): app.js sets
+   it to the banner's real height, whatever its words wrap to. Until then (and without JavaScript) these values hold:
+   three lines of words beside the button on a phone, one line on a computer. */
+:root:has(.starter) { --bar-h: calc(3 * var(--t-s) * var(--lh-s) + 2 * var(--s-2) + 1px); }
+.starter { background: var(--bg); border-bottom: 1px solid var(--line); }
+.starter-in {
+  display: flex; align-items: center; gap: var(--s-3); max-width: 1240px; margin: 0 auto;
+  padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l);
+}
+.starter p { flex: 0 1 auto; min-width: 0; font-size: var(--t-s); line-height: var(--lh-s); text-wrap: pretty; }
+.starter .btn { flex: none; white-space: nowrap; }
+@media (min-width: 760px) {
+  :root:has(.starter) { --bar-h: calc(40px + 2 * var(--s-2) + 1px); }   /* the button (.btn.small) sets the height */
+  .starter-in { gap: var(--s-4); }
+}
+
 /* ── Notices ─────────────────────────────────────────────────────────────── */
 .demo { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); background: var(--ok-bg); border-radius: var(--r-ui); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-3); }
 /* A status line: what just happened (saved, swapped, rebuilt). */
@@ -322,6 +341,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .state { font-size: var(--t-m); color: var(--muted); }
 .state .note { display: block; font-size: var(--t-s); margin-top: 2px; }
 .slot-head .left-out { font-size: var(--t-m); line-height: var(--lh-m); }   /* as large as the line it explains */
+.slot-head .left-out a { padding: var(--s-1) 0; text-underline-offset: 3px; }   /* "Edit the plan", at the end of the reason: 24px or more to tap */
 .add-own { font-size: var(--t-m); line-height: var(--lh-m); color: var(--muted); }   /* an empty piece: or add your own find */
 .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .sortbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; font-size: var(--t-s); color: var(--muted); }
@@ -375,11 +395,14 @@ details.why summary::-webkit-details-marker { display: none; }
 
 /* ── Outfits: one at a time, side to side ────────────────────────────────── */
 /* The chips and Shuffle in one row. Where the chips do not fit (a narrow phone) they scroll sideways inside their
-   own row, which reaches 4px past them on every side and pads that back, so that their focus rings show whole. */
+   own row, which reaches 4px past them on every side and pads that back, so that their focus rings show whole.
+   A chip that gets keyboard focus while partly outside the row is scrolled in (app.js) until it is 4px clear of
+   the row's edge (scroll-padding): its whole ring shows. */
 .toolbar { display: flex; align-items: center; gap: var(--s-2); margin: 0 0 var(--s-2); }
 .toolbar .chips {
   flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
   margin: calc(-1 * var(--s-1)); padding: var(--s-1);
+  scroll-padding-inline: var(--s-1);
 }
 .toolbar .chips::-webkit-scrollbar { display: none; }
 .toolbar .chip-link { flex: none; white-space: nowrap; }
@@ -393,6 +416,7 @@ details.why summary::-webkit-details-marker { display: none; }
   .by-mouse { display: inline; }
 }
 .looks { position: relative; display: flow-root; }   /* flow-root: the row's reach above and below (see .reel) moves neither this section nor its arrows */
+.looks { container-type: inline-size; }   /* its width, 100cqw inside it, is the row's: the picture's width and the arrows' place are worked out from it */
 .reel {   /* a row of full-width slides; the browser snaps to one outfit at a time */
   position: relative;   /* what is placed inside a slide stays inside the row; else the page grows to all the outfits' width */
   display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
@@ -414,8 +438,10 @@ details.why summary::-webkit-details-marker { display: none; }
    heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
    the budget bar (--bar-h) and 302px: the header, the chips and the lead line above the picture (150px), the line
    under it (40px), the outfit line and the tab bar below. The picture is never under 240px wide; on a shorter
-   screen it then ends just above the tab bar, and the outfit line follows below. */
+   screen it then ends just above the tab bar, and the outfit line follows below. Its width is kept as --stage-w, so
+   that the arrows can be placed beside the picture (see .reel-nav). */
 .looks { --told: 0px; --least: 240px; --lead-more: 0px; }
+.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--lead-more) - var(--told)) * 2 / 3))); }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
    room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
@@ -426,7 +452,7 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 /* The stage is also the box the line under the picture measures itself against (see .look-line). */
 .stage {
   position: relative; margin: 0 auto; container-type: inline-size;
-  width: min(100%, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--lead-more) - var(--told)) * 2 / 3)));
+  width: var(--stage-w);
 }
 .collage, .look-pic { aspect-ratio: 2 / 3; border-radius: 0; overflow: hidden; background: var(--photo); }
 .collage { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 1px; }
@@ -480,8 +506,10 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .band :focus-visible { outline-color: #fff; }
 .band .spin { border-color: rgba(255, 255, 255, .35); border-top-color: #fff; }
 /* The line under the box: one line, 40px tall in every state (empty until there is a picture), so that nothing under
-   it moves when the picture arrives. Where the box is narrower than the half sentence and the two links (a short
-   phone, under a message), the line reaches a little past the box on both sides. */
+   it moves when the picture arrives. It never wraps: at the browser's standard text size its words show whole (at a
+   larger one they end in '…'). Where the box is narrower than the half sentence and the two links (272px: on a
+   screen under about 760px tall, or under a message at the top), the line is 272px wide and reaches past the box
+   equally on both sides, by 61px each at most (the box is never under 150px), so it still fits a 320px phone. */
 .look-line {
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
   width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
@@ -556,13 +584,22 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 .about-actions { margin: var(--s-3) 0 0; }
 .about-actions .btn { width: 100%; }   /* "Buy this outfit": the main button, the whole width of the list */
 .more-slide { place-content: center; justify-items: center; min-height: 260px; text-align: center; }
+/* The arrows, for every mouse at every width (a touch screen swipes; the lead line says which). They sit beside the
+   outfit, 12px from the picture's left edge and from the list's right edge, centred on the picture's height. --pair
+   is the outfit's width: the picture alone where the list is under it, the picture, the 32px between and the list
+   (420px) from 760px. Where the outfit fills the row, they keep to the row's edges; in a window so narrow that they
+   reach the picture, they lie on its edge, over its band and dots (z-index). */
+.looks { --pair: var(--stage-w); }
 .reel-nav {
-  display: none; position: absolute; top: 32%; width: 44px; height: 44px; padding: 0; border-radius: 50%;
+  display: none; position: absolute; z-index: 3; top: calc(var(--stage-w) * 3 / 4 - 44px / 2); width: 44px; height: 44px; padding: 0; border-radius: 50%;
   align-items: center; justify-content: center; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
   box-shadow: 0 1px 6px rgba(0, 0, 0, .12); cursor: pointer;
 }
-.reel-nav.prev { left: 0; }
-.reel-nav.next { right: 0; }
+.reel-nav.prev { left: max(0px, 50% - var(--pair) / 2 - 44px - var(--s-3)); }
+.reel-nav.next { right: max(0px, 50% - var(--pair) / 2 - 44px - var(--s-3)); }
+@media (hover: hover) and (pointer: fine) {
+  .reel-nav { display: inline-flex; }
+}
 .reel-nav.next .ic { transform: rotate(180deg); }
 .reel-nav:disabled { opacity: .3; cursor: default; }
 .save { display: flex; }
@@ -581,29 +618,52 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 }
 
 /* ── The pop-up for one piece (a sheet from the bottom on a phone) ───────── */
+/* While it is open the page behind it stays put: a swipe inside the sheet scrolls only the sheet, never the page
+   once the sheet's end is reached, and the page itself cannot scroll, keeping its scrollbar's room so that nothing
+   behind the sheet moves sideways on a computer. */
+html:has(dialog[open]) { overflow: hidden; scrollbar-gutter: stable; }
 .sheet {
   width: min(560px, 100%); max-width: 100%; max-height: min(88svh, 780px); margin: auto auto 0;
-  padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
-  background: var(--surface); color: var(--ink); overflow-y: auto;
+  padding: var(--s-2) var(--s-4) calc(var(--s-5) + env(safe-area-inset-bottom)); border: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  background: var(--surface); color: var(--ink); overflow-y: auto; overscroll-behavior: contain;
 }
 .sheet::backdrop { background: rgba(0, 0, 0, .45); }
-.sheet-close { float: right; width: 36px; height: 36px; margin: -6px -4px 4px 8px; padding: 0; border: 0; border-radius: 50%; background: var(--soft); font-size: var(--t-xl); line-height: 1; cursor: pointer; }
-.piece-head { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 14px; align-items: start; }
-.piece-head .pic { width: 104px; aspect-ratio: 3 / 4; }
-.piece-facts { display: grid; gap: 4px; }
+/* Close: a 44px target in the top corner, drawn as a smaller disc. The first line of the sheet (.piece-top) is as
+   tall and leaves it room. */
+.sheet-close {
+  position: absolute; top: var(--s-2); right: var(--s-2); width: 44px; height: 44px; padding: var(--s-1);
+  border: 0; border-radius: 50%; background: var(--soft) content-box; font-size: var(--t-xl); line-height: 1; cursor: pointer;
+}
+.piece-top { display: flex; align-items: center; min-height: 44px; padding-right: 44px; margin-bottom: var(--s-2); }
+h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece you have: its name is the title */
+.piece-head { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
+.piece-head .pic { width: 104px; aspect-ratio: 3 / 4; }   /* 104 x 139 */
+.piece-facts { display: grid; gap: var(--s-1); justify-items: start; }
 .piece-slot { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .piece-facts h2 { font-size: var(--t-l); line-height: 1.25; }
-.piece-cost { display: flex; align-items: center; gap: 8px; }
+.piece-cost { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-1) var(--s-2); }
 .piece-cost b { font-size: var(--t-l); font-weight: 500; font-variant-numeric: tabular-nums; }
-.sheet .sec { margin: 18px 0 8px; }
-.swap { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 8px; }
-.swap li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.quality { display: inline-flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); color: var(--muted); }
+.piece-facts .sizeline { margin-top: 0; }
+.piece-facts .sizeline .ex { color: var(--ok); font-weight: 500; }   /* in stock, but in our example size: a caution to act on */
+.piece-facts .sizeline a { padding: 3px 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px to tap */
+.piece-facts .size-notes { margin: 0; display: block; }
+.piece-facts .extlink { min-height: 40px; }
+.piece-state { display: flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); font-weight: 500; }
+.sheet .sec { margin: var(--s-5) 0 var(--s-2); }
+.swap { list-style: none; margin: 0 0 var(--s-2); padding: 0; display: grid; gap: var(--s-3); }
+.swap li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; }
 .swap li.out .pic:not(.noimg) { opacity: .5; }   /* not in your size: the photo fades (a swatch in its place does not), the words say so in full */
 .swap .pic { width: 48px; aspect-ratio: 4 / 5; }
 .swap .pic .fb { display: none; }
 .swap-text { display: grid; gap: 2px; min-width: 0; font-size: var(--t-s); color: var(--muted); }
 .swap-text b { font-size: var(--t-m); font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.swap-text span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.swap-text > span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* Its price, and what it costs next to the piece in the outfit now ("−69.05 €"). */
+.swap-text .swap-price { gap: var(--s-2); font-size: var(--t-m); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.diff { font-size: var(--t-s); font-weight: 400; color: var(--muted); }
+.sheet-more .link { display: inline-block; }
+.sheet-foot { margin-top: var(--s-4); }
 
 /* ── Shopping list ───────────────────────────────────────────────────────── */
 /* A page's title outside a card: the same serif and size as .card h1. */
@@ -618,8 +678,8 @@ p.look-msg { font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 var(--
 .buy-head span { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 /* "Your sizes", the sizes every line is ordered in: a quiet line, or, while they are still the example's,
    a caution with the button that keeps them. */
-.your-sizes { display: grid; gap: var(--s-1); margin: 0 0 var(--s-3); padding: 10px var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
-.your-sizes a { padding: 2px 0; color: var(--muted); text-underline-offset: 3px; }
+.your-sizes { display: grid; gap: var(--s-1); margin: 0 0 var(--s-3); padding: var(--s-2) var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
+.your-sizes a { padding: var(--s-1) 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
 .your-sizes.example { color: var(--ok); background: var(--ok-bg); }
 .your-sizes.example a { color: inherit; }
 .your-sizes form { margin-top: var(--s-1); }
@@ -727,6 +787,13 @@ details[open] > summary .edit { visibility: hidden; }
 .pick span i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(128, 128, 128, .4); }
 .pick input:checked + span { background: var(--ink); border-color: var(--ink); color: var(--bg); }
 .pick input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* The model's words keep to the width of its form, so that no line runs across a computer's whole card. */
+#model > p { max-width: 620px; }
+/* Your own photo starts a new part of the card. What happens to the photo is said before the box that agrees to it:
+   the size of a hint, in ink, not faded; what to expect of the pictures comes after the button. */
+#photo .sec { margin-top: var(--s-5); }
+.photo-facts { font-size: var(--t-s); line-height: var(--lh-s); }
+.photo-note { margin-top: var(--s-2); }
 .me { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; align-items: start; margin: 10px 0 14px; }
 .me img { width: 96px; height: 128px; object-fit: cover; border-radius: var(--r-img); border: 1px solid var(--line); }
 .me p { font-size: var(--t-m); }
@@ -804,12 +871,14 @@ details[open] > summary .edit { visibility: hidden; }
   .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: var(--s-6); padding: var(--s-4) 60px; }
   /* The picture beside the pieces, as tall as the screen allows below the budget bar (--bar-h), the header, the
      chips and the lead line, with the line under it (210px), less any message's room (see .looks). */
-  .stage { width: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--told)) * 2 / 3))); margin: 0; }
+  .looks { --stage-w: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--told)) * 2 / 3))); }
+  .looks { --pair: calc(var(--stage-w) + var(--s-6) + 420px); }   /* the picture, the gap and the list: the slide's columns */
+  .stage { margin: 0; }
   .collage, .look-pic { border-radius: var(--r-img); }
   .band { border-radius: var(--r-img) var(--r-img) 0 0; }
   .about { margin: 0; }
-  .reel-nav { display: inline-flex; }
-  .sheet { margin: auto; padding: 22px; border-radius: var(--r-sheet); }
+  .sheet { margin: auto; padding: var(--s-3) var(--s-5) var(--s-5); border-radius: var(--r-sheet); }
+  .sheet-close { top: var(--s-3); right: var(--s-3); }
   .hero { padding-top: var(--s-7); }
   .hero-cta .btn { width: auto; }
 }

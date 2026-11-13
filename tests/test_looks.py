@@ -27,6 +27,7 @@ from markupsafe import escape
 from wardrobe import catalog, config, db, imagegen, looks, outfits, paths, person, selection, settings, shared
 from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
+from wardrobe.app import PHOTO_CONSENT
 
 from .test_app import HX, AppCase
 from .test_production import PASSWORD, ProductionCase
@@ -80,6 +81,7 @@ class WithPictures:
         for patch in (mock.patch.object(settings, "OPENAI_API_KEY", "test-key"),
                       mock.patch.object(looks, "STARTED", 0.0),      # this server has been running a long time
                       mock.patch.object(imagegen, "draw", stand_in),
+                      mock.patch.object(looks, "_TURNS", threading.BoundedSemaphore(2)),   # both turns free
                       mock.patch.object(looks, "_spawn", lambda job: job())):   # draw at once, not in the background
             patch.start()
             self.addCleanup(patch.stop)
@@ -728,12 +730,77 @@ class Pictures(WithPictures, AppCase):
             self.assertNotIn("test-key", kept)
 
     def in_line(self):
-        """Have drawings wait instead of being done at once. Returns the list they wait in."""
+        """Both drawing turns are taken by other pictures: new drawings wait in line instead of being done at
+        once. Returns the line; calling a drawing in it is its turn coming."""
+        class TurnsTaken:
+            def acquire(self, blocking=True):
+                return blocking         # free right now? No. Waiting for one? It has come.
+
+            def release(self):
+                pass
+
         waiting = []
-        patch = mock.patch.object(looks, "_spawn", waiting.append)
+        for patch in (mock.patch.object(looks, "_TURNS", TurnsTaken()), mock.patch.object(looks, "_spawn", waiting.append)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        return waiting
+
+    def being_drawn(self):
+        """Drawings take a free turn and keep it until the test finishes them. Returns them, in the order asked."""
+        drawing = []
+        patch = mock.patch.object(looks, "_spawn", drawing.append)
         patch.start()
         self.addCleanup(patch.stop)
-        return waiting
+        return drawing
+
+    def test_waiting_its_turn_is_said_only_when_both_turns_are_taken(self):
+        drawing = self.being_drawn()
+        first, second, third = some_outfits(3)
+
+        def state(outfit) -> str:
+            return self.client.get(f"/outfits/look/{look_key(outfit)}?outfit={outfit.key}").data.decode()
+
+        for outfit in (first, second):      # nothing else drawn, then one picture drawn and the other turn free
+            shown = self.post("/outfits/look", key=outfit.key).data.decode()
+            self.assertIn("Drawing this outfit on the model", shown)
+            self.assertNotIn("Waiting its turn", shown)
+            self.assertNotIn("Waiting its turn", state(outfit))
+            self.assertEqual(db.look_rows([look_key(outfit)])[look_key(outfit)]["status"], "working")
+        shown = self.post("/outfits/look", key=third.key).data.decode()     # both turns taken: this one waits
+        self.assertIn("Waiting its turn", shown)
+        self.assertEqual(len(drawing), 3)
+        drawing.pop(0)()                                            # the first is done: its turn is free …
+        self.assertIn("look-pic", state(first))
+        self.assertIn("Waiting its turn", state(third))             # … and is the third's once it is started
+        drawing.pop()()
+        self.assertIn("look-pic", state(third))
+        self.assertNotIn("Waiting its turn", state(second))
+        drawing.pop()()
+        self.assertIn("look-pic", state(second))
+        self.assertEqual(len(self.drawn), 3)
+        self.assertEqual(db.look_requests(0), 3)
+        for outfit in (first, second):                              # both turns were given back
+            again = self.post("/outfits/look", key=outfit.key, again="1").data.decode()
+            self.assertIn("Drawing this outfit on the model", again)
+            self.assertNotIn("Waiting its turn", again)
+
+    def test_an_error_before_the_drawing_starts_gives_its_turn_back(self):
+        def both_turns_free() -> bool:
+            taken = [looks._TURNS.acquire(blocking=False) for _ in range(2)]
+            for got in taken:
+                if got:
+                    looks._TURNS.release()
+            return all(taken)
+
+        first, second = some_outfits(2)
+        broken = sqlite3.OperationalError("database is locked")
+        with mock.patch.object(db, "touch_look", side_effect=broken):          # fails after the turn was taken
+            self.assertEqual(self.post("/outfits/look", key=first.key).status_code, 500)
+        self.assertTrue(both_turns_free())
+        with mock.patch.object(looks, "_spawn", side_effect=RuntimeError("can't start new thread")):
+            self.assertEqual(self.post("/outfits/look", key=second.key).status_code, 500)
+        self.assertTrue(both_turns_free())
+        self.assertEqual(self.drawn, [])
 
     def age(self, seconds):
         with closing(sqlite3.connect(paths.DB_PATH)) as con, con:
@@ -1029,6 +1096,39 @@ class TheModel(WithPictures, AppCase):
 
         self.client.post("/profile/photo", data={"remove": "1"})
         self.assertIn("are deleted", self.parts()[2])
+
+    def test_what_happens_to_a_photo_is_said_before_the_box_that_agrees_to_it(self):
+        # Where the photo goes, how long it is kept and how to take it back come first; the box, which names the
+        # service and asks for 18 or over, comes after them; what to expect of the pictures only after the button.
+        service = looks.service().label
+        _, _, photo = self.parts()
+        form = photo[photo.index("data-photo-form"):photo.index("</form>")]
+        facts = re.search(r'<p class="photo-facts" id="photo-facts">(.*?)</p>', form, re.S)
+        self.assertIsNotNone(facts, "no facts in the photo's form")
+        said = " ".join(facts.group(1).split())
+        for fact in (f"Your photo goes to {service} each time a picture of you is drawn",
+                     "without where and when it was taken, until you delete it",
+                     "you can delete it here at any time, and the pictures made from it go with it"):
+            self.assertIn(fact, said)
+        self.assertIn('<a href="/legal/privacy">privacy policy</a>', said, "a link to the privacy page")
+        box = re.search(r'<label class="check">(.*?)</label>', form, re.S).group(1)
+        self.assertIn(f"This is me, I'm 18 or over, and I agree to Capsule sending this photo to {service}", box)
+        self.assertIn('aria-describedby="photo-facts"', box, "a screen reader hears the facts with the box")
+        self.assertLess(form.index("photo-facts"), form.index('type="file"'), "the facts are not before the file field")
+        self.assertLess(form.index('type="file"'), form.index('name="agree"'), "the box is not after the file field")
+        self.assertNotIn("close, not exact", photo[:photo.index("</form>")])
+        self.assertIn("Your face in a picture will be close, not exact.", photo[photo.index("</form>"):])
+
+    def test_the_words_agreed_to_are_kept_with_the_photo(self):
+        refused = self.upload()                                     # the box not ticked: nothing is kept
+        self.assertTrue(refused.headers["Location"].endswith("/profile#photo"))
+        self.assertIn(f"you&#39;re 18 or over and that the photo may be sent to {looks.service().label}.", self.parts()[2])
+        self.assertIsNone(db.get_setting("photo_consent"))
+        self.upload(agree="on")
+        self.assertEqual(db.get_setting("photo_consent"), PHOTO_CONSENT)
+        self.assertEqual(PHOTO_CONSENT, "2026-11-12", "the date of the box's words on Profile")
+        self.assertIsNotNone(db.get_setting("photo_added"), "beside when the photo was added")
+        self.assertEqual(db.export_user()["settings"]["photo_consent"], PHOTO_CONSENT, "in his copy of his data too")
 
     def test_a_photo_too_large_to_take_comes_back_to_the_form(self):
         huge = self.upload(PHOTO + b"\x00" * (person.MAX_PHOTO + 128 * 1024), agree="on")
