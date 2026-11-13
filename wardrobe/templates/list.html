@@ -2,7 +2,8 @@
 {% block title %}Shopping list · Capsule{% endblock %}
 {% block main %}
 <h1 class="page-title">Shopping list</h1>
-<div class="toolbar">
+{# Not the Outfits toolbar, which keeps its chips in one row that scrolls sideways: here the buttons wrap. #}
+<div class="list-tools">
   <p class="lead">What your wardrobe selects right now, grouped by store. Prices and stock as of {{ sl.collected }}.</p>
   <div class="chips no-print">
     <a class="btn ghost small" href="{{ url_for('list_csv') }}">Download for a spreadsheet (.csv)</a>
