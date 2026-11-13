@@ -1,10 +1,15 @@
 """The collector, without touching the internet.
 
-The files in tests/fixtures are real store pages cut down to a handful of
-products (same HTML shape the parsers read). A fake browser session serves
-them, so everything from parsing to the saved catalogue is exercised.
+The files in tests/fixtures are made-up pages in the shape of each store's
+own pages (the same tags and JSON the parsers read), with a handful of
+invented products: names, prices, ids and picture addresses are not real.
+A fake browser session serves them, so everything from parsing to the saved
+catalogue is exercised.
 """
+import contextlib
+import io
 import json
+import re
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -78,7 +83,7 @@ class Parsers(unittest.TestCase):
         items = zara.parse_listing(fixture("zara_listing.html"), ZARA)
         self.assertEqual(len(items), 5)
         first = items[0]
-        self.assertEqual(first["price"], 69.95)                      # the page says 6995 cents
+        self.assertEqual(first["price"], 59.95)                      # the page says 5995 cents
         self.assertRegex(first["url"], r"^https://www\.zara\.com/de/de/.+-p\d{8}\.html$")
         self.assertGreater(len(first["colours"]), 1)
         self.assertTrue(all(c["name"] for c in first["colours"]))
@@ -89,7 +94,7 @@ class Parsers(unittest.TestCase):
                          "the lining is listed after the main fabric and ignored")
         self.assertEqual(len(detail["colours"]), 4)
         khaki = detail["colours"][0]
-        self.assertEqual(khaki["price"], 69.95)
+        self.assertEqual(khaki["price"], 59.95)
         self.assertEqual(khaki["sizes_all"], ["S", "M", "L", "XL"])
         self.assertEqual(khaki["sizes_in_stock"], ["S", "M", "XL"])
         self.assertIn("-e1", khaki["image_url"], "the plain product shot is preferred")
@@ -228,6 +233,28 @@ class Politeness(unittest.TestCase):
         big_page = "<html>" + "x" * 30_000 + " grecaptcha captcha script </html>"
         self.assertIsNone(block_reason(200, "Pullover für Herren | COS DE", big_page))
         self.assertIsNone(block_reason(404, "Seite nicht gefunden", "<html>nicht gefunden</html>"))
+
+    def test_the_collector_is_for_this_computer_only_and_never_scheduled(self):
+        from wardrobe.__main__ import main
+        printed = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stdout(printed):
+            main(["refresh", "--help"])
+        said = " ".join(printed.getvalue().split())
+        for promise in ("For your own machine and for testing only", "never on a schedule",
+                        "never use what it collects as the source for the public site"):
+            self.assertIn(promise, said)
+        # Nothing that runs on a server or on GitHub starts it: the container, gunicorn's settings, the
+        # deploy folder (its secret .env files left unread) and the workflows name neither the command
+        # nor the collector's code.
+        root = Path(__file__).parent.parent
+        server_side = [root / "Dockerfile", root / "gunicorn.conf.py",
+                       *(p for p in (root / "deploy").iterdir() if p.is_file() and not p.name.endswith(".env")),
+                       *(root / ".github" / "workflows").iterdir()]
+        self.assertGreater(len(server_side), 5)
+        for path in server_side:
+            found = [line for line in path.read_text(encoding="utf-8").splitlines()
+                     if re.search(r"wardrobe\s+refresh|wardrobe\.collect|collect\.refresh", line)]
+            self.assertEqual(found, [], path.name)
 
 
 class Collecting(unittest.TestCase):

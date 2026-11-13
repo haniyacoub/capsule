@@ -62,6 +62,10 @@ python -m wardrobe refresh --slot white-tee     # one slot (ids are shown when y
 python -m wardrobe refresh --max 3              # fewer candidates per slot, faster
 ```
 
+The collector is for your own machine and for testing only: run it by hand,
+never on a schedule, and never as the source for the public site, which is to
+use the stores' licensed product feeds ([PRODUCTION.md](PRODUCTION.md#before-customers)).
+
 A Chrome window opens and reads, for each slot, only the category pages listed
 for that garment type in [config/stores.toml](config/stores.toml). It is slow on
 purpose: one page at a time, a few seconds apart. Leave the window alone and keep
