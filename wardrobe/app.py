@@ -28,6 +28,7 @@ from werkzeug.exceptions import HTTPException, NotFound
 
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
                owner, person, programmes, selection, shared, tryon)
+from . import figure
 from . import videos
 from . import profile as profile_mod
 from . import english
@@ -1159,7 +1160,11 @@ def create_app() -> Flask:
             rules = looks.load_rules()
             chosen = looks.service()
             model = person.load()
-            return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model,
+            w = selection.build()
+            return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model, w=w,
+                        # The drawn figure in the middle (figure.py), and what app.js needs to redraw it.
+                        fig=figure.drawing(model, current["height_cm"]), figure_data=figure.data(),
+                        tabs=profile_mod.TABS, picture=model_picture(w) if chosen else None,
                         model_words=person.describe(model)[0] or rules["text"]["model"],
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
                         videos_on=chosen is not None and videos.service() is not None,
@@ -1171,6 +1176,17 @@ def create_app() -> Flask:
                         plan_kept=current["example"] and plan_edited(current))
 
         new, notes = profile_mod.from_form(request.form, current)
+        # The model's choices (the Body tab) are sent with the same form, where the menu is shown. A save that changed
+        # only them saves only them, as the model's own button did (person.py): the profile stays as it was, also
+        # while it holds the example's values, and the message is said beside the model.
+        model = person.load()
+        chosen_model = person.clean(request.form) if any(group in request.form for group in person.GROUPS) else model
+        if chosen_model != model:
+            person.save(chosen_model)
+            if not notes and profile_mod.same_answers(new, current):
+                flash("Model saved. Pictures drawn from now on show it.", "model")   # profile.html adds "See your outfits"
+                return redirect(url_for("profile_page") + "#model")
+            flash("Model saved. Pictures drawn from now on show it.")
         profile_mod.save(new)
         for note in notes:
             flash(note)
@@ -1181,13 +1197,13 @@ def create_app() -> Flask:
         same_plan = all(current[f] == new[f] for f in shapes_capsule)
         if same_plan and not current["example"]:        # sizes or budget: the plan stays as it is
             flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
-            return redirect(url_for("profile_page"))
+            return back_to_tab()
         if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
             if current["refused"] != new["refused"]:
                 sync_catalog()          # its pieces stay, but no longer with products in a colour now refused
             flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
                          "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
-            return redirect(url_for("profile_page"))
+            return back_to_tab()
         if same_plan:
             # The first save, with the example's colours and use kept: the plan is built from them already. As the
             # note on Profile says, the outfits follow, now under the budget bar instead of the starter banner.
@@ -1201,6 +1217,44 @@ def create_app() -> Flask:
             flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
                   % (line, edit_the_plan))
         return redirect(url_for("outfits_page"))       # the new plan, where it shows best: on the model
+
+    def back_to_tab():
+        """Back to Profile, on the tab the form was sent from (app.js writes it in the form; without it, the first)."""
+        tab = request.form.get("tab", "")
+        return redirect(url_for("profile_page") + (f"#{tab}" if tab in profile_mod.TABS else ""))
+
+    def first_outfit(w: selection.Wardrobe) -> list[dict] | None:
+        """The pieces of the first outfit Outfits shows (for what the customer dresses for, unshuffled)."""
+        use = profile_mod.load()["use"]
+        chosen, _ = outfits.generate(w, occasion="all" if use == "both" else use, limit=1)
+        return outfits.snapshot(chosen[0]) if chosen else None
+
+    def model_picture(w: selection.Wardrobe) -> dict:
+        """'Your model' on Profile: the AI picture of the saved model in the first outfit, which is the picture Outfits
+        shows first (the same picture, never drawn twice), or where it stands. `look` is None while there is none."""
+        pieces = first_outfit(w)
+        if pieces is None:
+            return {"look": None, "outfit": False}
+        board = {"pieces": pieces}
+        looks.attach([board])
+        return {"look": board.get("look"), "outfit": True}
+
+    @app.route("/profile/picture", methods=["GET", "POST"])
+    def profile_picture():
+        """'Draw my model' (POST), and where its picture stands, asked every few seconds while it is drawn (GET).
+        The picture is asked for like any outfit's (looks.request), with the same daily limits."""
+        if looks.service() is None:
+            abort(404)                      # AI pictures are switched off
+        w = selection.build()
+        if request.method == "POST":
+            pieces = first_outfit(w)
+            if pieces is None:
+                abort(409, "There is no outfit to draw yet — reload the page.")
+            look = looks.request(pieces, again=request.form.get("again") == "1")
+            if not request.headers.get("HX-Request"):
+                return redirect(url_for("profile_page") + "#figure")
+            return render_template("_model_picture.html", picture={"look": look, "outfit": True})
+        return render_template("_model_picture.html", picture=model_picture(w))
 
     @app.post("/profile/sizes-ok")
     def profile_sizes_ok():

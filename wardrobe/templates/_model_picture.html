@@ -1,0 +1,35 @@
+{# "Your model" on Profile, in the middle where the drawn figure is: the AI picture of the saved model wearing the first
+   outfit Outfits shows (so it is that outfit's picture there too, never drawn twice), in whichever state it is.
+   `picture` is app.model_picture(): `look` (None while there is no picture) and `outfit` (False before there is an
+   outfit to draw). HTMX swaps this in place: "Draw my model" asks for the picture, and while it is drawn the line
+   asks every few seconds whether it is done. Without JavaScript the button sends the page, which comes back here. #}
+{% set look = picture.look %}
+{% if look and look.status == 'ready' %}
+<div class="cc-pic-box">
+  <img class="cc-pic-img" src="{{ url_for('look_image', name=look.file) }}" alt="AI picture of your model, wearing the first of your outfits" width="848" height="1264" decoding="async">
+  <span class="ai-chip">AI picture</span>
+</div>
+<form class="cc-pic-again" method="post" action="{{ url_for('profile_picture') }}" hx-post="{{ url_for('profile_picture') }}" hx-target="closest [data-model-picture]">{{ csrf_field() }}
+  <input type="hidden" name="again" value="1">
+  <button class="link">Draw again</button>
+</form>
+{% if look.message %}<p class="cc-pic-note" role="status">{{ look.message }}</p>{% endif %}
+{% elif look and look.status == 'working' %}
+<p class="cc-pic-wait" role="status" hx-get="{{ url_for('profile_picture') }}" hx-trigger="load delay:3s" hx-target="closest [data-model-picture]">
+  <span class="spin" aria-hidden="true"></span>
+  <span>{{ look.message or 'Drawing your model · about 20 seconds' }}</span>
+</p>
+{% else %}
+<div class="cc-pic-ask">
+  {% if not picture.outfit %}
+  <p>Your model is drawn in your first outfit, once your plan has one.</p>
+  {% else %}
+  <p{% if look and look.message %} role="status"{% endif %}>{{ look.message if look and look.message else 'See your model drawn by AI, in the first of your outfits.' }}</p>
+  <form method="post" action="{{ url_for('profile_picture') }}" hx-post="{{ url_for('profile_picture') }}" hx-target="closest [data-model-picture]">{{ csrf_field() }}
+    <button class="btn small">Draw my model</button>
+  </form>
+  {# app.js shows this while the form has changes: the picture is drawn from the saved choices. #}
+  <p class="cc-pic-note" data-unsaved-note hidden>Save first: the picture shows the choices you saved.</p>
+  {% endif %}
+</div>
+{% endif %}

@@ -1,0 +1,30 @@
+{# The drawn figure on Profile (figure.py): a man in plain underclothes who takes the model's height, build, skin and
+   hair. `fig` is figure.drawing(...). It is decoration: what it shows is said in words under it (profile.html), so
+   screen readers skip it. app.js (13b) redraws it as the choices change, by the data-part of each outline.
+   The figure stands on the floor at y = 400 and grows from there (its transform); the picture's frame holds it at
+   220 cm, the tallest the form takes, with its widest build. A soft shadow inside the edges of
+   the body and the underclothes (.fig-shade, kept inside them by their clip paths) gives them their roundness. #}
+<svg class="fig" viewBox="-130 -100 260 510" aria-hidden="true" focusable="false" data-figure
+     style="--skin: {{ fig.skin }}; --hair: {{ fig.hair_colour }}; --cloth: {{ fig.cloth }}">
+  <defs>
+    <clipPath id="fig-clip-skin"><path data-part="skin" d="{{ fig.body.skin }}"/></clipPath>
+    <clipPath id="fig-clip-briefs"><path data-part="briefs" d="{{ fig.body.briefs }}"/></clipPath>
+    <clipPath id="fig-clip-tee"><path data-part="tee" d="{{ fig.body.tee }}"/></clipPath>
+  </defs>
+  <ellipse class="fig-floor" cx="0" cy="401" rx="46" ry="5"/>
+  <g class="fig-man" transform="{{ fig.transform }}" data-scale="{{ '%.4f'|format(fig.scale) }}">
+    <path class="fig-hair fig-hair-back{{ ' shaved' if fig.shaved }}" data-part="hair-back" d="{{ fig.hair_back }}"/>
+    <path class="fig-skin fig-body" data-part="skin" d="{{ fig.body.skin }}"/>
+    <path class="fig-shade" data-part="skin" d="{{ fig.body.skin }}" clip-path="url(#fig-clip-skin)"/>
+    <path class="fig-cloth fig-briefs" data-part="briefs" d="{{ fig.body.briefs }}"/>
+    <path class="fig-shade" data-part="briefs" d="{{ fig.body.briefs }}" clip-path="url(#fig-clip-briefs)"/>
+    <path class="fig-cloth fig-tee" data-part="tee" d="{{ fig.body.tee }}"/>
+    <path class="fig-shade" data-part="tee" d="{{ fig.body.tee }}" clip-path="url(#fig-clip-tee)"/>
+    <path class="fig-lines" data-part="lines" d="{{ fig.body.lines }}"/>
+    <path class="fig-skin fig-ears" d="{{ fig.ears }}"/>
+    <path class="fig-skin fig-face" d="{{ fig.face }}"/>
+    <path class="fig-features" d="{{ fig.features }}"/>
+    <path class="fig-beard{{ ' ' ~ fig.beard_kind if fig.beard_kind }}" data-part="beard" d="{{ fig.beard }}"/>
+    <path class="fig-hair fig-hair-front{{ ' shaved' if fig.shaved }}" data-part="hair" d="{{ fig.hair }}"/>
+  </g>
+</svg>

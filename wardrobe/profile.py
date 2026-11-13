@@ -6,6 +6,10 @@ from .sizes import ALPHA
 
 USES = {"everyday": "Everyday", "office": "Office", "both": "Both"}
 
+# The Profile page's tabs, in order: their names in the address (/profile#colours) and on screen. "body" is the
+# model's menu, shown where AI pictures are on (and on your own machine).
+TABS = {"you": "You", "body": "Body", "sizes": "Sizes", "colours": "Colours", "budget": "Budget"}
+
 # Shown until you save your own details on the Profile page.
 EXAMPLE = {
     "example": True,
@@ -42,6 +46,11 @@ def save(profile: dict) -> None:
     if not same_sizes(load(), profile):
         confirm_sizes()
     db.set_setting("profile", profile)
+
+
+def same_answers(a: dict, b: dict) -> bool:
+    """Whether two profiles hold the same answers (whether they are still the example's aside)."""
+    return {k: v for k, v in a.items() if k != "example"} == {k: v for k, v in b.items() if k != "example"}
 
 
 def same_sizes(a: dict, b: dict) -> bool:

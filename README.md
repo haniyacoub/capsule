@@ -228,8 +228,11 @@ Things to know:
 - The clothes in a picture are close to the products, not the products
   themselves: the service draws from words, not from the product photos.
 - **Your model**, on the Profile page, sets who wears the outfits: age, height,
-  build, skin, hair, beard. Each picture is drawn afresh, so the face differs a
-  little between outfits. Upload **your own photo** there and the pictures show
+  build, skin, hair, beard. Profile is one screen with the model in the middle:
+  a drawn figure (`wardrobe/figure.py`, no AI) takes each choice at once, and
+  "Your model" shows the AI picture of the saved model in your first outfit
+  ("Draw my model", with the usual limits). Each picture is drawn afresh, so the
+  face differs a little between outfits. Upload **your own photo** there and the pictures show
   you instead. Only the picture is kept, in `data/people/`: where and when it
   was taken, which a phone writes into the file, is cut out first. It is sent
   to the service with every picture. It has to be a JPEG or PNG: an iPhone's

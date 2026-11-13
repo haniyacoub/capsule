@@ -424,11 +424,12 @@ class SlotsAndProfile(AppCase):
         about = about[:about.index("</form>")]
         labels = [html.unescape(re.sub(r"<[^>]+>", "", label)).strip()
                   for label in re.findall(r'<label class="field"><span>(.*?)</span>', about)]
-        self.assertEqual(labels, ["Tops", "Shoes (EU)", "Trouser waist (inches)", "Trouser length (inches)", "Height (cm)",
+        # In the order of the tabs: You, (Body: the model's chips), Sizes, Colours, Budget.
+        self.assertEqual(labels, ["Things to build around (one per line, e.g. “white leather sneakers”)",
+                                  "Tops", "Shoes (EU)", "Trouser waist (inches)", "Trouser length (inches)", "Height (cm)",
                                   "Weight (kg)", "Chest (cm, optional)", "Body waist (cm, optional)",
-                                  "For the whole wardrobe (EUR)",
                                   "Colours you like (most important first, separated by commas)", "Colours to avoid",
-                                  "Things to build around (one per line, e.g. “white leather sneakers”)"])
+                                  "For the whole wardrobe (EUR)"])
         self.assertIn("We use these to warn you when a cut runs slim or large, or a size may not fit. Add your chest and "
                       "body waist to compare yourself with each store's size chart.", about)
         self.assertIn('<h2 class="sec" id="use-label">What do you dress for?</h2>', about)
