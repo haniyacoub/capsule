@@ -1049,6 +1049,177 @@ details[open] > summary .edit { visibility: hidden; }
 .site-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; max-width: 1240px; margin: 0 auto; padding: 18px var(--gutter) 26px; font-size: var(--t-s); color: var(--muted); }
 .site-foot a { color: var(--muted); }
 
+/* ── Motion ──────────────────────────────────────────────────────────────── */
+/* Stilsmith moves only to answer the customer: a tap, a swipe, a key, or a picture he asked for arriving. Every
+   movement is short (the tokens below: nothing after a tap takes longer than 300ms), eases out without going past its
+   end (nothing bounces), moves only position, size and opacity as the eye sees them (transform, opacity, filter:
+   nothing on the page is pushed about, so there is no layout shift), never stands between a finger and what it taps
+   (what is leaving lets taps through; a tap while a page slides in ends the slide), and never keeps keyboard focus
+   out of sight for longer than it takes to arrive. For people who ask their device for less motion
+   (prefers-reduced-motion: reduce) nothing here moves: everything that moves is inside the one @media block below,
+   and the rules outside it only decide what shows, not how it moves. app.js (16) does the rest: which way a page
+   slides, the AI picture that develops in, the heart, and the budget bar's line. Other sections can use these tokens
+   for their own motion (tests/test_motion.py holds every transition and animation in this file to 300ms). */
+:root {
+  --dur-press: 100ms;      /* a button giving under a finger */
+  --dur-quick: 150ms;      /* colour and opacity changes, and whatever leaves */
+  --dur-fade: 200ms;       /* whatever arrives: a page, the pop-up, a message, the video */
+  --dur-slow: 280ms;       /* the longest: the AI picture developing, the tab's mark travelling to the next tab */
+  --dur-loop: 1600ms;      /* one sweep of the light over something loading; it repeats until the thing is there */
+  --ease-out: cubic-bezier(.2, .8, .2, 1);   /* arriving: quick, then settling exactly at the end */
+  --ease-in: cubic-bezier(.4, 0, 1, 1);      /* leaving: gathering speed */
+  --ease-move: cubic-bezier(.4, 0, .2, 1);   /* travelling from one place to another */
+  --sheen: rgba(255, 255, 255, .45);         /* the light over the pieces' photos (light in both themes, as photos are) */
+}
+
+/* What shows, for everyone (no movement in these). */
+/* The AI picture, from the moment HTMX puts it in until its file has arrived (app.js 16b): hidden, with the pieces'
+   photos (or the picture it replaces, .look-was) still showing under it, never a grey box or a half-loaded picture.
+   Then it comes up over them; for people who ask for less motion it simply shows. Its dots wait for it. A dot with
+   keyboard focus always shows. */
+.look-pic[data-develop="wait"] { opacity: 0; }
+.stage:has(.look-pic[data-develop]):not(:has(.look-was)) .collage { visibility: visible; }
+.stage:has(.look-pic[data-develop="wait"]) .spot:not(:focus-visible) { opacity: 0; }
+.look-was { position: absolute; top: 0; left: 0; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; background: var(--photo); pointer-events: none; }
+.look-was img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.stage:has(.look-was) .collage { visibility: hidden; }
+/* Leaving, the pop-up and the video let taps through to what is under them. */
+.sheet:not([open]), .vid:not(.on) .vid-box { pointer-events: none; }
+.bar i { transform-origin: left; }   /* the budget bar's line grows from its start (app.js 16d) */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Pages. A tap on a link or a tab changes the page with a short slide and fade, where the browser can (View
+     Transitions; elsewhere the new page simply shows). The header, the tab bar and the budget bar stay still; the
+     page's content (main) leaves and arrives; the dark mark of the tab you are on, and the chip of the outfits shown,
+     travel to their new place. Along the tabs the content slides in from the side you are heading to, back through
+     the browser's history from the left (app.js 16a says which); otherwise it rises a little. A tap while it does
+     ends it at once and goes where it was meant to (app.js 16a). */
+  @view-transition { navigation: auto; }
+  html:active-view-transition main { view-transition-name: page; }
+  html:active-view-transition .tabs a.on { view-transition-name: tab-on; }
+  html:active-view-transition .toolbar .chip-link.on { view-transition-name: chip-on; }
+  ::view-transition-group(*) { animation-duration: var(--dur-fade); animation-timing-function: var(--ease-out); }
+  ::view-transition-group(tab-on), ::view-transition-group(chip-on) { animation-duration: var(--dur-slow); animation-timing-function: var(--ease-move); }
+  ::view-transition-old(page) { animation: page-out var(--dur-quick) var(--ease-in) both; }
+  ::view-transition-new(page) { animation: page-in var(--dur-fade) var(--ease-out) both; }
+  html:active-view-transition-type(forward)::view-transition-old(page) { animation-name: page-out-left; }
+  html:active-view-transition-type(forward)::view-transition-new(page) { animation-name: page-in-right; }
+  html:active-view-transition-type(back)::view-transition-old(page) { animation-name: page-out-right; }
+  html:active-view-transition-type(back)::view-transition-new(page) { animation-name: page-in-left; }
+
+  /* The outfit row: as it moves (a swipe, an arrow, an arrow key), the outfit leaving fades and steps back a little and
+     the one arriving comes forward, following the row exactly (a scroll-driven animation: no time of its own). At rest
+     each outfit is exactly as it is without this (40-60% of its way across, the plateau below). */
+  @supports (animation-timeline: view()) {
+    .slide { view-timeline: --outfit inline; }
+    .slide > * { animation: outfit-pass linear both; animation-timeline: --outfit; }
+    .slide > .stage { z-index: 1; }   /* each is a layer of its own now: a dot's label still goes over the list beside it */
+  }
+
+  /* The AI picture develops in when its file has arrived (app.js 16b): it comes up from soft and pale, over the
+     pieces' photos or the picture it replaces, and its dots come with it, one after another. */
+  .look-pic[data-develop="go"] { transition: opacity var(--dur-slow) var(--ease-out); }
+  .look-pic[data-develop="go"] img { animation: develop var(--dur-slow) var(--ease-out) both; }
+  .stage:has(.look-pic[data-develop="go"]) .spot:not(:focus-visible) { animation: dot-in var(--dur-quick) var(--ease-out) both; }
+  .stage:has(.look-pic[data-develop="go"]) .spot:nth-child(2) { animation-delay: 25ms; }
+  .stage:has(.look-pic[data-develop="go"]) .spot:nth-child(3) { animation-delay: 50ms; }
+  .stage:has(.look-pic[data-develop="go"]) .spot:nth-child(4) { animation-delay: 75ms; }
+  .stage:has(.look-pic[data-develop="go"]) .spot:nth-child(n+5) { animation-delay: 100ms; }
+  /* While a picture or a video is made, a light sweeps over the pieces' photos (or the picture) under the band that
+     says so: something is happening, without a word more. */
+  .stage:has(.look-bar.wait) .collage { position: relative; }
+  .stage:has(.look-bar.wait) .collage::after, .look:has(.vid-bar.wait) .look-pic::after {
+    content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: linear-gradient(100deg, transparent 35%, var(--sheen) 50%, transparent 65%) 0 0 / 300% 100% no-repeat;
+    animation: sheen var(--dur-loop) var(--ease-move) infinite;
+  }
+  /* The video fades in over the picture it starts from, and out again on "Show picture". */
+  .vid-box { transition: opacity var(--dur-quick) var(--ease-in), display var(--dur-quick) allow-discrete; }
+  .vid:not(.on) .vid-box { opacity: 0; }
+  .vid.on .vid-box { transition-duration: var(--dur-fade); transition-timing-function: var(--ease-out); }
+  @starting-style { .vid.on .vid-box { opacity: 0; } }
+
+  /* The pop-up: on a phone it slides up from the bottom of the screen, on a computer it fades in rising a little; the
+     dark veil behind it fades. Closing, it goes back the same way, quicker. */
+  .sheet {
+    transition: transform var(--dur-quick) var(--ease-in), opacity var(--dur-quick) var(--ease-in),
+                display var(--dur-quick) allow-discrete, overlay var(--dur-quick) allow-discrete;
+  }
+  .sheet:not([open]) { transform: translateY(100%); }
+  .sheet[open] { transition-duration: var(--dur-fade); transition-timing-function: var(--ease-out); }
+  @starting-style { .sheet[open] { transform: translateY(100%); } }
+  .sheet::backdrop {
+    opacity: 0;
+    transition: opacity var(--dur-quick) var(--ease-in), display var(--dur-quick) allow-discrete, overlay var(--dur-quick) allow-discrete;
+  }
+  .sheet[open]::backdrop { opacity: 1; transition-duration: var(--dur-fade); transition-timing-function: var(--ease-out); }
+  @starting-style { .sheet[open]::backdrop { opacity: 0; } }
+  @media (min-width: 760px) {
+    .sheet:not([open]) { opacity: 0; transform: translateY(var(--s-3)) scale(.98); }
+    @starting-style { .sheet[open] { opacity: 0; transform: translateY(var(--s-3)) scale(.98); } }
+  }
+  /* A piece tapped (its dot, its photo, its line), while its pop-up is fetched: if that takes longer than a moment,
+     what was tapped says so (HTMX marks it .htmx-request): the dot's white centre breathes, a light sweeps over the
+     photo. The pop-up opens with the piece in it, so it never jumps when the piece arrives. */
+  .spot.htmx-request::before { animation: pending var(--dur-loop) var(--ease-move) var(--dur-quick) infinite; }
+  :is(.piece-row, .tile).htmx-request .pic::before {
+    content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: linear-gradient(100deg, transparent 35%, var(--sheen) 50%, transparent 65%) 0 0 / 300% 100% no-repeat;
+    animation: sheen var(--dur-loop) var(--ease-move) var(--dur-quick) infinite backwards;
+  }
+
+  /* Buttons, chips and choices answer a tap: they give a little under the finger, and a choice fills with ink rather
+     than switching at once. (Profile's own controls move as its section says.) */
+  :is(.btn, .chip-link, .act, .reel-nav, .heart, .vid-pill, .scenes button, .sheet-close, .piece-row, .tile, .tabs a, .seg span) {
+    transition: background-color var(--dur-quick) var(--ease-out), border-color var(--dur-quick) var(--ease-out),
+                color var(--dur-quick) var(--ease-out), opacity var(--dur-quick) var(--ease-out),
+                transform var(--dur-press) var(--ease-out);
+  }
+  :is(.btn, .chip-link, .reel-nav, .heart, .vid-pill, .scenes button[aria-pressed="false"], .sheet-close):active:not(:disabled, [aria-disabled="true"]),
+  .act:active:not(:disabled), .tabs a:active, .seg label:active span { transform: scale(.96); }
+  .spot:active { transform: scale(.88); }
+  .piece-row:active, .tile:active { opacity: .85; }
+  /* The heart, as an outfit is saved (app.js 16c): it grows into its place, and a ring goes out from it. */
+  .heart.pop { position: relative; }
+  .heart.pop svg { animation: heart-pop var(--dur-slow) var(--ease-out); }
+  .heart.pop::after {
+    content: ""; position: absolute; inset: var(--s-1); border-radius: 50%; border: 2px solid currentColor; pointer-events: none;
+    animation: heart-ring var(--dur-slow) var(--ease-out) both;
+  }
+
+  /* A message (saved, changed, with its Undo) slides in where it stands. */
+  .flash { animation: say-in var(--dur-fade) var(--ease-out) both; }
+
+  /* Wardrobe, while a new price level or a lock is worked out (HTMX's request): if it takes longer than a moment, the
+     prices about to change fade back and a light sweeps over the photos, until the new ones are in. */
+  :is(#controls.htmx-request ~ #wardrobe-body, .slot:has(form.htmx-request)) .slot-price {
+    opacity: .4; transition: opacity var(--dur-quick) var(--ease-out) var(--dur-quick);
+  }
+  :is(#controls.htmx-request ~ #wardrobe-body, .slot:has(form.htmx-request)) .slot-main .pic::before {
+    content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: linear-gradient(100deg, transparent 35%, var(--sheen) 50%, transparent 65%) 0 0 / 300% 100% no-repeat;
+    animation: sheen var(--dur-loop) var(--ease-move) var(--dur-quick) infinite backwards;
+  }
+}
+
+@keyframes page-out { to { opacity: 0; } }
+@keyframes page-in { from { opacity: 0; transform: translateY(var(--s-2)); } }
+@keyframes page-out-left { to { opacity: 0; transform: translateX(calc(-1 * var(--s-5))); } }
+@keyframes page-out-right { to { opacity: 0; transform: translateX(var(--s-5)); } }
+@keyframes page-in-right { from { opacity: 0; transform: translateX(var(--s-5)); } }
+@keyframes page-in-left { from { opacity: 0; transform: translateX(calc(-1 * var(--s-5))); } }
+@keyframes outfit-pass {
+  0%, 100% { opacity: .35; transform: scale(.94); }
+  40%, 60% { opacity: 1; transform: none; }
+}
+@keyframes develop { from { filter: blur(8px) saturate(.4); transform: scale(1.03); } }
+@keyframes dot-in { from { opacity: 0; transform: scale(.4); } }
+@keyframes sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@keyframes pending { 50% { opacity: .35; transform: scale(.6); } }
+@keyframes heart-pop { from { transform: scale(.5); } }
+@keyframes heart-ring { from { opacity: .6; transform: scale(.5); } to { opacity: 0; transform: scale(1.25); } }
+@keyframes say-in { from { opacity: 0; transform: translateY(calc(-1 * var(--s-2))); } }
+
 /* ── The owner's store catalogues ────────────────────────────────────────── */
 /* Tables in cards: the stores, one table per network (.cat-h3 names it), then their products, with the filters
    between. From 960px they are tables,

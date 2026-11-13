@@ -637,3 +637,164 @@ if (swatchGrid) {
     else if (box.closest('[data-slide]')) box.closest('[data-slide]').focus({ preventScroll: true });
   });
 }
+
+// 16. Motion (app.css "Motion" says how things move, and that nothing does for people who ask their device for less
+//     motion). Here: which way a page slides in, and a tap while it does (16a), the AI picture that develops in once
+//     its file has arrived (16b), the heart as an outfit is saved (16c), and the budget bar's line going to its new
+//     length (16d). How long each takes is read from app.css's tokens, never set here.
+{
+  const less = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const ms = (name) => parseFloat(token(name)) || 0;
+
+  // 16a. Pages. Which way the new page's content slides in is said to the browser's view transition as its type when
+  //      the page is shown: along the tabs (Outfits, Wardrobe, Shopping, Profile) "forward", from the right, or
+  //      "back", from the left; through the browser's history (Back, Forward), the way it went. Anything else rises a
+  //      little (app.css). And while a page slides in, the browser gives every tap to the page as a whole rather than
+  //      to what is under the finger, so a quick tap (on the next tab, say) would be lost: a tap then ends the slide at
+  //      once and goes on to what it was meant for (a link or a button is pressed, a field gets the focus).
+  let sliding = null;       // the page change under way, if any
+  let lostTap = false;      // a tap that began while it was
+  const tabAt = (url) => {
+    const path = new URL(url, window.location.href).pathname;
+    return [...document.querySelectorAll('nav.tabs a')].findIndex((link) => link.pathname === path);
+  };
+  window.addEventListener('pagereveal', (e) => {
+    const change = e.viewTransition;
+    if (!change) return;
+    sliding = change;
+    change.finished.finally(() => {
+      if (sliding === change) sliding = null;
+    });
+    const came = window.navigation && window.navigation.activation;
+    if (!came || !came.from || !came.entry) return;
+    let way = 0;
+    if (came.navigationType === 'traverse') {
+      way = came.entry.index - came.from.index;
+    } else {
+      const from = tabAt(came.from.url);
+      const to = tabAt(came.entry.url);
+      if (from >= 0 && to >= 0) way = to - from;
+    }
+    if (way) change.types.add(way > 0 ? 'forward' : 'back');
+  });
+  document.addEventListener('pointerdown', () => {
+    if (!sliding) return;
+    sliding.skipTransition();
+    sliding = null;
+    lostTap = true;
+  }, true);
+  document.addEventListener('click', (e) => {
+    if (!lostTap) return;
+    lostTap = false;
+    if (e.target !== document.documentElement) return;       // it reached what it was meant for after all
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const meant = under && under.closest('a[href], button, label, summary, input, select, textarea, [role="button"]');
+    if (!meant) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (meant.matches('select, textarea, input:not([type="checkbox"], [type="radio"], [type="submit"], [type="button"])')) meant.focus();
+    else meant.click();
+  }, true);
+
+  // 16b. The AI picture develops in. When HTMX puts a finished picture in (drawn at last, or another scene tapped), it
+  //      stays hidden until its file has arrived, over the pieces' photos, or over the picture it replaces (kept for
+  //      that moment, .look-was), and then comes up over them (app.css). With less motion asked for it simply shows
+  //      once it is whole. Pictures of the outfits off screen that are still loading when the page opens do the same.
+  const develop = (pic, was) => {
+    const img = pic.querySelector('img');
+    if (!img) return;
+    pic.dataset.develop = 'wait';
+    let under = null;
+    if (was) {
+      under = document.createElement('div');
+      under.className = 'look-was';
+      under.setAttribute('aria-hidden', 'true');
+      was.alt = '';
+      under.append(was);
+      pic.before(under);
+    }
+    const done = () => {
+      delete pic.dataset.develop;
+      if (under) under.remove();
+    };
+    const go = () => {
+      if (pic.dataset.develop !== 'wait') return;
+      if (less.matches) {
+        done();
+        return;
+      }
+      pic.dataset.develop = 'go';
+      setTimeout(done, ms('--dur-slow') + 60);     // once it, and its dots, have come up
+    };
+    if (img.complete) {
+      void getComputedStyle(pic).opacity;        // hidden first, so that it can come up from there
+      go();
+    } else {
+      img.addEventListener('load', go, { once: true });
+      img.addEventListener('error', done, { once: true });
+      setTimeout(go, 10000);                       // a file that never quite arrives is shown as it is
+    }
+  };
+  const isLook = (el) => el instanceof Element && el.matches('.look');
+  document.body.addEventListener('htmx:beforeSwap', (e) => {
+    const box = e.detail.target;
+    if (!isLook(box)) return;
+    const img = box.querySelector('.look-pic img');
+    box.lookWas = img && img.complete && img.naturalWidth ? img : null;
+  });
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    const box = e.detail.target;
+    if (!isLook(box)) return;
+    const was = box.lookWas;
+    delete box.lookWas;
+    const pic = box.querySelector('.look-pic');
+    const img = pic && pic.querySelector('img');
+    if (!img || (was && was.src === img.src)) return;
+    develop(pic, was);
+  });
+  const row = document.getElementById('reel');
+  if (row) {
+    const here = Math.round(row.scrollLeft / row.clientWidth);
+    row.querySelectorAll('[data-slide]').forEach((slide, index) => {
+      const img = slide.querySelector('.look-pic img');
+      if (img && index !== here && !img.complete) develop(img.closest('.look-pic'), null);
+    });
+  }
+
+  // 16c. The heart, as an outfit is saved: HTMX puts in the heart's new state, which grows into its place (app.css).
+  let hearted = null;
+  document.addEventListener('click', (e) => {
+    const heart = e.target instanceof Element && e.target.closest('.heart');
+    if (heart) hearted = heart.id;
+  }, true);
+  document.body.addEventListener('htmx:load', (e) => {
+    const heart = hearted && document.getElementById(hearted);
+    if (!heart || !e.target.contains(heart)) return;
+    hearted = null;
+    if (!heart.classList.contains('on')) return;
+    heart.classList.add('pop');
+    setTimeout(() => heart.classList.remove('pop'), ms('--dur-slow') + 50);
+  });
+
+  // 16d. The budget bar's line, when the total changes (a price level, a lock): it goes from its old length to the new
+  //      one rather than jumping there. Only drawn differently (transform), so nothing on the page moves.
+  let length = null;
+  document.body.addEventListener('htmx:oobBeforeSwap', (e) => {
+    if (!e.detail.target || e.detail.target.id !== 'summary') return;
+    const line = e.detail.target.querySelector('.bar i');
+    length = line ? parseFloat(line.style.width) : null;
+  });
+  document.body.addEventListener('htmx:oobAfterSwap', (e) => {
+    // (HTMX says this on everything its answer has swapped in so far, once for each part: only the bar, for the bar.)
+    const bar = e.detail.target && e.detail.target.id === 'summary' && e.target instanceof Element && e.target.id === 'summary';
+    if (!bar) return;
+    const line = e.target.querySelector('.bar i');
+    const now = line && parseFloat(line.style.width);
+    const from = length;
+    length = null;
+    if (!now || !from || from === now || less.matches) return;
+    line.animate([{ transform: `scaleX(${from / now})` }, { transform: 'none' }],
+      { duration: ms('--dur-slow'), easing: token('--ease-out') });
+  });
+}
