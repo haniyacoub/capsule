@@ -784,6 +784,24 @@ class Pictures(WithPictures, AppCase):
             self.assertIn("Drawing this outfit on the model", again)
             self.assertNotIn("Waiting its turn", again)
 
+    def test_an_error_before_the_drawing_starts_gives_its_turn_back(self):
+        def both_turns_free() -> bool:
+            taken = [looks._TURNS.acquire(blocking=False) for _ in range(2)]
+            for got in taken:
+                if got:
+                    looks._TURNS.release()
+            return all(taken)
+
+        first, second = some_outfits(2)
+        broken = sqlite3.OperationalError("database is locked")
+        with mock.patch.object(db, "touch_look", side_effect=broken):          # fails after the turn was taken
+            self.assertEqual(self.post("/outfits/look", key=first.key).status_code, 500)
+        self.assertTrue(both_turns_free())
+        with mock.patch.object(looks, "_spawn", side_effect=RuntimeError("can't start new thread")):
+            self.assertEqual(self.post("/outfits/look", key=second.key).status_code, 500)
+        self.assertTrue(both_turns_free())
+        self.assertEqual(self.drawn, [])
+
     def age(self, seconds):
         with closing(sqlite3.connect(paths.DB_PATH)) as con, con:
             con.execute("UPDATE looks SET started_at = started_at - ?", (seconds,))

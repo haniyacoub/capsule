@@ -372,11 +372,18 @@ def request(pieces: list[dict], again: bool = False) -> Look | None:
         # answered: so the page says "Drawing this outfit", not "Waiting its turn", when nothing else is drawn.
         # Only when both turns are taken does the picture wait in line (in _draw), and the page says that.
         turn = _TURNS.acquire(blocking=False)
-        if turn and not db.touch_look(key):      # gone already: its account was deleted a moment ago
-            _TURNS.release()
-            db.drop_look_request(ticket)
-        else:
-            _spawn(lambda: _draw(key, chosen, text, photo, ticket, turn))
+        handed_over = False
+        try:
+            if turn and not db.touch_look(key):  # gone already: its account was deleted a moment ago
+                db.drop_look_request(ticket)
+            else:
+                _spawn(lambda: _draw(key, chosen, text, photo, ticket, turn))
+                handed_over = True               # from here the drawing gives the turn back when it is done
+        finally:
+            # A turn taken here and not handed to a drawing (gone already, or an error before the drawing started)
+            # is given back at once: otherwise it would stay taken until the server restarts.
+            if turn and not handed_over:
+                _TURNS.release()
     else:
         db.drop_look_request(ticket)             # somebody else asked for the same picture a moment ago
     return get(key) or Look(key, "working")
