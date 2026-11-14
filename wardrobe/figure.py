@@ -39,6 +39,13 @@ HEIGHTS_CM = {"short": 168, "medium": 178, "tall": 190}
 PAPER = "#f3f0eb"
 CLOTH = "#dcd8d0"      # the underclothes: a light heather grey, the same for everyone
 
+# The colour of the fine lines drawn on the skin (the brows, nose and mouth, the knees, the thumbs), one for each skin
+# tone so that they read on it: a deeper shade of the skin on the lighter tones, a lighter one on brown and dark skin
+# (where a dark line would vanish). Each is at least 3.2:1 against its skin. "Any" (the paper) has a soft grey.
+DETAIL = {"fair": "#8c6b59", "light": "#7d5a44", "medium": "#674330", "tan": "#3f271a", "brown": "#d8b49b",
+          "dark": "#b9927a"}
+PAPER_DETAIL = "#878582"
+
 
 def _n(value: float) -> str:
     return f"{value:.1f}".rstrip("0").rstrip(".") if abs(value) >= 0.05 else "0"
@@ -134,8 +141,9 @@ def _between(y: float, stops: list[Point]) -> float:
 # ── the body, for one build ───────────────────────────────────────────────────
 
 def body(build: str) -> dict[str, str]:
-    """The outlines of the figure's body in one build: skin (the whole body), tee, briefs and the fine lines
-    (hems, seams, knees). Every build gives outlines of the same shape of numbers, so app.js can blend them."""
+    """The outlines of the figure's body in one build: skin (the whole body), tee, briefs, the fine lines on the
+    underclothes (hems, seams) and on the skin (creases: knees, thumbs). Every build gives outlines of the same shape
+    of numbers, so app.js can blend them."""
     b = BUILDS.get(build, BUILDS["average"])
     nk, sh, ch, wa, hp, a, lg = b["neck"], b["shoulder"], b["chest"], b["waist"], b["hip"], b["arm"], b["leg"]
 
@@ -149,9 +157,14 @@ def body(build: str) -> dict[str, str]:
 
     widths = {92: 10.5, 118: 9.2, 150: 7.4, 168: 8.0, 200: 5.2}      # half the arm's width at these heights
     wrist = arm(200)
-    hand_out = [(wrist + 4.9 * a, 212.0), (wrist + 4.4 * a, 225.0)]
-    tip = (wrist + 1.0, 236.0)
-    hand_in = [(wrist - 3.0 * a, 232.5), (wrist - 4.9 * a, 220.0), (wrist - 4.8 * a, 207.0)]
+    # The hand hangs relaxed, its palm to the thigh: the back of the hand a little fuller than the wrist, the fingers
+    # curling in towards the thigh to a rounded end (one smooth run of the outline, no corner), and the thumb on the
+    # inner side, its rounded tip just under the notch where it meets the fingers (the one corner of the hand).
+    hand_out = [(wrist + 5.7 * a, 211.0), (wrist + 4.9 * a, 223.5), (wrist + 2.6 * a, 232.0)]
+    tip = (wrist - 0.6, 236.4)
+    fingers_in = [(wrist - 3.4 * a, 234.2), (wrist - 4.7 * a, 227.5)]
+    notch = (wrist - 3.9 * a, 219.8)
+    thumb = [(wrist - 4.8 * a, 221.7), (wrist - 5.9 * a, 219.6), (wrist - 6.3 * a, 213.6), (wrist - 6.0 * a, 207.0)]
 
     # The legs: hip joint → knee → ankle, the feet a little apart.
     leg_line = [(hp * 0.52, 196.0), (14.5, 300.0), (17.0, 384.0)]
@@ -168,8 +181,8 @@ def body(build: str) -> dict[str, str]:
     neck_and_arm = [(nk, 44.0), (nk + 0.3, 56.5), (nk + 9.5, 64.8), (sh - 10, 70.0), (sh - 2, 75.0),
                     (arm(92) + widths[92] * a, 92.0), (arm(118) + widths[118] * a, 118.0),
                     (arm(150) + widths[150] * a, 150.0), (arm(168) + widths[168] * a, 168.0),
-                    (wrist + widths[200] * a, 200.0), *hand_out, tip]
-    inner_arm = [tip, *hand_in, (wrist - widths[200] * a, 200.0), (arm(168) - widths[168] * a, 168.0),
+                    (wrist + widths[200] * a, 200.0), *hand_out, tip, *fingers_in, notch]
+    inner_arm = [notch, *thumb, (wrist - widths[200] * a, 200.0), (arm(168) - widths[168] * a, 168.0),
                  (arm(150) - widths[150] * a, 150.0), (arm(118) - widths[118] * a, 118.0), (ch + 0.5, 101.0)]
     side_and_leg = [(ch + 0.5, 101.0), (ch - 0.6 + belly * 0.8, 114.0), (ch - 2.2 + (wa - ch + 2.2) * 0.45 + belly * 1.6, 130.0),
                     (wa + belly * 1.2, 150.0), (wa + (hp - wa) * 0.62, 172.0), (hp, 190.0), (hp - 1.2, 212.0),
@@ -208,18 +221,22 @@ def body(build: str) -> dict[str, str]:
         [(in_at, opening + 5.6), (0.0, 213.0)],
     ])
 
-    # The fine lines: the neck's rib, the sleeves' and the hems' stitching, the briefs' seam, the knees, the thumbs.
+    # The fine lines on the underclothes: the neck's rib, the sleeves' and the hems' stitching, the briefs' seam.
     lines = " ".join([
         _open([(nk + 2.0, 61.6), (nk * 0.65, 67.0), (0.0, 69.0)]),
         _open([(sleeve_out[0] - 0.4, 114.6), (sleeve_in[0] + 0.3, 116.2)]),
         _open([(hp + 1.2, hem_y - 2.4), (hp * 0.5, hem_y - 1.0), (0.0, hem_y - 0.8)]),
         _open([(out_at - 0.2, opening - 2.6), ((out_at + in_at) / 2, opening + 1.0), (in_at + 0.3, opening + 3.0)]),
         _open([(0.0, 197.0), (0.5, 204.0), (0.0, 211.0)], mirrored=False),
+    ])
+    # The fine lines on the skin, drawn in a colour that reads on each skin tone (DETAIL): the knees, and the edge of
+    # the thumb, from the notch up into the hand.
+    creases = " ".join([
         _open([(leg(300) - 4.0, 296.5), (leg(300) - 0.4, 300.4), (leg(300) + 3.6, 296.8)]),
-        _open([(wrist - 3.0, 212.0), (wrist - 1.4, 220.0), (wrist - 2.6, 228.0)]),
+        _open([notch, (wrist - 3.0 * a, 214.4), (wrist - 2.6 * a, 208.6)]),
     ])
     return {name: _moved(path, y_from_floor=_BODY_UP)
-            for name, path in (("skin", skin), ("tee", tee), ("briefs", briefs), ("lines", lines))}
+            for name, path in (("skin", skin), ("tee", tee), ("briefs", briefs), ("lines", lines), ("creases", creases))}
 
 
 # ── the head, hair and beard (the same for every build) ──────────────────────
@@ -346,8 +363,9 @@ def drawing(model: dict[str, str], height_cm: int) -> dict:
         "beard": _beards().get(model.get("beard", ""), ""), "beard_kind": model.get("beard", ""),
         "shaved": model.get("cut") == "shaved",
         "skin": skin.swatch if skin else PAPER, "hair_colour": colour.swatch if colour else PAPER,
+        "detail": DETAIL[skin.key] if skin else PAPER_DETAIL,
         "scale": s, "transform": transform(s), "words": words(model, height_cm),
-        "cloth": CLOTH, 
+        "cloth": CLOTH,
     }
 
 
@@ -356,19 +374,15 @@ def transform(s: float) -> str:
     return f"matrix({s:.4f} 0 0 {s:.4f} 0 {400 * (1 - s):.2f})"
 
 
-def ruler() -> list[tuple[float, bool]]:
-    """Marks every 10 cm from 140 to 220 cm beside the figure: (y, whether it is a long mark at 150 and 200)."""
-    return [(round(400 - cm * 400 / REFERENCE_CM, 1), cm % 50 == 0) for cm in range(LOWEST_CM, HIGHEST_CM + 1, 10)]
-
-
 def data() -> dict:
     """What app.js needs to redraw the figure for any choice: every build's outlines, every haircut and beard, the
     colours and the words of every option, and the heights of the menu."""
     return {
         "builds": {key: body(key) for key in BUILDS},
         "hair": _hair(), "beards": _beards(), "heights": HEIGHTS_CM, "reference": REFERENCE_CM,
-        "lowest": LOWEST_CM, "highest": HIGHEST_CM, "paper": PAPER,
-        "skin": {o.key: {"colour": o.swatch, "label": o.label.lower()} for o in person.GROUPS["skin"][1]},
+        "lowest": LOWEST_CM, "highest": HIGHEST_CM, "paper": PAPER, "paperDetail": PAPER_DETAIL,
+        "skin": {o.key: {"colour": o.swatch, "detail": DETAIL[o.key], "label": o.label.lower()}
+                 for o in person.GROUPS["skin"][1]},
         "hairColour": {o.key: {"colour": o.swatch, "label": o.label.lower().replace(" ", "-")}
                        for o in person.GROUPS["hair"][1]},
         "build": {o.key: o.label.lower() for o in person.GROUPS["build"][1]},

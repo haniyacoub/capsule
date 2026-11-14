@@ -33,7 +33,7 @@ def widest(path: str, low: float, high: float) -> float:
 class TheFigure(AppCase):
     def test_every_build_draws_its_own_body_and_each_blends_into_the_others(self):
         bodies = {build: figure.body(build) for build in figure.BUILDS}
-        for part in ("skin", "tee", "briefs", "lines"):
+        for part in ("skin", "tee", "briefs", "lines", "creases"):
             outlines = {build: body[part] for build, body in bodies.items()}
             self.assertEqual(len(set(outlines.values())), 5, f"two builds draw the same {part}")
             # Blending (app.js 13b) moves each number of one outline towards the same number of the other: the
@@ -101,6 +101,26 @@ class TheFigure(AppCase):
         self.assertEqual(len({beards[key] for key in ("stubble", "full")}), 2)
         self.assertEqual(figure.drawing({}, 180)["beard"], "")
 
+    def test_the_fine_lines_on_the_skin_read_on_every_skin_tone(self):
+        # The brows, nose and mouth, the knees and the thumbs: in ink they vanished on brown and dark skin (1.7:1 and
+        # 1.2:1). Each skin tone has its own colour for them, at least 3:1 against it, as "Any" (the paper) has.
+        def luminance(colour: str) -> float:
+            channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            r, g, b = (c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels)
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+        def contrast(a: str, b: str) -> float:
+            light, dark = sorted((luminance(a), luminance(b)), reverse=True)
+            return (light + 0.05) / (dark + 0.05)
+
+        tones = [(o.key, o.swatch) for o in person.GROUPS["skin"][1]] + [("", figure.PAPER)]
+        for key, skin in tones:
+            drawn = figure.drawing({"skin": key} if key else {}, 180)
+            self.assertEqual(drawn["skin"], skin)
+            self.assertGreaterEqual(contrast(drawn["detail"], skin), 3.0, f"the lines on {key or 'any'} skin")
+        self.assertEqual({key: entry["detail"] for key, entry in figure.data()["skin"].items()}, figure.DETAIL)
+        self.assertEqual(figure.data()["paperDetail"], figure.drawing({}, 180)["detail"])
+
     def test_every_choice_on_the_menu_can_be_drawn(self):
         for group, (_, options) in person.GROUPS.items():
             for option in options:
@@ -125,7 +145,7 @@ class TheFigure(AppCase):
         self.assertEqual(set(data["beards"]), {"none"} | {o.key for o in person.GROUPS["beard"][1]})
         self.assertEqual(data["heights"], figure.HEIGHTS_CM)
         self.assertEqual(set(data["heights"]), {o.key for o in person.GROUPS["height"][1]})
-        self.assertEqual(data["skin"]["dark"], {"colour": "#4a2f22", "label": "dark"})
+        self.assertEqual(data["skin"]["dark"], {"colour": "#4a2f22", "detail": figure.DETAIL["dark"], "label": "dark"})
         self.assertEqual(data["hairColour"]["dark-brown"]["label"], "dark-brown")
 
 
@@ -170,7 +190,8 @@ class ThePage(AppCase):
         page = self.page()
         svg = re.search(r"<svg class=\"fig\"[^>]*>", page).group(0)
         self.assertIn('aria-hidden="true"', svg)
-        self.assertIn("--skin: #b07d55; --hair: #1c1a19", svg)
+        self.assertIn(f"--skin: #b07d55; --detail: {figure.DETAIL['tan']}; --hair: #1c1a19", svg)
+        self.assertIn('class="fig-creases" data-part="creases"', page, "the lines on the skin are not drawn")
         self.assertIn(f'<p class="cc-words" data-figure-words>{figure.words(person.load(), 180)}</p>', page)
         self.assertIn("Tall, athletic build, tan skin, curly black hair", page)
         self.assertIn(f'transform="{figure.transform(figure.HEIGHTS_CM["tall"] / 180)}"', page)
@@ -289,8 +310,13 @@ class YourModel(WithPictures, AppCase):
         self.assertIn(board["look"].file, self.client.get("/profile/picture").data.decode())
         self.client.post("/profile/picture", headers=HX)
         self.assertEqual(len(self.drawn), 1, "asked twice, drawn twice")
-        self.client.post("/profile/picture", data={"again": "1"}, headers=HX)
+        again = self.client.post("/profile/picture", data={"again": "1"}, headers=HX).data.decode()
         self.assertEqual(len(self.drawn), 2, "'Draw again' did not draw again")
+        # "Draw again" draws the saved choices too: the line that says to save first (shown by app.js while the form
+        # has changes) is under it, as it is beside "Draw my model".
+        foot = again[again.index('<div class="cc-pic-again">'):]
+        self.assertLess(foot.index("Draw again"), foot.index("data-unsaved-note"))
+        self.assertIn("Save first: the picture shows the choices you saved.", foot[:foot.index("</div>")])
 
     def test_it_draws_the_saved_model(self):
         person.save({"build": "heavy", "beard": "full"})
@@ -315,6 +341,17 @@ class YourModel(WithPictures, AppCase):
         self.assertEqual(self.drawn, [])
         self.assertIn("Today's pictures are used up.", said)
         self.assertIn("Draw my model", said)
+
+    def test_the_days_limit_on_draw_again_is_said_under_it_and_the_picture_stays(self):
+        self.client.post("/profile/picture", headers=HX)
+        self.with_rules(per_day=1)
+        said = html.unescape(self.client.post("/profile/picture", data={"again": "1"}, headers=HX).data.decode())
+        self.assertEqual(len(self.drawn), 1, "drawn over the day's limit")
+        self.assertIn('class="cc-pic-img"', said, "the picture there went")
+        foot = said[said.index('<div class="cc-pic-again">'):]
+        foot = foot[:foot.index("</div>")]
+        self.assertIn("Draw again", foot)
+        self.assertRegex(foot, r'<p class="cc-pic-note" role="status">[^<]*used up', "the limit is not said under Draw again")
 
     def test_without_javascript_back_to_the_page(self):
         sent = self.client.post("/profile/picture")

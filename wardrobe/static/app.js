@@ -411,6 +411,7 @@ if (aboutYou) {
   aboutYou.addEventListener('change', sayUnsaved);
   aboutYou.addEventListener('click', () => setTimeout(sayUnsaved));     // a colour swatch tapped (14)
   document.body.addEventListener('htmx:afterSwap', sayUnsaved);
+  sayUnsaved();          // the fields as the browser kept them (Back, a reload), which may not be the ones saved
 }
 
 // 13a. Profile: the tabs, a real tablist. One tab is open at a time; the arrow keys (and Home and End) move between the
@@ -431,12 +432,18 @@ if (profileCreator) {
     return names.includes(name) ? name : null;
   };
   // The top of the controls' card, brought back into view when the page was scrolled past it (on a phone it then
-  // starts just under the tabs, which stay at the top): what scroll-padding-top keeps clear.
+  // starts just under the tabs, which stay at the top): what scroll-padding-top keeps clear. On a phone tall enough
+  // for the middle to stay at the top (app.css), a tab chosen on the first screen, where its controls start low, also
+  // brings them up to there: the middle then sits at the top of the screen, the tabs under it, the controls under them.
   const card = profileCreator.querySelector('.cc-side');
+  const stuckMiddle = window.matchMedia('(max-width: 759.98px) and (min-height: 600px)');     // as app.css
+  const lessMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const keepInView = () => {
     const clear = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
     const above = card.getBoundingClientRect().top - clear;
-    if (above < 0) window.scrollBy(0, above);
+    if (above < 0 || (stuckMiddle.matches && above > 1)) {
+      window.scrollBy({ top: above, behavior: lessMotion.matches ? 'auto' : 'smooth' });
+    }
   };
   const open = (name, focus = false) => {
     tabs.forEach((tab) => {
@@ -481,10 +488,37 @@ if (profileCreator) {
     const box = place.getBoundingClientRect();
     if (box.top < 0 || box.top > window.innerHeight * 0.6) place.scrollIntoView({ block: 'start' });
   };
-  // The tabs work from here on: app.css lays the page out around the middle.
+  // On such a phone the first screen shows the middle and the whole row of tabs above the tab bar. Where what is above
+  // the middle (the title, a note, a message after a save) leaves too little room for it at 40% of the screen, it is
+  // made shorter, down to 30% (--cc-stage, app.css), rather than the tabs falling under the tab bar. Worked out again
+  // only when the width changes: a phone's address bar that hides on scrolling changes the height, and the middle
+  // must not jump then.
+  const fitMiddle = () => {
+    document.documentElement.style.removeProperty('--cc-stage');
+    if (!stuckMiddle.matches) return;
+    const bar = document.querySelector('nav.tabs');
+    const floor = bar ? bar.getBoundingClientRect().top : window.innerHeight;
+    const room = floor - (profileCreator.getBoundingClientRect().top + window.scrollY) - tablist.getBoundingClientRect().height - 2;
+    const stage = profileCreator.querySelector('.cc-stage').getBoundingClientRect().height;
+    if (room < stage) {
+      document.documentElement.style.setProperty('--cc-stage', `${Math.floor(Math.max(room, 0.3 * window.innerHeight))}px`);
+    }
+  };
+  // The tabs work from here on: app.css lays the page out around the middle. Save goes last in the card, after the
+  // photo's forms of the You tab, so that it can stay at the bottom of the screen on every tab and comes last by
+  // keyboard too (without JavaScript it stays right under the fields it saves).
   const asked = decodeURIComponent(location.hash.slice(1));
+  const saveBar = card.querySelector('.cc-save');
+  if (saveBar) card.append(saveBar);
   profileCreator.dataset.tabs = '';
   tablist.hidden = false;
+  fitMiddle();
+  let fittedWidth = window.innerWidth;
+  window.addEventListener('resize', () => {
+    if (window.innerWidth === fittedWidth) return;
+    fittedWidth = window.innerWidth;
+    fitMiddle();
+  });
   open(tabOf(asked) || names[0]);
   // Where the page lands: a message at the top (after a save) is seen first; else the place the address names.
   if (document.querySelector('main > .flash')) window.scrollTo(0, 0);
@@ -545,7 +579,7 @@ if (profileCreator) {
   const man = svg.querySelector('.fig-man');
   const said = profileCreator.querySelector('[data-figure-words]');
   const still = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const parts = ['skin', 'tee', 'briefs', 'lines'];
+  const parts = ['skin', 'tee', 'briefs', 'lines', 'creases'];
   const choice = (group) => {
     const on = form.querySelector(`input[name="${group}"]:checked`);
     return on ? on.value : '';
@@ -598,6 +632,7 @@ if (profileCreator) {
     const skin = choice('skin');
     const colour = choice('hair');
     svg.style.setProperty('--skin', skin ? data.skin[skin].colour : data.paper);
+    svg.style.setProperty('--detail', skin ? data.skin[skin].detail : data.paperDetail);     // the lines on the skin
     svg.style.setProperty('--hair', colour ? data.hairColour[colour].colour : data.paper);
     const cut = data.hair[choice('cut')] ? choice('cut') : 'short';
     svg.querySelector('[data-part="hair"]').setAttribute('d', data.hair[cut].front);
@@ -621,7 +656,8 @@ if (profileCreator) {
     const start = performance.now();
     const step = (now) => {
       if (run !== moving) return;                              // a newer change took over from here
-      const t = still.matches ? 1 : Math.min(1, (now - start) / 200);
+      // (A frame's time can be a little before the change was made: never before the start, so nothing moves back.)
+      const t = still.matches ? 1 : Math.max(0, Math.min(1, (now - start) / 200));
       const eased = 1 - (1 - t) ** 3;                          // ease-out: quick at first, settling gently
       shown = {
         scale: from.scale + (target.scale - from.scale) * eased,

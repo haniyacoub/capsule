@@ -1643,7 +1643,8 @@ def run(base: str) -> None:
                 build = other.locator('.pick input[name="build"]:checked').get_attribute("value")
                 other.locator('.pick input[name="build"][value="heavy"]').check(force=True)
                 note = other.locator("[data-model-picture] [data-unsaved-note]")
-                if note.count():                           # where "Draw my model" is offered: it says to save first
+                if note.count():           # beside "Draw my model", or under "Draw again": it says to save first
+                    other.get_by_role("group", name="Show in the middle").get_by_role("button", name="Your model").click()
                     expect(note).to_be_visible()
                 choose_photo()
                 with other.expect_event("dialog"):
@@ -1736,23 +1737,36 @@ def run(base: str) -> None:
                 assert phone.evaluate("() => document.activeElement.id") == "budget"
 
                 # On a phone the middle takes about 40% of the screen and stays at the top with the tabs under it while
-                # the controls scroll; Save stays in view at the bottom, above the tab bar, on every tab.
+                # the controls scroll (every tab reaches that far); Save is in view at the bottom, above the tab bar,
+                # wherever the controls are: once the page is scrolled to them, and on the first screen whenever the
+                # controls' card starts high enough for it. It is never over the tabs: on a first screen where the card
+                # starts lower, Save rides on its top edge, under the tabs (a tab tapped there brings the controls up,
+                # checked below on three phones).
                 def placed() -> dict:
                     return phone.evaluate("""() => {
                         const box = s => document.querySelector(s).getBoundingClientRect();
                         const save = document.querySelector('.cc-save .btn'), b = save.getBoundingClientRect();
                         const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+                        const card = document.querySelector('.cc-side'), bar = document.querySelector('.cc-save');
+                        const room = box('.cc-side').top + parseFloat(getComputedStyle(card).borderTopWidth)
+                            + parseFloat(getComputedStyle(card).paddingTop) + parseFloat(getComputedStyle(bar).marginTop)
+                            + bar.getBoundingClientRect().height;      // where Save's foot is when it rides on the card's top
                         return {stageTop: box('.cc-stage').top, stage: box('.cc-stage').height, tabsTop: box('.cc-tabs').top,
-                                saveBottom: b.bottom, saveSeen: save.contains(top), bar: box('nav.tabs').top, h: innerHeight,
-                                past: scrollY >= document.querySelector('.cc').offsetTop};
+                                tabsBottom: box('.cc-tabs').bottom, saveTop: box('.cc-save').top, saveBottom: b.bottom,
+                                saveSeen: save.contains(top), bar: box('nav.tabs').top, h: innerHeight,
+                                fits: room <= box('nav.tabs').top, past: scrollY >= document.querySelector('.cc').offsetTop};
                     }""")
                 for name in ("you", "body", "sizes", "colours", "budget"):
                     open_tab(phone, name)
                     for scrolled in (0, 900):
                         phone.evaluate(f"() => window.scrollTo(0, {scrolled})")
                         seen = placed()
-                        assert seen["saveSeen"] and seen["saveBottom"] <= seen["bar"] + 1, f"{name} at {scrolled}: Save is hidden {seen}"
-                        if seen["past"]:          # scrolled past where the middle starts (a short tab may not reach it)
+                        assert seen["saveTop"] >= seen["tabsBottom"] - 1, f"{name} at {scrolled}: Save is over the tabs {seen}"
+                        if seen["past"] or seen["fits"]:
+                            assert seen["saveSeen"] and seen["saveBottom"] <= seen["bar"] + 1, f"{name} at {scrolled}: Save is hidden {seen}"
+                        if scrolled:
+                            assert seen["past"], f"{name}: the page cannot be scrolled to where the middle stays at the top {seen}"
+                        if seen["past"]:
                             assert seen["stageTop"] == 0 and abs(seen["tabsTop"] - seen["stage"]) < 1, \
                                 f"{name}: the middle and the tabs do not stay at the top {seen}"
                     assert 0.35 * seen["h"] <= seen["stage"] <= 0.45 * seen["h"], f"the middle is {seen['stage']}px of {seen['h']}"
@@ -1856,6 +1870,7 @@ def run(base: str) -> None:
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/profile#model")
                 switch = phone.get_by_role("group", name="Show in the middle")
+                expect(phone.locator("[data-model-picture]"), "the picture shows over the drawn figure").to_be_hidden()
                 switch.get_by_role("button", name="Your model").click()
                 expect(switch.get_by_role("button", name="Your model")).to_have_attribute("aria-pressed", "true")
                 expect(phone.locator("[data-figure]")).to_be_hidden()
@@ -1872,11 +1887,70 @@ def run(base: str) -> None:
                 assert len(asked) == before + 1 and "broad, sturdy build" in asked[-1]["prompt"], "the saved model was not drawn"
                 switch.get_by_role("button", name="Drawn figure").click()
                 expect(phone.locator("[data-figure]")).to_be_visible()
+                expect(phone.locator("[data-model-picture]"), "the picture shows over the drawn figure").to_be_hidden()
                 phone.goto(base + "/outfits", wait_until="networkidle")
                 phone.wait_for_selector(f"{first} .look-pic img")
                 assert len(asked) == before + 1, "Outfits drew the same picture again"
             finally:
                 context.close()
+
+            # On a phone's first screen the row of tabs is in view, clear of Save and of the tab bar; and a tab tapped
+            # there brings its controls up: the middle at the top of the screen, the tabs under it, and the tab's first
+            # control under them, in view above Save. On three phones down to 360 x 640 with less motion asked for, and
+            # once with motion allowed (a smooth scroll that ends in the same place).
+            first_control = """name => {
+                const panel = document.getElementById('panel-' + name);
+                const field = panel.querySelector('input:not([type=hidden]), select, textarea, button, .seg label, .pick label');
+                const control = field.closest('label') || field;
+                const box = control.getBoundingClientRect(), save = document.querySelector('.cc-save').getBoundingClientRect();
+                const bar = document.querySelector('nav.tabs').getBoundingClientRect();
+                const top = document.elementFromPoint(box.left + Math.min(box.width / 2, 40), box.top + Math.min(box.height / 2, 12));
+                return {stageTop: document.querySelector('.cc-stage').getBoundingClientRect().top,
+                        tabsBottom: document.querySelector('.cc-tabs').getBoundingClientRect().bottom, top: box.top,
+                        height: box.height, shown: Math.min(box.bottom, save.top, bar.top) - box.top,
+                        seen: !!top && control.contains(top)};
+            }"""
+            settled = """() => new Promise(done => {          // the page has stopped scrolling (four frames alike)
+                let last = -1, same = 0;
+                const tick = () => { same = scrollY === last ? same + 1 : 0; last = scrollY;
+                                     if (same > 3) done(true); else requestAnimationFrame(tick); };
+                tick();
+            })"""
+            for width, height, less_motion in ((390, 844, True), (375, 667, True), (360, 640, True), (375, 667, False)):
+                context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=True, has_touch=True,
+                                              reduced_motion="reduce" if less_motion else "no-preference")
+                try:
+                    small = context.new_page()
+                    small.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                    small.goto(base + "/login", wait_until="networkidle")
+                    small.fill("input[name=email]", who)
+                    small.fill("input[name=password]", PASSWORD)
+                    small.click("button:has-text('Log in')")
+                    small.wait_for_load_state("networkidle")
+                    for name in ("you", "body", "sizes", "colours", "budget") if less_motion else ("sizes",):
+                        small.goto(base + "/outfits", wait_until="domcontentloaded")
+                        small.goto(base + "/profile", wait_until="networkidle")
+                        chips = small.evaluate("""() => [...document.querySelectorAll('[role=tab]')].map(tab => {
+                            const box = tab.getBoundingClientRect(), x = Math.min(innerWidth - 2, Math.max(1, box.left + box.width / 2));
+                            const under = Math.min(document.querySelector('nav.tabs').getBoundingClientRect().top,
+                                                   document.querySelector('.cc-save').getBoundingClientRect().top);
+                            const whole = box.bottom <= under + 0.5 && [box.top + 3, box.top + box.height / 2, box.bottom - 3]
+                                .every(y => { const top = document.elementFromPoint(x, y); return !!top && tab.contains(top); });
+                            return [tab.id, whole];
+                        })""")
+                        if not all(clear for _, clear in chips):
+                            above = small.evaluate("""() => [...document.querySelectorAll('header, #summary, main > *, .cc-head > *, .cc-stage, .cc-tabs')]
+                                .map(el => `${el.id || el.className.split(' ')[0] || el.tagName.toLowerCase()} ${Math.round(el.getBoundingClientRect().top)}-${Math.round(el.getBoundingClientRect().bottom)}`).join(', ')""")
+                            raise AssertionError(f"{width}x{height}: the first screen's tabs are covered ({above})")
+                        small.locator(f"#tab-{name}").tap()
+                        small.evaluate(settled)
+                        seen = small.evaluate(first_control, name)
+                        assert abs(seen["stageTop"]) < 1 and seen["top"] >= seen["tabsBottom"] - 1, \
+                            f"{width}x{height}: {name} tapped on the first screen did not bring its controls up: {seen}"
+                        assert seen["seen"] and seen["shown"] >= min(seen["height"], 40) - 0.5, \
+                            f"{width}x{height}: {name}'s first control is not in view above Save: {seen}"
+                finally:
+                    context.close()
 
             # On a computer: the tabs in a column on the left, the middle in the centre, the controls on the right with
             # Save under them, in view; the arrow keys up and down move between the tabs too.
@@ -1905,6 +1979,34 @@ def run(base: str) -> None:
                 expect(desk.locator("#tab-colours")).to_be_focused()
                 desk.keyboard.press("ArrowDown")
                 expect(desk.locator("#tab-budget")).to_have_attribute("aria-selected", "true")
+
+                # In the You tab Save is the last stop by keyboard, after the photo's forms, as it is last on the screen:
+                # Tab goes down the controls and never back up.
+                desk.goto(base + "/profile#you", wait_until="networkidle")
+                desk.focus("#tab-you")
+                stops = []
+                for _ in range(60):
+                    desk.keyboard.press("Tab")
+                    stop = desk.evaluate("""() => { const el = document.activeElement;
+                        return el.closest('.cc-side') ? [el.getBoundingClientRect().top + scrollY, el.textContent.trim()] : null; }""")
+                    if stop is None:
+                        break
+                    stops.append(stop)
+                assert stops and stops[-1][1] == "Save profile", f"Save is not the last stop in the You tab: {stops[-3:]}"
+                assert [y for y, _ in stops] == sorted(y for y, _ in stops), f"Tab goes back up the controls: {stops}"
+
+                # Where the middle is narrow (a 900px window), the switch over it stays clear of the head of the
+                # tallest figure the form takes (220 cm): a band at the top of the middle is kept for it.
+                desk.set_viewport_size({"width": 900, "height": 700})
+                desk.goto(base + "/profile#sizes", wait_until="networkidle")
+                desk.fill("input[name=height_cm]", "220")
+                desk.wait_for_function("() => document.querySelector('.fig-man').dataset.scale === (220 / 180).toFixed(4)")
+                over = desk.evaluate("""() => { const a = document.querySelector('.cc-switch').getBoundingClientRect();
+                    return ['hair', 'skin'].map(part => document.querySelector('.fig-man [data-part="' + part + '"]'))
+                        .concat(document.querySelector('.fig-man .fig-face')).filter(el => { const b = el.getBoundingClientRect();
+                            return !(a.bottom <= b.top || b.bottom <= a.top || a.right <= b.left || b.right <= a.left); })
+                        .map(el => el.getAttribute('class')); }""")
+                assert not over, f"the switch is over the figure at 220 cm, on a 900px window: {over}"
             finally:
                 context.close()
 
@@ -2283,9 +2385,19 @@ def run(base: str) -> None:
                 return other.evaluate("() => document.getElementById('summary').getBoundingClientRect().top") == 0
 
             hidden: list[str] = []
+            # Profile shows one tab's controls at a time, with the middle, the tabs and Save staying in place: each tab.
+            profile_tabs = ["/profile"] + [f"/profile#{name}" for name in ("body", "sizes", "colours", "budget")]
 
             def tab_through(other, path: str, key: str) -> None:
-                other.goto(base + path, wait_until="networkidle")
+                address, _, tab = path.partition("#")
+                other.goto("about:blank")              # (a new page each time, also for Profile's tabs one after another)
+                other.goto(base + address, wait_until="networkidle")
+                if tab:
+                    # A tab of Profile opened as a tap opens it (a link to #sizes would start the keyboard at Sizes,
+                    # past the top of the page); its scroll at once, so that nothing moves while the focus is measured.
+                    other.emulate_media(reduced_motion="reduce")
+                    other.evaluate("name => document.getElementById('tab-' + name).click()", tab)
+                    other.emulate_media(reduced_motion="no-preference")
                 stops = 0
                 for _ in range(400):
                     other.keyboard.press(key)
@@ -2332,7 +2444,7 @@ def run(base: str) -> None:
             other.set_viewport_size({"width": 390, "height": 480})
             assert not sticks(other, "/"), "the budget bar sticks on a screen 480px tall"
             other.set_viewport_size({"width": 390, "height": 844})
-            for path in ("/", "/list", "/profile"):
+            for path in ("/", "/list", *profile_tabs):
                 tab_through(other, path, "Tab")
             other.goto(base + "/", wait_until="networkidle")
             other.locator("#summary a").click()
@@ -2344,7 +2456,7 @@ def run(base: str) -> None:
             assert "of 999 €" in other.locator("#summary").inner_text().replace("\xa0", " "), "a budget of 999 € was not saved"
             context.close()
             context, other = logged_in(1280, 900, False)
-            for path in ("/", "/list", "/profile"):
+            for path in ("/", "/list", *profile_tabs):
                 tab_through(other, path, "Shift+Tab")
             context.close()
             assert not hidden, "hidden under the bars or off the screen while it had keyboard focus: " + "; ".join(hidden[:6])
