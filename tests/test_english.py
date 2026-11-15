@@ -133,6 +133,33 @@ class WholeNames(unittest.TestCase):
                          "Bowie – T-shirt, slub jersey with worn-look details")
         self.assertIsNone(english.name("Galaxy - Hose mit Racer-Ausschnitt"), "the rest must still be known")
 
+    def test_an_before_a_vowel_sound(self):
+        # "im" is "in a": English says "an" before a vowel sound, and "a" before any other.
+        for german, said in (("Pullover im Oversized Fit", "Jumper in an oversized fit"),
+                             ("T-Shirt im Oversize-Fit", "T-shirt in an oversized fit"),
+                             ("Hemd im Oxford-Fit", "Shirt in an Oxford fit"),
+                             ("Oversized T-Shirt im kastigen Fit", "Oversized T-shirt in a boxy fit"),
+                             ("Mantel im Relaxed Fit mit Wolle", "Coat in a relaxed fit with wool"),
+                             ("Chinohose im Slim-Fit", "Chinos in a slim fit")):
+            with self.subTest(german):
+                self.assertEqual(english.name(german), said)
+        for text, said in (("in a oversized fit", "in an oversized fit"), ("in an boxy fit", "in a boxy fit"),
+                           ("a unisex fit", "a unisex fit"), ("a hour", "an hour"), ("an used look", "a used look")):
+            with self.subTest(text):
+                self.assertEqual(english._a_or_an(text), said)
+
+    def test_a_model_name_that_only_looks_like_a_word_with_an_ending(self):
+        # "Lowe" looks like the English "low" with German's "e", but German adds no endings to the English words it
+        # borrows: it is a name, so the store's own words stay, and before a dash it stays as the model's name.
+        self.assertIsNone(english.word("Lowe"))
+        self.assertIsNone(english.name("Lowe Jeans"))
+        self.assertEqual(english.name("Lowe - Weite Jeans"), "Lowe – wide jeans")
+        for name in ("Slimes", "Standarde", "Boxyer", "Classice"):
+            with self.subTest(name):
+                self.assertIsNone(english.word(name))
+        self.assertEqual(english.word("Normaler"), "regular", "a German word keeps its endings")
+        self.assertTrue(english.NO_ENDINGS <= set(english.WORDS), "every English word without endings is in the list")
+
     def test_a_cut_said_after_the_garment_comes_first(self):
         self.assertEqual(english.name("Jeans Slim Tapered"), "Slim tapered jeans")
         self.assertEqual(english.name("Overshirt aus Twill Relaxed"), "Relaxed overshirt, twill")

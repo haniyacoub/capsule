@@ -554,7 +554,9 @@ def create_app() -> Flask:
             cands = sorted(view.cands, key=lambda c: (c.size.rank, -c.score.total, c.price))
         else:
             sort, cands = "price", view.cands   # already: in your size first (sizes.SizeStatus.rank), then by price
-        return {"s": view, "cands": cands, "sort": sort, "way": way_back()}
+        # `example_sizes`: while the sizes are still the example's, the pick line says "in the example size".
+        return {"s": view, "cands": cands, "sort": sort, "way": way_back(),
+                "example_sizes": profile_mod.sizes_unconfirmed(profile_mod.load())}
 
     # ── Wardrobe ──────────────────────────────────────────────────────────────
 

@@ -15,7 +15,7 @@
 <form id="controls" class="controls" method="post" action="{{ url_for('settings') }}"
       hx-post="{{ url_for('settings') }}" hx-target="#wardrobe-body" hx-swap="innerHTML"
       hx-trigger="change, input delay:150ms from:#threshold">{{ csrf_field() }}
-  <div class="seg levels" role="radiogroup" aria-label="Which option fills each slot: a price level, or the best your budget buys">
+  <div class="seg levels" role="radiogroup" aria-label="Which option fills each piece: a price level, or the best your budget buys">
     {% for key, label in MODES.items() %}
     <label title="{{ level_hints[key] }}"{% if key == 'budget' %} class="wide"{% endif %}><input type="radio" name="mode" value="{{ key }}"{% if w.mode == key %} checked{% endif %}><span>{{ label }}{% include "_level_total.html" %}</span></label>
     {% endfor %}

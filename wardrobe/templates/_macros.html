@@ -46,16 +46,25 @@
    Each page writes the names its own way (a heading, a link); the two macros below are the lines around them. #}
 
 {# "WEEKDAY · Quality 73/100": the store, then the number in its ring (red only when poor), heard as "Quality 73 out
-   of 100". The word Quality is there to see, so the ring has no tooltip. #}
+   of 100". The word Quality is there to see, so the ring has no tooltip. The dot belongs to the quality: where the
+   quality goes onto a line of its own (a narrow card), the dot is left off that line's start (app.css, .by-in), so
+   no dot ever hangs at the end of the store's line. #}
 {% macro by(key, score) -%}
-<span class="store">{{ STORES.get(key, key) }}</span> <span class="sep" aria-hidden="true">·</span> <span class="quality">Quality <span class="pill {{ score.band }}">{{ score.total }}<span class="of" aria-hidden="true">/100</span></span><span class="sr"> out of 100</span></span>
+<span class="by-in"><span class="store">{{ STORES.get(key, key) }}</span> <span class="quality"><span class="sep" aria-hidden="true">·</span>Quality <span class="pill {{ score.band }}">{{ score.total }}<span class="of" aria-hidden="true">/100</span></span><span class="sr"> out of 100</span></span></span>
 {%- endmacro %}
 
 {# The fabric, saying no more than the store did (composition.in_words), "estimated" where the label was not read,
    then the cut (sizecheck): an oversized or slim cut is a caution to act on, in amber with its flag. A regular cut
-   says nothing. `tag`: p in a block, span inside a link. #}
-{% macro fabric_fit(c, tag='p') -%}
-<{{ tag }} class="fabric">Fabric: {{ c.score.fabric_words }}{% if c.score.fabric_source in ('name', 'assumed') %}&nbsp;<span class="est">estimated</span>{% endif %}</{{ tag }}>
+   says nothing. `tag`: p in a block, span inside a link. The "estimated" chip is a word of its own: on a narrow card
+   it goes onto the next line whole, rather than taking the word before it along past the card's edge.
+   `buying` (Buy this outfit and the shopping list): a product with no fabric at all is a caution to act on before
+   ordering, in amber with its flag. #}
+{% macro fabric_fit(c, tag='p', buying=false) -%}
+{%- if buying and c.score.fabric_source == 'none' %}
+<{{ tag }} class="fabric caution">{{ icon('flag') }} Fabric not stated: check the product page</{{ tag }}>
+{%- else %}
+<{{ tag }} class="fabric">Fabric: {{ c.score.fabric_words }}{% if c.score.fabric_source in ('name', 'assumed') %} <span class="est">estimated</span>{% endif %}</{{ tag }}>
+{%- endif %}
 {%- if c.check.fit %}
 <{{ tag }} class="fit{{ ' caution' if c.check.fit_flag }}">{% if c.check.fit_flag %}{{ icon('flag') }} {% endif %}Fit: {{ c.check.fit }}</{{ tag }}>
 {%- endif %}

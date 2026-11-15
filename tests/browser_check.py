@@ -1523,6 +1523,137 @@ def run(base: str) -> None:
                 for k in ORDER:
                     assert len(set(said[k].values())) == 1, f"at {width}px the four places say the {k} line differently: {said[k]}"
 
+        def a_pieces_words_tidy_at_320():
+            # On the smallest phone (320px), a card's lines stay tidy. The dot between the store and its quality never
+            # hangs at a line's end: where the quality goes onto a line of its own its dot is out of sight, and a dot
+            # in sight is on one line with both (Wardrobe, with a card for two tees, every piece's page and the pop-up).
+            # The 'estimated' chip goes onto the next line whole, inside the card. The pop-up's other options say the
+            # store and quality, then the English name, then the original, as every card; "No other option for this
+            # piece yet." stands 12px under the chips. On the shopping list a product with no fabric at all says
+            # "Fabric not stated: check the product page" in amber.
+            DOTS = """root => {
+                const out = {hanging: [], hidden: 0, seen: 0, outside: [], split: [], overlap: []};
+                const box = root.getBoundingClientRect();
+                for (const by of root.querySelectorAll('.by')) {
+                    const sep = by.querySelector('.sep'), st = by.querySelector('.store'), q = by.querySelector('.quality');
+                    const b = by.getBoundingClientRect(), s = sep.getBoundingClientRect(), ss = st.getBoundingClientRect();
+                    const range = document.createRange(); range.selectNodeContents(q);
+                    const rects = [...range.getClientRects()].filter(r => r.width > 0);
+                    const word = rects.find(r => r.left >= s.right - 1) || rects[0];   // "Quality", after the dot
+                    const shown = s.left >= b.left - 0.5;
+                    if (word.left < b.left - 1) out.outside.push(by.textContent.trim());
+                    if (shown) {
+                        out.seen++;
+                        if (Math.abs(s.top - ss.top) > 3 || Math.abs(word.top - s.top) > 5) out.hanging.push(by.textContent.trim());
+                    } else {
+                        out.hidden++;
+                        if (Math.abs(ss.top - s.top) < 3) out.hanging.push('hidden between: ' + by.textContent.trim());
+                    }
+                    const each = by.closest('.slot-text') && by.closest('.slot-text').querySelector('.each');
+                    if (each) {
+                        const e = each.getBoundingClientRect();
+                        for (const part of [st, q]) {
+                            const r = part.getBoundingClientRect();
+                            if (r.right > e.left && r.left < e.right && r.bottom > e.top && r.top < e.bottom) out.overlap.push(by.textContent.trim());
+                        }
+                    }
+                }
+                // (The store's and the quality's left edges are the dot's room, out of sight at a line's start: the
+                // store's word, and the quality's word and number, are measured instead.)
+                for (const el of root.querySelectorAll('.by .store, .by .pill, .by .quality, .fabric, .est, .fit')) {
+                    const card = el.closest('.slot-text, .cand-body, .buy-main, .piece-facts, .swap-text') || root;
+                    const words = document.createRange(); words.selectNodeContents(el);
+                    const r = el.matches('.store') ? words.getBoundingClientRect() : el.getBoundingClientRect();
+                    const c = card.getBoundingClientRect(), left = el.matches('.quality') ? c.left : r.left;
+                    if (r.width && (left < c.left - 1 || r.right > c.right + 1)) out.outside.push(el.textContent.trim());
+                    if (el.matches('.est') && el.getClientRects().length > 1) out.split.push(el.parentElement.textContent.trim());
+                }
+                out.box = [box.left, box.right];
+                return out;
+            }"""
+
+            def tidy(seen: dict, where: str) -> None:
+                assert not seen["hanging"], f"at 320px a dot hangs at a line's end on the {where}: {seen['hanging']}"
+                assert not seen["outside"], f"at 320px a line runs out of its card on the {where}: {seen['outside']}"
+                assert not seen["split"], f"at 320px the 'estimated' chip breaks in two on the {where}: {seen['split']}"
+                assert not seen["overlap"], f"at 320px the store or quality runs into '2 × …' on the {where}: {seen['overlap']}"
+
+            context, other = logged_in_on(browser, viewport={"width": 320, "height": 640}, is_mobile=True, has_touch=True)
+            listed = DATA / "store_catalog.json"
+            try:
+                other.goto(base + "/", wait_until="networkidle")
+                assert other.locator(".slot-text .each").count(), "no card for two of a piece on the Wardrobe"
+                seen = other.locator("#wardrobe-body").evaluate(DOTS)
+                tidy(seen, "Wardrobe")
+                assert seen["hidden"] and seen["seen"] + seen["hidden"] == other.locator("#wardrobe-body .by").count(), \
+                    f"at 320px no card puts its quality on a line of its own: {seen}"
+                slots = sorted({h.split("?")[0] for h in other.eval_on_selector_all(
+                    "#wardrobe-body a.slot-main", "els => els.map(e => e.getAttribute('href'))")})
+                for path in slots:
+                    other.goto(base + path, wait_until="networkidle")
+                    tidy(other.locator("main").evaluate(DOTS), f"page {path}")
+                other.goto(base + "/outfits", wait_until="networkidle")
+                rows, gaps, swaps = other.locator(f"{first} .piece-row"), [], 0
+                for i in range(rows.count()):
+                    rows.nth(i).click()
+                    other.wait_for_selector("dialog#piece[open] #piece-title")
+                    other.wait_for_load_state("networkidle")
+                    tidy(other.locator("#piece-body").evaluate(DOTS), "pop-up")
+                    for row in other.eval_on_selector_all("#piece-body .swap-text", """els => els.map(t => {
+                            const top = s => { const e = t.querySelector(s); return e ? e.getBoundingClientRect().top : null; };
+                            return [top('.by'), top('b'), top('.orig')]; })"""):
+                        swaps += 1
+                        assert row[0] < row[1] and (row[2] is None or row[1] < row[2]), \
+                            f"an option in the pop-up is not said as every card: store and quality, name, original {row}"
+                    gap = other.evaluate("""() => { const p = [...document.querySelectorAll('#piece-body .sheet-more')]
+                        .find(e => e.textContent.includes('No other option')); const c = p && p.previousElementSibling;
+                        return p && c && c.matches('.chips') ? p.getBoundingClientRect().top - c.getBoundingClientRect().bottom : null; }""")
+                    if gap is not None:
+                        gaps.append(round(gap))
+                    other.locator("dialog#piece .sheet-close").click()
+                    other.wait_for_selector("dialog#piece:not([open])", state="attached")
+                assert swaps, "no other option in the first outfit's pop-ups"
+                assert all(g == 12 for g in gaps), f"'No other option for this piece yet.' is not 12px under the chips: {gaps}"
+                context.close()
+                # Two products with no fabric on their label, published the way the operator does: indigo jeans (the
+                # fabric jeans usually have, 'estimated', the longest fabric line) and a grey jumper (nothing at all).
+                # Every signed-in page picks up a list as soon as it is published, and keeps what it picked: so a
+                # second customer looks at it, and it is taken away again at the end (as in one_tap_colour).
+                product = {"store": "cos", "currency": "EUR", "composition_text": "", "fit": "regular", "sizes_all": [],
+                           "sizes_in_stock": [], "image_url": "", "source": "collected", "colour_hex": None}
+                products = [{**product, "id": "cos-81", "category": "jeans", "name": "Weite Jeans", "slug": "weite-jeans",
+                             "price": 59, "colour": "Indigoblau", "url": "https://www.example.com/de/81"},
+                            {**product, "id": "cos-82", "category": "knit", "name": "Pullover", "slug": "pullover",
+                             "price": 49, "colour": "Grau", "url": "https://www.example.com/de/82"}]
+                listed.write_text(json.dumps({"published_at": "2026-11-12T12:00:00+01:00",
+                                              "collected_at": "2026-11-11T17:00:00+01:00", "stores": {}, "products": products}))
+                context = browser.new_context(viewport={"width": 320, "height": 640}, is_mobile=True, has_touch=True)
+                other = context.new_page()
+                other.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                         if r.status >= 400 and r.url.startswith(base) else None)
+                other.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                other.goto(base + "/signup", wait_until="networkidle")
+                other.fill("input[name=email]", "words-" + EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Create account')")
+                other.wait_for_url(base + "/outfits")
+                other.goto(base + "/", wait_until="networkidle")
+                estimated = other.locator("#wardrobe-body .est")
+                assert estimated.count(), "the jeans with no fabric on their label are not 'estimated'"
+                tidy(other.locator("#wardrobe-body").evaluate(DOTS), "Wardrobe with the published jeans")
+                other.goto(base + "/list", wait_until="networkidle")
+                tidy(other.locator("main").evaluate(DOTS), "shopping list")
+                caution = other.locator(".buy-main .fabric.caution")
+                assert caution.count() == 1 and caution.inner_text().strip() == "Fabric not stated: check the product page", \
+                    f"the jumper with no fabric says {[t.strip() for t in caution.all_inner_texts()]}"
+                amber = other.evaluate("() => getComputedStyle(document.querySelector('.buy-main .fabric.caution')).color")
+                ok = other.evaluate("() => { const e = document.createElement('i'); e.style.color = 'var(--ok)'; document.body.append(e);"
+                                    " const c = getComputedStyle(e).color; e.remove(); return c; }")
+                assert amber == ok, f"'Fabric not stated' is {amber}, not the amber of a caution ({ok})"
+            finally:
+                listed.unlink(missing_ok=True)
+                context.close()
+
         def pop_up_never_hides_the_focus():
             # The pop-up's top row (the piece's name and Close) stays while the sheet scrolls, and what has keyboard
             # focus is never hidden under it (WCAG 2.4.11). On a small phone and a short computer screen, where the
@@ -2699,6 +2830,7 @@ def run(base: str) -> None:
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
                  ("a piece's card reads the same in four places", a_pieces_card_reads_the_same_everywhere),
+                 ("a piece's words stay tidy at 320px", a_pieces_words_tidy_at_320),
                  ("a piece from an outfit without JavaScript", a_piece_without_javascript),
                  ("the pop-up's top row never hides what has focus", pop_up_never_hides_the_focus),
                  ("the page behind the pop-up stays put", the_page_behind_the_pop_up_stays_put),

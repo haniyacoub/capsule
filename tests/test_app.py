@@ -214,6 +214,12 @@ class APiecesPageInPlainWords(AppCase):
         # Every demo option has its sizes, so none is "with sizes not checked" (test_size_picks: one that is not).
         self.assertIn(f"{n} options · {coat.n_in_your_size} in your size By price", text)
         self.assertEqual(coat.n_not_checked, 0)
+        # The demo account's sizes are still the example's: the pick is said to be in the example size, until the
+        # customer says the sizes are his (test_size_picks: the pick line, true in every case).
+        self.assertIn("Picked for you: the cheapest option in the example size rated 70 or more. Choose another below "
+                      "to swap it in.", text)
+        db.set_setting("sizes_confirmed", True)
+        text = html.unescape(page_words(self.client.get(f"/slot/{sid}").data.decode()))
         self.assertIn("Picked for you: the cheapest option in your size rated 70 or more. Choose another below to swap "
                       "it in.", text)
         self.assertIn('href="/slot/%s" aria-current="true">By price</a>' % sid, page)

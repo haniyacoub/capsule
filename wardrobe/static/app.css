@@ -257,12 +257,20 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
    73/100", the store's name for the product in English with the original under it in small print (on the cards,
    where the English is already at the smallest size for words, the original is told apart by its grey), then
    "Fabric: …" and "Fit: …" (an oversized or slim cut in amber, with its flag: something to act on). */
-.by { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px var(--s-1); min-width: 0; font-size: var(--t-s); color: var(--muted); }
+.by { display: inline-flex; min-width: 0; clip-path: inset(-4px -100vw -4px 0); font-size: var(--t-s); color: var(--muted); }
+/* The dot between the store and its quality is the quality's own (_macros.html). Every line of .by-in starts 16px
+   left of the box, where .by cuts it off (on its left side only: on a card with a quantity the lines may still run
+   on to the right, as before): where the quality starts a line of its own on a narrow card, its dot is out of
+   sight, so none ever hangs at the end of the store's line; on the first line the store gives the 16px back.
+   16px = the dot's margin (4) + its width (8) + the quality's gap (4). */
+.by-in { display: inline-flex; align-items: center; flex-wrap: wrap; row-gap: 2px; min-width: 0; margin-left: calc(-1 * var(--s-4)); }
+.by-in > .store { padding-left: var(--s-4); }
+.by .sep { flex: none; width: var(--s-2); margin-left: var(--s-1); text-align: center; }
 .pill .of { font-weight: 400; }
 .orig { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .fabric, .fit { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
-.fit.caution { color: var(--ok); }
-.fit .ic { width: 13px; height: 13px; vertical-align: -2px; }
+.fit.caution, .fabric.caution { color: var(--ok); }
+.fit .ic, .fabric .ic { width: 13px; height: 13px; vertical-align: -2px; }
 .tag { display: inline-block; font-size: var(--t-s); font-weight: 500; padding: 2px 8px; border-radius: var(--r-pill); background: var(--soft); color: var(--muted); }
 
 /* ── Pictures with a swatch fallback ─────────────────────────────────────── */
@@ -328,7 +336,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .item { flex: 1 1 auto; min-width: 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .slot-text .item[lang] { color: var(--ink); }   /* the product's name, in English where it is known */
 .slot-text .item.orig { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* the store's own */
-.each { flex: none; font-size: var(--t-s); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.each { display: block; text-align: right; font-size: var(--t-s); font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }   /* "2 × 24.99 €", under the total */
 .note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
 .hint { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .hint .ic { width: 12px; height: 12px; vertical-align: -1px; }
@@ -376,12 +384,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .cand.out .pic:not(.noimg) { opacity: .5; }
 .cand-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 /* Where the store, its quality and the price do not fit one line (an option on a phone), the quality goes under the
-   store, without the dot between them, for every store alike. */
-.cand-body { container-type: inline-size; }
-@container (max-width: 279px) {
-  .cand-top .by { display: grid; justify-items: start; }
-  .cand-top .sep { display: none; }
-}
+   store, without the dot between them (.by-in), for every store alike. */
 .colour-name { font-size: var(--t-s); color: var(--muted); }
 .price { font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .cand h2 { font-size: var(--t-m); font-weight: 500; line-height: 1.3; margin: var(--s-1) 0 2px; }   /* each option's name: a heading under the piece's */
@@ -850,11 +853,12 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .swap-text b, .swap-text .orig { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .swap-text b { font-size: var(--t-m); font-weight: 500; color: var(--ink); }
 .swap-text > span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.swap-text > .by { gap: 2px var(--s-1); }   /* "COS · Quality 84/100", spaced as on every card */
+.swap-text > .by { display: inline-flex; justify-self: start; }   /* "COS · Quality 84/100", as on every card */
 /* Its price, and what it costs next to the piece in the outfit now ("−69.05 €"). */
 .swap-text .swap-price { gap: var(--s-2); font-size: var(--t-m); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .diff { font-size: var(--t-s); font-weight: 400; color: var(--muted); }
 .sheet-more .link { display: inline-block; }
+.chips + .sheet-more { margin-top: var(--s-3); }   /* "No other option for this piece yet.", spaced from the chips above */
 .sheet-foot { margin-top: var(--s-4); }
 
 /* ── Shopping list ───────────────────────────────────────────────────────── */

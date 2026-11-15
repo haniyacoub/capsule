@@ -24,7 +24,7 @@
         {% if c %}<span class="by">{{ by(c.data.store, c.score) }}</span>{% endif %}
         <a class="buy-product" href="{{ line.url|weblink }}" target="_blank" rel="noopener noreferrer"><span lang="{{ 'en' if en else 'de' }}">{{ en or line.product }}</span>&nbsp;{{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>
         {% if en %}<span class="orig" lang="de">{{ line.product }}</span>{% endif %}
-        {% if c %}{{ fabric_fit(c, 'span') }}{% endif %}
+        {% if c %}{{ fabric_fit(c, 'span', buying=true) }}{% endif %}
         <span class="buy-meta">{% if line.colour %}Colour: <span lang="de">{{ line.colour }}</span> · {% endif %}Size: <b>{{ line.size }}</b>{% if line.qty > 1 %} · {{ line.qty }} × {{ line.unit_price|eur }}{% endif %}</span>
         {% for note in (line.cautions if c else line.notes) %}<span class="buy-note">{{ note }}</span>{% endfor %}
       </div>

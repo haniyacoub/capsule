@@ -39,13 +39,13 @@ MODES = {"cheapest": "Cheapest", "cheap": "Cheap", "medium": "Medium", "expensiv
 # ("budget" is not a place on that line: it looks at the whole wardrobe.)
 POSITION = {"cheapest": 0.0, "cheap": 0.25, "medium": 0.5, "expensive": 0.75, "top": 1.0}
 HINTS = {
-    "budget": "The most quality your budget buys: every slot starts on its cheapest option, and what is left "
+    "budget": "The most quality your budget buys: every piece starts on its cheapest option, and what is left "
               "pays for upgrades, first where a euro improves most the pieces you would wear most",
-    "cheapest": "The lowest-priced option for each slot",
-    "cheap": "A low-priced option: about a quarter of the way up each slot's price range",
-    "medium": "The middle-priced option for each slot",
-    "expensive": "A high-priced option: about three quarters of the way up each slot's price range",
-    "top": "The most expensive option these stores sell for each slot",
+    "cheapest": "The lowest-priced option for each piece",
+    "cheap": "A low-priced option: about a quarter of the way up each piece's price range",
+    "medium": "The middle-priced option for each piece",
+    "expensive": "A high-priced option: about three quarters of the way up each piece's price range",
+    "top": "The most expensive option these stores sell for each piece",
 }
 DEFAULT_MODE = "cheapest"
 DEFAULT_THRESHOLD = 70

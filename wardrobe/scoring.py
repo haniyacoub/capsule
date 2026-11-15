@@ -36,6 +36,7 @@ class Score:
     fabric_source: str = "listed"   # listed | name (estimated) | assumed | none
     fabric_how: str = ""            # for a name: how it speaks of the fibres (composition.GUESSED)
     typical_for: str = ""           # for an assumed fabric: the garments it is typical for ("jeans")
+    as_labelled: str = ""           # a label scaled back to 100 for the score, as the label gives it (composition)
 
     @property
     def band(self) -> str:
@@ -61,7 +62,10 @@ class Score:
 
     @property
     def fabric_words(self) -> str:
-        """What the cards say after "Fabric: ", no more than the store said: "wool blend (the mix is not stated)"."""
+        """What the cards say after "Fabric: ", no more than the store said: "wool blend (the mix is not stated)".
+        A label with parts the score counts as shares of the whole says its parts: "front 100% cotton, back …"."""
+        if self.as_labelled:
+            return self.as_labelled
         return composition.in_words(self.comp, self.fabric_source, self.fabric_how, self.typical_for)
 
 
@@ -227,6 +231,9 @@ def score(candidate: dict, category: str, rules: dict | None = None) -> Score:
     fab = rules.get("fabric", {})
     comp = composition.parse(candidate.get("composition_text"))
     source, preface, how, plural = "listed", "", "", ""
+    said = composition.as_labelled(candidate.get("composition_text")) if comp else ""
+    if said:
+        preface = "The label's figures add up to more than 100%, so they are counted as shares of the whole"
     if not comp:
         guess_rules = fab.get("name_guess", {})
         if guess_rules.get("enabled", True):
@@ -248,7 +255,7 @@ def score(candidate: dict, category: str, rules: dict | None = None) -> Score:
     if preface:
         penalty = float(fab.get("name_guess", {}).get("penalty", 0))
         f_lines.insert(0, preface)
-        if penalty:
+        if penalty and source != "listed":      # the label's own figures are no estimate
             f_score = _clamp(f_score - penalty)
             f_lines.append(f"−{_num(penalty)} because this is an estimate, not the label")
     b_score, b_lines = brand_part(candidate.get("store", ""), category, rules)
@@ -261,4 +268,4 @@ def score(candidate: dict, category: str, rules: dict | None = None) -> Score:
     ]
     total = sum(p.points for p in parts)
     return Score(total=int(_clamp(total) + 0.5), parts=parts, comp=comp, fabric_source=source, fabric_how=how,
-                 typical_for=plural)
+                 typical_for=plural, as_labelled=said)
