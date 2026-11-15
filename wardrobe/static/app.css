@@ -1054,6 +1054,196 @@ details[open] > summary .edit { visibility: hidden; }
 .open-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
 .open-hint { font-size: var(--t-s); color: var(--ok); }
 
+/* ── Profile: the model in the middle (a character screen) ───────────────── */
+/* Profile is one screen (profile.html): the middle (.cc-stage: the drawn figure, or "Your model", with the figure in
+   words under it), the tabs (.cc-tabs), and the open tab's controls with the one Save (.cc-side). Without JavaScript
+   they are one under another, every tab's controls showing. With it (.cc[data-tabs], app.js 13a): on a phone the
+   middle is on top, 40% of the screen, and stays there with the row of tabs under it while the controls scroll, Save
+   at the bottom above the tab bar; on a computer (760px and up) the tabs are a column on the left, the middle is large
+   in the centre and the controls are on the right with Save under them, kept in view. */
+.cc-head { margin-bottom: var(--s-4); }
+.cc-head h1 { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin-bottom: var(--s-2); }
+.cc-head .demo { margin: 0; }
+.cc-head p.muted { max-width: var(--form-w); }
+.cc { display: grid; gap: var(--s-4); }
+/* The middle is a light studio in both themes, like the AI picture it can show (--photo). What lies on it keeps the
+   light theme's colours (the same tokens, at their light values): the figure's ink line, the words under it (14.6:1)
+   and the buttons read the same on it in dark mode. */
+.cc-stage {
+  --ink: #1b1b1a; --muted: #6b6964; --bg: #f6f5f2; --surface: #ffffff; --soft: #efede8; --line: #e2e0da; --field: #8a8780;
+  position: relative; display: flex; flex-direction: column; min-width: 0;
+  background: var(--photo); color: var(--ink); border-radius: var(--r-img); overflow: hidden;
+}
+.cc-view { min-height: 0; }
+.cc-view[hidden] { display: none; }
+.cc-fig { height: 380px; padding-top: var(--s-3); }
+.cc-words { padding: var(--s-2) var(--s-3) var(--s-3); font-size: var(--t-s); line-height: var(--lh-s); text-align: center; text-wrap: balance; }
+/* The figure (_figure.html, figure.py): fine ink lines that keep their width whatever the figure's size, flat colour,
+   and a soft shadow inside the edges (.fig-shade) for roundness. Skin and hair colours fade into each other. */
+.cc-stage { --fig-line: .95px; }
+.fig { display: block; width: 100%; height: 100%; }
+.fig path, .fig ellipse { vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.fig-skin { fill: var(--skin); stroke: var(--ink); stroke-width: var(--fig-line); transition: fill .15s ease-out; }
+.fig-cloth { fill: var(--cloth); stroke: var(--ink); stroke-width: var(--fig-line); }
+.fig-lines { fill: none; stroke: var(--ink); stroke-width: calc(var(--fig-line) * .65); opacity: .5; }
+/* The lines on the skin (the face, the knees, the thumbs) in a colour that reads on the chosen skin (figure.DETAIL). */
+.fig-creases, .fig-features { fill: none; stroke: var(--detail); stroke-width: calc(var(--fig-line) * .75); transition: stroke .15s ease-out; }
+.fig-hair { fill: var(--hair); stroke: var(--ink); stroke-width: calc(var(--fig-line) * .9); transition: fill .15s ease-out; }
+.fig-hair.shaved { opacity: .45; stroke: none; }
+.fig-beard { fill: var(--hair); transition: fill .15s ease-out; }
+.fig-beard.stubble { opacity: .3; }
+.fig .fig-shade { fill: none; stroke: var(--ink); stroke-width: 6; stroke-opacity: .06; vector-effect: none; }
+.fig-floor { fill: var(--ink); opacity: .07; }
+/* "Your model": the AI picture in a 2:3 box as tall as the room for it, its label inside it, and "Draw again" with what
+   is said about it (a limit it met; while the form has changes, that it draws the saved choices: app.js 13). Nothing
+   lies on the picture but its label: "Draw again" is in the column under the switch on a phone (the picture moved
+   right of it), and in a line under the picture on a computer, where the figure's words were: those describe the
+   drawn figure, not the saved model the picture shows, so they give way to it. */
+.cc-pic { position: relative; display: grid; place-items: center; gap: var(--s-2); min-height: 300px; }
+.cc-pic-frame { position: relative; }
+.cc-pic-box { position: relative; height: 360px; aspect-ratio: 2 / 3; }
+.cc-pic-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.cc-pic-again { display: grid; justify-items: center; gap: var(--s-1); padding: 0 var(--s-3) var(--s-2); text-align: center; }
+.cc-pic-again form { margin: 0; }
+.cc-pic-again .cc-pic-note { margin: 0; }
+.cc[data-tabs] .cc-stage:has(.cc-pic:not([hidden])) .cc-words { display: none; }
+.cc[data-tabs] .cc-pic:not([hidden]) { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.cc[data-tabs] .cc-pic-frame { flex: 1 1 auto; align-self: stretch; min-height: 0; }
+.cc[data-tabs] .cc-pic-box { position: absolute; top: 0; bottom: 0; left: 50%; height: auto; transform: translateX(-50%); }
+.cc-pic-again .link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 var(--s-3); border-radius: var(--r-pill); background: var(--surface); color: var(--ink); }
+.cc-pic-wait { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-4); font-size: var(--t-s); line-height: var(--lh-s); }
+.cc-pic-ask { display: grid; justify-items: center; gap: var(--s-3); max-width: 32ch; padding: var(--s-4); text-align: center; font-size: var(--t-s); line-height: var(--lh-s); }
+.cc-pic-note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.cc-pic-note[hidden] { display: none; }
+/* The switch between the drawn figure and "Your model": a segmented control over the middle's top left corner, its
+   two buttons one above the other on a phone (beside the figure's head) and side by side on a computer (over a band
+   kept free for it at the top of the middle, so it is never over the head of a tall figure). */
+.cc-switch {
+  position: absolute; top: var(--s-2); left: var(--s-2); z-index: 2; display: flex; flex-direction: column; padding: 2px;
+  border-radius: var(--r-track); background: var(--surface); box-shadow: inset 0 0 0 1px var(--field);
+}
+.cc-switch[hidden] { display: none; }
+.cc-switch button {
+  min-height: 40px; padding: 0 var(--s-3); border: 0; border-radius: var(--r-ui); background: none; color: var(--ink);
+  font: 500 var(--t-s)/1 var(--font); white-space: nowrap; cursor: pointer;
+}
+.cc-switch button[aria-pressed=true] { background: var(--ink); color: var(--bg); }
+/* The tabs: chips (the selected one filled with ink), hidden until app.js makes them work. */
+.cc-tabs[hidden] { display: none; }
+.cc-tabs button {
+  display: inline-flex; align-items: center; flex: none; min-height: 40px; padding: 0 var(--s-3); border-radius: var(--r-pill);
+  border: 1px solid var(--line); background: none; color: var(--muted); font: 500 var(--t-s)/1 var(--font); white-space: nowrap; cursor: pointer;
+}
+.cc-tabs button[aria-selected=true] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+/* The controls: a card; each tab's part of it is a column of fields. Save is the last thing in it (app.js 13a moves it
+   after the photo's forms), at its foot where the card is taller than what the open tab holds. */
+.cc-side { display: flex; flex-direction: column; min-width: 0; }
+.cc[data-tabs] .cc-side { justify-content: space-between; }
+#about-you.form { gap: var(--s-5); }
+.cc-panel { display: grid; gap: var(--s-3); min-width: 0; }
+.cc-panel[hidden] { display: none; }
+.cc-panel .sec { margin: 0; }
+.cc-side .swatch-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }   /* five to a row in the card, on a computer too */
+#model { display: grid; gap: var(--s-3); }
+#model h2 { margin: 0; }
+.cc-save { margin-top: var(--s-5); }
+.cc-photo { margin-top: var(--s-5); padding-top: var(--s-5); border-top: 1px solid var(--line); }
+.cc[data-tabs] .cc-save {     /* stuck to the bottom of the screen while the controls go on under it */
+  position: sticky; bottom: 0; z-index: 3; margin: var(--s-5) calc(-1 * var(--s-4)) calc(-1 * var(--s-4));
+  padding: var(--s-3) var(--s-4); background: var(--surface); border-top: 1px solid var(--line); border-radius: 0 0 var(--r-ui) var(--r-ui);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fig-skin, .fig-hair, .fig-beard, .fig-creases, .fig-features { transition: none; }
+}
+@media (max-width: 759.98px) {
+  .cc-side.card { padding: var(--s-4); }
+  .cc[data-tabs] { gap: 0; }
+  /* The middle's height (--cc-stage): 40% of the screen, or less where what is above it would push the tabs under the
+     tab bar on the first screen (app.js 13a sets it then, down to 30%). */
+  .cc[data-tabs] .cc-stage {            /* the whole width, square-cornered, like the outfit's picture on a phone */
+    height: var(--cc-stage, max(240px, 40svh)); margin: 0 calc(-1 * var(--side-r)) 0 calc(-1 * var(--side-l)); border-radius: 0;
+  }
+  .cc[data-tabs] .cc-fig { flex: 1 1 auto; height: auto; padding-top: var(--s-2); }
+  .cc[data-tabs] .cc-pic { flex: 1 1 auto; min-height: 0; }
+  /* The picture, as tall as the middle, moves right of the switch; "Draw again" and its notes go under the switch (84px
+     tall), as wide as the room left of the picture (half the screen and 56px, less a third of the middle's height). */
+  .cc[data-tabs] .cc-pic-box { left: calc(50% + 56px); }
+  .cc[data-tabs] .cc-pic-again {
+    position: absolute; left: var(--s-2); top: calc(var(--s-2) + 84px + var(--s-2)); max-width: calc(50vw + 40px - var(--cc-stage, max(240px, 40svh)) / 3);
+    justify-items: start; padding: 0; text-align: left;
+  }
+  .cc[data-tabs] .cc-words { padding: var(--s-1) var(--s-3) var(--s-2); }
+  .cc[data-tabs] .cc-tabs {             /* one row that scrolls sideways when the tabs are wider than the phone */
+    display: flex; gap: var(--s-2); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+    margin: 0 calc(-1 * var(--side-r)) var(--s-3) calc(-1 * var(--side-l)); padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l);
+    background: var(--bg); border-bottom: 1px solid var(--line);
+  }
+  .cc-tabs::-webkit-scrollbar { display: none; }
+  /* Save stays at the bottom of the screen, just above the tab bar, while the controls' card is under it. On the first
+     screen, where the card starts low, Save rides on the card's top edge, under the tabs and never over them (and on a
+     short phone below the tab bar until the page is scrolled): a tab chosen there brings the controls up (app.js 13a). */
+  .cc[data-tabs] .cc-save { bottom: calc(56px + env(safe-area-inset-bottom)); }
+  .cc[data-tabs] .cc-save .btn { width: 100%; }
+  /* What is scrolled into view (a field you tab to, a place a link leads to) stops above Save and the tab bar. */
+  html:has(.cc[data-tabs]) { scroll-padding-bottom: calc(56px + 73px + var(--s-3) + env(safe-area-inset-bottom)); }
+}
+/* On a phone tall enough for it, the middle and the tabs stay at the top while the controls scroll under them; the
+   budget bar then scrolls away, and what is scrolled into view stops just under the tabs. On a shorter screen (under
+   600px: an old 320 x 568 phone, a phone on its side) that would leave too little room for the controls (a row of
+   colours did not fit), so there the page scrolls as a whole. app.js (13a) asks the same question. */
+@media (max-width: 759.98px) and (min-height: 600px) {
+  .cc[data-tabs] .cc-stage { position: sticky; top: 0; z-index: 21; }
+  .cc[data-tabs] .cc-tabs { position: sticky; top: var(--cc-stage, max(240px, 40svh)); z-index: 21; }
+  body:has(.cc[data-tabs]):not(:has(#reel)) .summary { position: static; }
+  html:has(.cc[data-tabs]):not(:has(#reel)) { scroll-padding-top: calc(var(--cc-stage, max(240px, 40svh)) + 57px + var(--s-3)); }
+  .cc[data-tabs] #sizes { scroll-margin-top: 0; }     /* the padding above already keeps it clear */
+  /* Once the middle is at the top, the card reaches down to the tab bar, Save at its foot: so the page can always be
+     scrolled that far, also on a tab with little in it (Budget), and the controls fill the screen under the tabs. */
+  .cc[data-tabs] .cc-side { min-height: calc(100svh - var(--cc-stage, max(240px, 40svh)) - 57px - var(--s-3) - 56px - env(safe-area-inset-bottom)); }
+}
+@media (min-width: 760px) {
+  .cc-stage { --fig-line: 1.15px; }
+  .cc-fig { height: 520px; }
+  .cc-switch { flex-direction: row; }
+  .cc[data-tabs] { grid-template-columns: 124px minmax(240px, 1fr) minmax(0, 420px); gap: var(--s-5); align-items: start; }
+  .cc[data-tabs] .cc-tabs {
+    grid-column: 1; grid-row: 1; display: flex; flex-direction: column; gap: var(--s-2);
+    position: sticky; top: calc(var(--bar-h) + var(--s-4));
+  }
+  .cc[data-tabs] .cc-tabs button { width: 100%; justify-content: flex-start; }
+  .cc[data-tabs] .cc-stage {
+    grid-column: 2; grid-row: 1; position: sticky; top: calc(var(--bar-h) + var(--s-4));
+    height: max(420px, min(720px, calc(100svh - var(--bar-h) - 240px)));    /* whole on the first screen, under the title */
+  }
+  .cc[data-tabs] .cc-fig { flex: 1 1 auto; height: auto; padding-top: var(--s-2); }
+  /* The band at the top kept free for the switch (8 + 44px, and 8 under it): the figure starts under it. */
+  .cc[data-tabs] .cc-stage:has(.cc-switch) .cc-fig { padding-top: calc(var(--s-2) + 44px + var(--s-2)); }
+  .cc[data-tabs] .cc-pic { flex: 1 1 auto; min-height: 0; padding-top: calc(var(--s-2) + 44px + var(--s-2)); }   /* the switch's band */
+  .cc[data-tabs] .cc-pic-again { padding-top: var(--s-2); }
+  .cc[data-tabs] .cc-side { grid-column: 3; grid-row: 1; }
+  .cc-side.card { padding: var(--s-5); }
+  .cc[data-tabs] .cc-save { margin: var(--s-5) calc(-1 * var(--s-5)) calc(-1 * var(--s-5)); padding: var(--s-4) var(--s-5); }
+  html:has(.cc[data-tabs]) { scroll-padding-bottom: calc(73px + var(--s-3)); }
+}
+@media (min-width: 1100px) {
+  .cc[data-tabs] { grid-template-columns: 160px minmax(320px, 1fr) 440px; gap: var(--s-6); }
+}
+
+/* ── Profile: the Stores tab ─────────────────────────────────────────────── */
+/* A row to tick for each store, 48px tall with a hairline between rows: its name, then its partner programme in grey.
+   The line that says the last store stays ticked (app.js 13c) is a status line under them. */
+.store-pick { display: grid; }
+.store-row { min-height: 48px; gap: var(--s-3); font-size: var(--t-m); line-height: var(--lh-m); }
+.store-row + .store-row { border-top: 1px solid var(--line); }
+.store-row b { font-weight: 500; }
+.store-note { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }
+.store-said { margin: 0; }
+/* With the Stores tab there are six tabs: on a phone up to 419px wide their chips take 8px each side instead of 12, so
+   that all six fit a 390px phone and the last one still shows its edge on a 360px one (the row scrolls sideways). */
+@media (max-width: 419.98px) {
+  .cc[data-tabs] .cc-tabs button { padding: 0 var(--s-2); }
+}
+
 /* ── Public pages and accounts (production) ──────────────────────────────── */
 .account-link { font-size: var(--t-s); font-weight: 500; color: var(--muted); text-decoration: none; padding: 8px 2px; }
 .account-link.on { color: var(--ink); }

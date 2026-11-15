@@ -7,7 +7,9 @@ article was seen on a category page during a refresh, copies its name, price,
 colour and picture. Whatever is still missing you type in on the piece's page.
 
 Only links to stores customers are offered are taken (programmes.py): a link
-to a store without a partner programme, such as Zara, is refused.
+to a store without a partner programme, such as Zara, is refused. So is a link
+to a store the customer unticked on Profile (profile.stores): his pieces are
+not picked from it, and what he added from it would not be shown.
 
 What happened to each link is said to the customer after the product's name
 ("Added “X”: only the link could be read …") or after the link itself ("Not
@@ -19,16 +21,16 @@ import hashlib
 import re
 from urllib.parse import urlsplit
 
-from .. import catalog, programmes
+from .. import catalog, profile, programmes
 from . import load_settings, pages
 
 
 def hosts() -> dict[str, str]:
-    """{'cos.com': 'cos', 'weekday.com': 'weekday'}: the web addresses of the stores customers are offered,
-    from each store's `base` in config/stores.toml."""
+    """{'cos.com': 'cos', 'weekday.com': 'weekday'}: the web addresses of the stores customers are offered and the
+    customer ticked (profile.stores), from each store's `base` in config/stores.toml."""
     cfg = load_settings()
     out = {}
-    for key in programmes.offered():
+    for key in profile.stores():
         host = urlsplit(str(cfg.get(key, {}).get("base", ""))).netloc.lower().removeprefix("www.")
         if host:
             out[host] = key

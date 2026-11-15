@@ -26,8 +26,11 @@ moves between outfits (by keyboard too: Next among the first Tab stops, focus go
 screen reader hears named, Tab leading into the outfit shown and Next keeping focus at the end of the row, the heart
 keeping focus, Escape hiding a dot's label),
 saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
-logs in again and lands on the outfits, puts a model together, uploads a photo, sees Profile ask before a
-budget or colours changed and not saved would be lost, saves new colours (the plan is rebuilt,
+logs in again and lands on the outfits, puts a model together on Profile's character screen (its tabs, the figure
+in the middle that follows every height, build, skin and hair choice at once, by mouse, keyboard and links, on a phone,
+a computer and without JavaScript, and "Your model" drawn by AI there), uploads a photo, sees Profile ask before
+changes not saved would be lost, unticks a store on Profile's Stores tab (its pieces picked again, said in one line;
+the last store stays ticked) and ticks it again, saves new colours (the plan is rebuilt,
 keeping the swapped piece, and the budget bar takes the banner's place), sees that a phone's first
 screen shows the outfit on the model with its price and the heart (and every chip over it, whole,
 by keyboard), tabs through three pages to see that nothing with keyboard focus is hidden under the
@@ -86,7 +89,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, imagegen, looks, videogen, videos  # noqa: E402
+from wardrobe import colours, imagegen, looks, person, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
@@ -242,11 +245,19 @@ def run(base: str) -> None:
             return where_page.evaluate("""() => [...document.querySelectorAll('main p')]
                 .map(p => p.textContent.replace(/\\s+/g, ' ').trim()).filter(t => /example/i.test(t))""")
 
+        def open_tab(where_page, name: str) -> None:
+            """A tab of Profile opened the way a customer does: by tapping it. Its controls then show, the others not."""
+            where_page.locator(f"#tab-{name.lower()}").click()
+            expect(where_page.locator(f"#tab-{name.lower()}")).to_have_attribute("aria-selected", "true")
+            expect(where_page.locator(f"#panel-{name.lower()}")).to_be_visible()
+
         def pick_colours(where_page, liked=(), avoided=()) -> None:
-            """Colours chosen on Profile the way a customer does: by tapping their swatches. Whatever is chosen already
-            is cleared first (a liked colour takes two taps, one to avoid a single tap), then each liked colour is
-            tapped once, most important first, and each to avoid twice. The two hidden fields the taps fill in must
-            then name them in that order, as typing them would."""
+            """Colours chosen on Profile the way a customer does: by tapping their swatches (in the Colours tab).
+            Whatever is chosen already is cleared first (a liked colour takes two taps, one to avoid a single tap),
+            then each liked colour is tapped once, most important first, and each to avoid twice. The two hidden
+            fields the taps fill in must then name them in that order, as typing them would."""
+            if where_page.locator("#tab-colours").get_attribute("aria-selected") != "true":
+                open_tab(where_page, "colours")
             for _ in range(60):
                 chosen = where_page.locator(".swatch[aria-pressed=true]")
                 if not chosen.count():
@@ -2094,11 +2105,19 @@ def run(base: str) -> None:
                 page.emulate_media(media="screen")
 
         def my_model():
+            # The model is put together in Profile's Body tab and kept with the one Save. A change to the model alone
+            # is saved as the model's own button did: said beside the model, the rest of the profile left as it was.
             page.goto(base + "/profile", wait_until="networkidle")
+            open_tab(page, "body")
             for group, value in (("age", "30s"), ("build", "athletic"), ("hair", "brown"), ("cut", "short")):
                 page.locator(f'.pick input[name="{group}"][value="{value}"]').check(force=True)
-            page.click("button:has-text('Save model')")
+            assert page.locator("[data-figure-words]").inner_text() == "180 cm, athletic build, any skin tone, short brown hair", \
+                f"the figure is said as {page.locator('[data-figure-words]').inner_text()!r}"
+            page.click("button:has-text('Save profile')")
             page.wait_for_load_state("networkidle")
+            assert page.url.endswith("/profile#model"), f"the model was saved to {page.url}"
+            expect(page.locator("#tab-body")).to_have_attribute("aria-selected", "true")
+            assert page.locator("[data-figure-words]").inner_text().startswith("180 cm, athletic build"), "the figure forgot the model"
             words = page.locator("#model").inner_text()
             assert "in his thirties" in words and "athletic build" in words, "the choices are not described back"
             in_view("#model .flash", "Model saved")
@@ -2146,58 +2165,559 @@ def run(base: str) -> None:
             assert page.locator(".me img").count() == 0, "the photo is still shown after deleting it"
 
         def unsaved_changes_are_not_lost_silently():
-            # Profile has three forms: About you, the model and the photo. Sending the model's or the photo's loads the
-            # page again, so a budget or a colour changed in About you and not saved would be lost without a word. The
-            # page asks first, and only then; told no, it stays as it is. (A page of its own, to answer the question.)
-            question = "You changed your sizes, colours or budget but didn't save them. Leave those changes unsaved?"
+            # Everything on Profile is one form with one Save, the model's choices too; the photo has its own forms,
+            # and sending one of them loads the page again, so a change in the form not yet saved would be lost without
+            # a word. The page asks first, and only then; told no, it stays as it is. Save itself never asks, and
+            # "Draw my model", which does not load the page, says beside it to save first. (A page of its own, to
+            # answer the question.)
+            question = "You changed your profile but didn't save it. Leave those changes unsaved?"
             said: list[str] = []
             reply = {"leave them": False}
             other = page.context.new_page()
-            other.on("dialog", lambda d: (said.append(d.message), d.accept() if reply["leave them"] else d.dismiss()))
+
+            def answer(dialog):
+                if dialog.message != question:          # "Delete your photo …?", the photo's own question
+                    dialog.accept()
+                    return
+                said.append(dialog.message)
+                dialog.accept() if reply["leave them"] else dialog.dismiss()
+
+            other.on("dialog", answer)
             other.on("pageerror", lambda e: failures.append(f"script error: {e}"))
-            try:
-                other.goto(base + "/profile", wait_until="networkidle")
-                other.click("button:has-text('Save model')")
-                other.wait_for_load_state("networkidle")
-                assert not said, f"'Save model' asked although nothing had changed: {said}"
-                assert "Model saved" in other.locator("#model .flash").inner_text(), "the model was not saved"
+            photo = HOME / "me-again.png"
+            photo.write_bytes(picture(600, 800, (150, 130, 120)))
 
-                other.goto(base + "/profile", wait_until="networkidle")
-                budget = other.input_value("#budget")
-                other.fill("#budget", str(int(budget) + 111))
-                other.evaluate("() => { window.stayed = true; }")
-                with other.expect_event("dialog"):
-                    other.click("button:has-text('Save model')")
-                assert said == [question], f"with the budget changed, 'Save model' asked {said}"
-                assert other.evaluate("() => window.stayed === true") and other.locator("#model .flash").count() == 0, \
-                    "told no, the page was sent all the same"
-                assert other.input_value("#budget") == str(int(budget) + 111), "told no, the changed budget is gone"
-
-                # The photo's button asks the same, once a photo is chosen and the box ticked (the browser's own checks
-                # come first). This time the budget is back as it was and only a colour swatch was tapped: a tap is a
-                # change too.
-                photo = HOME / "me-again.png"
-                photo.write_bytes(picture(600, 800, (150, 130, 120)))
-                other.fill("#budget", budget)
-                pick_colours(other, profile_mod.EXAMPLE["liked"], ["mustard"])
+            def choose_photo():
+                open_tab(other, "you")
                 other.set_input_files("[data-photo-form] input[type=file]", str(photo))
                 other.wait_for_selector("[data-photo-form] [data-photo-ready]:not(.bad) img:not([hidden])")
                 other.check("[data-photo-form] input[name=agree]")
+
+            try:
+                other.goto(base + "/profile", wait_until="networkidle")
+                choose_photo()
+                other.click("[data-photo-form] button")
+                other.wait_for_load_state("networkidle")
+                assert not said, f"'Use this photo' asked although nothing had changed: {said}"
+                assert other.locator(".me img").count() == 1, "the photo was not saved"
+                other.click("button:has-text('Delete my photo')")
+                other.wait_for_load_state("networkidle")
+
+                other.goto(base + "/profile", wait_until="networkidle")
+                budget = other.input_value("#budget")
+                open_tab(other, "budget")
+                other.fill("#budget", str(int(budget) + 111))
+                other.evaluate("() => { window.stayed = true; }")
+                choose_photo()
+                with other.expect_event("dialog"):
+                    other.click("[data-photo-form] button")
+                assert said == [question], f"with the budget changed, 'Use this photo' asked {said}"
+                assert other.evaluate("() => window.stayed === true") and other.locator(".me img").count() == 0, \
+                    "told no, the photo was sent all the same"
+                assert other.input_value("#budget") == str(int(budget) + 111), "told no, the changed budget is gone"
+
+                # A colour swatch tapped is a change too (the budget back as it was), and so is a choice of the model's.
+                open_tab(other, "budget")
+                other.fill("#budget", budget)
+                pick_colours(other, profile_mod.EXAMPLE["liked"], ["mustard"])
+                choose_photo()
                 with other.expect_event("dialog"):
                     other.click("[data-photo-form] button")
                 assert said == [question, question], f"with a colour changed, 'Use this photo' asked {said[1:]}"
+                pick_colours(other, profile_mod.EXAMPLE["liked"])
+                open_tab(other, "body")
+                build = other.locator('.pick input[name="build"]:checked').get_attribute("value")
+                other.locator('.pick input[name="build"][value="heavy"]').check(force=True)
+                note = other.locator("[data-model-picture] [data-unsaved-note]")
+                if note.count():           # beside "Draw my model", or under "Draw again": it says to save first
+                    other.get_by_role("group", name="Show in the middle").get_by_role("button", name="Your model").click()
+                    expect(note).to_be_visible()
+                choose_photo()
+                with other.expect_event("dialog"):
+                    other.click("[data-photo-form] button")
+                assert said == [question] * 3, f"with the model changed, 'Use this photo' asked {said[2:]}"
                 assert other.evaluate("() => window.stayed === true") and other.locator(".me img").count() == 0, \
                     "told no, the photo was sent all the same"
 
-                reply["leave them"] = True        # told yes: the model is saved, the changes above are left unsaved
-                other.click("button:has-text('Save model')")
+                reply["leave them"] = True        # told yes: the photo is saved, the change above is left unsaved
+                other.click("[data-photo-form] button")
                 other.wait_for_load_state("networkidle")
-                assert len(said) == 3 and "Model saved" in other.locator("#model .flash").inner_text(), \
-                    "told yes, the model was not saved"
+                assert len(said) == 4 and other.locator(".me img").count() == 1, "told yes, the photo was not saved"
+                assert other.locator('.pick input[name="build"]:checked').get_attribute("value") == build, \
+                    "the change left unsaved was saved after all"
                 assert other.input_value("#budget") == budget and other.input_value("input[name=refused]") == "", \
                     "the changes left unsaved were saved after all"
+                other.click("button:has-text('Delete my photo')")
+                other.wait_for_load_state("networkidle")
+
+                # Save never asks: it keeps what was changed. (The model, so that his profile stays the example's,
+                # which later steps rely on; a profile saved from a tab comes back to it, see the unit tests.)
+                open_tab(other, "body")
+                other.locator('.pick input[name="build"][value="slim"]').check(force=True)
+                other.click("button:has-text('Save profile')")
+                other.wait_for_load_state("networkidle")
+                assert len(said) == 4, f"'Save profile' asked {said[4:]}"
+                assert other.url.endswith("/profile#model"), f"after Save the page is at {other.url}"
+                expect(other.locator("#tab-body")).to_have_attribute("aria-selected", "true")
+                assert other.locator('.pick input[name="build"]:checked').get_attribute("value") == "slim", "Save did not keep the model"
+                other.locator(f'.pick input[name="build"][value="{build}"]').check(force=True)
+                other.click("button:has-text('Save profile')")
+                other.wait_for_load_state("networkidle")
+                assert len(said) == 4 and other.locator('.pick input[name="build"]:checked').get_attribute("value") == build
             finally:
                 other.close()
+
+        def profile_is_a_character_screen():
+            # Profile is one screen, like a game's character screen: the model in the middle, the tabs (You, Body,
+            # Sizes, Colours, Budget) beside it, one tab's controls at a time and one Save always in view. A new
+            # customer (so that his model and his first outfit's picture are new) on a phone, a computer and without
+            # JavaScript.
+            figure_state = """() => {
+                const svg = document.querySelector('[data-figure]'), man = svg.querySelector('.fig-man');
+                const part = name => svg.querySelector('.fig-man [data-part="' + name + '"]');
+                const box = man.getBoundingClientRect(), tee = part('tee').getBBox();
+                return {transform: man.getAttribute('transform'), scale: Number(man.dataset.scale), height: box.height,
+                        skin: part('skin').getAttribute('d'), teeWidth: tee.width, hair: part('hair').getAttribute('d'),
+                        back: part('hair-back').getAttribute('d'), beard: part('beard').getAttribute('d'),
+                        skinFill: getComputedStyle(part('skin')).fill, hairFill: getComputedStyle(part('hair')).fill,
+                        words: document.querySelector('[data-figure-words]').textContent};
+            }"""
+            who = "character-" + EMAIL
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True,
+                                          reduced_motion="reduce")
+            try:
+                phone = context.new_page()
+                phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                phone.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                         if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                phone.goto(base + "/signup", wait_until="networkidle")
+                phone.fill("input[name=email]", who)
+                phone.fill("input[name=password]", PASSWORD)
+                phone.click("button:has-text('Create account')")
+                phone.wait_for_url(base + "/outfits")
+                phone.goto(base + "/profile", wait_until="networkidle")
+
+                # The tabs: a tablist, the first open, the others' controls hidden.
+                tabs = phone.get_by_role("tab")
+                assert tabs.all_inner_texts() == ["You", "Body", "Sizes", "Colours", "Budget", "Stores"], \
+                    f"the tabs: {tabs.all_inner_texts()}"
+                expect(phone.get_by_role("tab", name="You")).to_have_attribute("aria-selected", "true")
+                assert phone.locator(".cc-panel:visible").evaluate_all("ps => ps.map(p => p.dataset.tab)") == ["you", "you"], \
+                    "other tabs' controls show beside the first tab's"
+                # By keyboard: the arrow keys move between the tabs and open them (round from the last to the first),
+                # Home and End go to the ends, and Tab goes from the open tab into its controls.
+                phone.focus("#tab-you")
+                walked = []
+                for key in ("ArrowRight", "ArrowRight", "End", "ArrowRight", "ArrowLeft", "Home", "ArrowLeft"):
+                    phone.keyboard.press(key)
+                    walked.append(phone.evaluate("""() => [document.activeElement.id,
+                        document.querySelector('[role=tab][aria-selected=true]').id,
+                        [...document.querySelectorAll('.cc-panel')].filter(p => !p.hidden).map(p => p.id).join(' ')]"""))
+                expected = [("tab-body", "panel-body"), ("tab-sizes", "panel-sizes"), ("tab-stores", "panel-stores"),
+                            ("tab-you", "panel-you photo-panel"), ("tab-stores", "panel-stores"),
+                            ("tab-you", "panel-you photo-panel"), ("tab-stores", "panel-stores")]
+                assert walked == [[tab, tab, panel] for tab, panel in expected], f"the arrow keys went {walked}"
+                assert phone.evaluate("location.hash") == "#stores", "the address does not keep the open tab"
+                phone.keyboard.press("Tab")
+                assert phone.evaluate("() => document.activeElement.closest('.cc-panel').id") == "panel-stores", \
+                    "Tab does not go from the open tab into its controls"
+                assert phone.evaluate("() => [document.activeElement.name, document.activeElement.value]") == ["stores", "cos"]
+                open_tab(phone, "budget")
+                phone.keyboard.press("Tab")
+                assert phone.evaluate("() => document.activeElement.id") == "budget", "Tab from the Budget tab"
+
+                # On a phone the middle takes about 40% of the screen and stays at the top with the tabs under it while
+                # the controls scroll (every tab reaches that far); Save is in view at the bottom, above the tab bar,
+                # wherever the controls are: once the page is scrolled to them, and on the first screen whenever the
+                # controls' card starts high enough for it. It is never over the tabs: on a first screen where the card
+                # starts lower, Save rides on its top edge, under the tabs (a tab tapped there brings the controls up,
+                # checked below on three phones).
+                def placed() -> dict:
+                    return phone.evaluate("""() => {
+                        const box = s => document.querySelector(s).getBoundingClientRect();
+                        const save = document.querySelector('.cc-save .btn'), b = save.getBoundingClientRect();
+                        const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+                        const card = document.querySelector('.cc-side'), bar = document.querySelector('.cc-save');
+                        const room = box('.cc-side').top + parseFloat(getComputedStyle(card).borderTopWidth)
+                            + parseFloat(getComputedStyle(card).paddingTop) + parseFloat(getComputedStyle(bar).marginTop)
+                            + bar.getBoundingClientRect().height;      // where Save's foot is when it rides on the card's top
+                        return {stageTop: box('.cc-stage').top, stage: box('.cc-stage').height, tabsTop: box('.cc-tabs').top,
+                                tabsBottom: box('.cc-tabs').bottom, saveTop: box('.cc-save').top, saveBottom: b.bottom,
+                                saveSeen: save.contains(top), bar: box('nav.tabs').top, h: innerHeight,
+                                fits: room <= box('nav.tabs').top, past: scrollY >= document.querySelector('.cc').offsetTop};
+                    }""")
+                for name in ("you", "body", "sizes", "colours", "budget", "stores"):
+                    open_tab(phone, name)
+                    for scrolled in (0, 900):
+                        phone.evaluate(f"() => window.scrollTo(0, {scrolled})")
+                        seen = placed()
+                        assert seen["saveTop"] >= seen["tabsBottom"] - 1, f"{name} at {scrolled}: Save is over the tabs {seen}"
+                        if seen["past"] or seen["fits"]:
+                            assert seen["saveSeen"] and seen["saveBottom"] <= seen["bar"] + 1, f"{name} at {scrolled}: Save is hidden {seen}"
+                        if scrolled:
+                            assert seen["past"], f"{name}: the page cannot be scrolled to where the middle stays at the top {seen}"
+                        if seen["past"]:
+                            assert seen["stageTop"] == 0 and abs(seen["tabsTop"] - seen["stage"]) < 1, \
+                                f"{name}: the middle and the tabs do not stay at the top {seen}"
+                    assert 0.35 * seen["h"] <= seen["stage"] <= 0.45 * seen["h"], f"the middle is {seen['stage']}px of {seen['h']}"
+                phone.evaluate("() => window.scrollTo(0, 0)")
+
+                # The figure changes at once for each height, build, skin and hair choice (with "reduce motion" asked
+                # for, without moving): measured on the drawing itself.
+                open_tab(phone, "body")
+                pick = lambda group, value: phone.locator(f'.pick input[name="{group}"][value="{value}"]').check(force=True)  # noqa: E731
+                start = phone.evaluate(figure_state)
+                assert start["words"] == "180 cm, any build, any skin tone, any hair", f"a new customer's figure: {start['words']!r}"
+                heights = {}
+                for value in ("short", "medium", "tall"):
+                    pick("height", value)
+                    heights[value] = phone.evaluate(figure_state)
+                assert heights["short"]["height"] < heights["medium"]["height"] < heights["tall"]["height"], \
+                    f"the figure's height for Short, Average, Tall: {[heights[v]['height'] for v in heights]}"
+                assert len({h["transform"] for h in heights.values()}) == 3
+                assert heights["tall"]["words"].startswith("Tall, "), heights["tall"]["words"]
+                pick("height", "")                                     # "Any": as tall as the height under Sizes
+                open_tab(phone, "sizes")
+                own = {}
+                for cm in ("150", "180", "210"):
+                    phone.fill("input[name=height_cm]", cm)
+                    own[cm] = phone.evaluate(figure_state)
+                assert own["150"]["height"] < own["180"]["height"] < own["210"]["height"], \
+                    f"the figure's height at 150, 180, 210 cm: {[own[c]['height'] for c in own]}"
+                assert [own[c]["scale"] for c in own] == [round(int(c) / 180, 4) for c in own], [own[c]["scale"] for c in own]
+                assert own["210"]["words"].startswith("210 cm, "), own["210"]["words"]
+                phone.fill("input[name=height_cm]", "180")
+                open_tab(phone, "body")
+                builds = {}
+                for value in ("slim", "average", "athletic", "broad", "heavy"):
+                    pick("build", value)
+                    builds[value] = phone.evaluate(figure_state)
+                assert len({b["skin"] for b in builds.values()}) == 5, "two builds draw the same body"
+                widths = [round(builds[v]["teeWidth"], 1) for v in ("slim", "average", "athletic", "broad")]
+                assert widths == sorted(widths) and len(set(widths)) == 4, f"the shoulders, slim to broad: {widths}"
+                assert builds["athletic"]["words"] == "180 cm, athletic build, any skin tone, any hair", builds["athletic"]["words"]
+                skins = {}
+                for group, options in person.GROUPS.items():
+                    if group not in ("skin", "hair"):
+                        continue
+                    for option in options[1]:
+                        pick(group, option.key)
+                        seen = phone.evaluate(figure_state)
+                        rgb = "rgb({}, {}, {})".format(*(int(option.swatch[i:i + 2], 16) for i in (1, 3, 5)))
+                        assert seen["skinFill" if group == "skin" else "hairFill"] == rgb, \
+                            f"{group} {option.key}: drawn in {seen['skinFill' if group == 'skin' else 'hairFill']}, not {rgb}"
+                        skins[(group, option.key)] = seen["words"]
+                assert skins[("hair", "grey")] == "180 cm, heavy build, dark skin, grey hair", skins[("hair", "grey")]
+                cuts = {}
+                for option in person.GROUPS["cut"][1]:
+                    pick("cut", option.key)
+                    cuts[option.key] = phone.evaluate(figure_state)
+                assert len({c["hair"] for c in cuts.values()}) == len(cuts), "two haircuts draw the same hair"
+                assert cuts["long"]["back"] and not cuts["short"]["back"], "long hair does not fall behind the neck"
+                assert cuts["shaved"]["words"].endswith("shaved head") and cuts["curly"]["words"].endswith("curly grey hair")
+                pick("beard", "full")
+                assert phone.evaluate(figure_state)["beard"], "no beard drawn"
+
+                # With motion allowed, a new build is reached in a short eased change: in between at first, there by
+                # a quarter of a second.
+                moving = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+                try:
+                    eased = moving.new_page()
+                    eased.goto(base + "/login", wait_until="networkidle")
+                    eased.fill("input[name=email]", who)
+                    eased.fill("input[name=password]", PASSWORD)
+                    eased.click("button:has-text('Log in')")
+                    eased.wait_for_load_state("networkidle")
+                    eased.goto(base + "/profile#body", wait_until="networkidle")
+                    frames = eased.evaluate("""() => new Promise(done => {
+                        const path = document.querySelector('.fig-man [data-part="skin"]'), seen = [path.getAttribute('d')];
+                        const start = performance.now();
+                        document.querySelector('.pick input[name="build"][value="heavy"]').click();
+                        const look = () => { seen.push(path.getAttribute('d'));
+                            if (performance.now() - start < 400) requestAnimationFrame(look); else done(seen); };
+                        requestAnimationFrame(look);
+                    })""")
+                    was, now = frames[0], frames[-1]
+                    assert now != was and any(f not in (was, now) for f in frames), "the build changed without easing"
+                    assert eased.evaluate("() => document.querySelector('.fig-man [data-part=skin]').getAttribute('d')") == now
+                finally:
+                    moving.close()
+
+                # Links to a place on the page open its tab, also from the page itself (the budget bar on Profile).
+                for anchor, tab in (("budget", "budget"), ("sizes", "sizes"), ("model", "body"), ("colours", "colours"),
+                                    ("stores", "stores")):
+                    phone.goto(base + "/outfits", wait_until="domcontentloaded")
+                    phone.goto(base + f"/profile#{anchor}", wait_until="networkidle")
+                    expect(phone.locator(f"#tab-{tab}"), f"#{anchor} does not open {tab}").to_have_attribute("aria-selected", "true")
+                    expect(phone.locator(f"#panel-{tab}")).to_be_visible()
+                open_tab(phone, "you")
+                phone.locator("#summary a").click()
+                expect(phone.locator("#tab-budget"), "the budget bar's link on Profile").to_have_attribute("aria-selected", "true")
+                expect(phone.locator("#budget")).to_be_in_viewport()
+
+                # "Your model": the model saved in the Body tab, drawn by AI in the first outfit, in the middle.
+                phone.goto(base + "/profile#body", wait_until="networkidle")
+                pick("build", "broad")
+                phone.click("button:has-text('Save profile')")
+                phone.wait_for_url(base + "/profile#model")
+                switch = phone.get_by_role("group", name="Show in the middle")
+                expect(phone.locator("[data-model-picture]"), "the picture shows over the drawn figure").to_be_hidden()
+                switch.get_by_role("button", name="Your model").click()
+                expect(switch.get_by_role("button", name="Your model")).to_have_attribute("aria-pressed", "true")
+                expect(phone.locator("[data-figure]")).to_be_hidden()
+                before = len(asked)
+                phone.locator("[data-model-picture] button", has_text="Draw my model").click()
+                expect(phone.locator("[data-model-picture] .cc-pic-wait")).to_contain_text("Drawing your model")
+                phone.wait_for_selector("[data-model-picture] .cc-pic-img", timeout=20000)
+                shown_pic = phone.evaluate("""() => { const i = document.querySelector('.cc-pic-img'), r = i.getBoundingClientRect(),
+                    s = document.querySelector('.cc-stage').getBoundingClientRect();
+                    return {loaded: i.complete && i.naturalWidth > 0, inside: r.top >= s.top - 1 && r.bottom <= s.bottom + 1,
+                            said: document.getElementById('announce').textContent}; }""")
+                assert shown_pic["loaded"] and shown_pic["inside"], f"the picture in the middle: {shown_pic}"
+                assert shown_pic["said"] == "Your model is drawn", f"a screen reader heard {shown_pic['said']!r}"
+                assert len(asked) == before + 1 and "broad, sturdy build" in asked[-1]["prompt"], "the saved model was not drawn"
+                switch.get_by_role("button", name="Drawn figure").click()
+                expect(phone.locator("[data-figure]")).to_be_visible()
+                expect(phone.locator("[data-model-picture]"), "the picture shows over the drawn figure").to_be_hidden()
+                phone.goto(base + "/outfits", wait_until="networkidle")
+                phone.wait_for_selector(f"{first} .look-pic img")
+                assert len(asked) == before + 1, "Outfits drew the same picture again"
+            finally:
+                context.close()
+
+            # On a phone's first screen the row of tabs is in view, clear of Save and of the tab bar; and a tab tapped
+            # there brings its controls up: the middle at the top of the screen, the tabs under it, and the tab's first
+            # control under them, in view above Save. On three phones down to 360 x 640 with less motion asked for, and
+            # once with motion allowed (a smooth scroll that ends in the same place).
+            first_control = """name => {
+                const panel = document.getElementById('panel-' + name);
+                const field = panel.querySelector('input:not([type=hidden]), select, textarea, button, .seg label, .pick label');
+                const control = field.closest('label') || field;
+                const box = control.getBoundingClientRect(), save = document.querySelector('.cc-save').getBoundingClientRect();
+                const bar = document.querySelector('nav.tabs').getBoundingClientRect();
+                const top = document.elementFromPoint(box.left + Math.min(box.width / 2, 40), box.top + Math.min(box.height / 2, 12));
+                return {stageTop: document.querySelector('.cc-stage').getBoundingClientRect().top,
+                        tabsBottom: document.querySelector('.cc-tabs').getBoundingClientRect().bottom, top: box.top,
+                        height: box.height, shown: Math.min(box.bottom, save.top, bar.top) - box.top,
+                        seen: !!top && control.contains(top)};
+            }"""
+            settled = """() => new Promise(done => {          // the page has stopped scrolling (four frames alike)
+                let last = -1, same = 0;
+                const tick = () => { same = scrollY === last ? same + 1 : 0; last = scrollY;
+                                     if (same > 3) done(true); else requestAnimationFrame(tick); };
+                tick();
+            })"""
+            for width, height, less_motion in ((390, 844, True), (375, 667, True), (360, 640, True), (375, 667, False)):
+                context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=True, has_touch=True,
+                                              reduced_motion="reduce" if less_motion else "no-preference")
+                try:
+                    small = context.new_page()
+                    small.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                    small.goto(base + "/login", wait_until="networkidle")
+                    small.fill("input[name=email]", who)
+                    small.fill("input[name=password]", PASSWORD)
+                    small.click("button:has-text('Log in')")
+                    small.wait_for_load_state("networkidle")
+                    for name in ("you", "body", "sizes", "colours", "budget", "stores") if less_motion else ("sizes",):
+                        small.goto(base + "/outfits", wait_until="domcontentloaded")
+                        small.goto(base + "/profile", wait_until="networkidle")
+                        chips = small.evaluate("""() => [...document.querySelectorAll('[role=tab]')].map(tab => {
+                            const box = tab.getBoundingClientRect(), x = Math.min(innerWidth - 2, Math.max(1, box.left + box.width / 2));
+                            const under = Math.min(document.querySelector('nav.tabs').getBoundingClientRect().top,
+                                                   document.querySelector('.cc-save').getBoundingClientRect().top);
+                            const whole = box.bottom <= under + 0.5 && [box.top + 3, box.top + box.height / 2, box.bottom - 3]
+                                .every(y => { const top = document.elementFromPoint(x, y); return !!top && tab.contains(top); });
+                            return [tab.id, whole];
+                        })""")
+                        if not all(clear for _, clear in chips):
+                            above = small.evaluate("""() => [...document.querySelectorAll('header, #summary, main > *, .cc-head > *, .cc-stage, .cc-tabs')]
+                                .map(el => `${el.id || el.className.split(' ')[0] || el.tagName.toLowerCase()} ${Math.round(el.getBoundingClientRect().top)}-${Math.round(el.getBoundingClientRect().bottom)}`).join(', ')""")
+                            raise AssertionError(f"{width}x{height}: the first screen's tabs are covered ({above})")
+                        small.locator(f"#tab-{name}").tap()
+                        small.evaluate(settled)
+                        seen = small.evaluate(first_control, name)
+                        assert abs(seen["stageTop"]) < 1 and seen["top"] >= seen["tabsBottom"] - 1, \
+                            f"{width}x{height}: {name} tapped on the first screen did not bring its controls up: {seen}"
+                        assert seen["seen"] and seen["shown"] >= min(seen["height"], 40) - 0.5, \
+                            f"{width}x{height}: {name}'s first control is not in view above Save: {seen}"
+                finally:
+                    context.close()
+
+            # On a computer: the tabs in a column on the left, the middle in the centre, the controls on the right with
+            # Save under them, in view; the arrow keys up and down move between the tabs too.
+            context = browser.new_context(viewport={"width": 1280, "height": 900})
+            try:
+                desk = context.new_page()
+                desk.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                desk.goto(base + "/login", wait_until="networkidle")
+                desk.fill("input[name=email]", who)
+                desk.fill("input[name=password]", PASSWORD)
+                desk.click("button:has-text('Log in')")
+                desk.wait_for_load_state("networkidle")
+                desk.goto(base + "/profile", wait_until="networkidle")
+                for name in ("you", "body", "sizes", "colours", "budget", "stores"):
+                    open_tab(desk, name)
+                    seen = desk.evaluate("""() => {
+                        const box = s => document.querySelector(s).getBoundingClientRect();
+                        const tabs = box('.cc-tabs'), stage = box('.cc-stage'), side = box('.cc-side'), save = box('.cc-save .btn');
+                        return {order: tabs.right <= stage.left && stage.right <= side.left, tabsColumn: box('#tab-you').left === box('#tab-budget').left,
+                                stage: [stage.top, stage.bottom, innerHeight], save: [save.top, save.bottom], under: save.left >= side.left};
+                    }""")
+                    assert seen["order"] and seen["tabsColumn"] and seen["under"], f"{name}: the computer layout is {seen}"
+                    assert seen["stage"][1] <= seen["stage"][2] and seen["save"][1] <= seen["stage"][2], f"{name}: not on the screen {seen}"
+                desk.focus("#tab-budget")
+                desk.keyboard.press("ArrowUp")
+                expect(desk.locator("#tab-colours")).to_be_focused()
+                desk.keyboard.press("ArrowDown")
+                expect(desk.locator("#tab-budget")).to_have_attribute("aria-selected", "true")
+
+                # In the You tab Save is the last stop by keyboard, after the photo's forms, as it is last on the screen:
+                # Tab goes down the controls and never back up.
+                desk.goto(base + "/profile#you", wait_until="networkidle")
+                desk.focus("#tab-you")
+                stops = []
+                for _ in range(60):
+                    desk.keyboard.press("Tab")
+                    stop = desk.evaluate("""() => { const el = document.activeElement;
+                        return el.closest('.cc-side') ? [el.getBoundingClientRect().top + scrollY, el.textContent.trim()] : null; }""")
+                    if stop is None:
+                        break
+                    stops.append(stop)
+                assert stops and stops[-1][1] == "Save profile", f"Save is not the last stop in the You tab: {stops[-3:]}"
+                assert [y for y, _ in stops] == sorted(y for y, _ in stops), f"Tab goes back up the controls: {stops}"
+
+                # Where the middle is narrow (a 900px window), the switch over it stays clear of the head of the
+                # tallest figure the form takes (220 cm): a band at the top of the middle is kept for it.
+                desk.set_viewport_size({"width": 900, "height": 700})
+                desk.goto(base + "/profile#sizes", wait_until="networkidle")
+                desk.fill("input[name=height_cm]", "220")
+                desk.wait_for_function("() => document.querySelector('.fig-man').dataset.scale === (220 / 180).toFixed(4)")
+                over = desk.evaluate("""() => { const a = document.querySelector('.cc-switch').getBoundingClientRect();
+                    return ['hair', 'skin'].map(part => document.querySelector('.fig-man [data-part="' + part + '"]'))
+                        .concat(document.querySelector('.fig-man .fig-face')).filter(el => { const b = el.getBoundingClientRect();
+                            return !(a.bottom <= b.top || b.bottom <= a.top || a.right <= b.left || b.right <= a.left); })
+                        .map(el => el.getAttribute('class')); }""")
+                assert not over, f"the switch is over the figure at 220 cm, on a 900px window: {over}"
+            finally:
+                context.close()
+
+            # Without JavaScript every tab's controls show one under another, as before, with the figure above them.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, java_script_enabled=False)
+            try:
+                plain = context.new_page()
+                plain.goto(base + "/login", wait_until="networkidle")
+                plain.fill("input[name=email]", who)
+                plain.fill("input[name=password]", PASSWORD)
+                plain.click("button:has-text('Log in')")
+                plain.wait_for_load_state("networkidle")
+                plain.goto(base + "/profile", wait_until="networkidle")
+                assert not plain.locator("[data-cc-tabs]").is_visible(), "without JavaScript the tabs show, doing nothing"
+                visible = plain.locator(".cc-panel").evaluate_all("ps => ps.map(p => [p.id, p.getBoundingClientRect().height > 0])")
+                assert visible == [[pid, True] for pid in ("panel-you", "panel-body", "panel-sizes", "panel-colours",
+                                                           "panel-budget", "panel-stores", "photo-panel")], \
+                    f"without JavaScript: {visible}"
+                assert plain.locator("[data-figure]").is_visible(), "the figure is not drawn without JavaScript"
+                assert plain.locator("[data-figure-words]").inner_text() == "180 cm, broad build, any skin tone, any hair"
+            finally:
+                context.close()
+
+        def the_store_picker():
+            # Profile's Stores tab: every store offered, ticked to start with. Unticking Weekday takes it out of the
+            # outfits, the Wardrobe and the shopping list, with one line saying what was picked again; the last store
+            # cannot be unticked (said at once, and to a screen reader); ticking Weekday again brings it back. On a
+            # phone, on a computer, and without JavaScript, where the save says that the last store stays.
+            who = "picker-" + EMAIL
+            stores_of = """() => [...document.querySelectorAll('input[name=stores]')].map(box =>
+                [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            try:
+                phone = context.new_page()
+                phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                phone.goto(base + "/signup", wait_until="networkidle")
+                phone.fill("input[name=email]", who)
+                phone.fill("input[name=password]", PASSWORD)
+                phone.click("button:has-text('Create account')")
+                phone.wait_for_url(base + "/outfits")
+                phone.goto(base + "/list", wait_until="networkidle")
+                assert "Weekday" in phone.locator("main").inner_text(), "the starter shopping list has nothing from Weekday"
+                phone.goto(base + "/profile#stores", wait_until="networkidle")
+                expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
+                assert phone.evaluate(stores_of) == [["cos", True, "COS · Rakuten partner"],
+                                                     ["weekday", True, "Weekday · Rakuten partner"]], phone.evaluate(stores_of)
+                rows = phone.locator(".store-row").evaluate_all("rs => rs.map(r => r.getBoundingClientRect().height)")
+                assert all(h >= 48 for h in rows), f"a store's row is under 48px to tap: {rows}"
+                phone.get_by_role("checkbox", name="Weekday · Rakuten partner").tap()
+                expect(phone.locator("[data-store-said]")).to_be_hidden()
+                phone.get_by_role("checkbox", name="COS · Rakuten partner").tap()       # the last one ticked
+                expect(phone.get_by_role("checkbox", name="COS · Rakuten partner")).to_be_checked()
+                said = "At least one store must stay ticked: your pieces need a store to come from."
+                expect(phone.locator("[data-store-said]")).to_have_text(said)
+                expect(phone.locator("[data-store-said]")).to_be_in_viewport()
+                assert phone.locator("#announce").text_content() == said, "a screen reader is not told"
+                phone.focus("input[name=stores][value=cos]")
+                phone.keyboard.press("Space")
+                expect(phone.get_by_role("checkbox", name="COS · Rakuten partner"), "by keyboard too").to_be_checked()
+                phone.click("button:has-text('Save profile')")
+                phone.wait_for_url(base + "/outfits")          # a first save shows the outfits
+                told = phone.locator("main > .flash", has_text="Your pieces now come only from COS:")
+                expect(told, "the line about the pieces picked again").to_be_in_viewport()
+                for path in ("/outfits", "/", "/list"):
+                    phone.goto(base + path, wait_until="networkidle")
+                    assert "weekday" not in phone.locator("main").inner_text().lower(), f"{path} still shows Weekday"
+                    assert not phone.locator("main a[href*='weekday']").count(), f"{path} still links to Weekday"
+                phone.goto(base + "/profile#stores", wait_until="networkidle")
+                assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False], "the unticked store is not kept"
+                phone.get_by_role("checkbox", name="Weekday · Rakuten partner").tap()
+                phone.click("button:has-text('Save profile')")
+                phone.wait_for_url(base + "/profile#stores")
+                expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
+                flashes = phone.locator("main > .flash").all_inner_texts()
+                assert flashes == ["Profile saved. See your outfits"], f"ticking a store again said {flashes}"
+                phone.goto(base + "/list", wait_until="networkidle")
+                assert "Weekday" in phone.locator("main").inner_text(), "Weekday did not come back when ticked again"
+            finally:
+                context.close()
+
+            # On a computer: the rows in the controls' card, each on one line, nothing over them.
+            context = browser.new_context(viewport={"width": 1280, "height": 900})
+            try:
+                desk = context.new_page()
+                desk.goto(base + "/login", wait_until="networkidle")
+                desk.fill("input[name=email]", who)
+                desk.fill("input[name=password]", PASSWORD)
+                desk.click("button:has-text('Log in')")
+                desk.wait_for_load_state("networkidle")
+                desk.goto(base + "/profile#stores", wait_until="networkidle")
+                seen = desk.evaluate("""() => [...document.querySelectorAll('.store-row')].map(row => {
+                    const box = row.getBoundingClientRect(), card = document.querySelector('.cc-side').getBoundingClientRect();
+                    const words = row.querySelector('span').getBoundingClientRect();
+                    const top = document.elementFromPoint(box.left + 10, box.top + box.height / 2);
+                    return {inside: box.left >= card.left && box.right <= card.right, oneLine: words.height < 30,
+                            clear: !!top && row.contains(top)}; })""")
+                assert seen and all(r["inside"] and r["oneLine"] and r["clear"] for r in seen), f"the rows on a computer: {seen}"
+            finally:
+                context.close()
+
+            # Without JavaScript nothing stops the last store being unticked: the save keeps the stores and says why.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, java_script_enabled=False)
+            try:
+                plain = context.new_page()
+                plain.goto(base + "/login", wait_until="networkidle")
+                plain.fill("input[name=email]", who)
+                plain.fill("input[name=password]", PASSWORD)
+                plain.click("button:has-text('Log in')")
+                plain.wait_for_load_state("networkidle")
+                plain.goto(base + "/profile", wait_until="networkidle")
+                for box in plain.locator("input[name=stores]").all():
+                    box.uncheck()
+                plain.click("button:has-text('Save profile')")
+                plain.wait_for_load_state("networkidle")
+                flashes = plain.locator("main > .flash").all_inner_texts()
+                assert "At least one store must stay ticked, so your stores stay as they were." in flashes, flashes
+                assert [on for _, on in plain.locator("input[name=stores]").evaluate_all(
+                    "bs => bs.map(b => [b.value, b.checked])")] == [True, True], "the stores did not stay as they were"
+            finally:
+                context.close()
 
         def one_tap_colour():
             # A piece the store list has nothing for says so and offers, in one tap, a colour Stilsmith has. The demo
@@ -2295,7 +2815,7 @@ def run(base: str) -> None:
                 phone.fill("input[name=password]", PASSWORD)
                 phone.click("button:has-text('Create account')")
                 phone.wait_for_url(base + "/outfits")
-                phone.goto(base + "/profile", wait_until="networkidle")
+                phone.goto(base + "/profile#colours", wait_until="networkidle")
                 grid = phone.evaluate("""() => {
                     const swatches = [...document.querySelectorAll('.swatch')];
                     const top = Math.round(swatches[0].getBoundingClientRect().top);
@@ -2317,9 +2837,9 @@ def run(base: str) -> None:
                 numbers = [phone.locator(f".swatch[data-colour={c}] b").inner_text() for c in ("navy", "olive")]
                 assert numbers == ["1", "2"], f"navy and olive are numbered {numbers}"
 
-                # By keyboard: Tab goes through every swatch in turn, and Space changes the one with focus, which says
-                # what it is now.
-                phone.focus("#budget")
+                # By keyboard: from the Colours tab, Tab goes through every swatch in turn, and Space changes the one
+                # with focus, which says what it is now.
+                phone.focus("#tab-colours")
                 reached: list[str] = []
                 for _ in range(40):
                     phone.keyboard.press("Tab")
@@ -2340,7 +2860,7 @@ def run(base: str) -> None:
 
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/outfits")
-                phone.goto(base + "/profile", wait_until="networkidle")
+                phone.goto(base + "/profile#colours", wait_until="networkidle")
                 saved = [phone.input_value("input[name=liked]"), phone.input_value("input[name=refused]")]
                 assert saved == ["navy, olive", "black"], f"saved as {saved}"
                 expect(phone.get_by_role("button", name="Navy: liked, first", pressed=True)).to_have_count(1)
@@ -2380,6 +2900,7 @@ def run(base: str) -> None:
             assert len(notes) == 1 and notes[0].startswith("You said these sizes are yours; the rest are example values."), \
                 f"after 'These are my sizes' the Profile says of its example values: {notes}"
             pick_colours(page, ("black", "grey", "white"))
+            open_tab(page, "you")
             page.locator("input[name=use][value=office]").check(force=True)
             page.click("button:has-text('Save profile')")
             page.wait_for_url(base + "/outfits")
@@ -2763,9 +3284,19 @@ def run(base: str) -> None:
                 return other.evaluate("() => document.getElementById('summary').getBoundingClientRect().top") == 0
 
             hidden: list[str] = []
+            # Profile shows one tab's controls at a time, with the middle, the tabs and Save staying in place: each tab.
+            profile_tabs = ["/profile"] + [f"/profile#{name}" for name in ("body", "sizes", "colours", "budget")]
 
             def tab_through(other, path: str, key: str) -> None:
-                other.goto(base + path, wait_until="networkidle")
+                address, _, tab = path.partition("#")
+                other.goto("about:blank")              # (a new page each time, also for Profile's tabs one after another)
+                other.goto(base + address, wait_until="networkidle")
+                if tab:
+                    # A tab of Profile opened as a tap opens it (a link to #sizes would start the keyboard at Sizes,
+                    # past the top of the page); its scroll at once, so that nothing moves while the focus is measured.
+                    other.emulate_media(reduced_motion="reduce")
+                    other.evaluate("name => document.getElementById('tab-' + name).click()", tab)
+                    other.emulate_media(reduced_motion="no-preference")
                 stops = 0
                 for _ in range(400):
                     other.keyboard.press(key)
@@ -2774,7 +3305,9 @@ def run(base: str) -> None:
                         if (!el || el === document.body) return null;          // out of the page, past its last stop
                         if (el.dataset.walked) return 'again';                 // all the way round
                         el.dataset.walked = '1';
-                        const bars = [document.getElementById('summary'), document.querySelector('nav.tabs')].filter(Boolean);
+                        // (On Profile the middle, its tabs and Save stay in place too, on a phone.)
+                        const bars = [document.getElementById('summary'), document.querySelector('nav.tabs'),
+                                      ...document.querySelectorAll('.cc-stage, .cc-tabs, .cc-save')].filter(Boolean);
                         const r = el.getBoundingClientRect();
                         const points = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + 1, r.top + 1],
                                         [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]];
@@ -2810,7 +3343,7 @@ def run(base: str) -> None:
             other.set_viewport_size({"width": 390, "height": 480})
             assert not sticks(other, "/"), "the budget bar sticks on a screen 480px tall"
             other.set_viewport_size({"width": 390, "height": 844})
-            for path in ("/", "/list", "/profile"):
+            for path in ("/", "/list", *profile_tabs):
                 tab_through(other, path, "Tab")
             other.goto(base + "/", wait_until="networkidle")
             other.locator("#summary a").click()
@@ -2822,7 +3355,7 @@ def run(base: str) -> None:
             assert "of 999 €" in other.locator("#summary").inner_text().replace("\xa0", " "), "a budget of 999 € was not saved"
             context.close()
             context, other = logged_in(1280, 900, False)
-            for path in ("/", "/list", "/profile"):
+            for path in ("/", "/list", *profile_tabs):
                 tab_through(other, path, "Shift+Tab")
             context.close()
             assert not hidden, "hidden under the bars or off the screen while it had keyboard focus: " + "; ".join(hidden[:6])
@@ -3155,6 +3688,8 @@ def run(base: str) -> None:
                  ("the owner's store catalogues, owners only", owners_store_catalogues),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
+                 ("Profile is a character screen", profile_is_a_character_screen),
+                 ("the store picker: only the stores ticked", the_store_picker),
                  ("colours picked by tapping swatches", colours_by_tapping_swatches),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),

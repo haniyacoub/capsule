@@ -379,12 +379,14 @@ if (saidLine && 'ResizeObserver' in window) {
   }).observe(saidLine);
 }
 
-// 13. Profile: About you is one form, the model and the photo are others, and sending either of those loads the page
-//     again. Sizes, colours or a budget changed in About you and not yet saved would then be lost without a word, so
-//     the page asks first. "Changed" is measured against what the page was loaded with, field by field.
+// 13. Profile: About you is one form, the model's choices included (the Body tab); the photo's forms are others, and
+//     sending one of those loads the page again. Changes made in About you and not yet saved would then be lost without
+//     a word, so the page asks first. "Changed" is measured against what the page was loaded with, field by field.
+//     "Draw my model" draws the saved choices, so while there are changes a line beside it says to save first.
 const aboutYou = document.getElementById('about-you');
 if (aboutYou) {
   const changed = () => [...aboutYou.elements].some((field) => {
+    if (field.type === 'hidden') return false;           // the open tab (13a) and the form's token
     if (field.type === 'checkbox' || field.type === 'radio') return field.checked !== field.defaultChecked;
     if (field.tagName === 'SELECT') {
       const loaded = [...field.options].find((option) => option.defaultSelected) || field.options[0];
@@ -394,10 +396,303 @@ if (aboutYou) {
     return false;
   });
   document.addEventListener('submit', (e) => {
-    // (A form that already asked its own question and was told no, like deleting the photo, is not sent anyway.)
-    if (e.defaultPrevented || e.target === aboutYou || !e.target.closest('#model') || !changed()) return;
-    if (!window.confirm("You changed your sizes, colours or budget but didn't save them. Leave those changes unsaved?")) {
+    // (A form that already asked its own question and was told no, like deleting the photo, is not sent anyway; nor is
+    // one HTMX sends without loading the page, like "Draw my model".)
+    if (e.defaultPrevented || e.target === aboutYou || !e.target.closest('[data-cc]') || !changed()) return;
+    if (!window.confirm("You changed your profile but didn't save it. Leave those changes unsaved?")) {
       e.preventDefault();
+    }
+  });
+  const sayUnsaved = () => {
+    const unsaved = changed();
+    document.querySelectorAll('[data-unsaved-note]').forEach((note) => { note.hidden = !unsaved; });
+  };
+  aboutYou.addEventListener('input', sayUnsaved);
+  aboutYou.addEventListener('change', sayUnsaved);
+  aboutYou.addEventListener('click', () => setTimeout(sayUnsaved));     // a colour swatch tapped (14)
+  document.body.addEventListener('htmx:afterSwap', sayUnsaved);
+  sayUnsaved();          // the fields as the browser kept them (Back, a reload), which may not be the ones saved
+}
+
+// 13a. Profile: the tabs, a real tablist. One tab is open at a time; the arrow keys (and Home and End) move between the
+//      tabs and open them, and Tab goes from the open tab into its controls. The address keeps the open tab
+//      (/profile#colours), so a link to a place on the page opens its tab: #budget (the budget bar), #sizes ("Change"
+//      by Your sizes), #model (where "Model saved" is said), #photo (where the photo's messages are said). The form
+//      carries the open tab, so that a save comes back to it. Over the middle, a switch shows the drawn figure or
+//      "Your model" (the AI picture); changing a choice that the figure shows brings the figure back.
+const profileCreator = document.querySelector('[data-cc]');
+if (profileCreator) {
+  const tablist = profileCreator.querySelector('[data-cc-tabs]');
+  const tabs = [...tablist.querySelectorAll('[role=tab]')];
+  const names = tabs.map((tab) => tab.id.slice('tab-'.length));
+  const panelsOf = (name) => [...profileCreator.querySelectorAll(`.cc-panel[data-tab="${name}"]`)];
+  const tabField = profileCreator.querySelector('[data-cc-tab-field]');
+  const tabOf = (hash) => {
+    const name = { model: 'body', photo: 'you' }[hash] || hash;
+    return names.includes(name) ? name : null;
+  };
+  // The top of the controls' card, brought back into view when the page was scrolled past it (on a phone it then
+  // starts just under the tabs, which stay at the top): what scroll-padding-top keeps clear. On a phone tall enough
+  // for the middle to stay at the top (app.css), a tab chosen on the first screen, where its controls start low, also
+  // brings them up to there: the middle then sits at the top of the screen, the tabs under it, the controls under them.
+  const card = profileCreator.querySelector('.cc-side');
+  const stuckMiddle = window.matchMedia('(max-width: 759.98px) and (min-height: 600px)');     // as app.css
+  const lessMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const keepInView = () => {
+    const clear = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
+    const above = card.getBoundingClientRect().top - clear;
+    if (above < 0 || (stuckMiddle.matches && above > 1)) {
+      window.scrollBy({ top: above, behavior: lessMotion.matches ? 'auto' : 'smooth' });
+    }
+  };
+  const open = (name, focus = false) => {
+    tabs.forEach((tab) => {
+      const on = tab.id === `tab-${name}`;
+      tab.setAttribute('aria-selected', String(on));
+      tab.tabIndex = on ? 0 : -1;
+      if (!on) return;
+      if (focus) tab.focus({ preventScroll: true });
+      // In the row of tabs that scrolls sideways on a phone, the open one comes whole into it.
+      const row = tablist.getBoundingClientRect();
+      const box = tab.getBoundingClientRect();
+      if (box.left < row.left) tablist.scrollLeft -= row.left - box.left + 16;
+      else if (box.right > row.right) tablist.scrollLeft += box.right - row.right + 16;
+    });
+    names.forEach((other) => panelsOf(other).forEach((panel) => { panel.hidden = other !== name; }));
+    tabField.value = name;
+  };
+  const choose = (name, focus = false) => {
+    open(name, focus);
+    history.replaceState(history.state, '', `#${name}`);
+    keepInView();
+  };
+  profileCreator.querySelectorAll('.cc-panel').forEach((panel) => panel.setAttribute('role', 'tabpanel'));
+  tablist.addEventListener('click', (e) => {
+    const tab = e.target.closest('[role=tab]');
+    if (tab) choose(tab.id.slice('tab-'.length));
+  });
+  tablist.addEventListener('keydown', (e) => {
+    const at = tabs.indexOf(document.activeElement);
+    const to = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (at < 0 || to === undefined) return;
+    e.preventDefault();
+    choose(names[(to + tabs.length) % tabs.length], true);
+  });
+  // The place an address names (#budget, #colours …): its tab opens, and it is brought into view when it is not on the
+  // screen (a field or a message by its own name, or else the top of the controls' card).
+  const land = (asked) => {
+    const name = tabOf(asked);
+    if (!name) return;
+    open(name);
+    const place = document.getElementById(asked) || card;
+    const box = place.getBoundingClientRect();
+    if (box.top < 0 || box.top > window.innerHeight * 0.6) place.scrollIntoView({ block: 'start' });
+  };
+  // On such a phone the first screen shows the middle and the whole row of tabs above the tab bar. Where what is above
+  // the middle (the title, a note, a message after a save) leaves too little room for it at 40% of the screen, it is
+  // made shorter, down to 30% (--cc-stage, app.css), rather than the tabs falling under the tab bar. Worked out again
+  // only when the width changes: a phone's address bar that hides on scrolling changes the height, and the middle
+  // must not jump then.
+  const fitMiddle = () => {
+    document.documentElement.style.removeProperty('--cc-stage');
+    if (!stuckMiddle.matches) return;
+    const bar = document.querySelector('nav.tabs');
+    const floor = bar ? bar.getBoundingClientRect().top : window.innerHeight;
+    const room = floor - (profileCreator.getBoundingClientRect().top + window.scrollY) - tablist.getBoundingClientRect().height - 2;
+    const stage = profileCreator.querySelector('.cc-stage').getBoundingClientRect().height;
+    if (room < stage) {
+      document.documentElement.style.setProperty('--cc-stage', `${Math.floor(Math.max(room, 0.3 * window.innerHeight))}px`);
+    }
+  };
+  // The tabs work from here on: app.css lays the page out around the middle. Save goes last in the card, after the
+  // photo's forms of the You tab, so that it can stay at the bottom of the screen on every tab and comes last by
+  // keyboard too (without JavaScript it stays right under the fields it saves).
+  const asked = decodeURIComponent(location.hash.slice(1));
+  const saveBar = card.querySelector('.cc-save');
+  if (saveBar) card.append(saveBar);
+  profileCreator.dataset.tabs = '';
+  tablist.hidden = false;
+  fitMiddle();
+  let fittedWidth = window.innerWidth;
+  window.addEventListener('resize', () => {
+    if (window.innerWidth === fittedWidth) return;
+    fittedWidth = window.innerWidth;
+    fitMiddle();
+  });
+  open(tabOf(asked) || names[0]);
+  // Where the page lands: a message at the top (after a save) is seen first; else the place the address names.
+  if (document.querySelector('main > .flash')) window.scrollTo(0, 0);
+  else land(asked);
+  // A link to another place on this same page (the budget bar's, on Profile) changes only the address.
+  window.addEventListener('hashchange', () => land(decodeURIComponent(location.hash.slice(1))));
+
+  const switcher = profileCreator.querySelector('[data-cc-switch]');
+  if (switcher) {
+    const views = [...profileCreator.querySelectorAll('[data-view]')];
+    const show = (view) => {
+      views.forEach((one) => { one.hidden = one.dataset.view !== view; });
+      switcher.querySelectorAll('[data-show]').forEach((button) => {
+        button.setAttribute('aria-pressed', String(button.dataset.show === view));
+      });
+    };
+    switcher.addEventListener('click', (e) => {
+      const button = e.target.closest('[data-show]');
+      if (button) show(button.dataset.show);
+    });
+    profileCreator.addEventListener('change', (e) => {
+      if (e.target.closest('#panel-body') || e.target.name === 'height_cm') show('figure');
+    });
+    show('figure');
+    switcher.hidden = false;
+    // "Draw my model" and its picture are swapped in by HTMX: keyboard focus stays in the middle, and a screen reader
+    // hears when the picture is ready.
+    const box = profileCreator.querySelector('[data-model-picture]');
+    box.tabIndex = -1;
+    document.body.addEventListener('htmx:beforeSwap', (e) => {
+      if (e.detail.target === box) box.dataset.focus = box.contains(document.activeElement) ? 'in' : '';
+    });
+    document.body.addEventListener('htmx:afterSwap', (e) => {
+      if (e.detail.target !== box) return;
+      const ready = box.querySelector('.cc-pic-img');
+      if (ready && box.dataset.was !== 'ready') {
+        const announce = document.getElementById('announce');
+        if (announce) announce.textContent = 'Your model is drawn';
+      }
+      box.dataset.was = ready ? 'ready' : '';
+      if (box.dataset.focus === 'in' && !box.contains(document.activeElement)) {
+        (box.querySelector('button') || box).focus({ preventScroll: true });
+      }
+      delete box.dataset.focus;
+    });
+  }
+}
+
+// 13b. Profile: the drawn figure in the middle takes the choices as they are made: the model's height (on "Any", the
+//      height in cm under Sizes), build, skin, hair colour, haircut and beard, and says them in words under it. The
+//      outlines of every build and haircut come with the page (#figure-data, from figure.py). A new build or height is
+//      reached in a short eased change (200 ms); skin and hair fade (app.css); nothing moves for people who ask their
+//      device for less motion.
+if (profileCreator) {
+  const svg = profileCreator.querySelector('[data-figure]');
+  const data = JSON.parse(document.getElementById('figure-data').textContent);
+  const form = document.getElementById('about-you');
+  const man = svg.querySelector('.fig-man');
+  const said = profileCreator.querySelector('[data-figure-words]');
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const parts = ['skin', 'tee', 'briefs', 'lines', 'creases'];
+  const choice = (group) => {
+    const on = form.querySelector(`input[name="${group}"]:checked`);
+    return on ? on.value : '';
+  };
+  const centimetres = () => {
+    const field = form.elements.height_cm;
+    const typed = Math.round(Number(field.value));
+    const cm = Number.isFinite(typed) && field.value !== '' ? typed : Number(field.defaultValue);
+    return Math.max(data.lowest, Math.min(data.highest, cm));
+  };
+  const NUMBER = /-?\d+(?:\.\d+)?/g;
+  // An outline part of the way from one shape to another of the same build of numbers (figure.py keeps them so).
+  const between = (from, to, t) => {
+    const a = from.match(NUMBER) || [];
+    const b = to.match(NUMBER) || [];
+    if (t >= 1 || a.length !== b.length) return to;
+    let i = 0;
+    return to.replace(NUMBER, () => {
+      const value = Number(a[i]) + (Number(b[i]) - Number(a[i])) * t;
+      i += 1;
+      return String(Math.round(value * 10) / 10);
+    });
+  };
+  const place = (scale) => {
+    man.setAttribute('transform', `matrix(${scale.toFixed(4)} 0 0 ${scale.toFixed(4)} 0 ${(400 * (1 - scale)).toFixed(2)})`);
+    man.dataset.scale = scale.toFixed(4);
+  };
+  const drawBody = (paths) => parts.forEach((part) => {
+    svg.querySelectorAll(`[data-part="${part}"]`).forEach((path) => path.setAttribute('d', paths[part]));
+  });
+  let shown = { scale: Number(man.dataset.scale), paths: Object.fromEntries(parts.map((part) => [part, svg.querySelector(`[data-part="${part}"]`).getAttribute('d')])) };
+  let moving = 0;
+  const words = () => {
+    const height = { short: 'short', medium: 'average height', tall: 'tall' }[choice('height')] || `${centimetres()} cm`;
+    const build = choice('build');
+    const skin = choice('skin');
+    const colour = choice('hair');
+    const cut = choice('cut');
+    let hair = 'any hair';
+    if (cut === 'shaved') hair = 'shaved head';
+    else if (cut || colour) hair = `${[cut && data.cut[cut], colour && data.hairColour[colour].label].filter(Boolean).join(' ')} hair`;
+    const beard = { none: 'clean-shaven', stubble: 'stubble', short: 'short beard', full: 'full beard' }[choice('beard')];
+    const all = [height, build ? `${data.build[build]} build` : 'any build', skin ? `${data.skin[skin].label} skin` : 'any skin tone', hair];
+    if (beard) all.push(beard);
+    const text = all.join(', ');
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  };
+  const redraw = () => {
+    // Colours, hair and beard change at once (the colours fade by themselves, app.css).
+    const skin = choice('skin');
+    const colour = choice('hair');
+    svg.style.setProperty('--skin', skin ? data.skin[skin].colour : data.paper);
+    svg.style.setProperty('--detail', skin ? data.skin[skin].detail : data.paperDetail);     // the lines on the skin
+    svg.style.setProperty('--hair', colour ? data.hairColour[colour].colour : data.paper);
+    const cut = data.hair[choice('cut')] ? choice('cut') : 'short';
+    svg.querySelector('[data-part="hair"]').setAttribute('d', data.hair[cut].front);
+    svg.querySelector('[data-part="hair-back"]').setAttribute('d', data.hair[cut].back);
+    svg.querySelectorAll('.fig-hair').forEach((path) => path.classList.toggle('shaved', cut === 'shaved'));
+    const beard = choice('beard');
+    const beardPath = svg.querySelector('[data-part="beard"]');
+    beardPath.setAttribute('d', data.beards[beard] || '');
+    beardPath.setAttribute('class', `fig-beard${beard ? ` ${beard}` : ''}`);
+    said.textContent = words();
+    // The body and the height move, from wherever they are now.
+    const target = {
+      scale: (data.heights[choice('height')] || centimetres()) / data.reference,
+      paths: data.builds[choice('build') || 'average'],
+    };
+    const from = shown;
+    const same = from.scale === target.scale && parts.every((part) => from.paths[part] === target.paths[part]);
+    if (same) return;
+    moving += 1;
+    const run = moving;
+    const start = performance.now();
+    const step = (now) => {
+      if (run !== moving) return;                              // a newer change took over from here
+      // (A frame's time can be a little before the change was made: never before the start, so nothing moves back.)
+      const t = still.matches ? 1 : Math.max(0, Math.min(1, (now - start) / 200));
+      const eased = 1 - (1 - t) ** 3;                          // ease-out: quick at first, settling gently
+      shown = {
+        scale: from.scale + (target.scale - from.scale) * eased,
+        paths: Object.fromEntries(parts.map((part) => [part, between(from.paths[part], target.paths[part], eased)])),
+      };
+      place(shown.scale);
+      drawBody(shown.paths);
+      if (t < 1) requestAnimationFrame(step);
+      else shown = target;
+    };
+    if (still.matches) step(start);
+    else requestAnimationFrame(step);
+  };
+  const FIGURE = new Set(['height', 'build', 'skin', 'hair', 'cut', 'beard', 'height_cm']);
+  form.addEventListener('input', (e) => { if (FIGURE.has(e.target.name)) redraw(); });
+  form.addEventListener('change', (e) => { if (FIGURE.has(e.target.name)) redraw(); });
+  redraw();          // the choices as the browser kept them (Back, a reload), which may not be the ones saved
+}
+
+// 13c. Profile: the Stores tab. At least one store stays ticked: unticking the last one ticks it again at once, and a
+//      line under the stores says why (also to a screen reader). Without JavaScript the save says it instead.
+const storePick = document.querySelector('[data-store-pick]');
+if (storePick) {
+  const storeSaid = document.querySelector('[data-store-said]');
+  storePick.addEventListener('change', (e) => {
+    const box = e.target;
+    const ticked = storePick.querySelectorAll('input[name=stores]:checked').length;
+    if (!box.checked && ticked === 0) {
+      box.checked = true;
+      storeSaid.textContent = 'At least one store must stay ticked: your pieces need a store to come from.';
+      storeSaid.hidden = false;
+      const announce = document.getElementById('announce');
+      if (announce) announce.textContent = storeSaid.textContent;
+    } else {
+      storeSaid.hidden = true;
     }
   });
 }

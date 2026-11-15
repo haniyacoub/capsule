@@ -14,6 +14,7 @@ Module map (each file does one job):
     outfits.py      outfit combinations from the selected pieces
     looks.py        AI pictures of an outfit being worn (config/looks.toml)
     person.py       who the model in those pictures is: a few choices, or your photo
+    figure.py       the drawn figure on Profile that takes those choices at once (no AI)
     imagegen.py     talks to the image services (OpenAI, Google) that draw them
     videos.py       "See it move": a short AI video of an outfit's picture, its limits and Pro accounts
     videogen.py     talks to Google's video model that makes those videos

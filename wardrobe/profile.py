@@ -1,10 +1,14 @@
 """Your details: sizes, budget, colours, what the wardrobe is for."""
 from __future__ import annotations
 
-from . import colours, db
+from . import colours, db, programmes
 from .sizes import ALPHA
 
 USES = {"everyday": "Everyday", "office": "Office", "both": "Both"}
+
+# The Profile page's tabs, in order: their names in the address (/profile#colours) and on screen. "body" is the
+# model's menu, shown where AI pictures are on (and on your own machine).
+TABS = {"you": "You", "body": "Body", "sizes": "Sizes", "colours": "Colours", "budget": "Budget", "stores": "Stores"}
 
 # Shown until you save your own details on the Profile page.
 EXAMPLE = {
@@ -24,6 +28,7 @@ EXAMPLE = {
     "shoes": True,
     "outerwear": True,
     "owned": "",           # things you already own, one per line
+    "stores_off": [],      # the stores he unticked on the Stores tab; none = every store offered (see stores)
 }
 
 
@@ -42,6 +47,35 @@ def save(profile: dict) -> None:
     if not same_sizes(load(), profile):
         confirm_sizes()
     db.set_setting("profile", profile)
+
+
+def stores(profile: dict | None = None) -> list[str]:
+    """The stores a customer's pieces are picked from: every store customers are offered (programmes.offered), in
+    config/stores.toml's order, but for those he unticked on Profile's Stores tab. What is saved is what he left out,
+    so a store that is offered later (its programme approved) is among his stores until he unticks it. Never none:
+    should every store he kept stop being offered, he gets all those that are."""
+    off = (load() if profile is None else profile).get("stores_off") or []
+    offered = list(programmes.offered())
+    return [key for key in offered if key not in off] or offered
+
+
+def _stores_from(form, current: dict) -> tuple[list[str], str | None]:
+    """The stores he left out, from the Stores tab's ticks, and a note when he unticked them all. A form without the
+    Stores tab (`stores_shown`) leaves them as they were. A store that is not offered just now stays left out, should
+    it be offered again."""
+    kept = list(current.get("stores_off") or [])
+    if "stores_shown" not in form:
+        return kept, None
+    offered = list(programmes.offered())
+    ticked = [key for key in form.getlist("stores") if key in offered]
+    if not ticked:
+        return kept, "At least one store must stay ticked, so your stores stay as they were."
+    return [key for key in offered if key not in ticked] + [key for key in kept if key not in offered], None
+
+
+def same_answers(a: dict, b: dict) -> bool:
+    """Whether two profiles hold the same answers (whether they are still the example's aside)."""
+    return {k: v for k, v in a.items() if k != "example"} == {k: v for k, v in b.items() if k != "example"}
 
 
 def same_sizes(a: dict, b: dict) -> bool:
@@ -106,6 +140,10 @@ def from_form(form, current: dict) -> tuple[dict, list[str]]:
     except ValueError:
         shoe_ok = False
 
+    stores_off, stores_note = _stores_from(form, current)
+    if stores_note:
+        notes.append(stores_note)
+
     profile = {
         "example": False,
         "top_size": top if top in ALPHA else current["top_size"],
@@ -123,5 +161,6 @@ def from_form(form, current: dict) -> tuple[dict, list[str]]:
         "shoes": form.get("shoes") == "on",
         "outerwear": form.get("outerwear") == "on",
         "owned": (form.get("owned") or "").strip(),
+        "stores_off": stores_off,
     }
     return profile, notes

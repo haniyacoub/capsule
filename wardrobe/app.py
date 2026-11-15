@@ -28,6 +28,7 @@ from werkzeug.exceptions import HTTPException, NotFound
 
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
                owner, person, programmes, selection, shared, tryon)
+from . import figure
 from . import videos
 from . import profile as profile_mod
 from . import english
@@ -289,6 +290,8 @@ def create_app() -> Flask:
         ink_on=colours.ink_on, level_hints=selection.HINTS,
         # The stores customers are offered, {key: name}, and their names in a sentence (programmes.py).
         STORES=programmes.OFFERED, store_names=programmes.names,
+        # The stores the signed-in customer ticked on Profile's Stores tab, [key], which his pieces come from.
+        my_stores=profile_mod.stores,
         # What a customer added to a piece from a store that is no longer offered, listed on its page (_set_aside.html).
         set_aside_for=catalog.set_aside,
     )
@@ -1178,11 +1181,16 @@ def create_app() -> Flask:
             rules = looks.load_rules()
             chosen = looks.service()
             model = person.load()
-            return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model,
+            w = selection.build()
+            return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model, w=w,
+                        # The drawn figure in the middle (figure.py), and what app.js needs to redraw it.
+                        fig=figure.drawing(model, current["height_cm"]), figure_data=figure.data(),
+                        tabs=profile_mod.TABS, picture=model_picture(w) if chosen else None,
                         model_words=person.describe(model)[0] or rules["text"]["model"],
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
                         videos_on=chosen is not None and videos.service() is not None,
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
+                        store_rows=store_rows(current),
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
                         # The one note while the answers are still the example's: the sizes may already be his
                         # ("These are my sizes"), and a plan edited on the plan page is not rebuilt by a save.
@@ -1190,9 +1198,24 @@ def create_app() -> Flask:
                         plan_kept=current["example"] and plan_edited(current))
 
         new, notes = profile_mod.from_form(request.form, current)
+        # The model's choices (the Body tab) are sent with the same form, where the menu is shown. A save that changed
+        # only them saves only them, as the model's own button did (person.py): the profile stays as it was, also
+        # while it holds the example's values, and the message is said beside the model.
+        model = person.load()
+        chosen_model = person.clean(request.form) if any(group in request.form for group in person.GROUPS) else model
+        if chosen_model != model:
+            person.save(chosen_model)
+            if not notes and profile_mod.same_answers(new, current):
+                flash("Model saved. Pictures drawn from now on show it.", "model")   # profile.html adds "See your outfits"
+                return redirect(url_for("profile_page") + "#model")
+            flash("Model saved. Pictures drawn from now on show it.")
+        # Stores unticked on the Stores tab: their pieces are picked again, his own choices among them (shared.py).
+        stores_line = shared.stores_unticked(current, new)
         profile_mod.save(new)
         for note in notes:
             flash(note)
+        if stores_line:
+            flash(stores_line)
 
         shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned")
         # The plan has no tab of its own, so a message that sends you to it carries the link.
@@ -1200,13 +1223,13 @@ def create_app() -> Flask:
         same_plan = all(current[f] == new[f] for f in shapes_capsule)
         if same_plan and not current["example"]:        # sizes or budget: the plan stays as it is
             flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
-            return redirect(url_for("profile_page"))
+            return back_to_tab()
         if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
             if current["refused"] != new["refused"]:
                 sync_catalog()          # its pieces stay, but no longer with products in a colour now refused
             flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
                          "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
-            return redirect(url_for("profile_page"))
+            return back_to_tab()
         if same_plan:
             # The first save, with the example's colours and use kept: the plan is built from them already. As the
             # note on Profile says, the outfits follow, now under the budget bar instead of the starter banner.
@@ -1220,6 +1243,52 @@ def create_app() -> Flask:
             flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
                   % (line, edit_the_plan))
         return redirect(url_for("outfits_page"))       # the new plan, where it shows best: on the model
+
+    def store_rows(profile: dict) -> list[dict]:
+        """The Stores tab: every store customers are offered (programmes.offered), with the network that runs its
+        partner programme ("Rakuten") and whether he ticked it (profile.stores)."""
+        mine = profile_mod.stores(profile)
+        return [{"key": key, "label": label, "on": key in mine,
+                 "network": owner.NETWORKS.get(programmes.network(key), programmes.network(key).title())}
+                for key, label in programmes.offered().items()]
+
+    def back_to_tab():
+        """Back to Profile, on the tab the form was sent from (app.js writes it in the form; without it, the first)."""
+        tab = request.form.get("tab", "")
+        return redirect(url_for("profile_page") + (f"#{tab}" if tab in profile_mod.TABS else ""))
+
+    def first_outfit(w: selection.Wardrobe) -> list[dict] | None:
+        """The pieces of the first outfit Outfits shows (for what the customer dresses for, unshuffled)."""
+        use = profile_mod.load()["use"]
+        chosen, _ = outfits.generate(w, occasion="all" if use == "both" else use, limit=1)
+        return outfits.snapshot(chosen[0]) if chosen else None
+
+    def model_picture(w: selection.Wardrobe) -> dict:
+        """'Your model' on Profile: the AI picture of the saved model in the first outfit, which is the picture Outfits
+        shows first (the same picture, never drawn twice), or where it stands. `look` is None while there is none."""
+        pieces = first_outfit(w)
+        if pieces is None:
+            return {"look": None, "outfit": False}
+        board = {"pieces": pieces}
+        looks.attach([board])
+        return {"look": board.get("look"), "outfit": True}
+
+    @app.route("/profile/picture", methods=["GET", "POST"])
+    def profile_picture():
+        """'Draw my model' (POST), and where its picture stands, asked every few seconds while it is drawn (GET).
+        The picture is asked for like any outfit's (looks.request), with the same daily limits."""
+        if looks.service() is None:
+            abort(404)                      # AI pictures are switched off
+        w = selection.build()
+        if request.method == "POST":
+            pieces = first_outfit(w)
+            if pieces is None:
+                abort(409, "There is no outfit to draw yet — reload the page.")
+            look = looks.request(pieces, again=request.form.get("again") == "1")
+            if not request.headers.get("HX-Request"):
+                return redirect(url_for("profile_page") + "#figure")
+            return render_template("_model_picture.html", picture={"look": look, "outfit": True})
+        return render_template("_model_picture.html", picture=model_picture(w))
 
     @app.post("/profile/sizes-ok")
     def profile_sizes_ok():
