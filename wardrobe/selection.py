@@ -21,6 +21,8 @@ Rules, in order:
      although it is. It stays the piece's product, so the outfits stay as they are, but it
      is said to be sold out, it counts nothing in the total (it cannot be bought), and the
      next best product that is in stock in your size is offered in its place (next_best).
+     "Nothing else is in stock in your size" is said only when that is known: other products
+     whose sizes were never checked (COS) are counted and pointed to instead (SlotView.no_swap).
 """
 from __future__ import annotations
 
@@ -30,7 +32,7 @@ from functools import cached_property
 
 from . import capsule
 from . import catalog as catalog_mod
-from . import colours, db, scoring, shared, sizecheck, sizes
+from . import colours, db, programmes, scoring, shared, sizecheck, sizes
 from . import profile as profile_mod
 from .garments import GARMENTS, SECTIONS, Garment
 from . import settings
@@ -63,6 +65,16 @@ def usable_price(value: object) -> float:
     except (TypeError, ValueError):
         return 0.0
     return round(price, 2) if math.isfinite(price) and 0 < price < 1_000_000 else 0.0
+
+
+def gone_words(n_sold_out: int, n_not_made: int, example: bool = False) -> str:
+    """What is said of pieces whose chosen product cannot be bought in his size, counted together: 'sold out in
+    your size', 'not made in your size', or, with some of each, 'sold out or not made in your size'. While the
+    sizes are still the example's it is 'the example size', as everywhere."""
+    size = "the example size" if example else "your size"
+    if not n_not_made:
+        return f"sold out in {size}"
+    return f"not made in {size}" if not n_sold_out else f"sold out or not made in {size}"
 
 
 @dataclass
@@ -129,6 +141,11 @@ class SlotView:
     # For a chosen product that is sold out in his size: the next best one that is in stock in it (next_best),
     # offered in one tap wherever the piece shows (_sold_out.html). None when no other is in stock in his size.
     swap: Cand | None = None
+    example_size: bool = False      # the sizes are still the example's (profile.sizes_unconfirmed): said with the size
+
+    @property
+    def your_size(self) -> str:
+        return "the example size" if self.example_size else "your size"
 
     @property
     def qty(self) -> int:
@@ -141,10 +158,43 @@ class SlotView:
         return self.state != "owned" and self.chosen is not None and not self.chosen.available
 
     @property
+    def not_made(self) -> bool:
+        """The chosen product is not made in his size at all (rather than sold out in it)."""
+        return self.sold_out and self.chosen is not None and not self.chosen.size.label
+
+    @property
     def sold_words(self) -> str:
-        """'Sold out in M', with the store's own label for his size, or 'Not made in your size'."""
+        """'Sold out in M', with the store's own label for his size, or 'Not made in your size'. While the sizes
+        are still the example's: 'Sold out in M (example size)', 'Not made in the example size'."""
         label = self.chosen.size.label if self.chosen else None
-        return f"Sold out in {label}" if label else "Not made in your size"
+        if not label:
+            return f"Not made in {self.your_size}"
+        return f"Sold out in {label}" + (" (example size)" if self.example_size else "")
+
+    @property
+    def no_swap(self) -> tuple[str, str, bool]:
+        """With no product to offer in place of a sold-out one (swap is None), what is true of the piece's other
+        products: (the sentence, what else there is, whether there is anything else to look at).
+        "Nothing else for this piece is in stock in your size" only when that is known. Products whose store gave
+        no sizes (COS) may well be in stock: they are counted, by store, and the page points to all the options
+        instead of to pasting a link. So is one in his size that has no price yet (a pasted link)."""
+        others = [c for c in self.cands if self.chosen is None or c.id != self.chosen.id]
+        unchecked = [c for c in others if c.size.rank == sizes.NOT_CHECKED]
+        no_price = [c for c in others if c.size.rank == sizes.IN_YOUR_SIZE and c.price <= 0]
+        more = []
+        if unchecked:
+            names = sorted({programmes.label(c.data.get("store", "")) for c in unchecked if c.data.get("store")})
+            at = f" at {' and '.join(names)}" if names else ""
+            more.append(f"{len(unchecked)} more{at}: sizes not checked")
+        if no_price:
+            more.append(f"{len(no_price)} more in stock in {self.your_size}: no price yet")
+        if no_price:
+            lead = f"Nothing else in stock in {self.your_size} has a price yet"
+        elif unchecked:
+            lead = f"Nothing else is known to be in stock in {self.your_size}"
+        else:
+            lead = f"Nothing else for this piece is in stock in {self.your_size}"
+        return lead, ", ".join(more), bool(more)
 
     @property
     def swap_cents(self) -> int:
@@ -191,6 +241,7 @@ class Wardrobe:
     collected: str
     stores: dict = field(default_factory=dict)   # per store: how the last refresh went
     note: str = ""               # something to say about the whole wardrobe (the budget cannot be met)
+    example_sizes: bool = False  # the sizes are still the example's: "in the example size", not "in your size"
 
     @cached_property
     def levels(self) -> dict[str, float]:
@@ -233,6 +284,13 @@ class Wardrobe:
         return sum(s.qty for s in self.slots if s.sold_out)
 
     @property
+    def gone_words(self) -> str:
+        """'sold out in your size', 'not made in your size' or 'sold out or not made in your size': what is true
+        of the pieces n_sold_out counts."""
+        not_made = sum(s.qty for s in self.slots if s.not_made)
+        return gone_words(self.n_sold_out - not_made, not_made, self.example_sizes)
+
+    @property
     def n_owned(self) -> int:
         return sum(s.qty for s in self.slots if s.state == "owned")
 
@@ -266,10 +324,11 @@ class Wardrobe:
     def unfilled_words(self) -> list[str]:
         """The budget bar's count of pieces nothing is picked for, by why: '6 pieces not in the product list
         yet', '1 piece not in stock in your size', '1 piece with no price yet', '1 piece sold out in your size' (its
-        chosen product is, and others may not be). Each count is true on its own."""
+        chosen product is, and others may not be; 'not made in your size' where that is the reason, see
+        gone_words). Each count is true on its own."""
         out = []
         for n, why in ((self.n_missing, "not in the product list yet"), (self.n_no_size, "not in stock in your size"),
-                       (self.n_no_price, "with no price yet"), (self.n_sold_out, "sold out in your size")):
+                       (self.n_no_price, "with no price yet"), (self.n_sold_out, self.gone_words)):
             if n:
                 out.append(f"{n} {'piece' if n == 1 else 'pieces'} {why}")
         return out
@@ -348,11 +407,14 @@ def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tu
 def next_best(cands: list[Cand], sold_out: Cand, threshold: int) -> Cand | None:
     """What to offer in place of a chosen product that is sold out in his size: among the piece's other products
     known to be in stock in his size, with a price, the one nearest in price to the one he chose (at equal
-    distance the better one, then the cheaper). Those that reach the minimum quality first; if none does, any.
+    distance the better one, then the cheaper). Those that are good enough first; if none is, any. Good enough:
+    reaching the minimum quality, or rated at least as well as the one he chose (he took a 67 under a minimum of
+    70: another 67 at the same price is a truer replacement than an 80 for 5 € more).
     Never one whose sizes were not checked: the offer says "in stock in your size", and that must be known.
     None when nothing else is in stock in his size."""
     pool = [c for c in cands if c.id != sold_out.id and c.size.rank == sizes.IN_YOUR_SIZE and c.price > 0]
-    pool = [c for c in pool if c.score.total >= threshold] or pool
+    enough = min(threshold, sold_out.score.total)
+    pool = [c for c in pool if c.score.total >= enough] or pool
     if not pool:
         return None
     return min(pool, key=lambda c: (abs(round(c.price * 100) - round(sold_out.price * 100)), -c.score.total, c.price))
@@ -461,6 +523,7 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
     rules = scoring.load_rules()
     charts = sizes.load_charts()
     grouped = catalog_mod.by_slot(cat)
+    example = profile_mod.sizes_unconfirmed(profile)     # said with every size until he says the sizes are his
 
     views: list[SlotView] = []
     for slot in db.list_slots():
@@ -470,7 +533,7 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         # In your size first, then sizes not checked, then sold out or not made in your size; each by price.
         cands.sort(key=lambda c: (c.size.rank, c.price, -c.score.total))
         view = SlotView(slot=slot, garment=GARMENTS[slot["category"]],
-                        colour=colours.get(slot["colour"]), cands=cands)
+                        colour=colours.get(slot["colour"]), cands=cands, example_size=example)
 
         if slot["owned"]:
             view.state = "owned"
@@ -497,7 +560,7 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         slots=views, mode=mode, threshold=threshold, budget=float(profile.get("budget") or 0),
         source=cat.get("source", "empty"),
         collected=catalog_mod.collected_label(cat),
-        stores=cat.get("stores", {}),
+        stores=cat.get("stores", {}), example_sizes=example,
     )
     if mode == "budget":
         picks, fits, _ = _fit(wardrobe)
@@ -566,19 +629,25 @@ def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
 
     The slots it may move are the automatic ones that have candidates reaching the minimum quality, and each
     moves among those in your size first, as a price level does (choose). Everything else (owned, locked, a
-    best-available fallback) is money already spent.
+    best-available fallback) is money already spent. A locked product that is sold out in his size counts nothing
+    in the total, but its price is kept aside here: the swap offered for it costs about as much, and the money
+    must not be spent on upgrades that the swap would then take back.
     """
     free = [(view, [c for c in view.cands if c.available and c.price > 0 and c.score.total >= wardrobe.threshold])
             for view in wardrobe.slots if view.state == "auto"]
     free = [(view, in_your_size_first(pool)) for view, pool in free if pool]
     moving = {view.slot["id"]: min(pool, key=lambda c: (c.price, -c.score.total)) for view, pool in free}
-    spent = sum(view.cost for view in wardrobe.slots if view.slot["id"] not in moving)
+    fixed = [view for view in wardrobe.slots if view.slot["id"] not in moving]
+    spent = sum(view.cost for view in fixed)
+    aside = sum(view.price for view in fixed if view.sold_out)
     # How much each slot is worn is judged with every free slot on its cheapest candidate, whatever
     # is selected right now: the answer must not depend on the level the page happens to be on.
     basis = replace(wardrobe, slots=[replace(view, chosen=moving[view.slot["id"]]) if view.slot["id"] in moving
                                      else view for view in wardrobe.slots])
-    picks, fits = fit_budget([(view.slot["id"], view.qty, pool) for view, pool in free], wardrobe.budget - spent,
-                             _wear(basis))
+    slots, wear = [(view.slot["id"], view.qty, pool) for view, pool in free], _wear(basis)
+    picks, fits = fit_budget(slots, wardrobe.budget - spent - aside, wear)
+    if not fits and aside:      # only the money kept aside is in the way: what can be bought does fit
+        picks, fits = fit_budget(slots, wardrobe.budget - spent, wear)
     total = spent + sum(picks[view.slot["id"]].price * view.qty for view, _ in free)
     return picks, fits, round(total, 2)
 

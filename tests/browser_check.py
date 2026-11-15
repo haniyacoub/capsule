@@ -3279,6 +3279,12 @@ def run(base: str) -> None:
             # and each total that leaves it out says so. The tap chooses the other product and comes back to the same
             # page, which says what changed, with Undo, which comes back there too: by touch on a phone, by mouse on a
             # computer, and with JavaScript off. A customer of his own, deleted when the step ends, passed or failed.
+            # His sizes are still the example's, so every size is said to be the example size. The outfit's own price
+            # is the one Buy this outfit shows. The tap is also made in the pop-up and under Saved. On paper, where
+            # the button is gone, the sentence names the product. Last, with a size nothing is made in: "Not made in
+            # your size", never counted as "sold out", and "Nothing else … is in stock in your size" with "Add one you
+            # found yourself"; once he has added one by its link (its sizes are not checked) it says "Nothing else is
+            # known to be in stock in your size. 1 more at COS: sizes not checked", with the way to all options.
             buyer = "soldout-" + EMAIL
 
             def as_buyer(**screen):
@@ -3336,13 +3342,13 @@ def run(base: str) -> None:
                 """The block says the fact and offers one button, whole on the screen's width; what the button says."""
                 assert view.locator(block).count() == 1, f"{where}: the piece is not said to be sold out"
                 fact = read(view, f"{block} .soldout-said")
-                assert re.fullmatch(r"Sold out in \S+ at [\w &]+", fact), f"{where}: the piece says {fact!r}"
+                assert re.fullmatch(r"Sold out in \S+ \(example size\) at [\w &]+", fact), f"{where}: the piece says {fact!r}"
                 assert view.locator(f"{block} form button").count() == 1, f"{where}: not one swap button"
                 button = read(view, f"{block} form button")
                 assert re.fullmatch(r"Swap for .+, (same price|[+−][\d.,]+ € ?[\d.,]+ € (more|less))( for \d+)?", button), \
                     f"{where}: the button reads {button!r}"
                 more = read(view, f"{block} .soldout-more")
-                assert re.search(r"€( each)? at .+, in stock in \S+\. It takes this piece's place in all your outfits\.$", more), \
+                assert re.search(r"€( each)? at .+, in stock in \S+ \(example size\)\. It takes this piece's place in all your outfits\.$", more), \
                     f"{where}: under the button: {more!r}"
                 box = view.locator(f"{block} form button").bounding_box()
                 wide = view.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
@@ -3354,7 +3360,7 @@ def run(base: str) -> None:
             def not_counted(view, where: str) -> None:
                 """The page's total is what its stores' baskets come to: the sold-out piece is in none of them."""
                 baskets = view.locator(".store-list:not(.sold-list) .subtotal").all_inner_texts()
-                assert read(view, ".sold-list .store-head") == "Sold out in your size 1 piece not counted", \
+                assert read(view, ".sold-list .store-head") == "Sold out in the example size 1 piece not counted", \
                     f"{where}: the sold-out piece's section is headed {read(view, '.sold-list .store-head')!r}"
                 total = euros(view.locator(".buy-head b, .grand .grand-row b").first.inner_text())
                 assert abs(total - sum(euros(b) for b in baskets)) < 0.01, f"{where}: {total} is not the baskets' {baskets}"
@@ -3379,23 +3385,42 @@ def run(base: str) -> None:
                         motion_ended(view)
                         assert said_and_offered(view, "dialog#piece[open] .soldout", f"{where}, the pop-up") == offered
                         view.keyboard.press("Escape")
+                        # The outfit has one price: what can be bought of it, as on Buy this outfit; said under it.
+                        cost = euros(view.locator(f"{first} .board-cost").inner_text())
+                        assert abs(cost - (whole - price)) < 0.01, f"{where}: the outfit says {cost}; without the sold-out piece it is {whole - price}"
+                        less = read(view, f"{first} .about-less")
+                        assert re.fullmatch(r"Not counted: .+, sold out in \S+ \(example size\)", less), f"{where}: under the outfit's price: {less!r}"
+                        assert view.locator(f"{first} .pieces li:has(.piece-row[hx-get*='slot={slot}&']) .piece-price s").count() == 1, \
+                            f"{where}: the sold-out piece's price in the outfit's list is not struck out"
                         # The Wardrobe: on the piece's card, its price struck out, and the bar says why one is not to buy.
                         view.goto(base + "/", wait_until="networkidle")
                         said_and_offered(view, f"#card-{slot} .soldout", f"{where}, the Wardrobe")
                         assert view.locator(f"#card-{slot} .slot-price s").count() == 1, f"{where}: the Wardrobe card's price is not struck out"
-                        assert "sold out in your size" in view.locator("#summary").evaluate("el => el.textContent"), \
+                        assert "sold out in the example size" in view.locator("#summary").evaluate("el => el.textContent"), \
                             f"{where}: the budget bar does not say a piece is sold out in his size"
                         # The Shopping list and Buy this outfit: apart from the baskets, in no total, and said.
                         view.goto(base + "/list", wait_until="networkidle")
                         said_and_offered(view, ".sold-list .soldout", f"{where}, the Shopping list")
                         not_counted(view, f"{where}, the Shopping list")
                         grand = read(view, ".grand")
-                        assert "you can buy" in grand and "Sold out in your size 1 piece, not counted" in grand, f"{where}: the list's total reads {grand!r}"
+                        assert "you can buy" in grand and "Sold out in the example size 1 piece, not counted" in grand, f"{where}: the list's total reads {grand!r}"
+                        # On paper the button is gone, and the sentence under it names the product itself.
+                        named = re.match(r"Swap for (.+), (?:same price|[+−])", read(view, ".sold-list .soldout form button")).group(1)
+                        view.emulate_media(media="print")
+                        try:
+                            assert not view.locator(".sold-list .soldout form button").is_visible(), f"{where}: the swap button is printed"
+                            printed = [" ".join(p.replace("\xa0", " ").split()) for p in view.locator(".sold-list .soldout p:visible").all_inner_texts()
+                                       if p.strip()]
+                            assert len(printed) == 2 and re.fullmatch(
+                                r"In stock in \S+ \(example size\): " + re.escape(named) + r", [\d.,]+ € at [\w &]+\.", printed[1]), \
+                                f"{where}: on paper the sold-out piece reads {printed}"
+                        finally:
+                            view.emulate_media(media="screen")
                         view.goto(buy, wait_until="networkidle")
                         said_and_offered(view, ".sold-list .soldout", f"{where}, Buy this outfit")
                         not_counted(view, f"{where}, Buy this outfit")
                         head = read(view, ".buy-head")
-                        assert "1 sold out in your size, not counted" in head, f"{where}: Buy this outfit is headed {head!r}"
+                        assert "1 sold out in the example size, not counted" in head, f"{where}: Buy this outfit is headed {head!r}"
                         assert abs(euros(view.locator(".buy-head b").inner_text()) - (whole - price)) < 0.01, \
                             f"{where}: Buy this outfit counts {head!r}; the outfit was {whole} with this piece at {price}"
 
@@ -3403,9 +3428,14 @@ def run(base: str) -> None:
                         # with Undo, and Undo comes back to the same page with the product he had.
                         for page_name, address, block in (("Buy this outfit", buy, ".sold-list .soldout"),
                                                           ("the outfit's list", outfit, mine),
+                                                          ("the pop-up", outfit, "dialog#piece[open] .soldout"),
                                                           ("the Wardrobe", base + "/", f"#card-{slot} .soldout"),
                                                           ("the Shopping list", base + "/list", ".sold-list .soldout")):
                             view.goto(address, wait_until="networkidle")
+                            if page_name == "the pop-up":
+                                view.locator(f"{first} .piece-row[hx-get*='slot={slot}&']").evaluate("r => r.click()")
+                                view.wait_for_selector("dialog#piece[open] .soldout form button")
+                                motion_ended(view)
                             name = re.match(r"Swap for (.+), (?:same price|[+−])", read(view, f"{block} form button")).group(1)
                             pressed(view, f"{block} form button", phone)
                             here = address.split("?")[0]
@@ -3424,10 +3454,30 @@ def run(base: str) -> None:
                                 assert view.locator(f"{first} .piece-row[hx-get]").count() == len(rows), f"{where}: the outfit lost a piece"
                             pressed(view, "main > .said button", phone)
                             assert view.url.split("?")[0] == here, f"{where}: Undo on {page_name} led to {view.url}"
-                            assert view.locator(block).count() == 1, f"{where}, {page_name}: after Undo the piece is not said to be sold out again"
+                            again = mine if page_name == "the pop-up" else block       # (Undo comes back to the outfit, the pop-up shut)
+                            assert view.locator(again).count() == 1, f"{where}, {page_name}: after Undo the piece is not said to be sold out again"
                             back = [f for f in view.locator("main > .flash").all_inner_texts() if ": back to " in f]
                             assert back, f"{where}, {page_name}: nothing says the product is back: {view.locator('main > .flash').all_inner_texts()}"
                             assert name not in back[0], f"{where}, {page_name}: Undo says {back[0]!r}"
+
+                        # Under Saved: the saved outfit says it while the piece is still that product, with the same
+                        # tap; the swap and its Undo both come back to Saved.
+                        view.goto(outfit, wait_until="networkidle")
+                        if view.locator(f"{first} .heart").get_attribute("aria-pressed") != "true":
+                            view.locator(f"{first} .heart").click()
+                            view.wait_for_selector(f"{first} form.save:not(.htmx-added) .heart[aria-pressed=true]")
+                        view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
+                        kept = ".pieces li .soldout"
+                        said_and_offered(view, kept, f"{where}, Saved")
+                        pressed(view, f"{kept} form button", phone)
+                        assert "/outfits?" in view.url and "occasion=saved" in view.url and "changed=" + slot in view.url, \
+                            f"{where}: the swap under Saved led to {view.url}"
+                        assert said_over_the_outfits(view).endswith("It stays when you change the price level. Undo"), \
+                            f"{where}, Saved: after the swap the line reads {said_over_the_outfits(view)!r}"
+                        assert view.locator(".soldout").count() == 0, f"{where}, Saved: still said to be sold out after the swap"
+                        pressed(view, "main > .said button", phone)
+                        assert "occasion=saved" in view.url, f"{where}: Undo under Saved led to {view.url}"
+                        assert view.locator(kept).count() == 1, f"{where}, Saved: after Undo the piece is not said to be sold out again"
                     finally:
                         context.close()
 
@@ -3443,6 +3493,52 @@ def run(base: str) -> None:
                     pressed(plain, "main > .said button", False)
                     assert plain.url == base + "/list" and plain.locator(".sold-list .soldout").count() == 1, \
                         f"without JavaScript Undo led to {plain.url}"
+                finally:
+                    context.close()
+
+                # A size nothing is made in. The product he chose is "Not made in your size" (his own size now, no
+                # longer the example's), which no count calls "sold out". Nothing else is in his size: said, with
+                # "Add one you found yourself". Once he has added one by its link, whose sizes nobody checked, it is
+                # no longer "nothing": it is counted, and the link leads to all the options.
+                context, view = as_buyer(viewport={"width": 1280, "height": 860})
+                try:
+                    view.goto(base + "/profile#sizes", wait_until="networkidle")
+                    view.select_option("select[name=top_size]", "XXS")        # (no demo product is made in it)
+                    view.click("button:has-text('Save profile')")
+                    view.wait_for_load_state("networkidle")
+                    view.goto(base + "/", wait_until="networkidle")
+                    card = f"#card-{slot} .soldout"
+                    fact = read(view, f"{card} .soldout-said")
+                    assert re.fullmatch(r"Not made in your size at [\w &]+", fact), f"a size nothing is made in: the piece says {fact!r}"
+                    assert view.locator(f"{card} form").count() == 0, "a swap is offered although nothing is in his size"
+                    more = read(view, f"{card} .soldout-more")
+                    assert more == "Nothing else for this piece is in stock in your size. Add one you found yourself", \
+                        f"with nothing else in his size the piece says {more!r}"
+                    bar = " ".join(view.locator("#summary").evaluate("el => el.textContent").split())
+                    assert "not made in your size" in bar and "sold out in your size" not in bar, \
+                        f"the budget bar counts a product not made in his size as: {bar!r}"
+                    view.locator(f"{card} .soldout-more a").click()
+                    view.wait_for_load_state("networkidle")
+                    assert f"/slot/{slot}" in view.url and view.url.endswith("#add"), f"'Add one you found yourself' led to {view.url}"
+                    view.fill("#add textarea[name=urls]", f"https://www.cos.com/de-de/men/product/{slot}-1234567002.html")
+                    with view.expect_navigation():
+                        view.locator("#add button", has_text="Add").click()
+                    view.wait_for_load_state("networkidle")
+                    assert view.locator(".cand:has(.by > .tag)").count() == 1, "the product pasted by its link was not added"
+                    for page_name, address, block in (("the Wardrobe", base + "/", card), ("the Shopping list", base + "/list", ".sold-list .soldout")):
+                        view.goto(address, wait_until="networkidle")
+                        more = read(view, f"{block} .soldout-more")
+                        assert more.startswith("Nothing else is known to be in stock in your size. 1 more at COS: sizes not checked. "
+                                               "See all options"), f"{page_name}: with one product whose sizes were not checked: {more!r}"
+                        assert "Add one you found yourself" not in more, f"{page_name}: {more!r}"
+                    head = read(view, ".sold-list .store-head")
+                    assert head == "Not made in your size 1 piece not counted", f"the list's section is headed {head!r}"
+                    view.locator(".sold-list .soldout .soldout-more a").click()
+                    view.wait_for_load_state("networkidle")
+                    assert f"/slot/{slot}" in view.url and view.locator(".cand:has(.by > .tag)").count() == 1, \
+                        f"'See all options' led to {view.url}, without the product whose sizes were not checked"
+                    own = read(view, ".slot-head .soldout .soldout-more")
+                    assert own.endswith("1 more at COS: sizes not checked. They are listed below."), f"the piece's own page says {own!r}"
                 finally:
                     context.close()
             finally:

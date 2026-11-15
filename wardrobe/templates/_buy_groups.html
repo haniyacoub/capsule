@@ -15,7 +15,7 @@
 {% if sl.sold_out %}
 <section class="card store-list sold-list">
   <header class="store-head">
-    <h2>Sold out in your size</h2>
+    <h2>{{ sl.gone_words|capitalize }}</h2>
     <span class="muted">{{ sl.pieces_sold_out }} {{ 'piece' if sl.pieces_sold_out == 1 else 'pieces' }}</span>
     <span class="subtotal muted">not counted</span>
   </header>

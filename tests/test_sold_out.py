@@ -8,7 +8,10 @@ one that is). The promises:
   * one tap offers the next best product that is known to be in stock in your size, with the true difference in
     price ("+10 €", "−5 €", "same price"); it chooses it as the pop-up's Choose does, and the page you were on says
     so with Undo, which brings you back to the same page;
-  * with nothing else in stock in your size, that is said, with "Add one you found yourself";
+  * with nothing else in stock in your size, that is said, with "Add one you found yourself": but only when it is
+    known. Other products whose sizes were never checked (COS) are counted and pointed to instead;
+  * while the sizes are still the example's, the size is said to be the example size;
+  * "not made in your size" is never counted under the words "sold out in your size";
   * the outfit stays as it is;
   * no total counts a sold-out product as something to buy, and every total that leaves one out says so.
 
@@ -20,6 +23,7 @@ import re
 import unittest
 
 from wardrobe import catalog, db, english, export, outfits, programmes, selection, sizes
+from wardrobe import profile as profile_mod
 from wardrobe.app import eur
 
 from .test_app import HX, AppCase
@@ -55,7 +59,34 @@ class TheNextBest(unittest.TestCase):
         self.assertEqual(selection.next_best([gone, twin_high, twin_low], gone, 70).id, twin_low.id)
 
 
+    def test_one_as_good_as_the_one_he_chose_is_good_enough(self):
+        # He chose a 67 under a minimum of 70. Another 67 at the same price is the next best, not an 80 for 5 € more.
+        gone = option(weekday(1, 19.99, in_stock=["S", "L"]), quality=67)
+        twin, better = option(weekday(2, 19.99), quality=67), option(weekday(3, 24.99), quality=80)
+        self.assertEqual(selection.next_best([gone, better, twin], gone, 70).id, twin.id)
+        # One rated lower than his own choice and under the minimum still waits behind those that are good enough.
+        worse = option(weekday(4, 19.99), quality=50)
+        self.assertEqual(selection.next_best([gone, worse, better], gone, 70).id, better.id)
+
+    def test_the_words_for_several_pieces_say_which_it_is(self):
+        self.assertEqual(selection.gone_words(2, 0), "sold out in your size")
+        self.assertEqual(selection.gone_words(0, 1), "not made in your size")
+        self.assertEqual(selection.gone_words(1, 3), "sold out or not made in your size")
+        self.assertEqual(selection.gone_words(1, 0, example=True), "sold out in the example size")
+
+
 class SoldOutCase(AppCase):
+    def setUp(self):
+        super().setUp()
+        db.set_setting("sizes_confirmed", True)         # "These are my sizes" (the example's are told apart below)
+
+    def unchecked(self, sid: str, keep: str, n: int, store: str = "cos") -> None:
+        """`n` of the piece's other products become products of a store that gave no sizes (as every COS product)."""
+        ids = [c.id for c in selection.build().get(sid).cands if c.id != keep][:n]
+        self.assertEqual(len(ids), n)
+        catalog.update(lambda cat: [c.update(sizes_all=[], sizes_in_stock=[], store=store)
+                                    for c in cat["candidates"] if c.get("slot_id") == sid and c.get("id") in ids])
+
     def sell_out(self, layer="outer", size="M", leave: int | None = None):
         """An outfit, and a piece of it whose product he chose by hand and whose size sold out afterwards. With
         `leave`, only that many of the piece's other products stay in stock in his size."""
@@ -64,6 +95,7 @@ class SoldOutCase(AppCase):
         view = next(p for p in outfit.pieces if p.layer == layer).view
         sid, cand = view.slot["id"], view.chosen.id
         self.client.post(f"/slot/{sid}/pick", data={"candidate": cand})
+        size = size or view.chosen.size.label
         self.assertEqual(view.chosen.size.label, size)
         others = [c for c in view.cands if c.id != cand and c.available]
         # Each store labels his size its own way (M at Weekday, 48 at COS): that label leaves the sizes in stock.
@@ -84,9 +116,9 @@ class SoldOutCase(AppCase):
         return re.findall(r'<div class="soldout">(.*?)</div>', page, re.S)
 
     def swap_form(self, block: str) -> dict:
-        form = re.search(r'<form class="no-print" method="post" action="(/slot/[^"]+/pick)">(.*?)</form>', block, re.S)
+        form = re.search(r'<form class="no-print" method="post" action="(/slot/[^"?]+/pick[^"]*)">(.*?)</form>', block, re.S)
         self.assertIsNotNone(form, f"no swap offered: {as_read(block)}")
-        return {"action": form.group(1), "button": as_read(re.search(r"<button[^>]*>(.*?)</button>", form.group(2), re.S).group(1)),
+        return {"action": form.group(1).replace("&amp;", "&"), "button": as_read(re.search(r"<button[^>]*>(.*?)</button>", form.group(2), re.S).group(1)),
                 **dict(re.findall(r'name="(\w+)" value="([^"]*)"', form.group(2)))}
 
     def press(self, form: dict):
@@ -220,6 +252,96 @@ class SaidWithTheSwap(SoldOutCase):
                 self.assertTrue(link.group(1).startswith(f"/slot/{sid}") and link.group(1).endswith("#add"), link.group(1))
                 self.assertIn('id="add"', self.page(link.group(1).split("#")[0].replace("&amp;", "&")))
 
+    def test_products_whose_sizes_were_not_checked_are_not_called_nothing(self):
+        # Every other product of the piece is out of his size, except two whose store gave no sizes: they may well
+        # be in stock (the automatic pick would take one). "Nothing else is in stock" would be untrue.
+        outfit, view = self.sell_out(leave=0)
+        sid = view.slot["id"]
+        self.unchecked(sid, view.chosen.id, 2)
+        view = selection.build().get(sid)
+        self.assertIsNone(view.swap, "one whose sizes were not checked is never offered as in stock in his size")
+        self.assertEqual(view.n_not_checked, 2)
+        wanted = "Nothing else is known to be in stock in your size. 2 more at COS: sizes not checked. See all options"
+        popup = self.client.get("/outfits/piece", query_string={"at": outfit.sig, "slot": sid}, headers=HX).data.decode()
+        pages = {url: self.page(url) for url in (f"/outfits?at={outfit.sig}", "/", "/list", f"/outfits/buy?at={outfit.sig}")}
+        for url, page in {**pages, "the pop-up": popup}.items():
+            with self.subTest(place=url):
+                block = next((b for b in self.blocks(page) if f"/slot/{sid}" in b), None)
+                self.assertIsNotNone(block, f"{url} does not say the piece is sold out")
+                said = as_read(re.sub(r'<span class="sr">.*?</span>', "", block))
+                self.assertIn(wanted, said)
+                self.assertNotIn("Nothing else for this piece", said)
+                self.assertNotIn("Add one you found yourself", said)
+                link = re.search(r'<a class="no-print" href="([^"#]+)">See all options', block)
+                self.assertTrue(link and link.group(1).startswith(f"/slot/{sid}"), block)
+                listed = self.page(link.group(1).replace("&amp;", "&"))
+                self.assertEqual(listed.count("Sizes not checked at COS"), 2, "the options it points to are on that page")
+        text = export.to_markdown(export.build(selection.build()))
+        self.assertIn("  - Nothing else is known to be in stock in your size. 2 more at COS: sizes not checked. "
+                      "See them on the piece's page.", text)
+        self.assertNotIn("Nothing else for this piece", text)
+        # The piece's own page says it too, and there the options are right below.
+        own = next(b for b in self.blocks(self.page(f"/slot/{sid}")))
+        self.assertIn("Nothing else is known to be in stock in your size. 2 more at COS: sizes not checked. "
+                      "They are listed below.", as_read(own))
+
+    def test_one_in_your_size_without_a_price_is_not_called_nothing_either(self):
+        outfit, view = self.sell_out(leave=1)
+        sid = view.slot["id"]
+        catalog.update(lambda cat: [c.update(price=0) for c in cat["candidates"]
+                                    if c.get("slot_id") == sid and c.get("id") == view.swap.id])
+        now = selection.build().get(sid)
+        self.assertIsNone(now.swap)
+        self.assertEqual(now.no_swap, ("Nothing else in stock in your size has a price yet",
+                                       "1 more in stock in your size: no price yet", True))
+        self.assertIn("See all options", as_read(next(b for b in self.blocks(self.page("/")) if f"/slot/{sid}" in b)))
+
+    def test_on_paper_the_product_offered_is_named_without_the_button(self):
+        # The printed Shopping list hides the button (no-print). The sentence under it must name the product itself.
+        outfit, view = self.sell_out()
+        block = next(b for b in self.blocks(self.page("/list")) if f"/slot/{view.slot['id']}/pick" in b)
+        paper = re.sub(r'<(form|p|a) class="[^"]*no-print[^"]*".*?</\1>', "", block, flags=re.S)
+        self.assertNotIn("<button", paper)
+        called = english.name(view.swap.data["name"]) or view.swap.data["name"]
+        self.assertEqual(as_read(paper), f"Sold out in M at {programmes.label(view.chosen.data['store'])} "
+                         f"In stock in {view.swap.size.label}: {called}, {eur(view.swap.price)} at "
+                         f"{programmes.label(view.swap.data['store'])}.")
+        on_paper = re.search(r'<p class="soldout-more print-only">', block)
+        self.assertIsNotNone(on_paper)
+        css = (__import__("pathlib").Path(selection.__file__).parent / "static" / "app.css").read_text()
+        self.assertRegex(css, r"@media screen \{ \.print-only \{ display: none !important; \} \}")
+
+    def test_the_pieces_own_page_offers_the_same_swap_and_stays_itself(self):
+        outfit, view = self.sell_out()
+        sid = view.slot["id"]
+        page = self.page(f"/slot/{sid}")
+        block = self.blocks(page)
+        self.assertEqual(len(block), 1)
+        self.assertTrue(as_read(block[0]).startswith("Sold out in M at "))
+        form = self.swap_form(block[0])
+        self.assertEqual((form["candidate"], form["back"]), (view.swap.id, "slot"))
+        self.assertEqual(self.press(form).split("?")[0], f"/slot/{sid}")
+        now = selection.build().get(sid)
+        self.assertEqual((now.chosen.id, now.sold_out), (view.swap.id, False))
+        self.assertEqual(self.blocks(self.page(f"/slot/{sid}")), [])
+
+    def test_the_outfit_has_one_price_the_one_buy_this_outfit_shows(self):
+        outfit, view = self.sell_out()
+        sl = export.build(selection.build(), only=outfit.slots)
+        page = self.page(f"/outfits?at={outfit.sig}")
+        slide = page[page.index(f'id="outfit-{outfits.find_by_sig(selection.build(), outfit.sig).key}"'):]
+        slide = slide[:slide.index("</article>")]
+        self.assertEqual(as_read(re.search(r'<b class="board-cost"[^>]*>(.*?)</b>', slide).group(1)), eur(sl.total))
+        self.assertEqual(as_read(re.search(r'<p class="about-less">(.*?)</p>', slide).group(1)),
+                         f"Not counted: {view.slot['name']}, sold out in M")
+        self.assertIn(f"<s>{eur(view.chosen.price)}</s><span class=\"sr\"> (not counted in the outfit's price)</span>"
+                      .replace("\xa0", "&nbsp;"), slide.replace("\xa0", "&nbsp;"))
+        # An outfit without the piece says nothing of the kind.
+        other = next(o for o in outfits.all_outfits(selection.build()) if view.slot["id"] not in o.slots)
+        page = self.page(f"/outfits?at={other.sig}")
+        slide = page[page.index(f'id="outfit-{other.key}"'):]
+        self.assertNotIn("about-less", slide[:slide.index("</article>")])
+
     def test_a_piece_bought_twice_says_the_difference_for_both_where_both_are_bought(self):
         # The white tee is in the plan twice. The Wardrobe and the Shopping list buy two, so the swap there changes
         # the total by twice the difference; an outfit wears one, and Buy this outfit buys one.
@@ -261,8 +383,34 @@ class SaidWithTheSwap(SoldOutCase):
         now = selection.build().get(sid)
         self.assertTrue(now.sold_out)
         self.assertEqual(now.sold_words, "Not made in your size")
-        block = next(b for b in self.blocks(self.page("/")) if f"/slot/{sid}/pick" in b)
+        page = self.page("/")
+        block = next(b for b in self.blocks(page) if f"/slot/{sid}/pick" in b)
         self.assertTrue(as_read(block).startswith("Not made in your size at "), as_read(block))
+        # ... and is not counted under the words "sold out": the bar, the list's heading and totals, Buy, the file.
+        w = selection.build()
+        self.assertEqual(w.unfilled_words, ["1 piece not made in your size"])
+        self.assertIn("1 piece not made in your size", as_read(page))
+        self.assertNotIn("sold out in your size", as_read(page).lower())
+        page = self.page("/list")
+        head = re.search(r'<section class="card store-list sold-list">(.*?)</header>', page, re.S)
+        self.assertEqual(as_read(head.group(1)), "Not made in your size 1 piece not counted")
+        self.assertIn("Not made in your size1 piece, not counted", as_read(page))
+        self.assertNotIn("sold out in your size", as_read(page).lower())
+        head = as_read(re.search(r'<p class="buy-head">(.*?)</p>', self.page(f"/outfits/buy?at={outfit.sig}"), re.S).group(1))
+        self.assertIn("1 not made in your size, not counted", head)
+        text = export.to_markdown(export.build(w))
+        self.assertIn("(1 more is not made in your size and not counted)", text)
+        self.assertIn("## Not made in your size (not counted above)", text)
+        # With one of each, both are named.
+        other = next(s for s in w.slots if s.slot["id"] != sid and s.state == "auto" and s.chosen
+                     and s.chosen.size.label and s.qty == 1)
+        oid, pick, label = other.slot["id"], other.chosen.id, other.chosen.size.label
+        self.client.post(f"/slot/{oid}/pick", data={"candidate": pick})
+        catalog.update(lambda cat: [c.update(sizes_in_stock=[s for s in c["sizes_in_stock"] if s != label])
+                                    for c in cat["candidates"] if c.get("slot_id") == oid and c.get("id") == pick])
+        self.assertEqual(selection.build().unfilled_words, ["2 pieces sold out or not made in your size"])
+        head = re.search(r'<section class="card store-list sold-list">(.*?)</header>', self.page("/list"), re.S)
+        self.assertEqual(as_read(head.group(1)), "Sold out or not made in your size 2 pieces not counted")
 
     def test_a_saved_outfit_says_it_while_the_piece_is_still_that_product(self):
         outfit, view = self.sell_out()
@@ -346,3 +494,61 @@ class NeverCountedAsBuyable(SoldOutCase):
         self.assertIn("Nothing to buy right now: the piece you do not own is sold out in your size.", as_read(page))
         self.assertNotIn("you own every piece", page)
         self.assertEqual(len(self.blocks(page)), 1, "the swap is still offered")
+
+
+class OnTheExampleSizes(SoldOutCase):
+    """Until he says the sizes are his, M is our example size, and every line about it says so, as the pop-up's own
+    size line does."""
+
+    def setUp(self):
+        super().setUp()
+        db.set_setting("sizes_confirmed", False)
+        self.assertTrue(profile_mod.sizes_unconfirmed(profile_mod.load()))
+
+    def test_the_size_is_said_to_be_the_example_size_everywhere(self):
+        outfit, view = self.sell_out()
+        sid = view.slot["id"]
+        self.assertEqual(view.sold_words, "Sold out in M (example size)")
+        popup = self.client.get("/outfits/piece", query_string={"at": outfit.sig, "slot": sid}, headers=HX).data.decode()
+        pages = {url: self.page(url) for url in (f"/outfits?at={outfit.sig}", "/", "/list", f"/outfits/buy?at={outfit.sig}",
+                                                 f"/slot/{sid}")}
+        for url, page in {**pages, "the pop-up": popup}.items():
+            with self.subTest(place=url):
+                said = as_read(next(b for b in self.blocks(page) if f"/slot/{sid}/pick" in b))
+                self.assertTrue(said.startswith("Sold out in M (example size) at "), said)
+                self.assertIn(f"in stock in {view.swap.size.label} (example size). It takes", said)
+                self.assertNotIn("your size", said)
+        self.assertIn("1 piece sold out in the example size", as_read(pages["/"]))
+        self.assertIn("Sold out in the example size1 piece, not counted", as_read(pages["/list"]))
+        head = re.search(r'<section class="card store-list sold-list">(.*?)</header>', pages["/list"], re.S)
+        self.assertEqual(as_read(head.group(1)), "Sold out in the example size 1 piece not counted")
+        self.assertIn("1 sold out in the example size, not counted", as_read(pages[f"/outfits/buy?at={outfit.sig}"]))
+        self.assertIn(f"Not counted: {view.slot['name']}, sold out in M (example size)", as_read(pages[f"/outfits?at={outfit.sig}"]))
+        text = export.to_markdown(export.build(selection.build()))
+        self.assertIn("## Sold out in the example size (not counted above)", text)
+        self.assertIn("Sold out in M (example size) at ", text)
+        self.assertIn("  - In stock in the example size: ", text)
+
+    def test_nothing_else_is_said_of_the_example_size_too(self):
+        outfit, view = self.sell_out(leave=0)
+        said = as_read(next(b for b in self.blocks(self.page("/")) if f"/slot/{view.slot['id']}" in b))
+        self.assertIn("Nothing else for this piece is in stock in the example size. Add one you found yourself", said)
+
+
+class BestForBudget(SoldOutCase):
+    def test_the_money_for_a_sold_out_piece_is_kept_for_its_swap(self):
+        # At "best for budget" what is left pays for upgrades. A sold-out piece counts nothing in the total, but
+        # its price is not spent on other pieces: the swap costs about as much, and would take those upgrades back.
+        self.set_mode("budget")
+        cheapest = selection.build().levels["cheapest"]
+        profile_mod.save({**profile_mod.load(), "budget": round(cheapest * 1.15)})
+        db.set_setting("sizes_confirmed", True)
+        before = selection.build()
+        self.assertGreater(before.total, cheapest, "there is money for upgrades")
+        outfit, view = self.sell_out(size=None)
+        w = selection.build()
+        self.assertLessEqual(w.total + view.price, w.budget + 0.005, "the piece's price was spent on other pieces")
+        picks = lambda wardrobe: {s.slot["id"]: s.chosen.id for s in wardrobe.slots
+                                  if s.chosen and s.slot["id"] != view.slot["id"]}
+        self.assertEqual(picks(w), picks(before), "the other pieces stay as they were")
+        self.assertFalse(w.note)

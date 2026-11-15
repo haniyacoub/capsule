@@ -32,8 +32,10 @@
       {{ note }}.
     {% endif %}
     {# Any other note (a locked choice gone from the product list…); the one about the minimum is said just above. #}
-    {% if note and s.chosen and s.state != 'owned' and not (under and note.startswith('Nothing reaches')) %}<span class="note">{{ note }}.</span>{% endif %}
+    {% if note and s.chosen and s.state != 'owned' and not s.sold_out and not (under and note.startswith('Nothing reaches')) %}<span class="note">{{ note }}.</span>{% endif %}
   </p>
+  {# The locked product is sold out in his size: said here as wherever the piece shows, with the same one tap. #}
+  {% if s.sold_out %}{% with back = 'slot', sig = '', qty = s.qty, pick_args = dict(view='slot', sort=sort, **way) %}{% include "_sold_out.html" %}{% endwith %}{% endif %}
   {# `plan_link`: a piece left out has one more way forward on its own page: the plan, where it can be recoloured or removed. #}
   {% if s.offers or s.left_out %}{% set offer_args = dict(view='slot', sort=sort, **way) %}{% set plan_link = true %}{% include "_colour_offer.html" %}{% endif %}
   {% if not cands and not demo and s.state != 'owned' %}

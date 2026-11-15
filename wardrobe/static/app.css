@@ -376,6 +376,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .soldout form { display: flex; max-width: 100%; }
 .soldout .btn { display: block; min-height: 44px; padding: var(--s-2) var(--s-3); text-align: left; overflow-wrap: anywhere; }
 .soldout-more { color: var(--muted); }
+.about-less { margin: 0; color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }
+@media screen { .print-only { display: none !important; } }     /* on paper the button is gone: its product is named */
 .soldout-more a { display: inline-block; padding: var(--s-1) 0; color: var(--ink); text-underline-offset: 3px; }
 .slot .soldout { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
 .pieces .soldout { padding: 0 12px var(--s-3) 66px; }
