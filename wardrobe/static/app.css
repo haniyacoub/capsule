@@ -1188,6 +1188,21 @@ details[open] > summary .edit { visibility: hidden; }
   .cc[data-tabs] { grid-template-columns: 160px minmax(320px, 1fr) 440px; gap: var(--s-6); }
 }
 
+/* ── Profile: the Stores tab ─────────────────────────────────────────────── */
+/* A row to tick for each store, 48px tall with a hairline between rows: its name, then its partner programme in grey.
+   The line that says the last store stays ticked (app.js 13c) is a status line under them. */
+.store-pick { display: grid; }
+.store-row { min-height: 48px; gap: var(--s-3); font-size: var(--t-m); line-height: var(--lh-m); }
+.store-row + .store-row { border-top: 1px solid var(--line); }
+.store-row b { font-weight: 500; }
+.store-note { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }
+.store-said { margin: 0; }
+/* With the Stores tab there are six tabs: on a phone up to 419px wide their chips take 8px each side instead of 12, so
+   that all six fit a 390px phone and the last one still shows its edge on a 360px one (the row scrolls sideways). */
+@media (max-width: 419.98px) {
+  .cc[data-tabs] .cc-tabs button { padding: 0 var(--s-2); }
+}
+
 /* ── Public pages and accounts (production) ──────────────────────────────── */
 .account-link { font-size: var(--t-s); font-weight: 500; color: var(--muted); text-decoration: none; padding: 8px 2px; }
 .account-link.on { color: var(--ink); }

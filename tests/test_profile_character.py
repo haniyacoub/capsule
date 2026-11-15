@@ -175,12 +175,14 @@ class ThePage(AppCase):
         tabs = re.findall(r'<button type="button" role="tab" id="tab-(\w+)" aria-controls="([\w -]+)" '
                           r'aria-selected="false" tabindex="-1">(\w+)</button>', tablist.group(1))
         self.assertEqual([(key, label) for key, _, label in tabs],
-                         [("you", "You"), ("body", "Body"), ("sizes", "Sizes"), ("colours", "Colours"), ("budget", "Budget")])
+                         [("you", "You"), ("body", "Body"), ("sizes", "Sizes"), ("colours", "Colours"), ("budget", "Budget"),
+                          ("stores", "Stores")])
         for key, controls, _ in tabs:
             for panel in controls.split():
                 self.assertRegex(page, rf'<section class="cc-panel[^"]*" id="{panel}" data-tab="{key}" aria-labelledby="tab-{key}">')
         # Where the old anchors lead: each inside its tab's panel.
-        for anchor, tab in (("sizes", "sizes"), ("budget", "budget"), ("model", "body"), ("colours-label", "colours")):
+        for anchor, tab in (("sizes", "sizes"), ("budget", "budget"), ("model", "body"), ("colours-label", "colours"),
+                            ("stores", "stores")):
             panel = page.rindex('class="cc-panel', 0, page.index(f'id="{anchor}"'))
             self.assertIn(f'data-tab="{tab}"', page[panel:panel + 120], anchor)
         self.assertEqual(set(profile_mod.TABS), {key for key, _, _ in tabs})

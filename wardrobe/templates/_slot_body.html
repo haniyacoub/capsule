@@ -171,8 +171,8 @@
   {% for message in link_messages or [] %}
   <p class="flash{% if not message.startswith('Added') %} bad{% endif %}" role="status">{{ message }}</p>
   {% endfor %}
-  {# The stores customers are offered (programmes.py); a link to any other store is refused. #}
-  <p class="muted small">Paste product page addresses from {{ store_names(STORES, 'or') }}, one per line. The page itself is not opened: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
+  {# The stores customers are offered (programmes.py) that he ticked (profile.stores); a link to any other store is refused. #}
+  <p class="muted small">Paste product page addresses from {{ store_names(my_stores(), 'or') }}, one per line. The page itself is not opened: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
   <form class="form" method="post" action="{{ url_for('slot_import', slot_id=sid, **way) }}">{{ csrf_field() }}
     <label class="field"><span>Product links</span>
       <textarea name="urls" rows="3" placeholder="https://www.cos.com/de-de/…/product/…-1234567890" autocapitalize="off" spellcheck="false"></textarea></label>

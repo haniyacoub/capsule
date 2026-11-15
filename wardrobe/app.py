@@ -290,6 +290,8 @@ def create_app() -> Flask:
         ink_on=colours.ink_on, level_hints=selection.HINTS,
         # The stores customers are offered, {key: name}, and their names in a sentence (programmes.py).
         STORES=programmes.OFFERED, store_names=programmes.names,
+        # The stores the signed-in customer ticked on Profile's Stores tab, [key], which his pieces come from.
+        my_stores=profile_mod.stores,
         # What a customer added to a piece from a store that is no longer offered, listed on its page (_set_aside.html).
         set_aside_for=catalog.set_aside,
     )
@@ -1169,6 +1171,7 @@ def create_app() -> Flask:
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
                         videos_on=chosen is not None and videos.service() is not None,
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
+                        store_rows=store_rows(current),
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
                         # The one note while the answers are still the example's: the sizes may already be his
                         # ("These are my sizes"), and a plan edited on the plan page is not rebuilt by a save.
@@ -1187,9 +1190,13 @@ def create_app() -> Flask:
                 flash("Model saved. Pictures drawn from now on show it.", "model")   # profile.html adds "See your outfits"
                 return redirect(url_for("profile_page") + "#model")
             flash("Model saved. Pictures drawn from now on show it.")
+        # Stores unticked on the Stores tab: their pieces are picked again, his own choices among them (shared.py).
+        stores_line = shared.stores_unticked(current, new)
         profile_mod.save(new)
         for note in notes:
             flash(note)
+        if stores_line:
+            flash(stores_line)
 
         shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned")
         # The plan has no tab of its own, so a message that sends you to it carries the link.
@@ -1217,6 +1224,14 @@ def create_app() -> Flask:
             flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
                   % (line, edit_the_plan))
         return redirect(url_for("outfits_page"))       # the new plan, where it shows best: on the model
+
+    def store_rows(profile: dict) -> list[dict]:
+        """The Stores tab: every store customers are offered (programmes.offered), with the network that runs its
+        partner programme ("Rakuten") and whether he ticked it (profile.stores)."""
+        mine = profile_mod.stores(profile)
+        return [{"key": key, "label": label, "on": key in mine,
+                 "network": owner.NETWORKS.get(programmes.network(key), programmes.network(key).title())}
+                for key, label in programmes.offered().items()]
 
     def back_to_tab():
         """Back to Profile, on the tab the form was sent from (app.js writes it in the form; without it, the first)."""

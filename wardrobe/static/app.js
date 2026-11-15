@@ -677,6 +677,26 @@ if (profileCreator) {
   redraw();          // the choices as the browser kept them (Back, a reload), which may not be the ones saved
 }
 
+// 13c. Profile: the Stores tab. At least one store stays ticked: unticking the last one ticks it again at once, and a
+//      line under the stores says why (also to a screen reader). Without JavaScript the save says it instead.
+const storePick = document.querySelector('[data-store-pick]');
+if (storePick) {
+  const storeSaid = document.querySelector('[data-store-said]');
+  storePick.addEventListener('change', (e) => {
+    const box = e.target;
+    const ticked = storePick.querySelectorAll('input[name=stores]:checked').length;
+    if (!box.checked && ticked === 0) {
+      box.checked = true;
+      storeSaid.textContent = 'At least one store must stay ticked: your pieces need a store to come from.';
+      storeSaid.hidden = false;
+      const announce = document.getElementById('announce');
+      if (announce) announce.textContent = storeSaid.textContent;
+    } else {
+      storeSaid.hidden = true;
+    }
+  });
+}
+
 // 14. Profile: the colours as swatches to tap. Once: a colour you like, numbered in the order you tapped it (1 counts
 //     most, which is how the plan reads "most important first"). Twice: a colour to avoid. Three times: neither.
 //     The swatches only fill in About you's two text fields ("Colours you like", "Colours to avoid") with the colours'

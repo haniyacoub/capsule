@@ -97,6 +97,7 @@ class StoresWithAProgramme(unittest.TestCase):
         from wardrobe import programmes
         real = programmes._stores()
         without = {**real, "weekday": {**real["weekday"], "programme": "none"}}
+        db.init()          # the catalogue is read for the stores the profile ticked (profile.stores)
         catalog.save({"source": "collected", "candidates": [{**LIST[1], "slot_id": "a"}, {**LIST[2], "slot_id": "a"}]})
         try:
             with mock.patch.object(programmes, "_stores", return_value=without):
@@ -113,6 +114,7 @@ class OnYourOwnMachine(unittest.TestCase):
         for path in (paths.DB_PATH, paths.CATALOG_PATH):
             path.unlink(missing_ok=True)
         catalog._cache = None
+        db.init()          # the catalogue is read for the stores the profile ticked (profile.stores)
 
     def tearDown(self):
         paths.CATALOG_PATH.unlink(missing_ok=True)

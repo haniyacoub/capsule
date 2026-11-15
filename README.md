@@ -8,7 +8,8 @@ outfits they make one at a time, checks sizes and writes the shopping list.
 Only stores with a partner (affiliate) programme are offered: each store in
 [config/stores.toml](config/stores.toml) has a `programme` line, and a store
 whose programme is `"none"` is never shown or collected. Zara has none, so it
-is not offered.
+is not offered. Of the stores offered, the Stores tab on the Profile page picks
+which ones your pieces come from (all of them to start with).
 
 Run as described here, everything stays on this computer: no accounts, no
 cloud, no paid APIs. There is one exception, and it is off until you switch it

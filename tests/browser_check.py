@@ -25,7 +25,8 @@ saves and "buys" one (keeping the example sizes as his own), prints the shopping
 logs in again and lands on the outfits, puts a model together on Profile's character screen (its tabs, the figure
 in the middle that follows every height, build, skin and hair choice at once, by mouse, keyboard and links, on a phone,
 a computer and without JavaScript, and "Your model" drawn by AI there), uploads a photo, sees Profile ask before
-changes not saved would be lost, saves new colours (the plan is rebuilt,
+changes not saved would be lost, unticks a store on Profile's Stores tab (its pieces picked again, said in one line;
+the last store stays ticked) and ticks it again, saves new colours (the plan is rebuilt,
 keeping the swapped piece, and the budget bar takes the banner's place), sees that a phone's first
 screen shows the outfit on the model with its price and the heart (and every chip over it, whole,
 by keyboard), tabs through three pages to see that nothing with keyboard focus is hidden under the
@@ -1713,7 +1714,8 @@ def run(base: str) -> None:
 
                 # The tabs: a tablist, the first open, the others' controls hidden.
                 tabs = phone.get_by_role("tab")
-                assert tabs.all_inner_texts() == ["You", "Body", "Sizes", "Colours", "Budget"], f"the tabs: {tabs.all_inner_texts()}"
+                assert tabs.all_inner_texts() == ["You", "Body", "Sizes", "Colours", "Budget", "Stores"], \
+                    f"the tabs: {tabs.all_inner_texts()}"
                 expect(phone.get_by_role("tab", name="You")).to_have_attribute("aria-selected", "true")
                 assert phone.locator(".cc-panel:visible").evaluate_all("ps => ps.map(p => p.dataset.tab)") == ["you", "you"], \
                     "other tabs' controls show beside the first tab's"
@@ -1726,15 +1728,18 @@ def run(base: str) -> None:
                     walked.append(phone.evaluate("""() => [document.activeElement.id,
                         document.querySelector('[role=tab][aria-selected=true]').id,
                         [...document.querySelectorAll('.cc-panel')].filter(p => !p.hidden).map(p => p.id).join(' ')]"""))
-                expected = [("tab-body", "panel-body"), ("tab-sizes", "panel-sizes"), ("tab-budget", "panel-budget"),
-                            ("tab-you", "panel-you photo-panel"), ("tab-budget", "panel-budget"),
-                            ("tab-you", "panel-you photo-panel"), ("tab-budget", "panel-budget")]
+                expected = [("tab-body", "panel-body"), ("tab-sizes", "panel-sizes"), ("tab-stores", "panel-stores"),
+                            ("tab-you", "panel-you photo-panel"), ("tab-stores", "panel-stores"),
+                            ("tab-you", "panel-you photo-panel"), ("tab-stores", "panel-stores")]
                 assert walked == [[tab, tab, panel] for tab, panel in expected], f"the arrow keys went {walked}"
-                assert phone.evaluate("location.hash") == "#budget", "the address does not keep the open tab"
+                assert phone.evaluate("location.hash") == "#stores", "the address does not keep the open tab"
                 phone.keyboard.press("Tab")
-                assert phone.evaluate("() => document.activeElement.closest('.cc-panel').id") == "panel-budget", \
+                assert phone.evaluate("() => document.activeElement.closest('.cc-panel').id") == "panel-stores", \
                     "Tab does not go from the open tab into its controls"
-                assert phone.evaluate("() => document.activeElement.id") == "budget"
+                assert phone.evaluate("() => [document.activeElement.name, document.activeElement.value]") == ["stores", "cos"]
+                open_tab(phone, "budget")
+                phone.keyboard.press("Tab")
+                assert phone.evaluate("() => document.activeElement.id") == "budget", "Tab from the Budget tab"
 
                 # On a phone the middle takes about 40% of the screen and stays at the top with the tabs under it while
                 # the controls scroll (every tab reaches that far); Save is in view at the bottom, above the tab bar,
@@ -1756,7 +1761,7 @@ def run(base: str) -> None:
                                 saveSeen: save.contains(top), bar: box('nav.tabs').top, h: innerHeight,
                                 fits: room <= box('nav.tabs').top, past: scrollY >= document.querySelector('.cc').offsetTop};
                     }""")
-                for name in ("you", "body", "sizes", "colours", "budget"):
+                for name in ("you", "body", "sizes", "colours", "budget", "stores"):
                     open_tab(phone, name)
                     for scrolled in (0, 900):
                         phone.evaluate(f"() => window.scrollTo(0, {scrolled})")
@@ -1854,7 +1859,8 @@ def run(base: str) -> None:
                     moving.close()
 
                 # Links to a place on the page open its tab, also from the page itself (the budget bar on Profile).
-                for anchor, tab in (("budget", "budget"), ("sizes", "sizes"), ("model", "body"), ("colours", "colours")):
+                for anchor, tab in (("budget", "budget"), ("sizes", "sizes"), ("model", "body"), ("colours", "colours"),
+                                    ("stores", "stores")):
                     phone.goto(base + "/outfits", wait_until="domcontentloaded")
                     phone.goto(base + f"/profile#{anchor}", wait_until="networkidle")
                     expect(phone.locator(f"#tab-{tab}"), f"#{anchor} does not open {tab}").to_have_attribute("aria-selected", "true")
@@ -1927,7 +1933,7 @@ def run(base: str) -> None:
                     small.fill("input[name=password]", PASSWORD)
                     small.click("button:has-text('Log in')")
                     small.wait_for_load_state("networkidle")
-                    for name in ("you", "body", "sizes", "colours", "budget") if less_motion else ("sizes",):
+                    for name in ("you", "body", "sizes", "colours", "budget", "stores") if less_motion else ("sizes",):
                         small.goto(base + "/outfits", wait_until="domcontentloaded")
                         small.goto(base + "/profile", wait_until="networkidle")
                         chips = small.evaluate("""() => [...document.querySelectorAll('[role=tab]')].map(tab => {
@@ -1964,7 +1970,7 @@ def run(base: str) -> None:
                 desk.click("button:has-text('Log in')")
                 desk.wait_for_load_state("networkidle")
                 desk.goto(base + "/profile", wait_until="networkidle")
-                for name in ("you", "body", "sizes", "colours", "budget"):
+                for name in ("you", "body", "sizes", "colours", "budget", "stores"):
                     open_tab(desk, name)
                     seen = desk.evaluate("""() => {
                         const box = s => document.querySelector(s).getBoundingClientRect();
@@ -2023,9 +2029,108 @@ def run(base: str) -> None:
                 assert not plain.locator("[data-cc-tabs]").is_visible(), "without JavaScript the tabs show, doing nothing"
                 visible = plain.locator(".cc-panel").evaluate_all("ps => ps.map(p => [p.id, p.getBoundingClientRect().height > 0])")
                 assert visible == [[pid, True] for pid in ("panel-you", "panel-body", "panel-sizes", "panel-colours",
-                                                           "panel-budget", "photo-panel")], f"without JavaScript: {visible}"
+                                                           "panel-budget", "panel-stores", "photo-panel")], \
+                    f"without JavaScript: {visible}"
                 assert plain.locator("[data-figure]").is_visible(), "the figure is not drawn without JavaScript"
                 assert plain.locator("[data-figure-words]").inner_text() == "180 cm, broad build, any skin tone, any hair"
+            finally:
+                context.close()
+
+        def the_store_picker():
+            # Profile's Stores tab: every store offered, ticked to start with. Unticking Weekday takes it out of the
+            # outfits, the Wardrobe and the shopping list, with one line saying what was picked again; the last store
+            # cannot be unticked (said at once, and to a screen reader); ticking Weekday again brings it back. On a
+            # phone, on a computer, and without JavaScript, where the save says that the last store stays.
+            who = "picker-" + EMAIL
+            stores_of = """() => [...document.querySelectorAll('input[name=stores]')].map(box =>
+                [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            try:
+                phone = context.new_page()
+                phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                phone.goto(base + "/signup", wait_until="networkidle")
+                phone.fill("input[name=email]", who)
+                phone.fill("input[name=password]", PASSWORD)
+                phone.click("button:has-text('Create account')")
+                phone.wait_for_url(base + "/outfits")
+                phone.goto(base + "/list", wait_until="networkidle")
+                assert "Weekday" in phone.locator("main").inner_text(), "the starter shopping list has nothing from Weekday"
+                phone.goto(base + "/profile#stores", wait_until="networkidle")
+                expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
+                assert phone.evaluate(stores_of) == [["cos", True, "COS · Rakuten partner"],
+                                                     ["weekday", True, "Weekday · Rakuten partner"]], phone.evaluate(stores_of)
+                rows = phone.locator(".store-row").evaluate_all("rs => rs.map(r => r.getBoundingClientRect().height)")
+                assert all(h >= 48 for h in rows), f"a store's row is under 48px to tap: {rows}"
+                phone.get_by_role("checkbox", name="Weekday · Rakuten partner").tap()
+                expect(phone.locator("[data-store-said]")).to_be_hidden()
+                phone.get_by_role("checkbox", name="COS · Rakuten partner").tap()       # the last one ticked
+                expect(phone.get_by_role("checkbox", name="COS · Rakuten partner")).to_be_checked()
+                said = "At least one store must stay ticked: your pieces need a store to come from."
+                expect(phone.locator("[data-store-said]")).to_have_text(said)
+                expect(phone.locator("[data-store-said]")).to_be_in_viewport()
+                assert phone.locator("#announce").text_content() == said, "a screen reader is not told"
+                phone.focus("input[name=stores][value=cos]")
+                phone.keyboard.press("Space")
+                expect(phone.get_by_role("checkbox", name="COS · Rakuten partner"), "by keyboard too").to_be_checked()
+                phone.click("button:has-text('Save profile')")
+                phone.wait_for_url(base + "/outfits")          # a first save shows the outfits
+                told = phone.locator("main > .flash", has_text="Your pieces now come only from COS:")
+                expect(told, "the line about the pieces picked again").to_be_in_viewport()
+                for path in ("/outfits", "/", "/list"):
+                    phone.goto(base + path, wait_until="networkidle")
+                    assert "weekday" not in phone.locator("main").inner_text().lower(), f"{path} still shows Weekday"
+                    assert not phone.locator("main a[href*='weekday']").count(), f"{path} still links to Weekday"
+                phone.goto(base + "/profile#stores", wait_until="networkidle")
+                assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False], "the unticked store is not kept"
+                phone.get_by_role("checkbox", name="Weekday · Rakuten partner").tap()
+                phone.click("button:has-text('Save profile')")
+                phone.wait_for_url(base + "/profile#stores")
+                expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
+                flashes = phone.locator("main > .flash").all_inner_texts()
+                assert flashes == ["Profile saved. See your outfits"], f"ticking a store again said {flashes}"
+                phone.goto(base + "/list", wait_until="networkidle")
+                assert "Weekday" in phone.locator("main").inner_text(), "Weekday did not come back when ticked again"
+            finally:
+                context.close()
+
+            # On a computer: the rows in the controls' card, each on one line, nothing over them.
+            context = browser.new_context(viewport={"width": 1280, "height": 900})
+            try:
+                desk = context.new_page()
+                desk.goto(base + "/login", wait_until="networkidle")
+                desk.fill("input[name=email]", who)
+                desk.fill("input[name=password]", PASSWORD)
+                desk.click("button:has-text('Log in')")
+                desk.wait_for_load_state("networkidle")
+                desk.goto(base + "/profile#stores", wait_until="networkidle")
+                seen = desk.evaluate("""() => [...document.querySelectorAll('.store-row')].map(row => {
+                    const box = row.getBoundingClientRect(), card = document.querySelector('.cc-side').getBoundingClientRect();
+                    const words = row.querySelector('span').getBoundingClientRect();
+                    const top = document.elementFromPoint(box.left + 10, box.top + box.height / 2);
+                    return {inside: box.left >= card.left && box.right <= card.right, oneLine: words.height < 30,
+                            clear: !!top && row.contains(top)}; })""")
+                assert seen and all(r["inside"] and r["oneLine"] and r["clear"] for r in seen), f"the rows on a computer: {seen}"
+            finally:
+                context.close()
+
+            # Without JavaScript nothing stops the last store being unticked: the save keeps the stores and says why.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, java_script_enabled=False)
+            try:
+                plain = context.new_page()
+                plain.goto(base + "/login", wait_until="networkidle")
+                plain.fill("input[name=email]", who)
+                plain.fill("input[name=password]", PASSWORD)
+                plain.click("button:has-text('Log in')")
+                plain.wait_for_load_state("networkidle")
+                plain.goto(base + "/profile", wait_until="networkidle")
+                for box in plain.locator("input[name=stores]").all():
+                    box.uncheck()
+                plain.click("button:has-text('Save profile')")
+                plain.wait_for_load_state("networkidle")
+                flashes = plain.locator("main > .flash").all_inner_texts()
+                assert "At least one store must stay ticked, so your stores stay as they were." in flashes, flashes
+                assert [on for _, on in plain.locator("input[name=stores]").evaluate_all(
+                    "bs => bs.map(b => [b.value, b.checked])")] == [True, True], "the stores did not stay as they were"
             finally:
                 context.close()
 
@@ -2788,6 +2893,7 @@ def run(base: str) -> None:
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
                  ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
                  ("Profile is a character screen", profile_is_a_character_screen),
+                 ("the store picker: only the stores ticked", the_store_picker),
                  ("colours picked by tapping swatches", colours_by_tapping_swatches),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),

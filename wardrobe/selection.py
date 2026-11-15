@@ -470,7 +470,8 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
     """
     category = view.slot["category"]
     refused = frozenset(capsule.banned(profile.get("refused", [])))      # refusing "green" refuses olive too
-    on_offer = shared.colours_on_offer(category, refused)      # never a product in a refused colour, either
+    mine = frozenset(profile_mod.stores(profile))                          # the stores he ticked on Profile
+    on_offer = shared.colours_on_offer(category, refused, mine)      # never a product in a refused colour, either
     taken = {c.id for other in views if other is not view and other.slot["category"] == category
              for c in other.cands}
     liked = [key for key in profile.get("liked", []) if key in on_offer]
@@ -493,8 +494,10 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
     if not view.offers:
         kind = view.garment.plural
         verb = "are" if kind.endswith("s") else "is"        # "T-shirts are", "knitwear is"
-        if not shared.colours_on_offer(category):    # none at all, in any colour (on_offer leaves out the refused)
-            why = f"{settings.SITE_NAME} has no {kind} yet"
+        if not shared.colours_on_offer(category, stores=mine):  # none in any colour (on_offer leaves out the refused)
+            # Say whether the stores he unticked on Profile have some: ticking one again fills the piece.
+            why = (f"{settings.SITE_NAME} has {kind} only from stores you unticked" if shared.colours_on_offer(category)
+                   else f"{settings.SITE_NAME} has no {kind} yet")
         elif in_your_plan:      # say so: "Stilsmith has none" would be untrue beside the grey jumper that has them
             why = f"{settings.SITE_NAME}'s {kind} in other colours you wear {verb} already in your plan"
             if not_in_your_size:

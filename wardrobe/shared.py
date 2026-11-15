@@ -33,8 +33,8 @@ from .collect import matching, pages
 
 POOL_NAME = "store_catalog.json"
 _cache: tuple[int, frozenset[str], dict] | None = None     # (the file's time, the stores offered, the list)
-# (the list, the colours on offer per garment and set of refused colours)
-_offers: tuple[dict, dict[tuple[str, frozenset[str]], dict[str, list[dict]]]] | None = None
+# (the list, the colours on offer per garment, set of refused colours and set of stores)
+_offers: tuple[dict, dict[tuple[str, frozenset[str], frozenset[str] | None], dict[str, list[dict]]]] | None = None
 
 # When the way a product's details are read improves, the published list is corrected as it is
 # read (see _corrected), without asking any store again. A new REVISION then makes every
@@ -100,7 +100,7 @@ def _collected(cat: dict) -> dict[str, dict]:
 
 def publish(target: Path) -> int:
     """Write the locally collected products, tagged with their garment type, into `target`."""
-    cat = catalog.load()
+    cat = catalog.load(every_store=True)        # every store's, whatever this computer's profile ticked
     products = _collected(cat)
     stamp = datetime.now().astimezone().isoformat(timespec="microseconds")   # tells two publishes apart
     pool = {"published_at": stamp, "collected_at": cat.get("collected_at"),
@@ -141,7 +141,8 @@ def refused_colours() -> frozenset[str]:
     return frozenset(capsule.banned(profile_mod.load().get("refused", [])))
 
 
-def colours_on_offer(category: str, refused: frozenset[str] = frozenset()) -> dict[str, list[dict]]:
+def colours_on_offer(category: str, refused: frozenset[str] = frozenset(),
+                     stores: frozenset[str] | None = None) -> dict[str, list[dict]]:
     """The colours Stilsmith has a garment in: for each colour, the products a piece of that garment in
     that colour is offered. Each colour is tried with candidates_for, the matching that fills every
     piece, so a colour listed here really fills one. The colours most of the products are named in
@@ -149,24 +150,31 @@ def colours_on_offer(category: str, refused: frozenset[str] = frozenset()) -> di
     cardigan), the one the stores call them leads. Products in a `refused` colour are left out, as
     candidates_for leaves them out of the piece the tap fills.
 
-    Worked out once per published list (and set of refused colours). On your own machine there is no
-    published list: there it is the colours of what the last refresh collected for your pieces of that
+    `stores`: only the products of these stores, the ones the customer ticked (profile.stores); None: every
+    store offered.
+
+    Worked out once per published list (and set of refused colours and of stores). On your own machine there is
+    no published list: there it is the colours of what the last refresh collected for your pieces of that
     garment.
     """
     global _offers
     pool = load() if settings.PRODUCTION else None
     if pool is None:
-        return _on_offer({"products": list(_collected(catalog.load()).values())}, category, refused)
+        return _on_offer({"products": list(_collected(catalog.load(every_store=True)).values())}, category, refused,
+                         stores)
     if _offers is None or _offers[0] is not pool:      # a list published since: work it out again
         _offers = (pool, {})
     known = _offers[1]
-    if (category, refused) not in known:
-        known[(category, refused)] = _on_offer(pool, category, refused)
-    return known[(category, refused)]
+    if (category, refused, stores) not in known:
+        known[(category, refused, stores)] = _on_offer(pool, category, refused, stores)
+    return known[(category, refused, stores)]
 
 
-def _on_offer(pool: dict, category: str, refused: frozenset[str]) -> dict[str, list[dict]]:
+def _on_offer(pool: dict, category: str, refused: frozenset[str],
+              stores: frozenset[str] | None = None) -> dict[str, list[dict]]:
     collector = config.load("stores.toml").get("collector", {})
+    if stores is not None:
+        pool = {"products": [p for p in pool.get("products", []) if p.get("store") in stores]}
     named = Counter(colours.find(p.get("colour")) for p in pool.get("products", []) if p.get("category") == category)
     found: dict[str, list[dict]] = {}
     for key in colours.COLOURS:
@@ -335,4 +343,48 @@ def gone_message(keep: bool = False) -> str:
              f"{its} products: {n} {'piece was' if n == 1 else 'pieces were'} picked again")
     if empty:
         words += f", and {empty} {'has' if empty == 1 else 'have'} nothing in {settings.SITE_NAME}'s product list yet"
+    return words + "."
+
+
+# ── stores the customer unticked (Profile, the Stores tab) ───────────────────
+
+def stores_unticked(before: dict, after: dict) -> str:
+    """Before a Profile save that unticks stores (profile.stores, `before` and `after` the profile as it was and as
+    it will be saved): his pieces whose product came from them are picked again from the stores he kept. Those are
+    picked again by themselves, as his products are read only from his stores (catalog.load); a piece he chose
+    himself, locked to a product of such a store, is unlocked here, so that it is picked again too. A hand-picked
+    piece from a store he kept stays as it is. As when a store stops being offered (_stores_gone), an owned piece
+    stays owned, its lock to such a product goes, and it is not counted. Nothing is deleted: ticking the store
+    again brings its products back among the options.
+
+    Returns the one line that says so ("Your pieces now come only from COS: 3 pieces were picked again (1 of them
+    you had chosen yourself)."), or "" when no store was unticked. Works on your own machine too."""
+    from . import selection        # here: selection itself builds on this module
+
+    kept = profile_mod.stores(after)
+    unticked = [key for key in profile_mod.stores(before) if key not in kept]
+    if not unticked:
+        return ""
+    stored = catalog.stored()
+    then = selection.build(profile=before, catalogue=programmes.only_offered(stored, profile_mod.stores(before)))
+    moved = [view for view in then.slots
+             if view.state != "owned" and view.chosen and view.chosen.data.get("store") in unticked]
+    chosen = sum(1 for view in moved if view.state == "locked")
+    their_ids = {c.get("id") for c in stored.get("candidates", []) if c.get("store") in unticked}
+    for slot in db.list_slots():
+        if slot["locked"] and slot["pick"] in their_ids:
+            db.update_slot(slot["id"], locked=False, pick=None)
+    words = f"Your pieces now come only from {programmes.names(kept)}"
+    n = len(moved)
+    if not n:
+        return words + "."
+    words += f": {n} {'piece was' if n == 1 else 'pieces were'} picked again"
+    if chosen:
+        words += (" (you had chosen it yourself)" if n == 1 else " (you had chosen them yourself)" if chosen == n
+                  else f" ({chosen} of them you had chosen yourself)")
+    now = selection.build(profile=after, catalogue=programmes.only_offered(stored, kept))
+    ids = {view.slot["id"] for view in moved}
+    empty = sum(1 for view in now.slots if view.slot["id"] in ids and view.chosen is None)
+    if empty:
+        words += f", and {empty} {'has' if empty == 1 else 'have'} nothing from your stores yet"
     return words + "."
