@@ -1052,7 +1052,10 @@ details[open] > summary .edit { visibility: hidden; }
 .check input { flex: none; }
 .check span { flex: 1; min-width: 0; }
 .open-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
-.open-hint { font-size: var(--t-s); color: var(--ok); }
+.open-status { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.buy-opened { display: flex; align-items: center; gap: 4px; font-size: var(--t-s); line-height: var(--lh-s); color: var(--good); }
+.buy-opened[hidden] { display: none; }
+.buy-opened .ic { width: 14px; height: 14px; }
 
 /* ── Profile: the model in the middle (a character screen) ───────────────── */
 /* Profile is one screen (profile.html): the middle (.cc-stage: the drawn figure, or "Your model", with the figure in

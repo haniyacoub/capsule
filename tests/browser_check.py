@@ -2082,6 +2082,78 @@ def run(base: str) -> None:
             assert page.locator("#reel .slide").count() == 1, "the saved outfit is not under Saved"
             assert page.locator(".reel-nav").count() == 0, "a single saved outfit has arrows that lead nowhere"
 
+        def a_stores_pages_open_one_by_one():
+            # "Open all 2 at COS" opened the first page and lost the rest: a browser lets a site open one new tab per
+            # tap and holds the others back as pop-ups (the test browser usually has that switched off: here it is
+            # on, as it is for a customer). The button is a plain link to the next page not yet opened, so every tap
+            # opens exactly one tab: the right one, its line ticked, and the count said. No store's site is asked.
+            # The whole Chromium, not the cut-down one the other steps use: only it has a pop-up blocker to switch on.
+            real = p.chromium.launch(channel="chromium", ignore_default_args=["--disable-popup-blocking"])
+            context = real.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            try:
+                context.route(lambda url: not url.startswith(base), lambda route: route.fulfill(
+                    body="<title>A store's page</title>", content_type="text/html"))
+                other = context.new_page()
+                other.set_default_timeout(15000)
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.locator("main form button").click()
+                other.wait_for_load_state("networkidle")
+                other.goto(base + "/list", wait_until="networkidle")
+                # The blocker really is on: a second tab asked for by script in one tap is held back.
+                second = other.evaluate("() => { const one = window.open('about:blank'); const two = window.open('about:blank');"
+                                        " if (one) one.close(); return Boolean(two); }")
+                assert not second, "this browser lets a page open two tabs at once: the step proves nothing"
+                store = other.locator(".store-list").filter(has=other.locator("[data-open-next]")).first
+                button = store.locator("[data-open-next]")
+                name = button.get_attribute("data-store")
+                pages = store.locator("a.buy-product").evaluate_all("links => links.map(a => a.href)")
+                total = len(pages)
+                assert total >= 2, "the example list has no store with two products"
+                assert "Open all" not in other.locator("main").inner_text(), "the page still promises to open all at once"
+                assert button.inner_text().strip().startswith(f"Open the first of {total} at {name}"), \
+                    f"the button says '{button.inner_text().strip()}'"
+                assert store.locator(".buy-opened:visible").count() == 0, "a line is ticked before anything was opened"
+                size = button.bounding_box()
+                assert size["height"] >= 24, f"the button is {size['height']:.0f}px tall: under 24px to tap"
+                for number, address in enumerate(pages, start=1):
+                    before = len(context.pages)
+                    with context.expect_page() as opened:
+                        button.tap()
+                    tab = opened.value
+                    tab.wait_for_load_state()
+                    assert tab.url == address, f"tap {number} opened {tab.url}, not {address}"
+                    other.wait_for_timeout(300)
+                    assert len(context.pages) == before + 1, f"tap {number} opened {len(context.pages) - before} tabs, not one"
+                    other.bring_to_front()
+                    other.wait_for_function("n => document.querySelectorAll('.store-list .buy-opened:not([hidden])').length >= n", arg=number)
+                    ticks = store.locator(".buy").evaluate_all("lines => lines.map(line => !line.querySelector('.buy-opened').hidden)")
+                    assert ticks == [at < number for at in range(total)], \
+                        f"after tap {number} the ticked lines are {ticks}: not the first {number} and only those"
+                    said = store.locator("[data-open-status]").inner_text()
+                    if number < total:
+                        assert f"{number} of {total} opened" in said, f"after tap {number} it says '{said}'"
+                        assert button.inner_text().strip().startswith(f"Open the next at {name}"), "the button does not offer the next"
+                    else:
+                        assert f"All {total} opened" in said, f"after the last tap it says '{said}'"
+                # A product's own link ticks its line too, and the ticks are still there after a look at another page.
+                lone = other.locator(".store-list").filter(has_not=other.locator("[data-open-next]")).locator("a.buy-product").first
+                if lone.count():
+                    with context.expect_page():
+                        lone.tap()
+                    other.bring_to_front()
+                    other.wait_for_function("n => document.querySelectorAll('.buy-opened:not([hidden])').length > n", arg=total)
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.goto(base + "/list", wait_until="networkidle")
+                assert other.locator(".store-list").filter(has=other.locator("[data-open-next]")).first \
+                    .locator(".buy-opened:visible").count() >= total, "the ticks are gone after a look at another page"
+                wide, screen = other.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
+                assert wide <= screen, f"the list with its ticks is {wide}px wide on a {screen}px phone"
+            finally:
+                context.close()
+                real.close()
+
         def list_prints_without_photos():
             # On paper the shopping list is words and links: the photos would only use ink.
             page.goto(base + "/list", wait_until="networkidle")
@@ -3803,6 +3875,7 @@ def run(base: str) -> None:
                  ("the outfit row by keyboard and screen reader", the_outfit_row_by_keyboard),
                  ("save an outfit and buy it", save_and_buy),
                  ("the heart saves and takes back, Saved with Undo", the_heart_saves_and_takes_back),
+                 ("a store's pages open one by one, each ticked", a_stores_pages_open_one_by_one),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("the landing page says what Stilsmith is", the_landing_page),

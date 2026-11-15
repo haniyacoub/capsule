@@ -282,20 +282,58 @@ document.addEventListener('keydown', (e) => {
   if (!e.repeat) link.click();
 });
 
-// 9. "Open all": every product page of one store, each in its own tab. Browsers
-//    hold back tabs they did not expect; if that happens, say so.
-document.addEventListener('click', (e) => {
-  const button = e.target.closest('[data-open-all]');
-  if (!button) return;
-  const section = button.closest('.store-list');
-  let held = 0;
-  section.querySelectorAll('a.buy-product').forEach((link) => {
-    if (link.getAttribute('href') === '#') return;
-    const tab = window.open(link.href, '_blank');
-    if (tab) tab.opener = null; else held += 1;
+// 9. A store's product pages, opened one by one. A browser lets a site open one new tab per tap and holds any
+//    more back as pop-ups (the old "Open all" opened the first and lost the rest), so the button under a store is an
+//    ordinary link to the next product page not yet opened (_buy_groups.html): nothing can hold that back. Here
+//    each line whose page was opened, by the button or by its own link, is ticked; the button moves on to the next
+//    and says how many are open. The ticks are kept while this tab stays open (never sent anywhere), so they are
+//    still there after a look at another page. When every page was opened the button starts again at the first.
+const OPENED = 'stilsmith-opened-pages';
+let openedPages = new Set();
+try { openedPages = new Set(JSON.parse(sessionStorage.getItem(OPENED) || '[]')); } catch { /* private window: the ticks last until the page is left */ }
+const openedTick = (link) => link.closest('.buy').querySelector('.buy-opened');
+const openedKey = (link) => `${openedTick(link).dataset.line} ${link.href}`;     // this piece's product page
+const storeLinks = (section) => [...section.querySelectorAll('a.buy-product')].filter((link) => link.getAttribute('href') !== '#');
+function showOpened() {
+  document.querySelectorAll('.store-list').forEach((section) => {
+    const links = storeLinks(section);
+    links.forEach((link) => {
+      openedTick(link).hidden = !openedPages.has(openedKey(link));
+    });
+    const button = section.querySelector('[data-open-next]');
+    if (!button) return;
+    const left = links.filter((link) => !openedPages.has(openedKey(link)));
+    const done = links.length - left.length;
+    const partly = done > 0 && left.length > 0;
+    button.href = (left[0] || links[0]).href;
+    button.querySelector('[data-open-label]').textContent = partly
+      ? `Open the next at ${button.dataset.store}` : `Open the first of ${links.length} at ${button.dataset.store}`;
+    const status = partly ? `${done} of ${links.length} opened. Each tap opens one more.` : done ? `All ${links.length} opened.` : '';
+    const says = section.querySelector('[data-open-status]');
+    if (says.textContent !== status) says.textContent = status;      // said once by a screen reader, not on every look
   });
-  if (held) section.querySelector('.open-hint').hidden = false;
-});
+}
+function noteOpened(e) {
+  const tapped = e.target instanceof Element && e.target.closest('a.buy-product, a[data-open-next]');
+  if (!tapped || tapped.getAttribute('href') === '#' || (e.type === 'auxclick' && e.button !== 1)) return;
+  let link = tapped;
+  if (tapped.matches('[data-open-next]')) {       // the button stands for the first line not yet opened
+    const links = storeLinks(tapped.closest('.store-list'));
+    link = links.find((one) => !openedPages.has(openedKey(one)));
+    if (!link) {                                   // every page was opened: again from the first
+      links.forEach((one) => openedPages.delete(openedKey(one)));
+      link = links[0];
+    }
+  }
+  openedPages.add(openedKey(link));
+  try { sessionStorage.setItem(OPENED, JSON.stringify([...openedPages])); } catch { /* as above */ }
+  // Shown after the browser has followed the link: moving the button's address on now would send this tap to the next page.
+  setTimeout(showOpened, 0);
+}
+document.addEventListener('click', noteOpened);
+document.addEventListener('auxclick', noteOpened);      // a middle click opens a tab too
+showOpened();
+document.body.addEventListener('htmx:afterSwap', showOpened);
 
 // 10. Your photo: make it smaller before it is sent. That is quicker, and the
 //     copy carries none of the details a phone stores inside a photo (place, time).

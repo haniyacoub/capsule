@@ -407,7 +407,28 @@ class Viewer(AppCase):
         self.assertIn("checkout", page)
         self.assertIn(f"{outfit.cost:,.2f}".rstrip("0").rstrip("."), page.replace("&nbsp;", " "))
         self.assertEqual(self.client.get("/outfits/buy", query_string={"at": "nope"}).status_code, 404)
-        self.assertIn(b"data-open-all", self.client.get("/list").data)
+
+    def test_a_stores_pages_open_one_by_one_from_a_plain_link(self):
+        # "Open all 2 at COS" opened one tab and lost the rest: a browser allows a site one new tab per tap. The
+        # button under a store is now an ordinary link to that store's first product page (app.js moves it on to
+        # the next after each tap), which no pop-up blocker holds back and which works without JavaScript.
+        page = self.client.get("/list").data.decode()
+        self.assertNotIn("Open all", page)
+        self.assertNotIn("data-open-all", page)
+        stores = [part for part in page.split('<section class="card store-list">')[1:]]
+        buttons = 0
+        for store in stores:
+            pages = re.findall(r'<a class="buy-product" href="(https?://[^"]+)"', store)
+            button = re.search(r'<a class="btn ghost small" href="([^"]+)" target="_blank" rel="noopener noreferrer" data-open-next', store)
+            if len(pages) < 2:
+                self.assertIsNone(button, "one product is its own link: no button to step through it")
+                continue
+            buttons += 1
+            self.assertIsNotNone(button, "a store with several products has no button to open them")
+            self.assertEqual(button.group(1), pages[0])
+            self.assertIn(f"Open the first of {len(pages)} at ", store)
+            self.assertEqual(len(re.findall(r'class="buy-opened no-print" data-line="[^"]+" hidden', store)), store.count('<li class="buy"'))
+        self.assertGreater(buttons, 0, "the example list has no store with several products")
 
     def test_an_item_without_a_price_cannot_be_chosen_from_the_pop_up(self):
         outfit = some_outfits(1)[0]
