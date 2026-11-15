@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 
 from . import person
+from . import profile as profile_mod
 
 Point = tuple[float, float]
 
@@ -326,12 +327,23 @@ def scale(model: dict[str, str], height_cm: int) -> float:
     return max(LOWEST_CM, min(HIGHEST_CM, cm)) / REFERENCE_CM
 
 
-def words(model: dict[str, str], height_cm: int) -> str:
+def own_build(model: dict[str, str], profile: dict | None) -> person.Build | None:
+    """The build worked out from the customer's own height and weight (person.build_of), where the menu's build is
+    on "Any" and he has entered his body; else None. It is the build the AI pictures are asked for, so the figure
+    takes it too."""
+    if model.get("build") or not person.own_body(profile):
+        return None
+    return person.build_of(profile or {})
+
+
+def words(model: dict[str, str], height_cm: int, profile: dict | None = None) -> str:
     """The figure in words, under it (it is hidden from screen readers): "180 cm, athletic build, medium skin, short
-    brown hair". What is left on "Any" is said as "any"."""
+    brown hair". What is left on "Any" is said as "any"; a build on "Any" is the customer's own once he has entered
+    his height and weight ("172 cm, heavy build, …")."""
     cm = max(LOWEST_CM, min(HIGHEST_CM, height_cm))
     height = {"short": "short", "medium": "average height", "tall": "tall"}.get(model.get("height", ""), f"{cm} cm")
     build = _choice("build", model.get("build"))
+    own = own_build(model, profile)
     skin = _choice("skin", model.get("skin"))
     colour = _choice("hair", model.get("hair"))
     cut = _choice("cut", model.get("cut"))
@@ -344,27 +356,29 @@ def words(model: dict[str, str], height_cm: int) -> str:
         hair = "any hair"
     beard = {"none": "clean-shaven", "stubble": "stubble", "short": "short beard", "full": "full beard"}.get(
         model.get("beard", ""), "")
-    parts = [height, f"{build.label.lower()} build" if build else "any build",
-             f"{skin.label.lower()} skin" if skin else "any skin tone", hair] + ([beard] if beard else [])
+    built = f"{build.label.lower()} build" if build else f"{own.label} build" if own else "any build"
+    parts = [height, built, f"{skin.label.lower()} skin" if skin else "any skin tone", hair] + ([beard] if beard else [])
     said = ", ".join(parts)
     return said[0].upper() + said[1:]
 
 
-def drawing(model: dict[str, str], height_cm: int) -> dict:
-    """Everything the page draws for these choices (_figure.html)."""
+def drawing(model: dict[str, str], height_cm: int, profile: dict | None = None) -> dict:
+    """Everything the page draws for these choices (_figure.html). `profile` is the customer's Profile: with the
+    build on "Any", the figure takes the build his own height and weight give."""
     hair = _hair()[model.get("cut", "short") if model.get("cut") in _hair() else "short"]
     skin = _choice("skin", model.get("skin"))
     colour = _choice("hair", model.get("hair"))
     s = scale(model, height_cm)
+    own = own_build(model, profile)
     return {
-        "body": body(model.get("build", "average")),
+        "body": body(model.get("build") or (own.figure if own else "average")),
         "face": _face(), "ears": _ears(), "features": _features(),
         "hair": hair["front"], "hair_back": hair["back"],
         "beard": _beards().get(model.get("beard", ""), ""), "beard_kind": model.get("beard", ""),
         "shaved": model.get("cut") == "shaved",
         "skin": skin.swatch if skin else PAPER, "hair_colour": colour.swatch if colour else PAPER,
         "detail": DETAIL[skin.key] if skin else PAPER_DETAIL,
-        "scale": s, "transform": transform(s), "words": words(model, height_cm),
+        "scale": s, "transform": transform(s), "words": words(model, height_cm, profile),
         "cloth": CLOTH,
     }
 
@@ -386,5 +400,10 @@ def data() -> dict:
         "hairColour": {o.key: {"colour": o.swatch, "label": o.label.lower().replace(" ", "-")}
                        for o in person.GROUPS["hair"][1]},
         "build": {o.key: o.label.lower() for o in person.GROUPS["build"][1]},
+        # The customer's own build, for a build left on "Any" (own_build): the example's body, at which nothing is
+        # worked out, and each build as [weight / height² below this, its word, the build drawn for it].
+        "example": {key: profile_mod.EXAMPLE[key] for key in person.BODY},
+        "ownBuilds": [[None if build.below == float("inf") else build.below, build.label, build.figure]
+                      for build in person.BUILDS],
         "cut": {o.key: o.label.lower() for o in person.GROUPS["cut"][1]},
     }

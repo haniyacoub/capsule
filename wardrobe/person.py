@@ -5,6 +5,11 @@ hair, beard: choices only, nothing typed), or you yourself, from a photo you
 upload. Both are optional; without them the pictures show the standard model
 described in config/looks.toml.
 
+The model's body follows your own: the height, weight, chest and waist on the
+Profile page are turned into a few words ("a little shorter than average, lean
+build"), never passed on as numbers; see "the body from Profile" below. Until
+you enter your own, they are the example's and nothing is said about the body.
+
 The photo is kept in <data>/people/ under your user number and is sent to the
 image service every time a picture of you is drawn. Removing it also removes
 the pictures made from it (the app does that; see looks.forget_photo).
@@ -21,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import db, imagegen, paths
+from . import profile as profile_mod
 
 MAX_PHOTO = 2 * 1024 * 1024      # bytes; the page shrinks a photo to a fraction of this before sending it
 MIN_SIDE, MAX_SIDE = 128, 8000   # pixels: smaller is no use to the image service, larger is not a photo
@@ -72,7 +78,7 @@ GROUPS: dict[str, tuple[str, list[Choice]]] = {
 @dataclass(frozen=True)
 class Who:
     words: str = ""             # the model in words, if one was put together
-    body: str = ""              # just the height and build (used alongside a photo)
+    body: str = ""              # just the body: height, build, chest against waist (used alongside a photo)
     photo: Path | None = None   # the person's own photo, if they uploaded one
     mark: str = ""              # ties a picture of a real person to that person and that photo
 
@@ -94,15 +100,113 @@ def clean(choices) -> dict[str, str]:
             if choices.get(group) in {o.key for o in options}}
 
 
-def describe(choices: dict[str, str]) -> tuple[str, str]:
-    """(the whole model in words, just height and build). Both are "" when nothing was chosen.
+# ── the body from Profile, in words ───────────────────────────────────────────
+#
+# The image service is told about the body in words, never in numbers: a picture model asked for "172 cm, 95 kg"
+# is as likely to print the numbers on the picture as to draw them, and words are what it draws from. They are the
+# same few words for everyone in the same range, so they do not single anyone out.
+
+# Height in cm, up to (not including) the first number: what the image service reads. Men in Germany are about
+# 180 cm tall on average.
+HEIGHTS: list[tuple[float, str]] = [
+    (166, "clearly shorter than average"),
+    (174, "a little shorter than average"),
+    (187, "of average height"),
+    (194, "tall"),
+    (float("inf"), "very tall, with long legs"),
+]
+
+
+@dataclass(frozen=True)
+class Build:
+    below: float      # weight in kg divided by (height in metres, squared): this build up to here
+    label: str        # on the page, under the drawn figure
+    words: str        # in the description sent to the image service
+    figure: str       # the build the drawn figure on Profile takes (figure.BUILDS)
+
+
+# The build worked out from height and weight, where none is chosen in the menu. 78 kg at 180 cm gives 24: average.
+BUILDS: list[Build] = [
+    Build(20, "slim", "slim, narrow build", "slim"),
+    Build(23, "lean", "lean build", "slim"),
+    Build(26, "average", "average build", "average"),
+    Build(29, "stocky", "solid, stocky build, a little soft round the middle", "broad"),
+    Build(34, "heavy", "heavy build with a full stomach", "heavy"),
+    Build(float("inf"), "very heavy", "very heavy build with a large, round stomach", "heavy"),
+]
+
+# Chest and waist are compared, not quoted: a chest this many cm larger than the waist is a marked V shape, and
+# one less than this many cm larger is a straight middle.
+CHEST_WELL_OVER_WAIST, CHEST_NEAR_WAIST = 16, 6
+
+BODY = ("height_cm", "weight_kg", "chest_cm", "waist_cm")     # the body on the Profile page
+
+
+def own_body(profile: dict | None) -> bool:
+    """Whether the body on Profile is the customer's own: any of height, weight, chest or waist differs from the
+    example's (180 cm, 78 kg, no chest, no waist). Until then nothing about it is said to the image service, so
+    a customer who changed nothing is asked for in the same words as before and keeps the pictures he has."""
+    if not profile:
+        return False
+    return any(profile.get(key) != profile_mod.EXAMPLE[key] for key in BODY)
+
+
+def build_of(profile: dict) -> Build | None:
+    """The build that height and weight give, or None where one of them is missing or makes no sense."""
+    try:
+        metres, kg = float(profile.get("height_cm") or 0) / 100, float(profile.get("weight_kg") or 0)
+    except (TypeError, ValueError):
+        return None
+    if metres <= 0 or kg <= 0:
+        return None
+    ratio = kg / (metres * metres)
+    return next(build for build in BUILDS if ratio < build.below)
+
+
+def body_words(profile: dict | None) -> tuple[str, str, str]:
+    """The body on Profile as the image service is told it: (height, build, chest against waist). Each is ""
+    where there is nothing to say; all three are "" while the body is still the example's (own_body).
+
+        ({"height_cm": 172, "weight_kg": 95, "chest_cm": 104, "waist_cm": 102})
+        -> ("a little shorter than average", "heavy build with a full stomach", "waist about as wide as the chest")
+    """
+    if not profile or not own_body(profile):
+        return "", "", ""
+    try:
+        cm = float(profile.get("height_cm") or 0)
+    except (TypeError, ValueError):
+        cm = 0
+    height = next(words for below, words in HEIGHTS if cm < below) if cm > 0 else ""
+    build = build_of(profile)
+    shape = ""
+    chest, waist = profile.get("chest_cm"), profile.get("waist_cm")
+    if isinstance(chest, (int, float)) and isinstance(waist, (int, float)) and chest > 0 and waist > 0:
+        if chest - waist >= CHEST_WELL_OVER_WAIST:
+            shape = "broad chest and shoulders, narrow waist"
+        elif chest < waist:
+            shape = "waist wider than the chest"
+        elif chest - waist < CHEST_NEAR_WAIST:
+            shape = "waist about as wide as the chest"
+    return height, build.words if build else "", shape
+
+
+def describe(choices: dict[str, str], profile: dict | None = None) -> tuple[str, str]:
+    """(the whole model in words, just the body). Both are "" when nothing was chosen and the body on Profile
+    (`profile`) is still the example's.
+
+    The body is the height, the build, and the chest against the waist. A height or build chosen in the menu is
+    used as chosen; one left on "Any" comes from the customer's own body, once he has entered it.
 
         ({"age": "30s", "height": "tall", "build": "athletic", "hair": "brown", "cut": "short"})
         -> ("an adult man in his thirties (tall, athletic build; short brown hair)", "tall, athletic build")
+        ({"hair": "brown", "cut": "short"}, {"height_cm": 172, "weight_kg": 60, …})
+        -> ("an adult man (a little shorter than average, lean build; short brown hair)",
+            "a little shorter than average, lean build")
     """
     said = {group: next((o.words for o in options if o.key == choices.get(group)), "")
             for group, (_, options) in GROUPS.items()}
-    body = ", ".join(part for part in (said["height"], said["build"]) if part)
+    own_height, own_build, shape = body_words(profile)
+    body = ", ".join(part for part in (said["height"] or own_height, said["build"] or own_build, shape) if part)
     if choices.get("cut") == "shaved":
         hair = said["cut"]
     else:
@@ -264,8 +368,9 @@ def remove_photo(user_id: int) -> None:
 
 
 def current(allow_photo: bool = True) -> Who:
-    """The signed-in user's model: their photo if they uploaded one, else their choices, else nothing."""
-    words, body = describe(load())
+    """The signed-in user's model: their photo if they uploaded one, else their choices and their body from
+    Profile, else nothing."""
+    words, body = describe(load(), profile_mod.load())
     path = photo() if allow_photo else None
     if path is None:
         return Who(words=words, body=body)

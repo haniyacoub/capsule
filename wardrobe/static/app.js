@@ -596,7 +596,7 @@ if (profileCreator) {
       if (button) show(button.dataset.show);
     });
     profileCreator.addEventListener('change', (e) => {
-      if (e.target.closest('#panel-body') || e.target.name === 'height_cm') show('figure');
+      if (e.target.closest('#panel-body') || ['height_cm', 'weight_kg', 'chest_cm', 'waist_cm'].includes(e.target.name)) show('figure');
     });
     show('figure');
     switcher.hidden = false;
@@ -624,7 +624,8 @@ if (profileCreator) {
 }
 
 // 13b. Profile: the drawn figure in the middle takes the choices as they are made: the model's height (on "Any", the
-//      height in cm under Sizes), build, skin, hair colour, haircut and beard, and says them in words under it. The
+//      height in cm under Sizes), build (on "Any", the one his own height and weight under Sizes give), skin, hair
+//      colour, haircut and beard, and says them in words under it. The
 //      outlines of every build and haircut come with the page (#figure-data, from figure.py). A new build or height is
 //      reached in a short eased change (200 ms); skin and hair fade (app.css); nothing moves for people who ask their
 //      device for less motion.
@@ -645,6 +646,29 @@ if (profileCreator) {
     const typed = Math.round(Number(field.value));
     const cm = Number.isFinite(typed) && field.value !== '' ? typed : Number(field.defaultValue);
     return Math.max(data.lowest, Math.min(data.highest, cm));
+  };
+  // The customer's own build, for a build left on "Any": worked out from the height and weight under Sizes as
+  // person.py does (weight / height², data.ownBuilds), once any of height, weight, chest or waist is no longer the
+  // example's (data.example). Until then, and with a build chosen, there is none. What the form would refuse or
+  // correct on saving (profile.py) is read here the same way.
+  const typedNumber = (name, low, high, whole) => {
+    const field = form.elements[name];
+    const text = field.value.replace(',', '.').trim();
+    const number = Number(text);
+    if (text === '' || !Number.isFinite(number)) return whole ? Number(field.defaultValue) : null;
+    if (whole) return Math.max(low, Math.min(high, Math.trunc(number)));
+    return number >= low && number <= high ? Math.round(number * 10) / 10 : null;
+  };
+  const ownBuild = () => {
+    if (choice('build')) return null;
+    const body = {
+      height_cm: typedNumber('height_cm', data.lowest, data.highest, true), weight_kg: typedNumber('weight_kg', 40, 200, true),
+      chest_cm: typedNumber('chest_cm', 70, 150, false), waist_cm: typedNumber('waist_cm', 55, 150, false),
+    };
+    if (Object.keys(body).every((key) => body[key] === data.example[key])) return null;
+    const ratio = body.weight_kg / ((body.height_cm / 100) ** 2);
+    const found = data.ownBuilds.find(([below]) => below === null || ratio < below);
+    return found ? { label: found[1], figure: found[2] } : null;
   };
   const NUMBER = /-?\d+(?:\.\d+)?/g;
   // An outline part of the way from one shape to another of the same build of numbers (figure.py keeps them so).
@@ -678,7 +702,8 @@ if (profileCreator) {
     if (cut === 'shaved') hair = 'shaved head';
     else if (cut || colour) hair = `${[cut && data.cut[cut], colour && data.hairColour[colour].label].filter(Boolean).join(' ')} hair`;
     const beard = { none: 'clean-shaven', stubble: 'stubble', short: 'short beard', full: 'full beard' }[choice('beard')];
-    const all = [height, build ? `${data.build[build]} build` : 'any build', skin ? `${data.skin[skin].label} skin` : 'any skin tone', hair];
+    const own = ownBuild();
+    const all = [height, build ? `${data.build[build]} build` : own ? `${own.label} build` : 'any build', skin ? `${data.skin[skin].label} skin` : 'any skin tone', hair];
     if (beard) all.push(beard);
     const text = all.join(', ');
     return text.charAt(0).toUpperCase() + text.slice(1);
@@ -702,7 +727,7 @@ if (profileCreator) {
     // The body and the height move, from wherever they are now.
     const target = {
       scale: (data.heights[choice('height')] || centimetres()) / data.reference,
-      paths: data.builds[choice('build') || 'average'],
+      paths: data.builds[choice('build') || (ownBuild() || { figure: 'average' }).figure],
     };
     const from = shown;
     const same = from.scale === target.scale && parts.every((part) => from.paths[part] === target.paths[part]);
@@ -727,7 +752,7 @@ if (profileCreator) {
     if (still.matches) step(start);
     else requestAnimationFrame(step);
   };
-  const FIGURE = new Set(['height', 'build', 'skin', 'hair', 'cut', 'beard', 'height_cm']);
+  const FIGURE = new Set(['height', 'build', 'skin', 'hair', 'cut', 'beard', 'height_cm', 'weight_kg', 'chest_cm', 'waist_cm']);
   form.addEventListener('input', (e) => { if (FIGURE.has(e.target.name)) redraw(); });
   form.addEventListener('change', (e) => { if (FIGURE.has(e.target.name)) redraw(); });
   redraw();          // the choices as the browser kept them (Back, a reload), which may not be the ones saved

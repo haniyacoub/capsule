@@ -2280,6 +2280,101 @@ def run(base: str) -> None:
             page.wait_for_selector(f"{first} .look-pic img")
             assert len(asked) > before and "in his thirties" in asked[-1]["prompt"], "the new model was not drawn"
 
+        def the_body_reaches_the_pictures():
+            # The body on Profile (height, weight, chest, waist under Sizes) is what the AI pictures are asked for, in
+            # words and never as numbers; the drawn figure takes the same build as it is typed, and is called a sketch.
+            # A new body draws new pictures; back at the old body, the old pictures are there again without drawing.
+            # (The customer of a_pieces_words_tidy_at_320, who has only looked at his wardrobe and list: his Profile
+            # still holds the example's values, nobody else's Profile changes, and no sign-up is used up, of which
+            # one address gets ten an hour.)
+            context = browser.new_context(viewport={"width": 1280, "height": 860})
+            try:
+                other = context.new_page()
+                other.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                         if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                other.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", "words-" + EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_url(base + "/outfits")
+                other.wait_for_selector(f"{first} .look-pic img")
+                old_picture = other.get_attribute(f"{first} .look-pic img", "src")
+
+                other.goto(base + "/profile", wait_until="networkidle")
+                figure_words = other.locator("[data-figure-words]")
+                expect(figure_words).to_have_text("180 cm, any build, any skin tone, any hair")
+                note = other.locator("[data-figure-note]")
+                expect(note).to_be_visible()
+                assert note.inner_text() == "This is a sketch. The AI pictures on Outfits follow the same body.", \
+                    f"under the figure: {note.inner_text()!r}"
+                box = other.evaluate("""() => { const n = document.querySelector('[data-figure-note]').getBoundingClientRect(),
+                    w = document.querySelector('[data-figure-words]').getBoundingClientRect(),
+                    s = document.querySelector('.cc-stage').getBoundingClientRect();
+                    return {under: n.top > w.top + 10 && n.bottom > w.bottom, inside: n.bottom <= s.bottom + 1}; }""")
+                assert box == {"under": True, "inside": True}, f"the sketch note's place: {box}"
+                open_tab(other, "body")
+                said = other.locator("#model").inner_text()
+                assert "These words go to OpenAI with each picture" in said and "never as numbers" in said, \
+                    "the Body tab does not say what goes to the image service"
+                average = other.evaluate("document.querySelector('[data-figure] [data-part=tee]').getAttribute('d')")
+
+                open_tab(other, "sizes")
+                assert "They go to OpenAI with each picture as a few words about your body" in other.locator("#panel-sizes").inner_text(), \
+                    "the measurements do not say that they reach the image service as words"
+                other.fill("input[name=height_cm]", "172")
+                other.fill("input[name=weight_kg]", "95")
+                expect(figure_words).to_have_text("172 cm, heavy build, any skin tone, any hair")
+                other.wait_for_function(STILL)
+                other.wait_for_timeout(300)
+                heavy = other.evaluate("document.querySelector('[data-figure] [data-part=tee]').getAttribute('d')")
+                assert heavy != average, "the drawn figure did not take the build of the new weight"
+                before = len(asked)
+                other.click("button:has-text('Save profile')")
+                other.wait_for_url(base + "/outfits")
+                other.wait_for_load_state("networkidle")
+                assert "Your model now follows your new measurements" in " ".join(other.locator("main > .flash").all_inner_texts()), \
+                    "the save does not say that the pictures follow the new body"
+                other.wait_for_selector(f"{first} .look-pic img")
+                new_picture = other.get_attribute(f"{first} .look-pic img", "src")
+                assert new_picture != old_picture, "the new body shows the old body's picture"
+                sent = [one["prompt"].split("\n")[0] for one in asked[before:]]
+                assert sent, "no picture was asked for with the new body"
+                for line in sent:
+                    assert "an adult man (a little shorter than average, heavy build with a full stomach)" in line, \
+                        f"the picture was asked for as: {line[:200]!r}"
+                    assert "172" not in line and "95" not in line, "a measurement was sent as a number"
+
+                # The page drew the figure from the same rule as the server: after the save it says and draws the same.
+                other.goto(base + "/profile", wait_until="networkidle")
+                expect(figure_words).to_have_text("172 cm, heavy build, any skin tone, any hair")
+                assert other.evaluate("document.querySelector('[data-figure] [data-part=tee]').getAttribute('d')") == heavy, \
+                    "the server and the page draw different figures for the same body"
+                open_tab(other, "body")
+                assert "Described to the AI as: “an adult man (a little shorter than average, heavy build with a full stomach)”" \
+                    in other.locator("#model").inner_text(), "the words that are sent are not shown"
+                # A build chosen in the menu wins over the one worked out, in the figure at once.
+                other.locator('.pick input[name="build"][value="slim"]').check(force=True)
+                expect(figure_words).to_have_text("172 cm, slim build, any skin tone, any hair")
+                other.locator('.pick input[name="build"][value=""]').check(force=True)
+                expect(figure_words).to_have_text("172 cm, heavy build, any skin tone, any hair")
+
+                # Back to the body he had: the picture he had, and nothing is drawn again.
+                open_tab(other, "sizes")
+                other.fill("input[name=height_cm]", "180")
+                other.fill("input[name=weight_kg]", "78")
+                expect(figure_words).to_have_text("180 cm, any build, any skin tone, any hair")
+                before = len(asked)
+                other.click("button:has-text('Save profile')")
+                other.wait_for_load_state("networkidle")
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.wait_for_selector(f"{first} .look-pic img")
+                assert other.get_attribute(f"{first} .look-pic img", "src") == old_picture, "the old body's picture is not back"
+                again = [one["prompt"] for one in asked[before:] if one in asked[:before]]
+                assert not again, "a picture he already had was drawn again"
+            finally:
+                context.close()
+
         def my_photo():
             chosen = "[data-photo-form] input[type=file]"
             note = "[data-photo-form] [data-photo-ready]"
@@ -3965,6 +4060,7 @@ def run(base: str) -> None:
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("the owner's store catalogues, owners only", owners_store_catalogues),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
+                 ("the body on Profile reaches the pictures", the_body_reaches_the_pictures),
                  ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
                  ("Profile is a character screen", profile_is_a_character_screen),
                  ("the store picker: only the stores ticked", the_store_picker),

@@ -2,9 +2,11 @@
 
 For each outfit an image service (imagegen.py) gets a written description:
 who the model is (person.py), every piece from the outer layer down to the
-shoes, and how the picture is to be taken. It sends back one picture. Nothing
-else is sent: no name, no email, no sizes. Only when someone uploaded their own
-photo does that photo go along.
+shoes, and how the picture is to be taken. It sends back one picture. The
+model's words include the customer's body once he has entered it on Profile:
+his height and build in a few words, and his chest against his waist, never
+the numbers. Nothing else is sent: no name, no email, no clothing sizes. Only
+when someone uploaded their own photo does that photo go along.
 
 Pictures are kept in <data>/looks/ and reused: the same description is never
 paid for twice, whoever asks. Drawing takes up to a minute, so it runs in the

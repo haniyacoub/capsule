@@ -205,7 +205,9 @@ class ThePage(AppCase):
     def test_the_figure_follows_the_saved_height_on_any(self):
         profile_mod.save({**profile_mod.load(), "height_cm": 198})
         self.assertIn(f'transform="{figure.transform(1.1)}"', self.page())
-        self.assertIn("198 cm, any build", self.page())
+        # … and, his body now being his own, the build his height and weight give (78 kg at 198 cm is slim): the one
+        # the AI pictures are asked for (tests/test_body.py).
+        self.assertIn("198 cm, slim build, any skin tone", self.page())
 
 
 class Saving(AppCase):

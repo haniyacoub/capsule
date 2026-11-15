@@ -1214,9 +1214,10 @@ def create_app() -> Flask:
             w = selection.build()
             return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model, w=w,
                         # The drawn figure in the middle (figure.py), and what app.js needs to redraw it.
-                        fig=figure.drawing(model, current["height_cm"]), figure_data=figure.data(),
+                        fig=figure.drawing(model, current["height_cm"], current), figure_data=figure.data(),
                         tabs=profile_mod.TABS, picture=model_picture(w) if chosen else None,
-                        model_words=person.describe(model)[0] or rules["text"]["model"],
+                        model_words=person.describe(model, current)[0] or rules["text"]["model"],
+                        own_body=person.own_body(current),
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
                         videos_on=chosen is not None and videos.service() is not None,
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
@@ -1239,6 +1240,9 @@ def create_app() -> Flask:
                 flash("Model saved. Pictures drawn from now on show it.", "model")   # profile.html adds "See your outfits"
                 return redirect(url_for("profile_page") + "#model")
             flash("Model saved. Pictures drawn from now on show it.")
+        elif looks.service() is not None and person.describe(model, new)[1] != person.describe(model, current)[1]:
+            # New measurements that change the body in words (person.body_words): the pictures are asked for anew.
+            flash("Your model now follows your new measurements. Pictures drawn from now on show it.")
         # Stores unticked on the Stores tab: their pieces are picked again, his own choices among them (shared.py).
         stores_line = shared.stores_unticked(current, new)
         profile_mod.save(new)

@@ -1095,6 +1095,9 @@ details[open] > summary .edit { visibility: hidden; }
 .cc-view[hidden] { display: none; }
 .cc-fig { height: 380px; padding-top: var(--s-3); }
 .cc-words { padding: var(--s-2) var(--s-3) var(--s-3); font-size: var(--t-s); line-height: var(--lh-s); text-align: center; text-wrap: balance; }
+/* Under the figure's words: that it is a sketch, and that the AI pictures follow the same body. */
+.cc-sketch { margin: calc(-1 * var(--s-2)) 0 0; padding: 0 var(--s-3) var(--s-3); color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); text-align: center; text-wrap: balance; }
+.cc-sketch a { color: inherit; }
 /* The figure (_figure.html, figure.py): fine ink lines that keep their width whatever the figure's size, flat colour,
    and a soft shadow inside the edges (.fig-shade) for roundness. Skin and hair colours fade into each other. */
 .cc-stage { --fig-line: .95px; }
@@ -1123,7 +1126,8 @@ details[open] > summary .edit { visibility: hidden; }
 .cc-pic-again { display: grid; justify-items: center; gap: var(--s-1); padding: 0 var(--s-3) var(--s-2); text-align: center; }
 .cc-pic-again form { margin: 0; }
 .cc-pic-again .cc-pic-note { margin: 0; }
-.cc[data-tabs] .cc-stage:has(.cc-pic:not([hidden])) .cc-words { display: none; }
+.cc[data-tabs] .cc-stage:has(.cc-pic:not([hidden])) .cc-words,
+.cc[data-tabs] .cc-stage:has(.cc-pic:not([hidden])) .cc-sketch { display: none; }
 .cc[data-tabs] .cc-pic:not([hidden]) { display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .cc[data-tabs] .cc-pic-frame { flex: 1 1 auto; align-self: stretch; min-height: 0; }
 .cc[data-tabs] .cc-pic-box { position: absolute; top: 0; bottom: 0; left: 50%; height: auto; transform: translateX(-50%); }
