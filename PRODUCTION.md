@@ -139,7 +139,9 @@ only place they have run. The Tunnel has never been started.
   - Videos of outfits ("See it move", with `GEMINI_API_KEY`): `[videos]` in
     `config/looks.toml` caps them apart from the pictures, at one a day per
     customer, five for Pro accounts (`python -m wardrobe pro add EMAIL`) and
-    owners, and ten for the whole service. A video of a picture drawn from a
+    owners, and ten for the whole service. Each of an outfit's pictures has
+    its own clip (the front one's 8-second turn, 5 seconds for the others),
+    and each clip counts as one video. A video of a picture drawn from a
     customer's photo is shown only to them and deleted with the photo and the
     account. The container installs ffmpeg for smooth dragging.
   - When the service refuses for a reason only you can fix (key, credit,

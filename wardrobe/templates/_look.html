@@ -22,7 +22,8 @@
    stands differently (app.css hides them over .look-pic.more).
 
    `videos_on`: under a finished picture, in .look-vid, "See it move" (_video.html), with `video`, the state of
-   that picture's video. On a page, a video that failed shows as not made yet: what went wrong is said when
+   the video of the picture that is showing, and `clip`, what "See it move" makes of that picture (the front one
+   turns, the others move for a few seconds). Tapping another small picture brings that picture's own video. On a page, a video that failed shows as not made yet: what went wrong is said when
    "See it move" is tapped again. #}
 {% set shot = shot or 'front' %}
 {% set shot_row %}{% with said = '' %}{% include "_shots.html" %}{% endwith %}{% endset %}

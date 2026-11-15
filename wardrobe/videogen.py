@@ -2,10 +2,11 @@
 
 The rest of the app uses one function:
 
-    make(service, picture, prompt)  ->  the clip: the bytes of an MP4 file
+    make(service, picture, prompt, seconds=8)  ->  the clip: the bytes of an MP4 file
 
-`picture` is the outfit's AI picture (the bytes of a JPEG, PNG or WebP), the
-clip's first frame; `prompt` says what happens in it. Nothing else is sent.
+`picture` is one of an outfit's AI pictures (the bytes of a JPEG, PNG or WebP),
+the clip's first frame; `prompt` says what happens in it; `seconds` is how long
+the clip is (Google makes 3 to 15). Nothing else is sent.
 
 Like the pictures (imagegen.py), it is one HTTPS request with Python's standard
 library and the same Gemini key, to the same address. It is the request behind
@@ -16,7 +17,13 @@ in Google's own package (google-genai 3.3.0, read for this, not installed):
          {"model": "gemini-omni-flash-preview",
           "input": [{"type": "image", "mime_type": "image/jpeg", "data": "…"},
                     {"type": "text", "text": "…"}],
-          "response_format": {"type": "video", "duration": "8s", "aspect_ratio": "9:16", "resolution": "720p"}}
+          "response_format": {"type": "video", "duration": "8s", "aspect_ratio": "9:16", "resolution": "720p"},
+          "generation_config": {"video_config": {"task": "image_to_video"}}}
+
+The last line tells Google that the picture is the clip's first frame, not just
+something to look at (its documentation of 15 Nov 2026; [videos] task in
+config/looks.toml, and left out of the request where that setting is empty).
+It has not been tried against the paid service yet.
     answer   {"status": "completed",
               "steps": [{"type": "model_output",
                          "content": [{"type": "video", "mime_type": "video/mp4", "data": "…"}]}]}
@@ -58,7 +65,7 @@ from urllib.parse import urljoin, urlsplit
 from . import imagegen
 from .imagegen import DrawError
 
-DURATION = "8s"
+SECONDS = 8                          # the turn; other clips say their own length (3 to 15)
 ASPECT_RATIO = "9:16"                # portrait, like a phone held upright
 RESOLUTION = "720p"
 TIMEOUT = 300                        # seconds: a clip takes up to two minutes, and its answer is a few megabytes
@@ -75,11 +82,12 @@ _ID = re.compile(r"[\w.:-]{1,200}")        # what an interaction's id may look l
 class Service:
     model: str
     key: str = field(repr=False)     # never printed
+    task: str = ""                   # "image_to_video": the picture is the first frame ("" leaves it out)
 
     @property
     def tag(self) -> str:
-        """Which model and what kind of clip: part of a video's fingerprint."""
-        return f"google:{self.model}:{DURATION}:{ASPECT_RATIO}:{RESOLUTION}"
+        """Which model and what kind of clip: part of a video's fingerprint (its length is another part)."""
+        return f"google:{self.model}:{ASPECT_RATIO}:{RESOLUTION}" + (f":{self.task}" if self.task else "")
 
 
 def is_clip(data: bytes) -> bool:
@@ -91,14 +99,16 @@ _wait = time.sleep                  # (the tests wait no time)
 _clock = time.monotonic
 
 
-def make(service: Service, picture: bytes, prompt: str) -> bytes:
+def make(service: Service, picture: bytes, prompt: str, seconds: int = SECONDS) -> bytes:
     ext = imagegen.kind_of(picture) or "jpg"
     sent = base64.b64encode(picture).decode("ascii")
     payload = {"model": service.model,
                "input": [{"type": "image", "mime_type": imagegen.MIME[ext], "data": sent},
                          {"type": "text", "text": prompt}],
-               "response_format": {"type": "video", "duration": DURATION, "aspect_ratio": ASPECT_RATIO,
+               "response_format": {"type": "video", "duration": f"{seconds}s", "aspect_ratio": ASPECT_RATIO,
                                    "resolution": RESOLUTION}}
+    if service.task:                 # the picture is the clip's first frame
+        payload["generation_config"] = {"video_config": {"task": service.task}}
     headers = {"x-goog-api-key": service.key, "Content-Type": "application/json",
                "Api-Revision": imagegen.GOOGLE_REVISION}
     label = imagegen.Service(name="google", model=service.model, key=service.key)    # for the error's words

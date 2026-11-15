@@ -1,15 +1,20 @@
 {# "See it move" (videos.py): the part of an outfit's picture box about its video. It lives in .look-vid
    (_look.html), which HTMX fills on its own, so the picture is never sent again nor fades in again.
-   `key` is the outfit's key, `look` its finished picture, `video` where its video stands (or nothing yet).
+   `key` is the outfit's key, `look` the finished picture that is showing (the front one, a pose or a surrounding),
+   `video` where that picture's video stands (or nothing yet), and `clip` what "See it move" makes of that picture
+   (videos.Clip): the front picture turns once and can then be dragged round (`clip.turns`, 8 seconds), every other
+   picture moves naturally for a few seconds. Each picture has its own video, kept and shown again for free.
 
    No video yet: a "See it move" button on the picture, at its top right, clear of the head and the dots. Tapping
    it opens the offer under the picture (`asking`), in place of the picture's line and the small pictures, so the picture
-   stays whole: what a video is and how many are left today ("1 video left today") on one or two lines, then the
+   stays whole: which picture it animates, for how long and how ("AI video of the Café picture, 5 seconds: he moves naturally.")
+   and how many are left today ("1 video left today") on one or two lines, then the
    button that makes one beside "Not now". Nothing is spent by one stray tap. While it is made, a band across the
    top of the picture says so and asks every few seconds (`wait`). A video that is ready lies over the picture: it
-   plays once (`play`, app.js 15), rests on its last frame, and is turned by dragging across it or with the arrow
-   keys (a slider, its value in degrees). Its own lines, in place of the picture's line and the small pictures, keep the
-   picture's caption ("Look and fit will differ") where it was, and under it "Drag to turn", "Play again" and "Show
+   plays once, muted (`play`, app.js 15), and rests on its last frame; the front picture's is then turned by dragging
+   across it or with the arrow keys (a slider, its value in degrees; data-turns), the others only play. Its own lines, in place of the picture's line and the small pictures, keep the
+   picture's caption ("Look and fit will differ") where it was, and under it "Drag to turn" (or, for another
+   picture, its name: "Café, moving"), "Play again" and "Show
    picture" (back to the picture and its dots). Reloaded, the page shows the picture again, with "See it move" to
    play the video for free.
 
@@ -20,14 +25,18 @@
 {% from "_macros.html" import icon %}
 {% set here = url_for('outfits_video', look=look.key, outfit=key or None) %}
 {% if video and video.status == 'ready' %}
-<div class="vid{{ ' on' if play }}" data-vid{{ ' data-play' if play }} data-turn-seconds="{{ turn_seconds }}">
+<div class="vid{{ ' on' if play }}" data-vid{{ ' data-play' if play }}{% if clip.turns %} data-turns data-turn-seconds="{{ turn_seconds }}"{% endif %} data-shot="{{ clip.shot }}">
   <button class="vid-pill" type="button" data-vid-open>{{ icon('play') }}<span>See it move</span></button>
   <div class="vid-box">
+    {% if clip.turns -%}
     <div class="vid-turn" role="slider" tabindex="0" aria-label="Drag to turn the model" aria-valuemin="0" aria-valuemax="360"
          aria-valuenow="0" aria-valuetext="0 degrees">
+    {%- else -%}
+    <div class="vid-turn" role="group" tabindex="0" aria-label="AI video of this outfit, made from the {{ clip.label }} picture, {{ clip.seconds }} seconds, without sound">
+    {%- endif %}
       <video class="vid-clip" src="{{ url_for('video_file', name=video.file) }}" poster="{{ url_for('look_image', name=look.file) }}"
              muted playsinline preload="none" disablepictureinpicture aria-hidden="true"></video>
-      {%- if video.turn %}
+      {%- if video.turn and clip.turns %}
       <video class="vid-drag" src="{{ url_for('video_file', name=video.turn) }}" poster="{{ url_for('look_image', name=look.file) }}"
              muted playsinline preload="none" disablepictureinpicture aria-hidden="true" hidden></video>
       {%- endif %}
@@ -37,7 +46,8 @@
   <div class="vid-line">
     <p class="vid-row"><span class="look-note"><span class="whole">Look and fit will differ on the real pieces.</span><span class="half">Look and fit will differ.</span></span></p>
     <p class="vid-row">
-      <span class="vid-hint">{{ icon('turn') }} Drag to turn</span>
+      {% if clip.turns %}<span class="vid-hint">{{ icon('turn') }} Drag to turn</span>
+      {%- else %}<span class="vid-hint">{{ clip.label }}, moving</span>{% endif %}
       <span class="look-links">
         <button class="link" type="button" data-vid-again>Play again</button>
         <button class="link" type="button" data-vid-close>Show picture</button>
@@ -59,7 +69,7 @@
   <input type="hidden" name="outfit" value="{{ key }}">
   <span id="vid-said-{{ key }}">
     {%- if message %}<span class="look-msg" role="status">{{ message }}</span>
-    {%- else %}An 8-second AI video: the model turns round once, then poses.{% endif %}
+    {%- else %}{{ clip.says }}{% endif %}
     {%- if left is not none and not (video and video.status == 'limit') %} <b>{{ left_words(left) }}.</b>{% endif -%}
   </span>
   {% if left and needs_ok %}

@@ -9,6 +9,7 @@
     python -m wardrobe looks                  are the AI pictures of outfits switched on?
     python -m wardrobe looks --test           draw one sample picture, to check the key (costs one picture)
     python -m wardrobe looks --test-set       draw a sample outfit's whole set: the front picture and the five made from it
+    python -m wardrobe looks --test-video     make one "See it move" video from that set (--video-model NAME tries another model)
     python -m wardrobe stores [sync | end KEY]    the stores whose feeds Stilsmith may use (config/feeds.toml)
     python -m wardrobe feeds [--store KEY] [--from FILE]   import the approved stores' product feeds (feeds/)
     python -m wardrobe owner [add EMAIL | remove EMAIL]    who sees the owner's pages, such as /stores (owner.py)
@@ -178,6 +179,23 @@ def check_looks(args: argparse.Namespace) -> None:
                  '  export OPENAI_API_KEY="sk-…"      (or GEMINI_API_KEY="…")\n'
                  "and start the app from the same terminal. To keep the key for every new terminal,\n"
                  "add that line to the file ~/.zshrc.")
+    if args.test_video is not None:
+        # One clip of "See it move", from a sample picture: to look at with your own eyes, and to try another
+        # name for the video model (--video-model) without touching config/looks.toml.
+        from . import videos
+        try:
+            clip = videos.clip_of(args.test_video)
+            name = args.video_model or (videos.rules() or {}).get("model", "")
+            print(f"Making a {clip.seconds}-second video from the sample outfit's {clip.label} picture with {name}.\n"
+                  "This takes up to two minutes and is billed to your key…", flush=True)
+            path, seconds, clip = videos.sample(args.test_video, args.video_model)
+        except imagegen.DrawError as problem:
+            if problem.kind == "picture":
+                sys.exit(f"\nNothing was sent: {problem.detail}.\nDraw the sample pictures first (six pictures billed):\n"
+                         "  python -m wardrobe looks --test-set")
+            sys.exit(f"\nIt did not work: {videos.SAY.get(problem.kind, videos.SAY['unknown'])}\n  {problem.detail}")
+        print(f"It works: {path} ({seconds:.0f} seconds). Open that file to look at it.")
+        return
     if args.test_set:
         # The whole set of one made-up outfit, to judge with your own eyes: is it the same man in the same clothes
         # in every picture, and do the street, the café and the library look photographed?
@@ -193,7 +211,11 @@ def check_looks(args: argparse.Namespace) -> None:
         print("To check the key by drawing one sample picture (the service bills it, a few cents):\n"
               "  python -m wardrobe looks --test\n"
               "To see a whole set (the front picture and the five made from it, six pictures billed):\n"
-              "  python -m wardrobe looks --test-set")
+              "  python -m wardrobe looks --test-set\n"
+              "To see one \"See it move\" video made from a picture of that set (one video billed, far more than a picture):\n"
+              "  python -m wardrobe looks --test-video            the front picture's turn\n"
+              "  python -m wardrobe looks --test-video cafe       another picture's: walking, turned, street, cafe, library\n"
+              "  python -m wardrobe looks --test-video --video-model NAME      with another name for the video model")
         return
     print("Drawing a sample outfit. This takes up to a minute and is billed to your key…", flush=True)
     try:
@@ -252,6 +274,11 @@ def main(argv: list[str] | None = None) -> None:
     p_looks.add_argument("--test", action="store_true", help="draw one sample picture (billed by the service)")
     p_looks.add_argument("--test-set", action="store_true",
                          help="draw a sample outfit's whole set: the front picture and the pictures made from it (each billed)")
+    p_looks.add_argument("--test-video", nargs="?", const="front", default=None, metavar="PICTURE",
+                         help="make one \"See it move\" video from a picture of that sample set: front (the turn) "
+                              "unless another is named, e.g. cafe (billed, far more than a picture)")
+    p_looks.add_argument("--video-model", metavar="NAME",
+                         help="with --test-video: try this name for the video model instead of [videos] model")
     p_looks.set_defaults(func=check_looks)
 
     p_mock = sub.add_parser("mock", help="go back to the invented demo catalogue")

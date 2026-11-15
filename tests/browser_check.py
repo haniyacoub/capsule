@@ -15,7 +15,8 @@ under way (no late answer undoes the tap) and
 does all of it with JavaScript off (the page comes back showing the picture tapped), makes the outfit's AI video with "See it move" (told
 first, under the picture and on five phones, that it is his one video today), watches it play under the caption 'Look
 and fit will differ', drags it round and turns it with the arrow keys, then finds the day's video used up on
-the next outfit, opens a piece from its dot, swaps it (said over the outfit, with Undo, which puts back the
+the next outfit, makes the video of the Café picture (the offer names that picture; the clip starts from it, with the
+café's own movement, 5 seconds, muted, not dragged round) and finds each picture's clip kept with its picture, opens a piece from its dot, swaps it (said over the outfit, with Undo, which puts back the
 product and its lock state), leaves a layer off (said, with 'Put it back'), opens a piece on a phone
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
 comparing all options to the same outfit), opens a piece with JavaScript off (its page, and back to the same outfit)
@@ -91,7 +92,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, imagegen, looks, person, videogen, videos  # noqa: E402
+from wardrobe import colours, db, imagegen, looks, person, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
@@ -134,11 +135,15 @@ refuse: list[imagegen.DrawError] = []   # a problem the "video model" is to have
 CLIP = (ROOT / "tests" / "fixtures" / "test-pattern.mp4").read_bytes()     # 8 s of ffmpeg's test pattern, no person
 
 
-def video_stand_in(service, picture, prompt):
+made_from: list[tuple[bytes, int]] = []     # … and for each: the picture it starts from, and its length in seconds
+
+
+def video_stand_in(service, picture, prompt, seconds=8):
     if refuse:
         time.sleep(0.5)
         raise refuse.pop(0)
     made.append(prompt)
+    made_from.append((picture, seconds))
     time.sleep(1.5)         # long enough for the page to show that it is being made
     return CLIP
 
@@ -829,9 +834,12 @@ def run(base: str) -> None:
             assert all(len(one["references"]) == 1 for one in sent) and len(anchor) == 1, \
                 "each of the five was not made from the one front picture"
             assert anchor == {picture()}, "what went to the image service is not the outfit's front picture"
-            for name, one in zip(order[1:], sent):
-                assert "Make a new photograph of the same man in the same outfit" in one["prompt"] \
-                    and "Change only this: " + changes[name] in one["prompt"], f"the {name} picture was not asked for in its own words"
+            # (Two are drawn at a time and the rest wait their turn, so they reach the service in no fixed order.)
+            assert all("Make a new photograph of the same man in the same outfit" in one["prompt"] for one in sent), \
+                "one of the five was not asked for as a new photograph of the same man"
+            for name in order[1:]:
+                assert sum("Change only this: " + changes[name] in one["prompt"] for one in sent) == 1, \
+                    f"the {name} picture was not asked for in its own words, once"
             for _ in range(30):                                         # the row has stopped asking
                 if not page.locator(f"{row}[hx-get]").count():
                     break
@@ -1175,7 +1183,8 @@ def run(base: str) -> None:
             assert seen["focus"] == "slider" and seen["heard"] == "Video ready", f"focus or what is heard: {seen}"
             assert abs(seen["line_end"] - before["scenes_end"]) < 1 and seen["title"] == before["title"], \
                 f"something under the picture moved: {before} -> {seen}"
-            assert len(made) == 1 and made[0] == looks.load_rules()["videos"]["text"], "the video was not asked for once, in the set words"
+            assert len(made) == 1 and made[0] == videos.clip_of("front").text and made_from[0][1] == 8, \
+                "the video was not asked for once, in the front picture's words (the 8-second turn)"
             page.wait_for_function("s => document.querySelector(s + ' .vid-clip').ended", arg=first, timeout=20000)
             rest = page.evaluate("s => { const v = document.querySelector(s + ' .vid-clip'); return v.duration - v.currentTime; }", first)
             assert rest < 0.2, f"it does not rest on its last frame ({rest:.2f} s before the end)"
@@ -1285,6 +1294,94 @@ def run(base: str) -> None:
                     if touch:
                         assert still["line_end"] <= still["tabs"], f"{where}: the outfit's line ends under the tab bar: {still}"
                     context.close()
+
+        def see_it_move_from_the_picture_showing():
+            # "See it move" starts from whichever of the outfit's pictures is showing. With the Café picture large, the
+            # offer names it ("AI video of the Café picture, 5 seconds: he moves naturally.") and says what is left today; the clip is
+            # made from exactly that stored picture, with the café's own movement, 5 seconds long; it plays muted over
+            # the café picture and is not a slider (only the front picture's turn is dragged round). Each picture
+            # keeps its own clip: back on Front, the turn made earlier plays again; on Café, the café's; nothing is
+            # made or counted again.
+            with db.connect() as con:                       # a new day: the customer's one video is his again
+                con.execute("DELETE FROM video_requests")
+            page.goto(base + "/outfits", wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            row = f"{first} .shots"
+            before = len(made)
+
+            def show(name):
+                page.click(f"{row} button[id$='-{name}']")
+                page.wait_for_function("([s, name]) => { const b = document.querySelector(s + ` button[id$='-${name}']`);"
+                                       " return b && b.getAttribute('aria-pressed') === 'true'"
+                                       " && !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling'); }",
+                                       arg=[row, name])
+                page.wait_for_function("s => { const i = document.querySelector(s + ' .look-pic img'); return i && i.complete; }",
+                                       arg=first)
+
+            show("cafe")
+            picture = page.get_attribute(f"{first} .look-pic.more img", "src")
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid-bar.ask")
+            offer = " ".join(page.inner_text(f"{first} .vid-bar.ask").split())
+            assert offer.startswith("AI video of the Café picture, 5 seconds: he moves naturally. 1 video left today."), \
+                f"on the Café picture the offer says {offer!r}"
+            assert len(made) == before, "opening the offer made a video"
+            page.locator(f"{first} .vid-bar.ask button.btn").press("Enter")           # Make the video
+            page.wait_for_selector(f"{first} .vid.on", timeout=20000)
+            assert len(made) == before + 1 and made[-1] == videos.clip_of("cafe").text and "lifts the cup" in made[-1], \
+                f"the Café picture's video was not asked for in the café's words: {made[before:]}"
+            sent, seconds = made_from[-1]
+            stored = looks.folder() / picture.rsplit("/", 1)[-1]
+            assert sent == stored.read_bytes() and seconds == 5, \
+                f"the clip was not made from the picture showing ({stored.name}), 5 seconds long: {len(sent)} bytes, {seconds} s"
+            page.wait_for_function("s => { const v = document.querySelector(s + ' .vid-clip'); return v.currentTime > 0.3; }",
+                                   arg=first, timeout=20000)
+            seen = page.evaluate("""s => { const slide = document.querySelector(s), v = slide.querySelector('.vid-clip'),
+                turn = slide.querySelector('.vid-turn');
+                return {muted: v.muted, poster: v.getAttribute('poster'), src: v.getAttribute('src'), role: turn.getAttribute('role'),
+                        label: turn.getAttribute('aria-label'), cursor: getComputedStyle(turn).cursor,
+                        ground: getComputedStyle(slide.querySelector('.vid-box')).backgroundColor,
+                        focus: document.activeElement === turn, drag: !!slide.querySelector('.vid-drag'),
+                        line: slide.querySelector('.vid-line').innerText.replace(/\\s+/g, ' ').trim()}; }""", first)
+            assert seen["muted"] and seen["poster"] == picture, f"the café's clip is not muted over the café picture: {seen}"
+            assert seen["role"] == "group" and not seen["drag"] and seen["cursor"] != "grab" and "Café picture, 5 seconds" in seen["label"], \
+                f"a clip that only plays is offered as something to drag round: {seen}"
+            assert seen["ground"] not in ("rgba(0, 0, 0, 0)", "transparent"), \
+                f"beside the café's clip the still picture shows through, a seam once he moves: {seen}"
+            assert re.fullmatch(r"Look and fit will differ( on the real pieces)?\. Café, moving Play again Show picture", seen["line"]), \
+                f"under the café's clip: {seen['line']!r}"
+            cafe_clip = seen["src"]
+            page.wait_for_function("s => document.querySelector(s + ' .vid-clip').ended", arg=first, timeout=20000)
+            turn = page.locator(f"{first} .vid-turn").bounding_box()
+            page.mouse.move(turn["x"] + 20, turn["y"] + turn["height"] / 2)
+            page.mouse.down()
+            page.mouse.move(turn["x"] + turn["width"] / 2, turn["y"] + turn["height"] / 2, steps=5)
+            page.mouse.up()
+            rest = page.evaluate("s => { const v = document.querySelector(s + ' .vid-clip'); return v.duration - v.currentTime; }", first)
+            assert rest < 0.2 and page.get_attribute(f"{first} .vid-turn", "aria-valuenow") is None, \
+                f"dragging across a clip that only plays moved it ({rest:.2f} s before its end)"
+            page.click(f"{first} [data-vid-close]")
+
+            show("front")                                   # the front picture has its own clip, made earlier: the turn
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid.on[data-turns] .vid-turn[role=slider]")
+            front_clip = page.get_attribute(f"{first} .vid-clip", "src")
+            assert front_clip != cafe_clip, "the front picture shows the café's clip"
+            page.click(f"{first} [data-vid-close]")
+            show("cafe")                                    # … and the café's is kept with the café picture
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid.on:not([data-turns])")
+            assert page.get_attribute(f"{first} .vid-clip", "src") == cafe_clip, "the café picture lost its clip"
+            page.click(f"{first} [data-vid-close]")
+            show("street")                                  # a picture without a clip: the day's video is used
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid-bar.ask")
+            used = " ".join(page.inner_text(f"{first} .vid-bar.ask").split())
+            assert used.startswith("AI video of the Street picture, 5 seconds") and "No videos left today: more tomorrow" in used \
+                and "Make the video" not in used, f"with the day's video used, the Street picture offers {used!r}"
+            assert len(made) == before + 1, "looking at clips that are kept made another"
+            page.goto(base + "/outfits", wait_until="networkidle")     # the next steps start from the front picture
+            page.wait_for_selector(f"{first} .look-pic img")
 
         def the_dots_small_and_there_when_pointed_at():
             # The dots on the AI picture, one per piece. They are small (at most 18px across, ring and all), yet a tap
@@ -4077,6 +4174,7 @@ def run(base: str) -> None:
                  ("more photos: five made from the front picture", more_photos_of_the_outfit),
                  ("a small picture tapped: never undone, and without JavaScript", a_tap_on_a_small_picture_is_kept),
                  ("see it move: a video, played, dragged, limited", see_it_move),
+                 ("see it move from the picture showing: its own movement, one clip each", see_it_move_from_the_picture_showing),
                  ("the dots: small, there when pointed at", the_dots_small_and_there_when_pointed_at),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),

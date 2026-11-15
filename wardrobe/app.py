@@ -960,7 +960,8 @@ def create_app() -> Flask:
         return render_template("_look.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
                                allowance=looks.allowance_words(),
                                auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off(),
-                               videos_on=videos.service() is not None, video=videos.of(large.look),
+                               videos_on=videos.service() is not None, video=videos.of(large.look, large.name),
+                               clip=videos.clip_of(large.name),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
 
     def shots_fragment(outfit_key: str, photos: list[looks.Photo], shot: str, said: str = "") -> str:
@@ -1032,19 +1033,27 @@ def create_app() -> Flask:
     # The part of a picture box about its video is swapped on its own (_video.html), so the picture is not sent
     # again and does not fade in again. It is named by the picture (`look`, its key) and the outfit (`outfit`).
 
-    def video_look() -> tuple[looks.Look, str]:
-        """The finished picture a video request is about, and the outfit's key; 404 if there is none to see."""
+    def video_look() -> tuple[looks.Look, str, str]:
+        """The finished picture a video request is about, the outfit's key, and which of the outfit's pictures it is
+        (front, a pose, a surrounding: its movement follows from that); 404 if there is none to see. Which picture
+        it is is looked up among the outfit's own pictures, never taken from the page."""
         look_key = request.values.get("look", "")
         outfit_key = request.values.get("outfit", "")
         look = looks.get(look_key) if re.fullmatch(r"[0-9a-f]{24}", look_key) else None
         if look is None or look.status != "ready" or videos.service() is None:
             abort(404)
-        return look, outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else ""
+        outfit_key = outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else ""
+        pieces = pieces_of(outfit_key) if outfit_key else None
+        shot = videos.shot_of(look, looks.gallery(pieces) if pieces else None)
+        if shot is None:
+            abort(404)
+        return look, outfit_key, shot
 
-    def video_fragment(outfit_key: str, look: looks.Look, video: videos.Video | None, asking: bool = False,
-                       play: bool = False) -> str:
+    def video_fragment(outfit_key: str, look: looks.Look, shot: str, video: videos.Video | None,
+                       asking: bool = False, play: bool = False) -> str:
         offer = asking or (video is not None and video.status in ("failed", "limit", "consent"))
         return render_template("_video.html", key=outfit_key, look=look, video=video, asking=asking, play=play,
+                               clip=videos.clip_of(shot),
                                left=videos.left() if offer else None, left_words=videos.left_words, told=videos.told,
                                needs_ok=offer and videos.needs_consent(look),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
@@ -1053,20 +1062,20 @@ def create_app() -> Flask:
     def outfits_video():
         """'See it move' opened (ask=1: what a video is and how many are left today), closed again, and asked
         every few seconds while the video is being made (wait=1: once it is ready, it plays)."""
-        look, outfit_key = video_look()
-        video = videos.of(look)
+        look, outfit_key, shot = video_look()
+        video = videos.of(look, shot)
         ready = video is not None and video.status == "ready"
-        return video_fragment(outfit_key, look, video, asking=request.args.get("ask") == "1" and not video,
+        return video_fragment(outfit_key, look, shot, video, asking=request.args.get("ask") == "1" and not video,
                               play=ready and (request.args.get("wait") == "1" or request.args.get("ask") == "1"))
 
     @app.post("/outfits/video")
     def outfits_video_make():
-        """Make the video of an outfit's picture (or say why not)."""
-        look, outfit_key = video_look()
-        video = videos.request(look, agreed=request.form.get("agree") == "on")    # the band's box, where it has one
+        """Make the video of one of an outfit's pictures, the one showing (or say why not)."""
+        look, outfit_key, shot = video_look()
+        video = videos.request(look, agreed=request.form.get("agree") == "on", shot=shot)    # the band's box, where it has one
         if not request.headers.get("HX-Request"):
             return redirect(request.referrer or url_for("outfits_page"))
-        return video_fragment(outfit_key, look, video, play=video is not None and video.status == "ready")
+        return video_fragment(outfit_key, look, shot, video, play=video is not None and video.status == "ready")
 
     @app.get("/videos/<name>")
     def video_file(name: str):

@@ -37,8 +37,8 @@ class WithVideos(WithPictures):
         self.made = []          # every video the "video model" was asked for
         self.refuse_video = None
 
-        def stand_in(service, picture, prompt):
-            self.made.append({"service": service, "picture": picture, "prompt": prompt})
+        def stand_in(service, picture, prompt, seconds=8):
+            self.made.append({"service": service, "picture": picture, "prompt": prompt, "seconds": seconds})
             if self.refuse_video:
                 raise self.refuse_video
             return CLIP
@@ -111,7 +111,7 @@ class SeeItMove(WithVideos, AppCase):
         offer = self.part(outfit, look, ask="1")
         form = re.search(r'<form class="([^"]+)"', offer).group(1)
         self.assertEqual(form, "vid-bar ask", "the offer is under the picture (app.css), not a band across it")
-        self.assertIn("An 8-second AI video: the model turns round once, then poses.", said(offer))
+        self.assertIn("AI video of the Front picture, 8 seconds: he turns round once.", said(offer))
         self.assertIn("10 videos left today.", said(offer))        # on your own machine: the site's ten
         self.assertIn("Make the video", offer)
         self.assertIn("Not now", offer)
@@ -124,9 +124,13 @@ class SeeItMove(WithVideos, AppCase):
         self.assertEqual(len(self.made), 1)
         sent = self.made[0]
         self.assertEqual(sent["picture"], (looks.folder() / look.file).read_bytes())
-        self.assertEqual(sent["prompt"], looks.load_rules()["videos"]["text"])
+        rules = looks.load_rules()["videos"]
+        self.assertEqual(sent["prompt"], f"{rules['start']} {rules['motion']['front']} {rules['keep']}")
         self.assertEqual(sent["service"].model, "gemini-omni-flash-preview")
+        self.assertEqual(sent["service"].task, "image_to_video", "Google is told the picture is the first frame")
+        self.assertEqual(sent["seconds"], 8, "the turn is 8 seconds")
         self.assertIn("turns slowly on the spot through one full circle", sent["prompt"])
+        self.assertIn("No dialogue, no music", sent["prompt"])
         self.assertIn("data-play", shown, "it plays once it is there")
         self.assertIn('<span class="ai-chip">AI video</span>', shown)
 
@@ -215,7 +219,7 @@ class SeeItMove(WithVideos, AppCase):
 
         def and_the_other_claims_it(*args, **kwargs):
             ticket = taken(*args, **kwargs)
-            key = videos.fingerprint(videos.service(), looks.load_rules()["videos"]["text"], look.file)
+            key = videos.fingerprint(videos.service(), videos.clip_of("front").text, look.file)
             self.assertTrue(db.start_video(key, look.file, videos.service().tag, None, 0.0))   # the other request
             return ticket
         with mock.patch.object(db, "take_video_ticket", and_the_other_claims_it):
@@ -324,6 +328,184 @@ class SeeItMove(WithVideos, AppCase):
     def test_only_a_finished_picture_can_be_made_into_a_video(self):
         self.assertEqual(self.client.get("/outfits/video", query_string={"look": "0" * 24}).status_code, 404)
         self.assertEqual(self.post("/outfits/video", look="not a key").status_code, 404)
+
+
+class FromThePictureShowing(WithVideos, AppCase):
+    """'See it move' starts from whichever of the outfit's pictures is showing, with a movement that fits it."""
+
+    def setUp(self):
+        super().setUp()
+        self.switch_on()
+        self.outfit = some_outfits(1)[0]
+        self.post("/outfits/look", key=self.outfit.key)
+        self.front = looks.get(look_key(self.outfit))
+        self.post("/outfits/look", key=self.outfit.key, more="1")              # "More photos"
+
+    def show(self, shot):
+        """Tap a small picture. Returns (its box on the page, the picture)."""
+        box = self.post("/outfits/look", key=self.outfit.key, shot=shot).data.decode()
+        return box, looks.get(re.search(r'data-look="([0-9a-f]{24})"', box).group(1))
+
+    def offer(self, look, **more):
+        return said(self.client.get("/outfits/video", query_string={"look": look.key, "outfit": self.outfit.key,
+                                                                    "ask": "1", **more}).data.decode())
+
+    def make(self, look, **more):
+        return self.post("/outfits/video", look=look.key, outfit=self.outfit.key, **more).data.decode()
+
+    def test_the_offer_names_the_picture_it_will_animate_and_what_is_left_today(self):
+        _, cafe = self.show("cafe")
+        offer = self.offer(cafe)
+        self.assertIn("AI video of the Café picture, 5 seconds: he moves naturally. 10 videos left today.", offer)
+        self.assertIn("AI video of the Front picture, 8 seconds: he turns round once. 10 videos left today.",
+                      self.offer(self.front))
+        self.assertEqual(self.made, [], "nothing is made by opening the offer")
+
+    def test_each_picture_gets_its_own_movement_from_exactly_that_stored_picture(self):
+        rules = looks.load_rules()["videos"]
+        for shot in ("walking", "turned", "street", "cafe", "library"):
+            _, look = self.show(shot)
+            self.make(look)
+            sent = self.made[-1]
+            self.assertEqual(sent["picture"], (looks.folder() / look.file).read_bytes(), f"{shot}: not that picture")
+            self.assertEqual(sent["prompt"], f"{rules['start']} {rules['motion'][shot]} {rules['keep']}", shot)
+            self.assertEqual(sent["seconds"], 5, f"{shot}: a few seconds, not the 8-second turn")
+            self.assertNotIn("full circle", sent["prompt"], f"{shot}: only the front picture turns")
+        self.assertEqual(len(self.made), 5)
+        self.make(self.front)
+        self.assertEqual((self.made[-1]["seconds"], rules["motion"]["front"] in self.made[-1]["prompt"]), (8, True))
+
+    def test_which_picture_it_is_is_never_taken_from_the_page(self):
+        # A request that names the café picture but claims it is the front one still gets the café's movement.
+        _, cafe = self.show("cafe")
+        self.make(cafe, shot="front")
+        self.assertIn("lifts the cup", self.made[0]["prompt"])
+        self.assertEqual(self.made[0]["seconds"], 5)
+        # Without its outfit, a picture made from another cannot be told apart: nothing is made of it.
+        response = self.post("/outfits/video", look=cafe.key)
+        self.assertEqual(response.status_code, 404)
+        missing = self.client.get("/outfits/video", query_string={"look": cafe.key, "outfit": "0" * 12})
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(len(self.made), 1)
+        self.assertEqual(videos.shot_of(self.front, None), "front", "a picture not made from another is a front picture")
+
+    def test_one_clip_is_kept_for_each_picture_and_shown_again_without_a_new_charge(self):
+        _, cafe = self.show("cafe")
+        self.make(cafe)
+        self.make(self.front)
+        self.assertEqual((len(self.made), db.video_requests(0), len(self.videos_on_disk())), (2, 2, 2))
+        # Asked again, from the offer or by "Make the video": the kept clip, and nothing is counted.
+        self.assertIn("data-play", self.make(cafe))
+        self.assertIn("data-play", self.client.get("/outfits/video", query_string={
+            "look": cafe.key, "outfit": self.outfit.key, "ask": "1"}).data.decode())
+        # Each picture's clip comes back with its picture: tap Front, then Café again.
+        front_box, _ = self.show("front")
+        cafe_box, _ = self.show("cafe")
+        clips = [re.search(r'<video class="vid-clip" src="(/videos/[^"]+)"', box).group(1) for box in (front_box, cafe_box)]
+        self.assertEqual(len(set(clips)), 2, "the two pictures show the same clip")
+        self.assertIn('poster="/looks/' + cafe.file, cafe_box, "the café's clip lies over the café picture")
+        street_box, _ = self.show("street")
+        self.assertNotIn("vid-clip", street_box, "the street has no clip yet")
+        self.assertIn("See it move", street_box)
+        self.assertEqual((len(self.made), db.video_requests(0), len(self.videos_on_disk())), (2, 2, 2))
+        page = self.client.get("/outfits").data.decode()         # the page shows the front picture, with its own clip
+        self.assertIn(clips[0], page)
+        self.assertNotIn(clips[1], page)
+
+    def test_only_the_front_pictures_video_is_dragged_round_and_every_clip_is_muted(self):
+        runs = []
+
+        def ffmpeg(command, **options):
+            runs.append(command)
+            Path(command[-1]).write_bytes(CLIP[:5000])
+            return subprocess.CompletedProcess(command, 0)
+
+        _, cafe = self.show("cafe")
+        with mock.patch.object(videos, "_ffmpeg", lambda: "/usr/bin/ffmpeg"), \
+                mock.patch.object(videos.subprocess, "run", ffmpeg):
+            moving = self.make(cafe)
+            self.assertEqual(runs, [], "a clip that only plays needs no turn file")
+            turning = self.make(self.front)
+            self.assertEqual(len(runs), 1)
+        self.assertIn("data-turns", turning)
+        self.assertIn('role="slider"', turning)
+        self.assertIn("Drag to turn", turning)
+        self.assertNotIn("data-turns", moving)
+        self.assertNotIn('role="slider"', moving)
+        self.assertNotIn("Drag to turn", said(moving))
+        self.assertIn("Café, moving", said(moving))
+        self.assertIn('aria-label="AI video of this outfit, made from the Café picture, 5 seconds, without sound"', moving)
+        self.assertIn("Play again", moving)
+        for shown in (moving, turning):
+            players = re.findall(r"<video [^>]*>", shown)
+            self.assertTrue(players and all(" muted " in player for player in players), "a clip is not muted")
+
+    def test_a_pose_without_a_movement_of_its_own_moves_naturally_and_the_length_is_a_setting(self):
+        rules = looks.load_rules()["videos"]
+        self.with_video_rules(seconds=4, motion={name: words for name, words in rules["motion"].items() if name != "library"})
+        _, library = self.show("library")
+        self.assertIn("AI video of the Library picture, 4 seconds: he moves naturally.", self.offer(library))
+        self.make(library)
+        self.assertIn(rules["motion"]["other"], self.made[0]["prompt"])
+        self.assertEqual(self.made[0]["seconds"], 4)
+
+    def test_drawing_the_front_picture_again_takes_every_pictures_clip_with_it(self):
+        _, cafe = self.show("cafe")
+        self.make(cafe)
+        self.make(self.front)
+        self.assertEqual(len(self.videos_on_disk()), 2)
+        later = looks.time.time() + 30                              # a new version comes later, with a new name
+        with mock.patch.object(looks.time, "time", lambda: later):
+            self.post("/outfits/look", key=self.outfit.key, again="1")
+        self.assertEqual(self.videos_on_disk(), [], "clips of pictures that are gone")
+
+
+class TryingTheVideoModel(WithVideos, AppCase):
+    """python -m wardrobe looks --test-video: one clip from a sample picture, also with another model name."""
+
+    def setUp(self):
+        super().setUp()
+        self.switch_on()
+
+    def run_looks(self, *args):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            main(["looks", *args])
+        return out.getvalue()
+
+    def test_it_makes_the_sample_front_pictures_turn_and_can_try_another_model_name(self):
+        with self.assertRaises(SystemExit) as stopped:
+            self.run_looks("--test-video")
+        self.assertIn("Nothing was sent", str(stopped.exception))
+        self.assertIn("looks --test-set", str(stopped.exception))
+        self.assertEqual(self.made, [])
+        self.run_looks("--test-set")
+        told = self.run_looks("--test-video")
+        self.assertIn("Making a 8-second video from the sample outfit's Front picture with gemini-omni-flash-preview", told)
+        self.assertIn("It works:", told)
+        self.assertEqual((videos.folder() / "sample.mp4").read_bytes(), CLIP)
+        self.assertEqual((self.made[0]["service"].model, self.made[0]["seconds"]), ("gemini-omni-flash-preview", 8))
+        self.assertEqual(self.made[0]["picture"], (looks.folder() / "sample.jpg").read_bytes())
+
+        told = self.run_looks("--test-video", "cafe", "--video-model", "gemini-omni-1.2-flash")
+        self.assertIn("5-second video from the sample outfit's Café picture with gemini-omni-1.2-flash", told)
+        sent = self.made[1]
+        self.assertEqual((sent["service"].model, sent["service"].task, sent["seconds"]),
+                         ("gemini-omni-1.2-flash", "image_to_video", 5))
+        self.assertEqual(sent["picture"], (looks.folder() / "sample-cafe.jpg").read_bytes())
+        self.assertIn("lifts the cup", sent["prompt"])
+        self.assertTrue((videos.folder() / "sample-cafe.mp4").is_file())
+        self.assertEqual(looks.load_rules()["videos"]["model"], "gemini-omni-flash-preview", "the setting is untouched")
+        self.assertEqual(db.video_requests(0), 0, "a trial from the command line is not one of the site's videos")
+
+    def test_googles_answer_to_a_name_it_does_not_know_is_said(self):
+        self.run_looks("--test-set")
+        self.refuse_video = imagegen.DrawError("model", "models/gemini-omni-1.2-flash is not found")
+        with self.assertRaises(SystemExit) as stopped:
+            self.run_looks("--test-video", "--video-model", "gemini-omni-1.2-flash")
+        self.assertIn("It did not work: Google does not know the video model", str(stopped.exception))
+        self.assertIn("gemini-omni-1.2-flash is not found", str(stopped.exception))
+        self.assertIn("--test-video", self.run_looks())       # the plain command says how to try a video
 
 
 class TurnFile(WithVideos, AppCase):
@@ -699,6 +881,17 @@ class GoogleVideoModel(unittest.TestCase):
                                             {"type": "text", "text": "Turn round once."}])
         self.assertEqual(payload["response_format"], {"type": "video", "duration": "8s", "aspect_ratio": "9:16",
                                                       "resolution": "720p"})
+        self.assertNotIn("generation_config", payload, "no task set: nothing about it is sent")
+
+    def test_the_picture_is_named_as_the_first_frame_and_the_clip_has_the_length_asked_for(self):
+        self.answers.append(self.answer({"type": "video", "mime_type": "video/mp4", "data": base64.b64encode(CLIP).decode()}))
+        service = videogen.Service(model="gemini-omni-flash-preview", key="AIza-test-key-123456", task="image_to_video")
+        self.assertEqual(videogen.make(service, PICTURE, "Lift the cup.", seconds=5), CLIP)
+        payload = json.loads(self.sent[0]["body"])
+        self.assertEqual(payload["generation_config"], {"video_config": {"task": "image_to_video"}})
+        self.assertEqual(payload["response_format"]["duration"], "5s")
+        self.assertEqual(payload["input"][0]["data"], base64.b64encode(PICTURE).decode(), "the stored picture itself")
+        self.assertNotEqual(service.tag, self.service.tag, "a clip made with the task is another clip")
 
     def test_a_video_kept_on_googles_server_is_fetched_with_the_key_only_from_there(self):
         uri = "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media"
@@ -951,21 +1144,41 @@ class VideoSettings(WithVideos, AppCase):
     def test_a_mistake_in_the_videos_settings_is_named(self):
         for bad, named in ((dict(on="yes"), "videos.on"), (dict(model=""), "videos.model"),
                            (dict(per_day=-1), "videos.per_day"), (dict(turn_seconds=20), "videos.turn_seconds"),
-                           (dict(pro_per_customer_per_day=2.5), "videos.pro_per_customer_per_day")):
+                           (dict(pro_per_customer_per_day=2.5), "videos.pro_per_customer_per_day"),
+                           (dict(seconds=2), "videos.seconds"), (dict(seconds=16), "videos.seconds"),
+                           (dict(seconds=5.5), "videos.seconds"), (dict(task=1), "videos.task"),
+                           (dict(start=""), "videos.start"), (dict(keep=None), "videos.keep"),
+                           (dict(motion="turn"), "[videos.motion]"),
+                           (dict(motion={"other": "Moves."}), "videos.motion.front"),
+                           (dict(motion={"front": "Turns."}), "videos.motion.other"),
+                           (dict(motion={"front": "Turns.", "other": "Moves.", "cafe": ""}), "videos.motion.cafe")):
             data = {"videos": {**looks.load_rules()["videos"], **bad}}
             with self.assertRaises(config.ConfigError, msg=named) as caught:
                 looks._check_videos(data["videos"])
             self.assertIn(named, str(caught.exception))
+        looks._check_videos({**looks.load_rules()["videos"], "task": ""})      # "": left out of the request, allowed
+
+    def test_the_real_file_has_a_movement_for_every_picture_and_five_second_clips(self):
+        rules = looks.load_rules()["videos"]
+        self.assertEqual(rules["seconds"], 5)
+        self.assertEqual(rules["task"], "image_to_video")
+        for name, _ in looks.shots():
+            self.assertIn(name, rules["motion"], f"the {name} picture has no movement of its own")
+        self.assertIn("other", rules["motion"])
+        self.assertEqual(len({rules["motion"][name] for name, _ in looks.shots()}), len(looks.shots()),
+                         "two pictures share a movement")
 
     def test_a_different_model_or_words_is_a_different_video(self):
         outfit = some_outfits(1)[0]
         self.post("/outfits/look", key=outfit.key)
         look = looks.get(look_key(outfit))
         self.post("/outfits/video", look=look.key, outfit=outfit.key)
-        self.with_video_rules(text="Walk towards the camera.")
+        motion = looks.load_rules()["videos"]["motion"]
+        self.with_video_rules(motion={**motion, "front": "Walk towards the camera."})
         self.post("/outfits/video", look=look.key, outfit=outfit.key)
-        self.assertEqual([sent["prompt"] for sent in self.made][1], "Walk towards the camera.")
         self.assertEqual(len(self.made), 2)
+        self.assertIn(" Walk towards the camera. ", self.made[1]["prompt"])
+        self.assertNotIn("turns slowly", self.made[1]["prompt"])
 
 
 class Schema(unittest.TestCase):

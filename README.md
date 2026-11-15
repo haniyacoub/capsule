@@ -260,17 +260,27 @@ Things to know:
   `python -m wardrobe looks --test-set` draws a sample outfit's six pictures
   into `data/looks/` (six pictures billed). With OpenAI the five go to its
   "edits" address with the front picture; that has not been tried for real.
-- **See it move:** on a finished picture (any of the six), "See it move" asks
-  Google's video model for an 8-second clip that starts from that picture: the
-  model turns round once, then poses. It plays once (muted), and can then be
-  played again or dragged round, sideways or with the arrow keys. It needs
-  `GEMINI_API_KEY`, also where OpenAI draws the pictures, and costs far more
-  than a picture (about $0.56 to $0.81 a clip in November 2026), so it has its
-  own limits under `[videos]` in `config/looks.toml`: one a day per customer,
-  five for Pro accounts and owners, ten for the whole site; on your own machine
-  only the site's. A video is kept in `data/videos/` and shown again for free;
-  where ffmpeg is installed its turn is kept a second time for smooth
-  dragging. Pro is a mark on an account, with nothing to buy:
+- **See it move:** under whichever of an outfit's pictures is showing, "See it
+  move" asks Google's video model for a clip that starts from exactly that
+  stored picture, with a movement that fits it: the front picture turns round
+  once and then poses (8 seconds; it can then be dragged round, sideways or with
+  the arrow keys), every other picture moves naturally for 5 seconds (walks on,
+  lifts the cup, turns a page). The offer names the picture it will animate and
+  says how many videos are left today. Every clip plays muted. Each picture
+  keeps its one clip in `data/videos/`: shown again for free whenever that
+  picture is showing, to everybody who sees it. It needs `GEMINI_API_KEY`, also
+  where OpenAI draws the pictures, and costs far more than a picture (by
+  Google's price list of 15 November 2026 about $0.56 for the turn and $0.35
+  for a 5-second clip), so it has its own limits under `[videos]` in
+  `config/looks.toml`: one a day per customer, five for Pro accounts and
+  owners, ten for the whole site; on your own machine only the site's. The
+  movements' words (`[videos.motion]`), the clips' length (`seconds`) and the
+  model's name are in the same place. To try the paid service by eye, or
+  another name for the model without touching the file (one clip billed, from
+  the pictures of `looks --test-set`):
+  `python -m wardrobe looks --test-video cafe --video-model gemini-omni-1.2-flash`.
+  Where ffmpeg is installed the front picture's turn is kept a second time for
+  smooth dragging. Pro is a mark on an account, with nothing to buy:
   `python -m wardrobe pro add you@example.com` (also `pro remove`, `pro list`).
 - The same file holds the service and model names, the picture quality, the
   wording sent to the service, and where the dots sit on the picture.

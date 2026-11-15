@@ -866,8 +866,9 @@ if (swatchGrid) {
 // 15. "See it move": an outfit's AI video (videos.py, _video.html). The part of the picture box about the video
 //     (.look-vid) is filled by HTMX on its own. A video that is ready lies over the picture (.vid.on): it plays once,
 //     muted (with "reduce motion" asked for in the device's settings it does not play by itself, and shows its last
-//     frame), rests on its last frame, and is then turned by dragging sideways across it or with the arrow keys: a
-//     slider, its value in degrees (a drag across the whole picture is one full turn). "Play again" plays it from
+//     frame) and rests on its last frame. The front picture's video (data-turns) is then turned by dragging sideways
+//     across it or with the arrow keys: a slider, its value in degrees (a drag across the whole picture is one full
+//     turn). The video of another of the outfit's pictures (walking, the café …) only plays. "Play again" plays it from
 //     the start; "Show picture" goes back to the picture and its dots. Dragging uses the turn kept with every frame
 //     a keyframe (.vid-drag) where there is one, else the clip itself (its first data-turn-seconds).
 {
@@ -957,7 +958,7 @@ if (swatchGrid) {
   // Dragging sideways across the video turns the model (a drag across its whole width is one full turn).
   let held = null;
   document.addEventListener('pointerdown', (e) => {
-    const turn = e.target.closest('.vid-turn');
+    const turn = e.target.closest('[data-turns] .vid-turn');
     if (!turn || e.button !== 0) return;
     const vid = turn.closest('[data-vid]');
     held = { vid, turn, x: e.clientX, from: degreesOf(vid), width: turn.getBoundingClientRect().width };
@@ -978,7 +979,7 @@ if (swatchGrid) {
   document.addEventListener('pointercancel', letGo);
   // The arrow keys on the video turn it, and only it: the outfit row does not move on (6), the page does not scroll.
   document.addEventListener('keydown', (e) => {
-    const turn = e.target.closest && e.target.closest('.vid-turn');
+    const turn = e.target.closest && e.target.closest('[data-turns] .vid-turn');
     if (!turn || e.altKey || e.ctrlKey || e.metaKey) return;
     const vid = turn.closest('[data-vid]');
     const now = degreesOf(vid);

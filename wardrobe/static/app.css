@@ -666,6 +666,13 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .vid.on .vid-pill { display: none; }
 .vid-turn { position: absolute; inset: 0; cursor: grab; touch-action: pan-y; -webkit-user-select: none; user-select: none; }
 .vid-turn.held { cursor: grabbing; }
+/* A clip of another of the outfit's pictures (walking, the café …) only plays: nothing to drag, so a sideways swipe
+   moves on to the next outfit as anywhere else. Beside it the box is the page's own ground, not the picture it
+   started from: once he moves, a still strip of the same café on either side would show a seam. */
+.vid:not([data-turns]) .vid-turn { cursor: default; touch-action: auto; }
+.vid:not([data-turns]) .vid-box { background: var(--bg); }
+/* The clip is 9:16 in the 2:3 box: 27/32 of its width, so 5/64 is free on either side. Its label sits on the clip. */
+.vid:not([data-turns]) .vid-box .ai-chip { margin-left: 7.8125%; }
 .vid-turn video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .vid-turn video[hidden] { display: none; }
 .vid-turn:focus-visible { outline: none; }

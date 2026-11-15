@@ -132,7 +132,7 @@ def _check(data: dict) -> None:
         for name, shot in table.items():
             if not re.fullmatch(r"[a-z]{1,20}", name):
                 raise ConfigError(f"[{group}.{name}]: its name is a word in small letters, like [{group}.{'street' if group == 'scenes' else 'walking'}]")
-            if name == FRONT or name in seen:
+            if name in (FRONT, "other") or name in seen:      # "other" names a movement ([videos.motion])
                 raise ConfigError(f"[{group}.{name}]: that name is taken (the front picture, or another pose or scene)")
             seen.add(name)
             shot = config.table(shot, f"{group}.{name}")
@@ -156,16 +156,29 @@ def _check(data: dict) -> None:
 def _check_videos(videos: dict) -> None:
     if not isinstance(videos.get("on"), bool):
         raise ConfigError("videos.on must be true or false")
-    for name in ("model", "text"):
+    for name in ("model", "start", "keep"):
         if not isinstance(videos.get(name), str) or not videos[name].strip():
             raise ConfigError(f"videos.{name} must be " + ("the name of a model" if name == "model" else "words"))
+    if not isinstance(videos.get("task", ""), str):
+        raise ConfigError('videos.task must be "image_to_video", or "" to leave it out of the request')
     seconds = videos.get("turn_seconds")
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not 1 <= seconds <= 8:
-        raise ConfigError("videos.turn_seconds must be a number of seconds from 1 to 8 (the clip is 8 seconds long)")
+        raise ConfigError("videos.turn_seconds must be a number of seconds from 1 to 8 (the turn is 8 seconds long)")
+    length = videos.get("seconds")
+    if isinstance(length, bool) or not isinstance(length, int) or not 3 <= length <= 15:
+        raise ConfigError("videos.seconds must be a whole number of seconds from 3 to 15 (what Google makes)")
     for name in ("per_day", "per_customer_per_day", "pro_per_customer_per_day"):
         value = videos.get(name)
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ConfigError(f"videos.{name} must be a whole number, 0 or more")
+    motion = config.table(videos.get("motion"), "videos.motion")
+    for name in (FRONT, "other"):
+        if name not in motion:
+            raise ConfigError(f"videos.motion.{name} must be words: " + (
+                "the movement of the front picture" if name == FRONT else "the movement of a picture that has no line of its own"))
+    for name, words in motion.items():
+        if not isinstance(words, str) or not words.strip():     # (a line for a pose that is gone is left alone)
+            raise ConfigError(f"videos.motion.{name} must be words")
 
 
 def service() -> imagegen.Service | None:

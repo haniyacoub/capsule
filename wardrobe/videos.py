@@ -1,20 +1,24 @@
 """AI videos of outfits: "See it move".
 
-On an outfit whose AI picture is ready, "See it move" asks Google's video model
-(videogen.py) for an 8-second clip that starts from that picture, whatever its
-scene: the model turns slowly on the spot in one full circle, then faces the
-camera and settles into a relaxed pose. The picture and one paragraph
-(config/looks.toml, [videos] text) are all that is sent: no name, no email, no
-sizes.
+An outfit has up to six AI pictures (looks.py): the front one, two more poses
+and three surroundings. Under whichever of them is showing, "See it move" asks
+Google's video model (videogen.py) for a clip that starts from exactly that
+stored picture, with a movement that fits it: the front picture turns slowly on
+the spot in one full circle and then poses (8 seconds), each other picture moves
+naturally for a few seconds (walks on, lifts the cup, turns a page: 5 seconds).
+The picture and one paragraph (config/looks.toml, [videos] start, the picture's
+line under [videos.motion], keep) are all that is sent: no name, no email, no
+sizes. Every clip is played muted.
 
 Like the pictures (looks.py), a video is made in the background (about 40 seconds
 to two minutes) while the page asks every few seconds how it is going; it is kept
-in <data>/videos/ and never paid for twice: a picture has one video, whoever asks.
+in <data>/videos/ and never paid for twice: a picture has one video, whoever asks,
+and it is shown again whenever that picture is showing.
 A video of a picture drawn from someone's photo is theirs alone, like the picture:
 shown only to them, and deleted with the picture, the photo and the account.
 
-Drag to turn: where ffmpeg is installed, the turn (the clip's first seconds) is
-kept a second time with every frame a keyframe, so that dragging across the
+Drag to turn (the front picture's video only): where ffmpeg is installed, the
+turn (the clip's first seconds) is kept a second time with every frame a keyframe, so that dragging across the
 picture shows any moment of the turn at once. Without ffmpeg the clip itself is
 dragged through, a little less smoothly.
 
@@ -94,13 +98,60 @@ def service() -> videogen.Service | None:
     chosen = rules()
     if not chosen or not chosen["on"] or not settings.GEMINI_API_KEY:
         return None
-    return videogen.Service(model=chosen["model"], key=settings.GEMINI_API_KEY)
+    return videogen.Service(model=chosen["model"], key=settings.GEMINI_API_KEY, task=chosen.get("task", ""))
 
 
-def fingerprint(chosen: videogen.Service, text: str, picture: str) -> str:
-    """The name of a video: the same model, words and picture file give the same one. A picture drawn again
-    has a new file, so its video is a new one too."""
-    return hashlib.sha256("\x1f".join((chosen.tag, text, picture)).encode()).hexdigest()[:24]
+def fingerprint(chosen: videogen.Service, text: str, picture: str, seconds: int = videogen.SECONDS) -> str:
+    """The name of a video: the same model, words, length and picture file give the same one. A picture drawn
+    again has a new file, so its video is a new one too."""
+    return hashlib.sha256("\x1f".join((_tag(chosen, seconds), text, picture)).encode()).hexdigest()[:24]
+
+
+def _tag(chosen: videogen.Service, seconds: int) -> str:
+    """Which model made a clip and what kind it is, as kept with it: "google:<model>:9:16:720p:image_to_video:5s"."""
+    return f"{chosen.tag}:{seconds}s"
+
+
+# ── which picture, which movement ─────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class Clip:
+    """What "See it move" makes of one of an outfit's pictures."""
+    shot: str                    # front | a name under [poses] or [scenes]
+    label: str                   # "Front", "Walking", "Café": the picture's name on the page
+    seconds: int                 # 8 for the turn, else [videos] seconds
+    turns: bool                  # the front picture's turn: it can be dragged round
+    text: str                    # what the video model is told, with the picture
+
+    @property
+    def says(self) -> str:
+        """The offer's first sentence: which picture it animates, for how long, and what happens. Short: with
+        "1 video left today." after it, it has two lines on a 320px phone and no more (_video.html)."""
+        does = "he turns round once" if self.turns else "he moves naturally"
+        return f"AI video of the {self.label} picture, {self.seconds} seconds: {does}."
+
+
+def clip_of(shot: str | None) -> Clip:
+    """The clip of the picture called `shot` (the front picture for a name that is not one): its length and the
+    words that go to Google with the picture. A pose or a scene without a movement of its own gets "other"."""
+    chosen = rules() or {}
+    shot = looks.shot_named(shot)
+    motion = chosen.get("motion") or {}
+    words = motion.get(shot) or motion.get("other", "")
+    text = " ".join(part.strip() for part in (chosen.get("start", ""), words, chosen.get("keep", "")) if part.strip())
+    turns = shot == looks.FRONT
+    return Clip(shot, dict(looks.shots()).get(shot, looks.FRONT_LABEL),
+                videogen.SECONDS if turns else chosen.get("seconds", 5), turns, text)
+
+
+def shot_of(look: looks.Look, photos: list[looks.Photo] | None) -> str | None:
+    """Which of an outfit's pictures `look` is, found among the outfit's own (`photos`, looks.gallery): never
+    taken from what a page sends, so a picture has one movement and one clip. Without the outfit, a picture that
+    was not made from another is a front picture; anything else is not known (None)."""
+    for photo in photos or []:
+        if photo.look is not None and photo.look.key == look.key:
+            return photo.name
+    return None if db.look_made_from(look.key) else looks.FRONT
 
 
 # ── one video: where it stands ────────────────────────────────────────────────
@@ -141,28 +192,32 @@ def get(key: str) -> Video | None:
     return _view(db.video_rows([key]).get(key))
 
 
-def _key(chosen: videogen.Service, look: looks.Look) -> str:
-    return fingerprint(chosen, (rules() or {}).get("text", ""), look.file or "")
+def _key(chosen: videogen.Service, look: looks.Look, shot: str | None = None) -> str:
+    clip = clip_of(shot)
+    return fingerprint(chosen, clip.text, look.file or "", clip.seconds)
 
 
-def of(look: looks.Look | None) -> Video | None:
-    """Where the video of this picture stands, or None (no video yet, or videos are off)."""
+def of(look: looks.Look | None, shot: str | None = None) -> Video | None:
+    """Where the video of this picture stands, or None (no video yet, or videos are off). `shot`: which of the
+    outfit's pictures it is (the front one, unless said)."""
     chosen = service()
     if chosen is None or look is None or look.status != "ready" or not look.file:
         return None
-    return get(_key(chosen, look))
+    return get(_key(chosen, look, shot))
 
 
 def attach(boards: list[dict]) -> bool:
-    """Give every outfit on a page whose picture is ready the state of its video (board["video"], or None).
-    Returns False, changing nothing, while videos are off."""
+    """Give every outfit on a page whose picture is ready the state of that picture's video (board["video"], or
+    None), and what "See it move" would make of the picture showing (board["clip"]: board["shot"] says which of
+    the outfit's pictures that is). Returns False, changing nothing, while videos are off."""
     chosen = service()
     if chosen is None:
         return False
     ready = [board for board in boards if board.get("look") and board["look"].status == "ready" and board["look"].file]
-    keys = {id(board): _key(chosen, board["look"]) for board in ready}
+    keys = {id(board): _key(chosen, board["look"], board.get("shot")) for board in ready}
     rows = db.video_rows(list(keys.values()))
     for board in boards:
+        board["clip"] = clip_of(board.get("shot"))
         board["video"] = _view(rows.get(keys[id(board)])) if id(board) in keys else None
     return True
 
@@ -242,9 +297,10 @@ def needs_consent(look: looks.Look) -> bool:
 
 # ── asking for a video ────────────────────────────────────────────────────────
 
-def request(look: looks.Look, agreed: bool = False) -> Video | None:
+def request(look: looks.Look, agreed: bool = False, shot: str | None = None) -> Video | None:
     """Start making the video of this picture, or say where it stands. None while videos are off or the
-    picture is not ready. `agreed`: the customer ticked the offer's box (needs_consent).
+    picture is not ready. `agreed`: the customer ticked the offer's box (needs_consent). `shot`: which of the
+    outfit's pictures it is (shot_of; the front one unless said): its movement and its length follow from that.
 
     Asking twice never pays twice: a finished video is returned as it is, and one being made is left alone.
     A new one takes one of the day's videos, apart from the pictures' allowance.
@@ -252,8 +308,9 @@ def request(look: looks.Look, agreed: bool = False) -> Video | None:
     chosen = service()
     if chosen is None or look.status != "ready" or not look.file:
         return None
-    text = (rules() or {})["text"]
-    key = fingerprint(chosen, text, look.file)
+    clip = clip_of(shot)
+    text = clip.text
+    key = fingerprint(chosen, text, look.file, clip.seconds)
     row = db.video_rows([key]).get(key)
     video = _view(row)
     if video and video.status in ("working", "ready"):
@@ -272,7 +329,7 @@ def request(look: looks.Look, agreed: bool = False) -> Video | None:
         return Video(key, "limit", message=NONE_LEFT + "." + hint)
     picture_row = db.look_rows([look.key]).get(look.key) or {}
     owner = picture_row.get("user_id")             # a picture of someone's own photo: the video is theirs too
-    if db.start_video(key, look.file, chosen.tag, owner, now - STALE_SECONDS, lost=lost):
+    if db.start_video(key, look.file, _tag(chosen, clip.seconds), owner, now - STALE_SECONDS, lost=lost):
         if lost and row and row["turn"]:
             _unlink([row["turn"]])                  # the turn of the lost clip, if it is still there
         try:
@@ -282,7 +339,7 @@ def request(look: looks.Look, agreed: bool = False) -> Video | None:
             db.drop_video_request(ticket)
             return get(key)
         try:
-            _spawn(lambda: _make(key, chosen, text, picture, ticket, owner is not None))
+            _spawn(lambda: _make(key, chosen, clip, picture, ticket, owner is not None))
         except Exception:
             # The making could not start (no thread to run it): nothing was sent, so the day's video is given back,
             # and the offer under the picture says so with "Try again", not "Making the video" for minutes about nothing.
@@ -300,19 +357,19 @@ def _spawn(job) -> None:
     threading.Thread(target=job, name="video", daemon=True).start()
 
 
-def _make(key: str, chosen: videogen.Service, text: str, picture: bytes, ticket: int, personal: bool) -> None:
-    """Background: have the clip made, keep it (and its turn for dragging) and record how it went. Never raises.
-    `ticket` is this request's entry in the day's count, given back only when Google certainly made (and billed)
+def _make(key: str, chosen: videogen.Service, clip: Clip, picture: bytes, ticket: int, personal: bool) -> None:
+    """Background: have the clip made, keep it (and, for the front picture's, its turn for dragging) and record how
+    it went. Never raises. `ticket` is this request's entry in the day's count, given back only when Google certainly made (and billed)
     nothing. `personal`: the picture is drawn from the customer's own photo."""
     try:
-        data = videogen.make(chosen, picture, text)
+        data = videogen.make(chosen, picture, clip.text, seconds=clip.seconds)
         stamp = int(time.time())                 # a new name each time, so browsers don't show an old one
         name, turn_name = f"{key}-{stamp}.mp4", f"{key}-{stamp}-turn.mp4"
         folder().mkdir(parents=True, exist_ok=True)
         tmp = folder() / (name + ".tmp")
         tmp.write_bytes(data)
         os.replace(tmp, folder() / name)
-        turn = turn_file(folder() / name, folder() / turn_name)
+        turn = turn_file(folder() / name, folder() / turn_name) if clip.turns else None
         try:
             db.finish_video(key, name, turn.name if turn else None)
         except LookupError:                      # the account was deleted meanwhile
@@ -320,7 +377,7 @@ def _make(key: str, chosen: videogen.Service, text: str, picture: bytes, ticket:
                 if path:
                     path.unlink(missing_ok=True)
             return
-        log.info("Made video %s with %s", key, chosen.tag)
+        log.info("Made video %s (%s) with %s", key, clip.shot, _tag(chosen, clip.seconds))
     except imagegen.DrawError as problem:
         if personal and problem.kind in ("refused", "request"):
             problem = imagegen.DrawError("person", problem.detail, problem.free)
@@ -330,13 +387,13 @@ def _make(key: str, chosen: videogen.Service, text: str, picture: bytes, ticket:
             db.drop_video_request(ticket)
         level = logging.ERROR if problem.kind in looks.OPERATORS else logging.WARNING
         log.log(level, "Video %s was not made (%s): %s", key, problem.kind, problem.detail)
-        looks._write_down(key, chosen.tag, problem.kind, problem.detail, what="video")
+        looks._write_down(key, _tag(chosen, clip.seconds), problem.kind, problem.detail, what="video")
     except Exception as error:
         # Never the exception's own words in a log that outlives the process: they could quote the key.
         trace = traceback.format_exc()
         log.error("Video %s was not made\n%s", key, trace.replace(chosen.key, "(the key)") if chosen.key else trace)
         db.fail_video(key, SAY["unknown"])
-        looks._write_down(key, chosen.tag, "unknown", type(error).__name__, what="video")
+        looks._write_down(key, _tag(chosen, clip.seconds), "unknown", type(error).__name__, what="video")
 
 
 def _say(problem: imagegen.DrawError) -> str:
@@ -389,6 +446,33 @@ def forget_of(user_id: int) -> None:
 def forget_made_from(picture: str) -> None:
     """Delete the videos of a picture that was drawn again: they show a picture that is gone."""
     _unlink(db.drop_videos_of(picture))
+
+
+# ── trying the video model from the command line ─────────────────────────────
+
+def sample(shot: str | None = None, model: str | None = None) -> tuple[Path, float, Clip]:
+    """Make one clip from a sample picture (`python -m wardrobe looks --test-video`): the picture `shot` of the
+    made-up outfit that `looks --test-set` drew (the front one unless said), as "See it move" would. `model`:
+    another model name to try, instead of [videos] model. One clip is billed. Returns the file, how many seconds
+    it took and what was asked for. Raises imagegen.DrawError with Google's own words if it does not work, or
+    with kind "picture" where the sample picture has not been drawn yet."""
+    chosen = service()
+    if chosen is None:
+        raise imagegen.DrawError("key", "videos are off: GEMINI_API_KEY is not set, or [videos] on = false")
+    if model:
+        chosen = videogen.Service(model=model, key=chosen.key, task=chosen.task)
+    clip = clip_of(shot)
+    stem = "sample" if clip.turns else f"sample-{clip.shot}"
+    picture = next((path for ext in ("jpg", "png", "webp") for path in [looks.folder() / f"{stem}.{ext}"]
+                    if path.is_file()), None)
+    if picture is None:
+        raise imagegen.DrawError("picture", f"there is no sample picture {looks.folder() / stem}.jpg yet")
+    started = time.time()
+    data = videogen.make(chosen, picture.read_bytes(), clip.text, seconds=clip.seconds)
+    folder().mkdir(parents=True, exist_ok=True)
+    path = folder() / f"{stem}.mp4"
+    path.write_bytes(data)
+    return path, time.time() - started, clip
 
 
 # ── the command line: python -m wardrobe pro ... (added in __main__.py) ──────

@@ -678,6 +678,13 @@ def look_rows(keys: list[str]) -> dict[str, dict]:
     return {r["key"]: dict(r) for r in rows}
 
 
+def look_made_from(key: str) -> str | None:
+    """The file of the front picture a picture was made from, or None for a front picture (videos.shot_of)."""
+    with connect() as con:
+        row = con.execute("SELECT front FROM looks_made_from WHERE key = ?", (key,)).fetchone()
+    return row["front"] if row else None
+
+
 def start_look(key: str, service: str, stale_before: float, waiting_before: float,
                again: bool = False, owner: int | None = None, made_from: str | None = None) -> bool:
     """Claim the drawing of one picture. True for exactly one caller: a new picture, another try
