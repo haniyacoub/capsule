@@ -36,7 +36,9 @@
           {{ fabric_fit(c, 'span') }}
           {% if c.check.notes %}<span class="hint">{{ icon('flag') }} {{ c.check.notes[0] }}{% if c.check.notes|length > 1 %} <b>+{{ c.check.notes|length - 1 }}</b>{% endif %}</span>{% endif %}
         {% endif %}
-        {% if noted %}<span class="note" id="note-{{ s.slot.id }}">{{ s.note }}</span>{% endif %}
+        {# selection.choose says "in your size"; while the sizes are the example's it is the example size, as on the
+           piece's page. #}
+        {% if noted %}<span class="note" id="note-{{ s.slot.id }}">{{ s.note|replace(' in your size', ' in the example size') if example_sizes else s.note }}</span>{% endif %}
       </span>
     </a>
     <div class="slot-actions">

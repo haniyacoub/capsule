@@ -469,6 +469,7 @@ def create_app() -> Flask:
         extra = render_template("_summary.html", w=w, oob=True)
         if template == "_wardrobe_body.html":   # that page also shows what each price level would cost
             extra += "".join(render_template("_level_total.html", w=w, key=key, oob=True) for key in selection.MODES)
+            ctx.setdefault("example_sizes", profile_mod.sizes_unconfirmed(profile_mod.load()))   # its cards' notes
         return render_template(template, w=w, **ctx) + extra
 
     def after_slot_change(slot_id: str):
@@ -567,7 +568,8 @@ def create_app() -> Flask:
                                    photos=_photos_on(), invite=bool(conf.INVITE_CODE))
         # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
         gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
-        return page("wardrobe.html", tab="wardrobe", gone=gone)
+        return page("wardrobe.html", tab="wardrobe", gone=gone,
+                    example_sizes=profile_mod.sizes_unconfirmed(profile_mod.load()))   # "in the example size"
 
     @app.post("/settings")
     def settings():

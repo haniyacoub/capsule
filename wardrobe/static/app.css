@@ -257,13 +257,17 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
    73/100", the store's name for the product in English with the original under it in small print (on the cards,
    where the English is already at the smallest size for words, the original is told apart by its grey), then
    "Fabric: …" and "Fit: …" (an oversized or slim cut in amber, with its flag: something to act on). */
-.by { display: inline-flex; min-width: 0; clip-path: inset(-4px -100vw -4px 0); font-size: var(--t-s); color: var(--muted); }
+.by { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px var(--s-1); min-width: 0; clip-path: inset(calc(-1 * var(--s-1)) -100vw calc(-1 * var(--s-1)) 0); font-size: var(--t-s); color: var(--muted); }
+/* What may follow the store and its quality in .by (the "added by you" tag on a piece's page) goes onto a line of its
+   own, whole, where the card is too narrow for it; 2px between lines, as everywhere a line follows a line of small
+   print (.swap-text, .buy-main). */
+.by > .tag { flex: none; white-space: nowrap; }
 /* The dot between the store and its quality is the quality's own (_macros.html). Every line of .by-in starts 16px
    left of the box, where .by cuts it off (on its left side only: on a card with a quantity the lines may still run
    on to the right, as before): where the quality starts a line of its own on a narrow card, its dot is out of
    sight, so none ever hangs at the end of the store's line; on the first line the store gives the 16px back.
    16px = the dot's margin (4) + its width (8) + the quality's gap (4). */
-.by-in { display: inline-flex; align-items: center; flex-wrap: wrap; row-gap: 2px; min-width: 0; margin-left: calc(-1 * var(--s-4)); }
+.by-in { display: inline-flex; align-items: center; flex-wrap: wrap; row-gap: 2px; min-width: 0; margin-left: calc(-1 * var(--s-4)); }   /* 2px: as .by's own row gap */
 .by-in > .store { padding-left: var(--s-4); }
 .by .sep { flex: none; width: var(--s-2); margin-left: var(--s-1); text-align: center; }
 .pill .of { font-weight: 400; }

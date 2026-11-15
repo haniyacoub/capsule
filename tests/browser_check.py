@@ -1592,6 +1592,41 @@ def run(base: str) -> None:
                 for path in slots:
                     other.goto(base + path, wait_until="networkidle")
                     tidy(other.locator("main").evaluate(DOTS), f"page {path}")
+                # An option added by its link says "added by you" after its quality: whole, on one line (on a line of
+                # its own where the card is narrow), inside the card, never over the store, the quality or the price,
+                # and 4px from the quality where it sits beside it; at 320, 390 and 1280. It is removed again.
+                TAG = """cand => {
+                    const box = e => e.getBoundingClientRect(), tag = cand.querySelector('.by > .tag');
+                    const t = box(tag), c = box(cand.querySelector('.cand-body')), pill = box(cand.querySelector('.by .pill'));
+                    const words = document.createRange(); words.selectNodeContents(tag);
+                    const lines = new Set([...words.getClientRects()].filter(r => r.width).map(r => Math.round(r.top))).size;
+                    const over = [...cand.querySelectorAll('.by .store, .by .quality, .by .pill, .cand-top .price')]
+                        .filter(e => { const r = box(e); return r.right > t.left && r.left < t.right && r.bottom > t.top && r.top < t.bottom; })
+                        .map(e => e.textContent.trim());
+                    return {lines, over, inside: t.left >= c.left - 1 && t.right <= c.right + 1,
+                            beside: Math.abs(t.top - pill.top) < 3, gap: t.left - pill.right};
+                }"""
+                other.goto(base + slots[0], wait_until="networkidle")
+                other.fill("#add textarea[name=urls]", "https://www.cos.com/de-de/men/product/wool-jumper-grey-1234567001.html")
+                with other.expect_navigation():
+                    other.locator("#add button", has_text="Add").click()
+                other.wait_for_load_state("networkidle")
+                mine = other.locator(".cand:has(.by > .tag)")
+                assert mine.count() == 1, f"the option added by its link is not marked 'added by you' ({mine.count()})"
+                for width in (320, 390, 1280):
+                    other.set_viewport_size({"width": width, "height": 800})
+                    seen = mine.evaluate(TAG)
+                    assert seen["lines"] == 1 and not seen["over"] and seen["inside"], \
+                        f"at {width}px 'added by you' is broken or runs into its card: {seen}"
+                    assert not seen["beside"] or seen["gap"] >= 3.5, f"at {width}px 'added by you' touches the quality: {seen}"
+                    if width < 400:
+                        tidy(other.locator("main").evaluate(DOTS), f"page {slots[0]} with an option added by you")
+                other.set_viewport_size({"width": 320, "height": 640})
+                other.once("dialog", lambda d: d.accept())         # "Remove “…” from this piece's options?"
+                with other.expect_navigation():
+                    mine.locator("button", has_text="Remove").click()
+                other.wait_for_load_state("networkidle")
+                assert not other.locator(".by > .tag").count(), "the option added by its link was not removed"
                 other.goto(base + "/outfits", wait_until="networkidle")
                 rows, gaps, swaps = other.locator(f"{first} .piece-row"), [], 0
                 for i in range(rows.count()):

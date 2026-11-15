@@ -236,6 +236,31 @@ class AWardrobeInTheShapesOf11Nov(AppCase):
         n = len(known.cands)
         self.assertIn(f"{n} options · {n} with sizes not checked By price", said, "not '0 in your size'")
         self.assertNotIn("0 in your size", said)
+        # Where nothing reaches the minimum there, the pick is the best-rated option that can be bought (one sold out
+        # in your size or without a price is passed over), and the line says so.
+        self.set_mode("top", 100)
+        said = html.unescape(page_words(self.client.get(f"/slot/{sid}").data.decode()))
+        self.assertIn("Picked for you: the best-rated option you can buy. Choose another below to swap it in. "
+                      "Nothing reaches your minimum quality of 100.", said)
+
+    def test_a_wardrobe_card_says_the_example_size_until_it_is_yours(self):
+        # The note on a Wardrobe card (selection.choose: "Nothing reaches 95 — this is the best in your size") says
+        # "in the example size" while the sizes are the example's, as the piece's page does, on the page and in the
+        # part HTMX puts back after a change; "in your size" once they are yours.
+        fragment = html.unescape(page_words(self.set_mode("cheapest", 95).data.decode()))
+        noted = [v for v in selection.build().slots if v.note and "best in your size" in v.note]
+        self.assertTrue(noted, "no piece whose best option in your size is under 95")
+        page = html.unescape(page_words(self.client.get("/").data.decode()))
+        for said in (fragment, page):
+            self.assertIn("Nothing reaches 95 — this is the best in the example size", said)
+            self.assertNotIn("in your size", said)
+        piece = html.unescape(page_words(self.client.get(f"/slot/{noted[0].slot['id']}").data.decode()))
+        self.assertIn("Picked for you: the best-rated option in the example size.", piece)
+        self.assertNotIn("best in your size", piece)
+        db.set_setting("sizes_confirmed", True)          # "These are my sizes"
+        said = html.unescape(page_words(self.client.get("/").data.decode()))
+        self.assertIn("Nothing reaches 95 — this is the best in your size", said)
+        self.assertNotIn("example size", said)
 
     def test_the_pick_line_says_what_really_happened(self):
         # Where nothing that can be bought reaches the minimum quality, the pick is the best-rated option: the line
@@ -250,7 +275,7 @@ class AWardrobeInTheShapesOf11Nov(AppCase):
             for view in under:
                 with self.subTest(level=level, piece=view.slot["id"]):
                     said = html.unescape(page_words(self.client.get(f"/slot/{view.slot['id']}").data.decode()))
-                    size = " in your size" if view.chosen.size.known else ""
+                    size = " in your size" if view.chosen.size.known else " you can buy"
                     self.assertIn(f"Picked for you: the best-rated option{size}. Choose another below to swap it in. "
                                   "Nothing reaches your minimum quality of 95.", said)
                     self.assertNotIn("rated 95 or more", said)
