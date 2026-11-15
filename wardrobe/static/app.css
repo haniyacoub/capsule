@@ -544,7 +544,7 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 }
 /* The label and the dots never meet. A dot low on the picture (.spot.low, outfits.html: the shoes') keeps to the right
    of the label: its centre at least --chip-clear from the picture's left edge, the label's width (about 89px: 'AI
-   PICTURE', 8px in), 4px of space and the dot's half (13px). That moves it only on a picture under about 200px wide,
+   PICTURE', 8px in), 4px of space and room for the dot and the ring round it (13px). That moves it only on a picture under about 200px wide,
    where the shoe is that near the corner (under a message on a short phone); there the label also takes two lines,
    'AI' over 'PICTURE', 4px in from the corner (about 64px wide), so the dot moves as little as it can: not at all
    down to 152px, by about 16px on the narrowest picture (124px). */
@@ -691,24 +691,38 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .vid-bar .check { gap: var(--s-2); min-height: 40px; }
 .spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--ink); animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-/* The dots on the AI picture: one per piece, placed by config/looks.toml. */
+/* The dots on the AI picture: one per piece, placed by config/looks.toml. Small (14px: a white centre in a dark
+   ring, with a white hairline round it, so it shows on a light garment and on a dark one), with an unseen 44px
+   round it to tap (::after).
+   With a mouse (hover: hover) they are out of sight until the pointer is over the picture or over the list of
+   pieces beside it, or the keyboard is on something in either; then all of the outfit's dots show. On a touch
+   screen there is no pointing, so they are always there, small.
+   A dot and its line in the list are one piece: pointing at one (or reaching it by keyboard) marks the other
+   (.lit, app.js 6d): the dot gets a pale ring, the line the same ground as when it is pointed at. */
 .spots { display: none; position: absolute; top: 0; left: 0; width: 100%; aspect-ratio: 2 / 3; pointer-events: none; }
 .stage:has(.look-pic) .spots { display: block; }
 .spot {
   position: absolute; left: var(--x); top: var(--y);   /* where config/looks.toml puts it on the picture (outfits.html) */
-  width: 26px; height: 26px; margin: -13px 0 0 -13px; padding: 0; border-radius: 50%;
-  border: 2px solid #fff; background: rgba(27, 27, 26, .55); box-shadow: 0 0 0 1px rgba(0, 0, 0, .25), 0 1px 4px rgba(0, 0, 0, .3);
+  width: 14px; height: 14px; margin: -7px 0 0 -7px; padding: 0; border-radius: 50%;
+  background: rgba(27, 27, 26, .8); box-shadow: 0 0 0 1.5px #fff, 0 1px 4px rgba(0, 0, 0, .35);
   pointer-events: auto; cursor: pointer;
   text-decoration: none;    /* a link to the piece's page without JavaScript (outfits.html): never underlined */
 }
 .spot.low { left: max(var(--x), var(--chip-clear)); }   /* clear of the label 'AI picture' (see .ai-chip) */
-.spot::before { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: #fff; }
-.spot::after { content: ""; position: absolute; inset: -10px; }   /* a finger-sized target */
-.spot:hover, .spot:focus-visible { background: rgba(27, 27, 26, .9); z-index: 2; }
-/* Focus on a dot: a dark ring around its white edge, then a white one, so it shows on any garment. */
-.spot:focus-visible { outline: 2px solid #1b1b1a; outline-offset: 0; box-shadow: 0 0 0 4px #fff, 0 1px 4px rgba(0, 0, 0, .3); }
+.spot::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: #fff; }
+.spot::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; }   /* a finger-sized target */
+.spot:hover, .spot:focus-visible, .spot.lit {
+  background: #1b1b1a; z-index: 2;
+  box-shadow: 0 0 0 1.5px #fff, 0 0 0 7px rgba(255, 255, 255, .55), 0 1px 4px rgba(0, 0, 0, .35);
+}
+/* Focus on a dot: a white ring, a dark one, a white one, so it shows on any garment. */
+.spot:focus-visible { outline: 2px solid #1b1b1a; outline-offset: 2px; box-shadow: 0 0 0 6px #fff, 0 1px 4px rgba(0, 0, 0, .3); }
+@media (hover: hover) {
+  .spot { opacity: 0; }
+  .slide:has(.stage:hover, .pieces:hover, :is(.stage, .pieces) :focus-visible) .spot, .spot.lit { opacity: 1; }
+}
 .spot .tip {
-  display: none; position: absolute; left: 50%; bottom: calc(100% + 9px); transform: translateX(-50%);
+  display: none; position: absolute; left: 50%; bottom: calc(100% + 11px); transform: translateX(-50%);
   padding: 5px 9px; border-radius: var(--r-ui); background: #1b1b1a; color: #fff;
   font-size: var(--t-s); line-height: var(--lh-s); text-align: left; white-space: nowrap;
 }
@@ -734,7 +748,7 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
   display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center;
   width: 100%; min-height: 60px; padding: 6px 12px 6px 8px; border: 0; background: none; text-align: left; text-decoration: none; cursor: pointer;
 }
-.piece-row:hover { background: var(--soft); }
+.piece-row:hover, .piece-row.lit { background: var(--soft); }   /* .lit: its dot on the picture is pointed at (app.js 6d) */
 .piece-row:focus-visible { outline-offset: -3px; }   /* the list clips: ring inside */
 .piece-row .pic { width: 48px; aspect-ratio: 4 / 5; }   /* 48 x 60 */
 .piece-row .pic .fb { display: none; }
@@ -1411,6 +1425,8 @@ details[open] > summary .edit { visibility: hidden; }
   }
   :is(.btn, .chip-link, .reel-nav, .heart, .vid-pill, .scenes button[aria-pressed="false"], .sheet-close):active:not(:disabled, [aria-disabled="true"]),
   .act:active:not(:disabled), .tabs a:active, .seg label:active span { transform: scale(.96); }
+  /* The dots come and go with a short fade as the pointer reaches or leaves the picture or the list. */
+  .spot { transition: opacity var(--dur-quick) var(--ease-out), box-shadow var(--dur-quick) var(--ease-out), transform var(--dur-press) var(--ease-out); }
   .spot:active { transform: scale(.88); }
   .piece-row:active, .tile:active { opacity: .85; }
   /* The heart, as an outfit is saved (app.js 16c): it grows into its place, and a ring goes out from it. */

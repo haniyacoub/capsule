@@ -1245,6 +1245,85 @@ def run(base: str) -> None:
                         assert still["line_end"] <= still["tabs"], f"{where}: the outfit's line ends under the tab bar: {still}"
                     context.close()
 
+        def the_dots_small_and_there_when_pointed_at():
+            # The dots on the AI picture, one per piece. They are small (at most 18px across, ring and all), yet a tap
+            # anywhere within 22px of a dot's middle is a tap on it (44px to aim at). With a mouse they are out of sight
+            # until the pointer is over the picture or over the list of pieces beside it, or the keyboard is in either;
+            # pointing at a line of the list marks that piece's dot, and pointing at a dot marks its line. On a phone
+            # (no pointer to hover with) they are always there. And a video left showing does not leave the model
+            # without his dots when the row comes back to that outfit: it goes back to the picture.
+            dots = """s => [...document.querySelectorAll(s + ' .spot')].map(d => { const b = d.getBoundingClientRect(), style = getComputedStyle(d);
+                const x = b.x + b.width / 2, y = b.y + b.height / 2, ring = parseFloat(style.boxShadow.split('px')[3]) || 0;
+                const hit = (dx, dy) => { const el = document.elementFromPoint(x + dx, y + dy); return !!el && (el === d || d.contains(el)); };
+                return {across: b.width + 2 * ring, seen: +style.opacity, lit: d.classList.contains('lit'),
+                        aim: hit(0, 0) && hit(-21, 0) && hit(21, 0) && hit(0, -21) && hit(0, 21)}; })"""
+
+            def small_with_room_to_tap(where_page, where: str) -> list:
+                found = where_page.evaluate(dots, first)
+                assert found and len(found) == where_page.locator(f"{first} .piece-row").count(), f"{where}: not a dot per piece: {found}"
+                big = [d["across"] for d in found if d["across"] > 18]
+                assert not big, f"{where}: dots {big} px across, not small"
+                assert found[0]["aim"], f"{where}: a tap 21px from the first dot's middle misses it: {found}"
+                return found
+
+            page.goto(base + "/outfits", wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            assert page.evaluate("() => matchMedia('(hover: hover)').matches"), "this browser has no pointer to hover with: the step checks nothing"
+            page.mouse.move(2, 2)
+            page.evaluate("() => document.activeElement && document.activeElement.blur()")
+            motion_ended(page)
+            found = small_with_room_to_tap(page, "with a mouse")
+            assert not any(d["seen"] for d in found), f"with the pointer elsewhere the dots show: {found}"
+            page.hover(f"{first} .look-pic img", position={"x": 20, "y": 80})
+            motion_ended(page)
+            found = page.evaluate(dots, first)
+            assert all(d["seen"] == 1 for d in found), f"with the pointer over the picture the dots do not show: {found}"
+            page.mouse.move(2, 2)
+            motion_ended(page)
+            assert not any(d["seen"] for d in page.evaluate(dots, first)), "the dots stay after the pointer has left the picture"
+            page.hover(f"{first} .pieces li:nth-child(2) .piece-row")
+            motion_ended(page)
+            found = page.evaluate(dots, first)
+            assert all(d["seen"] == 1 for d in found), f"with the pointer over the list of pieces the dots do not show: {found}"
+            assert [d["lit"] for d in found] == [i == 1 for i in range(len(found))], f"pointing at the second piece marks these dots: {found}"
+            page.hover(f"{first} .spot:nth-child(1)")
+            lit = page.evaluate("s => [...document.querySelectorAll(s + ' .piece-row')].map(r => r.classList.contains('lit'))", first)
+            assert lit == [i == 0 for i in range(len(lit))], f"pointing at the first dot marks these lines of the list: {lit}"
+            assert not any(d["lit"] for d in page.evaluate(dots, first)), "a dot stays marked after the pointer has left its line"
+            page.mouse.move(2, 2)
+            page.focus(f"{first} .pieces li:nth-child(1) .piece-row")
+            page.keyboard.press("Tab")                                   # by keyboard, onto the second piece
+            motion_ended(page)
+            found = page.evaluate(dots, first)
+            assert all(d["seen"] == 1 for d in found) and found[1]["lit"], f"with the keyboard in the list the dots do not show, or the piece's is not marked: {found}"
+            page.evaluate("() => document.activeElement.blur()")
+
+            # A video left showing: on to the next outfit and back, the picture and its dots are there again.
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid.on")
+            page.locator(".reel-nav.next").click()
+            page.wait_for_function("() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth) === 1; }")
+            page.wait_for_function("s => !document.querySelector(s + ' .vid.on')", arg=first, timeout=3000)
+            page.locator(".reel-nav.prev").click()
+            page.wait_for_function("() => document.getElementById('reel').scrollLeft < 1")
+            page.wait_for_timeout(400)
+            page.hover(f"{first} .look-pic img", position={"x": 20, "y": 80})
+            motion_ended(page)
+            assert not page.locator(f"{first} .vid.on").count() and all(d["seen"] == 1 for d in page.evaluate(dots, first)), \
+                "back on an outfit whose video was left showing, the model stands there without his dots"
+            page.mouse.move(2, 2)
+
+            # On a phone: always there, as small, as easy to tap.
+            context, other = logged_in_on(browser, viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+            try:
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.wait_for_selector(f"{first} .look-pic img")
+                motion_ended(other)
+                found = small_with_room_to_tap(other, "on a phone")
+                assert all(d["seen"] == 1 for d in found), f"on a phone, where nothing can be pointed at, the dots do not show: {found}"
+            finally:
+                context.close()
+
         def dot_opens_the_piece():
             spot = page.locator(f"{first} .spot").nth(0)
             spot.hover()
@@ -3862,6 +3941,7 @@ def run(base: str) -> None:
                  ("scenes: another drawn on a tap, the studio kept", scenes_for_the_picture),
                  ("a scene tap: never undone, and without JavaScript", a_scene_tap_is_kept),
                  ("see it move: a video, played, dragged, limited", see_it_move),
+                 ("the dots: small, there when pointed at", the_dots_small_and_there_when_pointed_at),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),

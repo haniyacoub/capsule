@@ -128,7 +128,10 @@
         <div class="look" id="look-{{ o.key }}" hx-target="this" hx-swap="innerHTML">
           {% with key = o.key, look = o.look, first = loop.first, video = o.video, scene = o.scene %}{% include "_look.html" %}{% endwith %}
         </div>
-        {# A dot on each piece of the AI picture (only shown once there is one). Its label (the piece, the store
+        {# A small dot on each piece of the AI picture (only once there is one). With a mouse the dots show while the
+           pointer is over the picture or the list of pieces beside it, or the keyboard is in either; on a touch
+           screen they are always there (app.css, .spot). A dot and its line in the list mark each other (app.js 6d):
+           both are in the order of o.pieces. Its label (the piece, the store
            and the price) shows on hover and focus, and Escape hides it (app.js); a screen reader hears it as the
            dot's name, "Coat, Weekday, 159 €". A dot low on the picture (from 70% down: the shoes') keeps clear of the
            label 'AI picture' in its corner (app.css, .spot.low). #}

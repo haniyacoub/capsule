@@ -237,6 +237,24 @@ if (reel) {
     if (e.target.closest('.spot')) looks.classList.remove('hush');
   }));
 
+  // 6d. A piece's dot on the picture and its line in the list beside it are one piece: pointing at one, or reaching
+  //     it with the keyboard, marks the other (.lit, app.css), so you see which garment a line is, and which line a
+  //     dot is. Both are in the order of the outfit's pieces (outfits.html), so the first dot is the first line.
+  const twin = (el) => {
+    const slide = el.closest('[data-slide]');
+    const [mine, theirs] = el.matches('.spot') ? ['.spot', '.piece-row'] : ['.piece-row', '.spot'];
+    return slide.querySelectorAll(theirs)[[...slide.querySelectorAll(mine)].indexOf(el)] || null;
+  };
+  [['pointerover', true], ['pointerout', false], ['focusin', true], ['focusout', false]].forEach(([kind, on]) => {
+    looks.addEventListener(kind, (e) => {
+      const el = e.target instanceof Element && e.target.closest('.spot, .piece-row');
+      if (!el || (e.relatedTarget instanceof Node && el.contains(e.relatedTarget))) return;   // only moving within it
+      if (kind === 'focusin' && !el.matches(':focus-visible')) return;      // a tap is not the keyboard
+      const other = twin(el);
+      if (other) other.classList.toggle('lit', on);
+    });
+  });
+
   // 7. AI pictures: an outfit that stays on screen for a moment has its picture drawn,
   //    by pressing its "See it worn" button for you. The page marks those buttons only
   //    when config/looks.toml says so (pictures.auto).
@@ -857,11 +875,15 @@ if (swatchGrid) {
     }
     if (focus) turn.focus({ preventScroll: true });
   };
-  const close = (vid) => {
+  // Back to the picture, and its dots.
+  const shut = (vid) => {
     const { clip, drag } = parts(vid);
     clip.pause();
     if (drag) drag.pause();
     vid.classList.remove('on');
+  };
+  const close = (vid) => {
+    shut(vid);
     vid.querySelector('.vid-pill').focus({ preventScroll: true });
   };
   // Turning: `degrees` from 0 to 360 is a moment in the turn.
@@ -946,6 +968,16 @@ if (swatchGrid) {
     const row = slide && slide.parentElement;
     return !row || Math.round(row.scrollLeft / row.clientWidth) === [...row.children].indexOf(slide);
   };
+  // A video left showing when the row moves on to another outfit goes back to its picture. Otherwise, coming back
+  // to that outfit later, the model stood there (the video's last frame) without the dots on his pieces, and nothing
+  // said why. "See it move" plays it again.
+  if (reel) {
+    let rest;
+    reel.addEventListener('scroll', () => {
+      clearTimeout(rest);
+      rest = setTimeout(() => reel.querySelectorAll('.vid.on').forEach((vid) => { if (!inRow(vid)) shut(vid); }), 200);
+    }, { passive: true });
+  }
   // The offer stands under the picture, in place of its line and the scenes (app.css, .vid-bar.ask). On a short phone
   // that is below the tab bar, out of sight: a tap on "See it move" would seem to do nothing, and keyboard focus would
   // go to a button nobody can see. So the page goes up just far enough for the whole offer to show above the tab bar
