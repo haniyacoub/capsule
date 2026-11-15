@@ -76,7 +76,7 @@ TICK_FIRST = "Not made. This picture is drawn from your photo: tick the box to a
 
 # The date of the words about videos that a customer agrees to before a picture drawn from his photo goes to Google
 # for a video: in the photo's box on Profile (profile.html; app.py stores the date as photo_consent with the photo)
-# or, for a photo added before those words, in the box of the video's band (_video.html; stored as video_consent,
+# or, for a photo added before those words, in the box of the video's offer (_video.html; stored as video_consent,
 # with the photo it is about). Give it a new date whenever those words change.
 CONSENT = "2026-11-13"
 
@@ -108,7 +108,7 @@ def fingerprint(chosen: videogen.Service, text: str, picture: str) -> str:
 @dataclass
 class Video:
     key: str
-    status: str                  # working | ready | failed | limit | consent (the band's box not ticked)
+    status: str                  # working | ready | failed | limit | consent (the offer's box not ticked)
     file: str | None = None      # the clip's name under /videos/
     turn: str | None = None      # the turn with every frame a keyframe, for dragging (None: drag the clip itself)
     message: str = ""            # why it failed or cannot be made
@@ -209,11 +209,24 @@ def left_words(number: int) -> str:
     return f"{number} video{'' if number == 1 else 's'} left today"
 
 
+_TRY_AGAIN = re.compile(r" ?Try again(?: in a minute)?\.")
+
+
+def told(message: str, left: int | None) -> str:
+    """What the offer says about the last try (`message`), next to how many videos are `left` today. With none left,
+    it ends "No videos left today: more tomorrow" and has no button to try with: so a failure's "Try again" is left
+    out ("The AI is busy or did not answer in time. No videos left today: more tomorrow."), and a box to tick that
+    is not there is not asked for (TICK_FIRST: the offer says what a video is instead)."""
+    if left != 0:
+        return message
+    return "" if message == TICK_FIRST else _TRY_AGAIN.sub("", message)
+
+
 # ── a picture of the customer's photo: his agreement first ───────────────────
 
 def consented() -> bool:
     """Whether the signed-in customer agreed that pictures drawn from his photo may go to Google for videos: when
-    he added the photo (the words of CONSENT's date, or later ones), or since then, in the video's band."""
+    he added the photo (the words of CONSENT's date, or later ones), or since then, in the video's offer."""
     if str(db.get_setting("photo_consent") or "") >= CONSENT:
         return True
     later = db.get_setting("video_consent")
@@ -231,7 +244,7 @@ def needs_consent(look: looks.Look) -> bool:
 
 def request(look: looks.Look, agreed: bool = False) -> Video | None:
     """Start making the video of this picture, or say where it stands. None while videos are off or the
-    picture is not ready. `agreed`: the customer ticked the band's box (needs_consent).
+    picture is not ready. `agreed`: the customer ticked the offer's box (needs_consent).
 
     Asking twice never pays twice: a finished video is returned as it is, and one being made is left alone.
     A new one takes one of the day's videos, apart from the pictures' allowance.
@@ -268,7 +281,15 @@ def request(look: looks.Look, agreed: bool = False) -> Video | None:
             db.fail_video(key, SAY["unknown"])
             db.drop_video_request(ticket)
             return get(key)
-        _spawn(lambda: _make(key, chosen, text, picture, ticket, owner is not None))
+        try:
+            _spawn(lambda: _make(key, chosen, text, picture, ticket, owner is not None))
+        except Exception:
+            # The making could not start (no thread to run it): nothing was sent, so the day's video is given back,
+            # and the offer under the picture says so with "Try again", not "Making the video" for minutes about nothing.
+            log.exception("Video %s could not be started", key)
+            db.fail_video(key, SAY["unknown"])
+            db.drop_video_request(ticket)
+            return get(key) or Video(key, "failed", message=SAY["unknown"])
     else:
         db.drop_video_request(ticket)            # somebody asked for the same video a moment ago
     return get(key) or Video(key, "working")

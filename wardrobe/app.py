@@ -20,7 +20,7 @@ import random
 import re
 import secrets
 from datetime import timedelta
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from flask import Flask, Response, abort, flash, g, redirect, render_template, request, send_file, url_for
 from markupsafe import Markup
@@ -469,6 +469,7 @@ def create_app() -> Flask:
         extra = render_template("_summary.html", w=w, oob=True)
         if template == "_wardrobe_body.html":   # that page also shows what each price level would cost
             extra += "".join(render_template("_level_total.html", w=w, key=key, oob=True) for key in selection.MODES)
+            ctx.setdefault("example_sizes", profile_mod.sizes_unconfirmed(profile_mod.load()))   # its cards' notes
         return render_template(template, w=w, **ctx) + extra
 
     def after_slot_change(slot_id: str):
@@ -554,7 +555,9 @@ def create_app() -> Flask:
             cands = sorted(view.cands, key=lambda c: (c.size.rank, -c.score.total, c.price))
         else:
             sort, cands = "price", view.cands   # already: in your size first (sizes.SizeStatus.rank), then by price
-        return {"s": view, "cands": cands, "sort": sort, "way": way_back()}
+        # `example_sizes`: while the sizes are still the example's, the pick line says "in the example size".
+        return {"s": view, "cands": cands, "sort": sort, "way": way_back(),
+                "example_sizes": profile_mod.sizes_unconfirmed(profile_mod.load())}
 
     # ── Wardrobe ──────────────────────────────────────────────────────────────
 
@@ -565,7 +568,8 @@ def create_app() -> Flask:
                                    photos=_photos_on(), invite=bool(conf.INVITE_CODE))
         # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
         gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
-        return page("wardrobe.html", tab="wardrobe", gone=gone)
+        return page("wardrobe.html", tab="wardrobe", gone=gone,
+                    example_sizes=profile_mod.sizes_unconfirmed(profile_mod.load()))   # "in the example size"
 
     @app.post("/settings")
     def settings():
@@ -876,6 +880,10 @@ def create_app() -> Flask:
             said = change_said(w, first)
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
                        "saved": o.key in saved} for o in chosen]
+        # A scene tapped without JavaScript (outfits_look): that outfit shows that scene's picture.
+        for board in boards:
+            if board["key"] == request.args.get("scene_of"):
+                board["scene"] = looks.scene_named(request.args.get("scene"))
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
         videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved),
@@ -920,6 +928,17 @@ def create_app() -> Flask:
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
 
+    def scene_shown(outfit_key: str, scene: str) -> str:
+        """Where a picture asked for without JavaScript leads: back to the outfits page it was asked from (its
+        occasion, its outfits), with that outfit in view (#outfit-<key>) showing the scene it was asked for in
+        (scene=, scene_of=; nothing for the studio). So a tap on Street shows the street, not the studio again."""
+        back = urlsplit(request.referrer or "")
+        same = back.path == url_for("outfits_page") and back.netloc in ("", request.host)
+        args = {name: value for name, value in parse_qsl(back.query) if same and name not in ("scene", "scene_of")}
+        if scene != looks.STUDIO:
+            args.update(scene=scene, scene_of=outfit_key)
+        return url_for("outfits_page") + (f"?{urlencode(args)}" if args else "") + f"#outfit-{outfit_key}"
+
     def look_fragment(outfit_key: str, look: looks.Look | None, scene: str) -> str:
         return render_template("_look.html", key=outfit_key, look=look, scene=scene, scenes=looks.scenes(),
                                auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off(),
@@ -940,7 +959,7 @@ def create_app() -> Flask:
         if look is None:
             abort(404)                      # AI pictures are switched off
         if not request.headers.get("HX-Request"):
-            return redirect(request.referrer or url_for("outfits_page"))
+            return redirect(scene_shown(key, scene))
         return look_fragment(key, look, scene)
 
     @app.get("/outfits/look/<look_key>")
@@ -970,7 +989,7 @@ def create_app() -> Flask:
                        play: bool = False) -> str:
         offer = asking or (video is not None and video.status in ("failed", "limit", "consent"))
         return render_template("_video.html", key=outfit_key, look=look, video=video, asking=asking, play=play,
-                               left=videos.left() if offer else None, left_words=videos.left_words,
+                               left=videos.left() if offer else None, left_words=videos.left_words, told=videos.told,
                                needs_ok=offer and videos.needs_consent(look),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
 

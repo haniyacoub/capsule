@@ -20,7 +20,8 @@
       <span class="slot-text">
         <span class="line">
           <span class="slot-name">{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</span>
-          <span class="slot-price">{% if s.state == 'owned' %}0&nbsp;€{% elif c %}{{ s.cost|eur }}{% else %}—{% endif %}</span>
+          {# A quantity's price for one goes under the total, so the store and its quality have the card's width. #}
+          <span class="slot-price">{% if s.state == 'owned' %}0&nbsp;€{% elif c %}{{ s.cost|eur }}{% if s.qty > 1 %}<span class="each">{{ s.qty }} × {{ c.price|eur }}</span>{% endif %}{% else %}—{% endif %}</span>
         </span>
         {% if s.state == 'owned' %}
           <span class="item">You already own this</span>
@@ -28,17 +29,16 @@
           {# What every card says, in the same order (_macros.html): the store and the quality, the product's name in
              English where every word is known (english.py) with the store's own under it, the fabric, the fit; then
              the first thing to check about the size, and how many more there are on the piece's page. #}
-          <span class="line">
-            <span class="by">{{ by(c.data.store, c.score) }}</span>
-            {% if s.qty > 1 %}<span class="each">{{ s.qty }} × {{ c.price|eur }}</span>{% endif %}
-          </span>
+          <span class="by">{{ by(c.data.store, c.score) }}</span>
           {% set en = c.data.name|english %}
           {% if en %}<span class="item" lang="en">{{ en }}</span>{% endif %}
           <span class="item{{ ' orig' if en }}" lang="de">{{ c.data.name }}</span>
           {{ fabric_fit(c, 'span') }}
           {% if c.check.notes %}<span class="hint">{{ icon('flag') }} {{ c.check.notes[0] }}{% if c.check.notes|length > 1 %} <b>+{{ c.check.notes|length - 1 }}</b>{% endif %}</span>{% endif %}
         {% endif %}
-        {% if noted %}<span class="note" id="note-{{ s.slot.id }}">{{ s.note }}</span>{% endif %}
+        {# selection.choose says "in your size"; while the sizes are the example's it is the example size, as on the
+           piece's page. #}
+        {% if noted %}<span class="note" id="note-{{ s.slot.id }}">{{ s.note|replace(' in your size', ' in the example size') if example_sizes else s.note }}</span>{% endif %}
       </span>
     </a>
     <div class="slot-actions">

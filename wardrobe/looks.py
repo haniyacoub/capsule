@@ -364,7 +364,9 @@ def image(name: str) -> Path | None:
 
 def attach(boards: list[dict]) -> bool:
     """Give every outfit on a page the state of its picture (board["look"], or None) and the
-    places of its dots. Returns False, changing nothing, while AI pictures are off."""
+    places of its dots. Returns False, changing nothing, while AI pictures are off.
+    The picture is the studio's, or that of board["scene"] where a page shows another scene (a scene tapped
+    without JavaScript, app.outfits_look)."""
     chosen = service()
     if chosen is None:
         return False
@@ -372,7 +374,8 @@ def attach(boards: list[dict]) -> bool:
     who = person.current(rules["pictures"]["photos"])
     for board in boards:      # "look_pieces": what to describe, where that is not exactly what the board shows
         described = board.get("look_pieces") or board["pieces"]
-        board["look_key"] = fingerprint(chosen, prompt(described, rules, who), who.mark)
+        scene = scene_named(board.get("scene"))
+        board["look_key"] = fingerprint(chosen, prompt(described, rules, who, scene), who.mark)
     rows = db.look_rows([board["look_key"] for board in boards])
     for board in boards:
         board["look"] = _view(rows.get(board["look_key"]))
@@ -436,7 +439,15 @@ def request(pieces: list[dict], again: bool = False, scene: str = STUDIO) -> Loo
             if turn and not db.touch_look(key):  # gone already: its account was deleted a moment ago
                 db.drop_look_request(ticket)
             else:
-                _spawn(lambda: _draw(key, chosen, text, photo, ticket, turn))
+                try:
+                    _spawn(lambda: _draw(key, chosen, text, photo, ticket, turn))
+                except Exception:
+                    # The drawing could not start (no thread to run it): nothing was sent, so nothing counts, and
+                    # the box says so with "Try again" rather than "Drawing" for minutes about nothing.
+                    log.exception("Look %s could not be started", key)
+                    db.fail_look(key, SAY["unknown"])
+                    db.drop_look_request(ticket)
+                    return get(key) or Look(key, "failed", message=SAY["unknown"])
                 handed_over = True               # from here the drawing gives the turn back when it is done
         finally:
             # A turn taken here and not handed to a drawing (gone already, or an error before the drawing started)

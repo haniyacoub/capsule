@@ -15,7 +15,13 @@
    unless another was tapped. Under the line, in every state, the scenes are a row
    of buttons: the one shown is pressed, and tapping another asks for that
    scene's picture (drawn then, and kept). Each button keeps its id when the box
-   is replaced, so keyboard focus stays on the scene that was tapped.
+   is replaced, so keyboard focus stays on the scene that was tapped. A tap is
+   never undone by another of the box's requests coming back late (hx-sync on
+   the box): the drawing's question "is it done?", the studio's own "See it worn"
+   (sent by itself, data-auto-look, or tapped) and "Draw again". A scene tapped
+   while one of them is under way cancels it, and none of them is sent while a
+   scene's picture is being asked for. Without JavaScript the page comes back
+   with that scene shown (app.scene_shown).
 
    `videos_on`: under a finished picture, in .look-vid, "See it move" (_video.html), with `video`, the state of
    that picture's video. On a page, a video that failed shows as not made yet: what went wrong is said when
@@ -23,7 +29,7 @@
 {% set scene = scene or 'studio' %}
 {% set scene_row %}
 {% if scenes and scenes|length > 1 %}
-<form class="scenes" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" role="group" aria-label="Scene">{{ csrf_field() }}
+<form class="scenes" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:replace" role="group" aria-label="Scene">{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
   {% for name, label in scenes %}
   {% if name == scene %}<button type="button" id="scene-{{ key }}-{{ name }}" aria-pressed="true">{{ label }}</button>
@@ -34,7 +40,7 @@
 {% endset %}
 {% set scene_label = dict(scenes or []).get(scene, '') if scene != 'studio' else '' %}
 {% if look and look.status == 'working' %}
-<p class="look-bar band wait" hx-get="{{ url_for('outfits_look_state', look_key=look.key, outfit=key, scene=scene if scene != 'studio' else None) }}" hx-trigger="load delay:3s">
+<p class="look-bar band wait" hx-get="{{ url_for('outfits_look_state', look_key=look.key, outfit=key, scene=scene if scene != 'studio' else None) }}" hx-trigger="load delay:3s" hx-sync="closest .look:abort">
   <span class="spin" aria-hidden="true"></span>
   <span>{{ look.message or 'Drawing this outfit on the model · about 20 seconds' }}</span>
 </p>
@@ -54,7 +60,7 @@
   {%- with video = video if video and video.status in ('ready', 'working') else none, asking = false, play = false, left = none %}{% include "_video.html" %}{% endwith -%}
 </div>
 {% endif %}
-<form class="look-bar look-line" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}">{{ csrf_field() }}
+<form class="look-bar look-line" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:abort">{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
   <input type="hidden" name="again" value="1">
   {% if scene != 'studio' %}<input type="hidden" name="scene" value="{{ scene }}">{% endif %}
@@ -65,10 +71,11 @@
     <button class="link">Draw again</button>
   </span>
 </form>
-{{ scene_row }}
+{# Why a new version was not drawn: right under the line with "Draw again", above the scenes. #}
 {% if look.message %}<p class="look-msg">{{ look.message }}</p>{% endif %}
+{{ scene_row }}
 {% else %}
-<form class="look-bar band ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-trigger="submit, draw"{% if not look and auto and scene == 'studio' %} data-auto-look{% endif %}>{{ csrf_field() }}
+<form class="look-bar band ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-trigger="submit, draw" hx-sync="closest .look:abort"{% if not look and auto and scene == 'studio' %} data-auto-look{% endif %}>{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
   {% if scene != 'studio' %}<input type="hidden" name="scene" value="{{ scene }}">{% endif %}
   {% if look %}<span class="look-msg" role="status">{{ look.message }}</span>{% else %}<span><span class="whole">See this outfit worn by the model, drawn by AI.</span><span class="half">On the model, drawn by AI.</span></span>{% endif %}

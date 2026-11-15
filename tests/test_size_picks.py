@@ -18,7 +18,7 @@ import re
 import unittest
 from dataclasses import replace
 
-from wardrobe import catalog, scoring, selection, sizecheck, sizes
+from wardrobe import catalog, db, scoring, selection, sizecheck, sizes
 from wardrobe import profile as profile_mod
 
 from .test_app import AppCase
@@ -219,6 +219,11 @@ class AWardrobeInTheShapesOf11Nov(AppCase):
         self.set_mode("top", 70)
         w = selection.build()
         known = next(v for v in w.slots if v.state == "auto" and v.chosen and v.chosen.size.known and v.n_not_checked)
+        # While the sizes are the example's, the pick is in the example size, as the pop-up says "(example size)".
+        said = html.unescape(page_words(self.client.get(f"/slot/{known.slot['id']}").data.decode()))
+        self.assertIn("Picked for you: the top option in the example size rated 70 or more.", said)
+        self.assertNotIn("in your size rated", said)
+        db.set_setting("sizes_confirmed", True)          # "These are my sizes"
         said = html.unescape(page_words(self.client.get(f"/slot/{known.slot['id']}").data.decode()))
         self.assertIn("Picked for you: the top option in your size rated 70 or more.", said)
         # A piece whose every option is at COS: its pick is not said to be in your size.
@@ -231,6 +236,60 @@ class AWardrobeInTheShapesOf11Nov(AppCase):
         n = len(known.cands)
         self.assertIn(f"{n} options · {n} with sizes not checked By price", said, "not '0 in your size'")
         self.assertNotIn("0 in your size", said)
+        # Where nothing reaches the minimum there, the pick is the best-rated option that can be bought (one sold out
+        # in your size or without a price is passed over), and the line says so.
+        self.set_mode("top", 100)
+        said = html.unescape(page_words(self.client.get(f"/slot/{sid}").data.decode()))
+        self.assertIn("Picked for you: the best-rated option you can buy. Choose another below to swap it in. "
+                      "Nothing reaches your minimum quality of 100.", said)
+
+    def test_a_wardrobe_card_says_the_example_size_until_it_is_yours(self):
+        # The note on a Wardrobe card (selection.choose: "Nothing reaches 95 — this is the best in your size") says
+        # "in the example size" while the sizes are the example's, as the piece's page does, on the page and in the
+        # part HTMX puts back after a change; "in your size" once they are yours.
+        fragment = html.unescape(page_words(self.set_mode("cheapest", 95).data.decode()))
+        noted = [v for v in selection.build().slots if v.note and "best in your size" in v.note]
+        self.assertTrue(noted, "no piece whose best option in your size is under 95")
+        page = html.unescape(page_words(self.client.get("/").data.decode()))
+        for said in (fragment, page):
+            self.assertIn("Nothing reaches 95 — this is the best in the example size", said)
+            self.assertNotIn("in your size", said)
+        piece = html.unescape(page_words(self.client.get(f"/slot/{noted[0].slot['id']}").data.decode()))
+        self.assertIn("Picked for you: the best-rated option in the example size.", piece)
+        self.assertNotIn("best in your size", piece)
+        db.set_setting("sizes_confirmed", True)          # "These are my sizes"
+        said = html.unescape(page_words(self.client.get("/").data.decode()))
+        self.assertIn("Nothing reaches 95 — this is the best in your size", said)
+        self.assertNotIn("example size", said)
+
+    def test_the_pick_line_says_what_really_happened(self):
+        # Where nothing that can be bought reaches the minimum quality, the pick is the best-rated option: the line
+        # says so, once, at every price level and for the best your budget buys, never "rated 95 or more" above
+        # "Nothing reaches 95". Where the pick does reach it, the line says the level, as before.
+        db.set_setting("sizes_confirmed", True)
+        for level in [*LEVELS, "budget"]:
+            self.set_mode(level, 95)
+            w = selection.build()
+            under = [v for v in w.slots if v.state == "auto" and v.chosen and v.chosen.score.total < 95]
+            self.assertTrue(under, level)
+            for view in under:
+                with self.subTest(level=level, piece=view.slot["id"]):
+                    said = html.unescape(page_words(self.client.get(f"/slot/{view.slot['id']}").data.decode()))
+                    size = " in your size" if view.chosen.size.known else " you can buy"
+                    self.assertIn(f"Picked for you: the best-rated option{size}. Choose another below to swap it in. "
+                                  "Nothing reaches your minimum quality of 95.", said)
+                    self.assertNotIn("rated 95 or more", said)
+                    self.assertNotIn("Nothing reaches 95", said, "said once")
+                    best = max((c for c in view.cands if c.available and c.price > 0),
+                               key=lambda c: (c.size.rank == sizes.IN_YOUR_SIZE, c.score.total))
+                    self.assertEqual(view.chosen.score.total, best.score.total, "it is the best-rated option")
+        self.set_mode("cheapest", 70)
+        w = selection.build()
+        fine = next(v for v in w.slots if v.state == "auto" and v.chosen and v.chosen.score.total >= 70)
+        said = html.unescape(page_words(self.client.get(f"/slot/{fine.slot['id']}").data.decode()))
+        self.assertIn("Picked for you: the cheapest option", said)
+        self.assertIn("rated 70 or more. Choose another below to swap it in.", said)
+        self.assertNotIn("Nothing reaches", said)
 
     def test_the_pop_up_marks_options_whose_sizes_were_not_checked(self):
         from wardrobe import outfits

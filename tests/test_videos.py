@@ -109,6 +109,8 @@ class SeeItMove(WithVideos, AppCase):
     def test_see_it_move_says_what_it_is_and_how_many_are_left_before_anything_is_spent(self):
         outfit, look = self.picture()
         offer = self.part(outfit, look, ask="1")
+        form = re.search(r'<form class="([^"]+)"', offer).group(1)
+        self.assertEqual(form, "vid-bar ask", "the offer is under the picture (app.css), not a band across it")
         self.assertIn("An 8-second AI video: the model turns round once, then poses.", said(offer))
         self.assertIn("10 videos left today.", said(offer))        # on your own machine: the site's ten
         self.assertIn("Make the video", offer)
@@ -158,6 +160,10 @@ class SeeItMove(WithVideos, AppCase):
             self.assertIn(wanted, slider)
         for wanted in ("Drag to turn", "Play again", "Show picture"):
             self.assertIn(wanted, said(ready))
+        # The picture's caption stays while the video shows (its line is hidden then): first, then the controls.
+        lines = said(ready[ready.index('<div class="vid-line">'):])
+        self.assertRegex(lines, r"^Look and fit will differ on the real pieces\. ?Look and fit will differ\. "
+                                r"Drag to turn Play again Show picture")
         clip = re.search(r'<video class="vid-clip"[^>]*>', ready).group(0)
         for wanted in ("muted", "playsinline", 'preload="none"', f'poster="/looks/{look.file}"'):
             self.assertIn(wanted, clip)
@@ -184,6 +190,38 @@ class SeeItMove(WithVideos, AppCase):
         self.assertIn(described, buttons[0])
         words = used[used.index(f'<span id="vid-said-{outfit.key}">'):used.index("<button")]
         self.assertIn("No videos left today: more tomorrow.", said(words))
+
+    def test_a_video_that_cannot_start_is_neither_left_being_made_nor_counted(self):
+        # The row was claimed and the day's video taken, then the making could not start (no thread to run it).
+        # Nothing went to Google: the video is not "being made" for minutes, and the day's video is given back.
+        outfit, look = self.picture()
+        with mock.patch.object(videos, "_spawn", side_effect=RuntimeError("can't start new thread")):
+            shown = self.make(outfit, look)
+        self.assertEqual(db.video_requests(0), 0, "the day's video was spent on nothing")
+        self.assertNotIn("Making the video", shown)
+        self.assertIn("Something went wrong while making the video. Try again.", said(shown))
+        self.assertIn("Try again", shown)
+        self.assertEqual(videos.of(look).status, "failed")
+        self.assertEqual(self.made, [])
+        self.assertIn("data-play", self.make(outfit, look), "Try again makes it")
+        self.assertEqual((len(self.made), db.video_requests(0)), (1, 1))
+
+    def test_a_video_another_request_has_just_claimed_is_counted_once(self):
+        # Two asks at once: between this one taking the day's video and claiming the making, the other claimed it.
+        # This one gives its video back and shows the one being made.
+        outfit, look = self.picture()
+        taken = db.take_video_ticket
+
+        def and_the_other_claims_it(*args, **kwargs):
+            ticket = taken(*args, **kwargs)
+            key = videos.fingerprint(videos.service(), looks.load_rules()["videos"]["text"], look.file)
+            self.assertTrue(db.start_video(key, look.file, videos.service().tag, None, 0.0))   # the other request
+            return ticket
+        with mock.patch.object(db, "take_video_ticket", and_the_other_claims_it):
+            shown = self.make(outfit, look)
+        self.assertEqual(db.video_requests(0), 0, "counted for a video another request is making")
+        self.assertIn("Making the video", shown)
+        self.assertEqual(self.made, [], "made twice")
 
     def test_a_video_whose_file_has_gone_is_made_again(self):
         outfit, look = self.picture()
@@ -568,6 +606,27 @@ class VideosForCustomers(WithVideos, ProductionCase):
                       refused)
         self.assertNotIn("Google", refused, "customers are told about the AI, not the inside")
 
+    def test_a_failure_that_used_the_last_video_does_not_say_try_again(self):
+        # Google worked on it and failed: it counts, and that was his one video today. The offer then says what went
+        # wrong and that none are left, with only Close: never "Try again" beside "No videos left today".
+        ada = self.member("ada@example.com")
+        key, look = self.picture_of(ada)
+        self.refuse_video = imagegen.DrawError("busy", "no answer in time")          # sent: it may have been billed
+        with mock.patch.object(settings, "on_this_machine", lambda: False):
+            shown = said(self.make(ada, key, look))
+            again = self.offer(ada, key, look)                                          # opened again later
+        for offer in (shown, again):
+            self.assertIn("The AI is busy or did not answer in time. No videos left today: more tomorrow.", offer)
+            self.assertNotIn("Try again", offer)
+            self.assertNotIn("Make the video", offer)
+            self.assertIn("Close", offer)
+        self.assertEqual(db.video_requests(0), 1)
+        # With a video left, the same failure still says to try again, with the button that does.
+        self.with_video_rules(per_customer_per_day=2)
+        with mock.patch.object(settings, "on_this_machine", lambda: False):
+            offer = self.offer(ada, key, look)
+        self.assertIn("The AI is busy or did not answer in time. Try again in a minute. 1 video left today.", offer)
+
     def test_a_problem_only_the_operator_can_fix_is_not_shown_to_customers(self):
         ada = self.member("ada@example.com")
         key, look = self.picture_of(ada)
@@ -691,6 +750,149 @@ class GoogleVideoModel(unittest.TestCase):
             self.assertEqual(caught.exception.kind, kind, answer)
             self.assertNotIn("AIza-test-key-123456", str(caught.exception))
 
+    def video(self):
+        return {"type": "video", "mime_type": "video/mp4", "data": base64.b64encode(CLIP).decode()}
+
+    def waits(self):
+        waited = []
+        patch = mock.patch.object(videogen, "_wait", waited.append)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return waited
+
+    def test_an_answer_still_being_made_is_asked_again_by_its_id_until_it_is_done(self):
+        waited = self.waits()
+        self.answers += [(200, json.dumps({"id": "v1_abc", "status": "in_progress"}).encode()),
+                         (200, json.dumps({"id": "v1_abc", "status": "queued"}).encode()),
+                         (200, json.dumps({"id": "v1_abc", "status": "in_progress", "steps": []}).encode()),
+                         (200, json.dumps({"id": "v1_abc", "status": "completed",
+                                           "steps": [{"type": "model_output", "content": [self.video()]}]}).encode())]
+        self.assertEqual(videogen.make(self.service, PICTURE, "Turn."), CLIP, "an unfinished answer is not 'no video'")
+        asked = self.sent[1:]
+        self.assertEqual([sent["url"] for sent in asked],
+                         ["https://generativelanguage.googleapis.com/v1beta/interactions/v1_abc"] * 3)
+        for sent in asked:
+            self.assertIsNone(sent["body"], "asked again with GET, nothing sent again")
+            self.assertEqual(sent["headers"]["x-goog-api-key"], "AIza-test-key-123456")
+            self.assertLessEqual(sent["timeout"], videogen.TIMEOUT)
+        self.assertEqual(waited, [videogen.ASK_AGAIN_SECONDS] * 3, "a few seconds between two questions")
+
+    def test_an_answer_that_stopped_part_way_goes_on_with_its_token(self):
+        self.answers += [(200, json.dumps({"id": "v1_one", "status": "requires_continuation", "continuation_token": "t1",
+                                           "steps": [{"type": "model_output", "content": [{"type": "text", "text": "…"}]}]}).encode()),
+                         (200, json.dumps({"id": "v1_two", "status": "requires_continuation", "continuation_token": "t2",
+                                           "steps": []}).encode()),
+                         self.answer(self.video())]
+        self.assertEqual(videogen.make(self.service, PICTURE, "Turn."), CLIP)
+        first, *going_on = [json.loads(sent["body"]) for sent in self.sent]
+        self.assertIn("input", first)
+        self.assertEqual([(body["continuation_token"], body["previous_interaction_id"]) for body in going_on],
+                         [("t1", "v1_one"), ("t2", "v1_two")], "each part goes on from the one before it")
+        for body in going_on:
+            self.assertNotIn("input", body, "Google kept the picture: it is not sent again")
+            self.assertEqual((body["model"], body["response_format"]), (first["model"], first["response_format"]))
+        # A token handed back unchanged would go round for ever: it stops there, with no video.
+        stuck = json.dumps({"id": "v1_x", "status": "requires_continuation", "continuation_token": "same"}).encode()
+        self.answers += [(200, stuck), (200, stuck)]
+        with self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertEqual(len(self.sent), 5, "asked to go on once, not again with the same token")
+        self.assertEqual(caught.exception.kind, "empty")
+        self.assertFalse(caught.exception.free, "Google worked on it: it counts")
+
+    def test_one_video_goes_on_a_few_times_at_most(self):
+        # Each time Google is asked to go on it reads everything so far again, and bills it: a new token every time
+        # would otherwise be followed until the five minutes are up. It goes on GO_ON_AT_MOST times, then stops.
+        self.assertEqual(videogen.GO_ON_AT_MOST, 3)
+        self.answers += [(200, json.dumps({"id": f"v1_{n}", "status": "requires_continuation",
+                                           "continuation_token": f"t{n}", "steps": []}).encode()) for n in range(10)]
+        with self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        first, *going_on = [json.loads(sent["body"]) for sent in self.sent]
+        self.assertIn("input", first)
+        self.assertEqual([body["continuation_token"] for body in going_on], ["t0", "t1", "t2"],
+                         "asked to go on three times after the first request, and no more")
+        self.assertEqual(caught.exception.kind, "busy")
+        self.assertFalse(caught.exception.free, "Google worked on it: it counts")
+        self.assertIn("after going on 3 times", caught.exception.detail)
+        # Three times is enough when the video comes then.
+        self.sent.clear()
+        self.answers[:] = [(200, json.dumps({"id": f"v1_{n}", "status": "requires_continuation",
+                                             "continuation_token": f"t{n}", "steps": []}).encode()) for n in range(3)]
+        self.answers.append(self.answer(self.video()))
+        self.assertEqual(videogen.make(self.service, PICTURE, "Turn."), CLIP)
+        self.assertEqual(len(self.sent), 4)
+
+    def test_still_being_made_when_the_time_is_up_counts_and_says_so(self):
+        self.waits()
+        now = [1000.0]
+        patch = mock.patch.object(videogen, "_clock", lambda: now[0])
+        patch.start()
+        self.addCleanup(patch.stop)
+        still = (200, json.dumps({"id": "v1_slow", "status": "in_progress"}).encode())
+
+        def a_minute_passes(url, headers, body, timeout=imagegen.TIMEOUT):
+            self.sent.append({"url": url, "timeout": timeout})
+            now[0] += 60
+            return still
+        with mock.patch.object(imagegen, "_send", a_minute_passes), self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertEqual(caught.exception.kind, "busy")
+        self.assertFalse(caught.exception.free, "Google may still be making it, and bill it")
+        self.assertIn(f"after {videogen.TIMEOUT} seconds", caught.exception.detail)
+        self.assertEqual(len(self.sent), videogen.TIMEOUT // 60, "asked again until the time was up, not after")
+        self.assertTrue(all(sent["timeout"] <= videogen.TIMEOUT for sent in self.sent))
+
+    def test_a_problem_after_google_took_the_request_is_never_free(self):
+        self.waits()
+        taken = (200, json.dumps({"id": "v1_abc", "status": "in_progress"}).encode())
+        cases = [((404, json.dumps({"error": {"code": 404, "status": "NOT_FOUND", "message": "no such"}}).encode()), "busy"),
+                 ((429, json.dumps({"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "slow"}}).encode()), "busy"),
+                 ((200, json.dumps({"id": "v1_abc", "status": "failed", "steps": [{"type": "model_output", "error":
+                                    {"code": "safety", "message": "a real person"}}]}).encode()), "refused"),
+                 ((200, json.dumps({"id": "v1_abc", "status": "failed", "steps": [{"type": "model_output", "error":
+                                    {"code": "invalid_argument", "message": "x"}}]}).encode()), "request")]
+        for later, kind in cases:
+            self.answers += [taken, later]
+            with self.assertRaises(imagegen.DrawError, msg=kind) as caught:
+                videogen.make(self.service, PICTURE, "Turn.")
+            self.assertEqual(caught.exception.kind, kind, later)
+            self.assertFalse(caught.exception.free, f"{kind}: given back although Google worked on it")
+        # Not reached on the second question: the same, never free (on the first, nothing was taken: free).
+        unreachable = imagegen.DrawError("busy", "could not be reached", free=True)
+        with mock.patch.object(imagegen, "_send", side_effect=[taken, unreachable]), \
+                self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertFalse(caught.exception.free)
+
+    def test_a_clip_google_made_but_that_could_not_be_fetched_is_never_free(self):
+        # Google's first answer already has the clip, kept on its server: it was made, and billed. Fetching it then
+        # fails, even for want of a connection: the day's video is not given back (else each try would be billed
+        # again and given back again while Google's server stays out of reach).
+        uri = "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media"
+        unreachable = imagegen.DrawError("busy", "generativelanguage.googleapis.com could not be reached", free=True)
+        with mock.patch.object(imagegen, "_send", side_effect=[self.answer({"type": "video", "uri": uri}), unreachable]), \
+                self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertEqual(caught.exception.kind, "busy")
+        self.assertFalse(caught.exception.free, "Google made the video: it is not handed back as free")
+        # The same for a problem inside Google's first answer (its request was taken and worked on) …
+        failed = (200, json.dumps({"status": "failed", "steps": [{"type": "model_output", "error":
+                                                                  {"code": "invalid_argument", "message": "x"}}]}).encode())
+        self.answers.append(failed)
+        with self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertEqual(caught.exception.kind, "request")
+        self.assertFalse(caught.exception.free, "Google worked on it: it counts")
+        # … but not for a request Google turned away at the door, or one that never reached it: those are free.
+        self.answers.append((400, json.dumps({"error": {"code": 400, "status": "INVALID_ARGUMENT", "message": "x"}}).encode()))
+        with self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertTrue(caught.exception.free, "turned away at the door: nothing was made")
+        with mock.patch.object(imagegen, "_send", side_effect=[unreachable]), self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertTrue(caught.exception.free, "never reached Google: nothing was made")
+
     def test_it_goes_through_the_pictures_opener(self):
         # The pictures' opener: proxies from the environment only (asking a Mac for its system proxy crashes a
         # web-server worker), and a redirect is never followed with the key (imagegen.py, tested in test_looks.py).
@@ -713,6 +915,25 @@ class Redirects(unittest.TestCase):
         self.assertEqual(answer, (302, b"https://storage.googleapis.com/some-bucket/abc.mp4"))
         self.assertEqual(opener.open.call_count, 1, "once: not followed")
         self.assertEqual(opener.open.call_args[0][0].get_method(), "GET")
+
+
+class TheOffersWords(unittest.TestCase):
+    def test_with_no_videos_left_it_never_asks_for_what_it_cannot_do(self):
+        # With none left, the offer ends "No videos left today: more tomorrow" and has only Close: no "Try again" in
+        # what went wrong, and no "tick the box" for a box it does not show. With some left, every word stays.
+        for kind in ("busy", "empty", "stalled", "unknown"):
+            message = videos.SAY[kind]
+            self.assertIn("Try again", message, kind)
+            self.assertNotIn("Try again", videos.told(message, 0), kind)
+            self.assertTrue(videos.told(message, 0).endswith("."), kind)
+            for left in (1, 5, None):
+                self.assertEqual(videos.told(message, left), message, f"{kind}, {left} left")
+        on_this_machine = f"{videos.SAY['busy']} Google had still not finished the video after going on 3 times."
+        self.assertEqual(videos.told(on_this_machine, 0), "The AI is busy or did not answer in time. "
+                                                          "Google had still not finished the video after going on 3 times.")
+        self.assertEqual(videos.told(videos.TICK_FIRST, 0), "", "it says what a video is instead")
+        self.assertEqual(videos.told(videos.TICK_FIRST, 1), videos.TICK_FIRST)
+        self.assertEqual(videos.told(videos.SAY["person"], 0), videos.SAY["person"], "nothing to leave out")
 
 
 class VideoSettings(WithVideos, AppCase):

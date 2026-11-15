@@ -91,7 +91,7 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
         if c.score.fabric_source in ("name", "assumed"):
             notes.append("Fabric is an estimate — check the label on the product page.")
         elif c.score.fabric_source == "none":
-            notes.append("Fabric unknown — check the product page.")
+            notes.append("Fabric not stated: check the product page.")
         if s.note:
             notes.append(s.note + ".")
         store = c.data.get("store", "")

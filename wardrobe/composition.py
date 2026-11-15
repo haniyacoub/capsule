@@ -68,15 +68,16 @@ def _fibre_key(name: str) -> str:
     return "other"
 
 
-def parse(text: str | None) -> list[tuple[str, float]]:
-    """Main-fabric fibres as (key, percent), largest share first. [] if unknown."""
-    if not text:
-        return []
-    main = text
+def _main(text: str) -> str:
+    """The main fabric's part of a label: what comes before "Futter: …" (the lining) and the like."""
     m = _SECONDARY.search(text)
     if m and _PCT.search(text[: m.start()]):
-        main = text[: m.start()]  # keep only what comes before "Futter: …"
+        return text[: m.start()]  # keep only what comes before "Futter: …"
+    return text
 
+
+def _totals(main: str) -> list[tuple[str, float]]:
+    """The fibres of `main` as the label gives them, (key, percent), largest share first, never scaled."""
     totals: dict[str, float] = {}
     for token in re.split(r"[,;·•|\n]|\band\b|\bund\b", main):
         m = _PCT.search(token)
@@ -88,10 +89,57 @@ def parse(text: str | None) -> list[tuple[str, float]]:
             name = name.split(":")[-1]
         key = _fibre_key(name)
         totals[key] = totals.get(key, 0.0) + pct
-    comp = sorted(totals.items(), key=lambda kv: -kv[1])
+    return sorted(totals.items(), key=lambda kv: -kv[1])
+
+
+def parse(text: str | None) -> list[tuple[str, float]]:
+    """Main-fabric fibres as (key, percent), largest share first. [] if unknown."""
+    if not text:
+        return []
+    comp = _totals(_main(text))
     if math.fsum(pct for _, pct in comp) > 100:
         comp = _scaled_to_100(comp)
     return comp
+
+
+# Parts of a garment a label can give a fabric each ("Vorderteil: 100 % Baumwolle; Rückenteil: 100 % Polyester"),
+# in the words the fabric line says them.
+_PARTS = {"vorderteil": "front", "rückenteil": "back", "front": "front", "back": "back", "ärmel": "sleeves",
+          "sleeves": "sleeves", "körper": "body", "body": "body", "außen": "body", "aussen": "body",
+          "oben": "top", "unten": "bottom", "oberteil": "top", "unterteil": "bottom", "kragen": "collar",
+          "collar": "collar", "einsatz": "panels", "einsätze": "panels"}
+_PART = re.compile(r"\b(" + "|".join(sorted(_PARTS, key=len, reverse=True)) + r")\b\s*:", re.IGNORECASE)
+
+
+def _fibres_said(comp: list[tuple[str, float]]) -> str:
+    return ", ".join(f"{pct:g}% {'other fibres' if key == 'other' else label(key)}" for key, pct in comp)
+
+
+def as_labelled(text: str | None) -> str:
+    """The fabric line for a label whose shares add up to more than 100, which parse() scales back for the score:
+    said as the label gives it, never as the scaled shares (a 50/50 the store never wrote). "" for any other label.
+
+    "Vorderteil: 100 % Baumwolle; Rückenteil: 100 % Polyester"  ->  "front 100% cotton, back 100% polyester"
+    "Außen: 70 % Wolle, 30 % Polyamid; Ärmel: 100 % Wolle"      ->  "body 70% wool, 30% polyamide; sleeves 100% wool"
+    "51 % Baumwolle, 50 % Polyester" (a store's own rounding)    ->  "51% cotton, 50% polyester"
+    "100 % Baumwolle; 100 % Polyester" (parts it does not name)  ->  "mixed (see the label)"
+    """
+    if not text:
+        return ""
+    main = _main(text)
+    comp = _totals(main)
+    total = math.fsum(pct for _, pct in comp)
+    if total <= 100:
+        return ""
+    pieces = _PART.split(main)                  # [before the first part, part, its fibres, part, its fibres, …]
+    parts = [(_PARTS[pieces[i].lower()], _totals(pieces[i + 1])) for i in range(1, len(pieces) - 1, 2)]
+    if (len(parts) >= 2 and not _totals(pieces[0]) and all(fibres for _, fibres in parts)
+            and all(math.fsum(pct for _, pct in fibres) <= 100 for _, fibres in parts)):
+        between = ", " if all(len(fibres) == 1 for _, fibres in parts) else "; "
+        return between.join(f"{part} {_fibres_said(fibres)}" for part, fibres in parts)
+    if total <= 102:                             # a store's own rounding: its figures, as it wrote them
+        return _fibres_said(comp)
+    return "mixed (see the label)"
 
 
 def _scaled_to_100(comp: list[tuple[str, float]]) -> list[tuple[str, float]]:
@@ -213,6 +261,8 @@ def guess(name: str | None, shares: dict | None = None) -> tuple[list[tuple[str,
                 found.append(fibre)
     if not found:
         return [], ""
+    if "suede" in found and "leather" in found:   # suede is leather: "Veloursleder", with "leather" in the slug
+        found.remove("leather")
 
     if _SAYS_PURE.search(original):
         named, how = float(shares.get("pure_share", 100)), "pure"
