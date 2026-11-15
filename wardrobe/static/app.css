@@ -1254,6 +1254,9 @@ details[open] > summary .edit { visibility: hidden; }
 .store-row + .store-row { border-top: 1px solid var(--line); }
 .store-row b { font-weight: 500; }
 .store-note { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }
+/* The stores with no products yet, apart from the others: a line over them saying what they are for. */
+.store-empty { display: grid; margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px solid var(--line); }
+.store-empty-head { margin: 0 0 var(--s-1); color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; }
 .store-said { margin: 0; }
 /* With the Stores tab there are six tabs: on a phone up to 419px wide their chips take 8px each side instead of 12, so
    that all six fit a 390px phone and the last one still shows its edge on a 360px one (the row scrolls sideways). */

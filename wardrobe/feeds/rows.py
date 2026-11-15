@@ -4,6 +4,9 @@ one row of the `products` table.
 Each importer (google.py, awin_csv.py, tradedoubler.py) only says which of its feed's fields means
 what. The rules for turning those values into a row are here, once:
 
+    menswear only (menswear.py, no switch): a product the feed says is for women or for children, by
+             its gender, its age group or its category, is skipped and counted ("12 for women"); one
+             the feed says nothing about is kept
     a product needs an id, a name, a price above zero and a buy link, or it is skipped and counted;
              so is a record with a value the mapping cannot read: one bad record never stops a file
     prices:  "39,95 EUR", "39.95 EUR", "EUR 39.95", "€39,95", 39.95 or {"value": "39.95", "currency": "EUR"};
@@ -29,7 +32,7 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import IO, Any
 
-from .. import colours, composition
+from .. import colours, composition, menswear
 
 DEFAULT_CURRENCY = "EUR"        # the stores sell in Germany first; a price without a currency is taken as euros
 csv.field_size_limit(16 * 1024 * 1024)     # long product descriptions must not stop a whole feed
@@ -288,9 +291,13 @@ def product(*, product_id: Any, name: Any, price: Any, buy_link: Any, sale_price
             currency: Any = None, group_id: Any = None, brand: Any = None, category: Any = None,
             gender: Any = None, colour: Any = None, material: Any = None, sizes: Any = None,
             size_stock: dict[str, bool] | None = None, available: bool | None = None,
-            image_url: Any = None, feed_updated_at: Any = None, sale_dates: Any = None) -> dict:
+            image_url: Any = None, feed_updated_at: Any = None, sale_dates: Any = None,
+            age_group: Any = None) -> dict:
     """One row of the `products` table from a feed's values, or Skip with the reason.
     The store and the import time are added when the file is imported (refresh.py)."""
+    whom = menswear.not_for_men(text(gender), text(age_group), text(category))
+    if whom:                                        # Stilsmith is for men: said first, whatever else is missing
+        raise Skip(f"for {whom}")
     pid, title = text(product_id), text(name)
     if not pid:
         raise Skip("without an id")

@@ -733,17 +733,19 @@ if (profileCreator) {
   redraw();          // the choices as the browser kept them (Back, a reload), which may not be the ones saved
 }
 
-// 13c. Profile: the Stores tab. At least one store stays ticked: unticking the last one ticks it again at once, and a
-//      line under the stores says why (also to a screen reader). Without JavaScript the save says it instead.
+// 13c. Profile: the Stores tab. At least one store with products stays ticked: unticking the last one ticks it again
+//      at once, and a line under the stores says why (also to a screen reader). A store with no products yet
+//      (data-empty: only pasted links come from it) does not count, however many of those are ticked. Without
+//      JavaScript the save says it instead.
 const storePick = document.querySelector('[data-store-pick]');
 if (storePick) {
   const storeSaid = document.querySelector('[data-store-said]');
   storePick.addEventListener('change', (e) => {
     const box = e.target;
-    const ticked = storePick.querySelectorAll('input[name=stores]:checked').length;
-    if (!box.checked && ticked === 0) {
+    const ticked = storePick.querySelectorAll('input[name=stores]:not([data-empty]):checked').length;
+    if (!box.checked && !box.hasAttribute('data-empty') && ticked === 0) {
       box.checked = true;
-      storeSaid.textContent = 'At least one store must stay ticked: your pieces need a store to come from.';
+      storeSaid.textContent = 'At least one store with products must stay ticked: your pieces need a store to come from.';
       storeSaid.hidden = false;
       const announce = document.getElementById('announce');
       if (announce) announce.textContent = storeSaid.textContent;

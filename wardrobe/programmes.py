@@ -56,6 +56,13 @@ def offered() -> dict[str, str]:
     return {key: store.get("label", key) for key, store in _stores().items() if store["programme"] != NONE}
 
 
+def read_by_the_collector() -> list[str]:
+    """The stores offered whose category pages config/stores.toml lists ([cos.garments.coat] and so on): the only
+    stores the collector ever visits. A store without them is never collected: its products can only be pasted
+    in by their links, until its product feed arrives (shared.stocked tells the two apart for customers)."""
+    return [key for key, store in _stores().items() if store["programme"] != NONE and store.get("garments")]
+
+
 class _Offered(Mapping):
     """offered() as a dict that is read each time it is used, so a change to config/stores.toml shows at the next
     page: the pages' STORES (app.py), {key: name}."""

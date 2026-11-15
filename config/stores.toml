@@ -210,6 +210,43 @@ pages   = ["/de-de/men/jeans/"]
 exclude = ["shorts", "jacke", "jorts"]
 
 
+# ── Round 6: more men's stores, pasted links only ────────────────────────────
+# Each has a partner programme on Awin (research/round6/stores.md, read 15 Nov 2026).
+# None has been applied to yet, and none is collected: there are no category
+# pages listed here and no reader for them. A customer can paste a product link
+# from them; their catalogues arrive as product feeds once each programme accepts.
+
+[tom-tailor]
+label         = "Tom Tailor"
+programme     = "awin"         # Awin 8617: 7% standard, up to 9%, product feed stated
+base          = "https://www.tom-tailor.de"
+
+[otto]
+label         = "OTTO"
+programme     = "awin"         # fashion 15% for content sites; a product feed is not promised on its page
+base          = "https://www.otto.de"
+
+[hirmer]
+label         = "Hirmer"
+programme     = "awin"         # Awin 14837: 10%, product feed refreshed daily; men only
+base          = "https://www.hirmer.de"
+
+[breuninger]
+label         = "Breuninger"
+programme     = "awin"         # Awin 11590: 12% new customers, 5% existing; no voucher, cashback or e-mail sites
+base          = "https://www.breuninger.com"
+
+[blue-tomato]
+label         = "Blue Tomato"
+programme     = "awin"         # Awin 11873: 7%, daily product feed; its site refuses some automated requests
+base          = "https://www.blue-tomato.com"
+
+[bergfreunde]
+label         = "Bergfreunde"
+programme     = "awin"         # Awin 14102: up to 15% for content sites, daily product feed
+base          = "https://www.bergfreunde.de"
+
+
 # ── Zara ──────────────────────────────────────────────────────────────────────
 # No partner programme open to a site like this (only an invite-style creator
 # scheme), so Zara is never offered to customers and never collected. Its

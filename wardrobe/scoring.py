@@ -216,6 +216,8 @@ def brand_part(store: str, category: str, rules: dict) -> tuple[float, list[str]
     if category in tiers:
         value = float(tiers[category])
         return value, [f"{settings.SITE_NAME} rates {name} {_num(value)}/100 for {plural}"]
+    if not tiers:       # a store with no [brand.<store>] in config/scoring.toml: one whose products are only pasted in
+        return 50.0, [f"{settings.SITE_NAME} has not rated {name} yet, so its brand counts as the middle, 50/100"]
     value = float(tiers.get("default", 50))
     return value, [f"{settings.SITE_NAME} rates {name} {_num(value)}/100 for {plural} "
                    f"(its rating for {name} in general)"]

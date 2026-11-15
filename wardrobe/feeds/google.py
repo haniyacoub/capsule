@@ -38,6 +38,8 @@ def product(record: dict) -> dict:
                                                 #          [Awin]'s or [Webgains]' lists
                   or f.get("google_product_category")),   # [Google] [Webgains] google_product_category
         gender=f.get("gender"),                 # [Google] [Awin] gender: male | female | unisex
+        age_group=f.get("age_group"),           # [Google] age_group: newborn | infant | toddler | kids | adult;
+                                                #          unsure: whether [Awin]'s files carry it
         colour=f.get("color"),                  # [Google] [Awin] color, the store's words
         material=f.get("material"),             # [Google] [Awin] material, the store's words
         price=f.get("price"),                   # [Google] [Awin] [Webgains] price: the regular price, "39.95 EUR";

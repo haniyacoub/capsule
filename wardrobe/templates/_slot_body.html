@@ -183,10 +183,15 @@
   <p class="flash{% if not message.startswith('Added') %} bad{% endif %}" role="status">{{ message }}</p>
   {% endfor %}
   {# The stores customers are offered (programmes.py) that he ticked (profile.stores); a link to any other store is refused. #}
-  <p class="muted small">Paste product page addresses from {{ store_names(my_stores(), 'or') }}, one per line. The page itself is not opened: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
-  <form class="form" method="post" action="{{ url_for('slot_import', slot_id=sid, **way) }}">{{ csrf_field() }}
+  <p class="muted small">Paste product page addresses from {{ store_names(my_stores(), 'or') }}, one per line. Menswear only. {{ site_name }} does not open the page: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
+  <form class="form" method="post" enctype="multipart/form-data" action="{{ url_for('slot_import', slot_id=sid, **way) }}">{{ csrf_field() }}
     <label class="field"><span>Product links</span>
       <textarea name="urls" rows="3" placeholder="https://www.cos.com/de-de/…/product/…-1234567890" autocapitalize="off" spellcheck="false"></textarea></label>
+    {# Optional: the product's page as he saved it from his own browser. With one link, its name, price, colour and
+       fabric are read from the file (collect/generic.py), for any store; the photo never is. #}
+    <label class="field"><span>The product's page, saved from your browser (optional)</span>
+      <input type="file" name="page" accept=".html,.htm,text/html" aria-describedby="page-help"></label>
+    <p class="muted small" id="page-help">With one link: open the product in your browser, save the page (“Save page as”), and choose that file here. Its name, price, colour and fabric are then filled in for you.</p>
     <button class="btn small">Add</button>
   </form>
 </section>

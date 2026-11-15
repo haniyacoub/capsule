@@ -21,7 +21,7 @@ from wardrobe import profile as profile_mod
 from wardrobe.app import create_app
 
 from .test_production import ProductionCase, words
-from .test_programmes import PUBLISHED, STORES, shaped
+from .test_programmes import PASTE_ONLY, PUBLISHED, STORES, shaped
 
 # Four of the example plan's pieces: the grey jumper and the white tee in both stores (Weekday the cheaper), the jeans
 # in both (Weekday the cheaper), the charcoal coat at Weekday only. And Zara's jumper, which is never offered.
@@ -49,10 +49,22 @@ def panel(page: str) -> str:
 
 
 def rows(page: str) -> list[tuple[str, bool, str]]:
-    """(the store's key, ticked, what the row says) for each row of the Stores tab."""
+    """(the store's key, ticked, what the row says) for each row of the Stores tab: the stores with products."""
     return [(key, bool(on), words(said)) for key, on, said in re.findall(
-        r'<label class="check store-row"><input type="checkbox" name="stores" value="(\w+)"( checked)?>(.*?)</label>',
+        r'<label class="check store-row"><input type="checkbox" name="stores" value="([\w-]+)"( checked)?>(.*?)</label>',
         panel(page), re.S)]
+
+
+def empty_rows(page: str) -> list[tuple[str, bool, str]]:
+    """The same for the rows shown apart, under "No products yet": the stores only pasted links come from."""
+    apart = re.search(r'<div class="store-empty" role="group" aria-labelledby="stores-empty">.*?</div>', panel(page), re.S)
+    return [(key, bool(on), words(said)) for key, on, said in re.findall(
+        r'<label class="check store-row"><input type="checkbox" name="stores" value="([\w-]+)" data-empty( checked)?>(.*?)</label>',
+        apart.group(0) if apart else "", re.S)]
+
+
+SIX = list(PASTE_ONLY)          # their keys, in config/stores.toml's order
+SIX_NAMES = "Tom Tailor, OTTO, Hirmer, Breuninger, Blue Tomato or Bergfreunde"
 
 
 class TheStorePicker(ProductionCase):
@@ -64,7 +76,11 @@ class TheStorePicker(ProductionCase):
         self.ada = self.member("ada@example.com")
         self.ada.get(self.save().headers["Location"])  # her own answers (a later save comes back to its tab), read
 
-    def save(self, **changes):
+    def save(self, only=False, **changes):
+        """Save Profile from its Stores tab. The six stores with no products yet stay ticked, as the page sends them,
+        unless `only`: then the stores given are all that is ticked."""
+        if "stores" in changes and not only:
+            changes["stores"] = [*changes["stores"], *SIX]
         return self.post(self.ada, "/profile", **{**FORM, "tab": "stores", **changes})
 
     def as_ada(self):
@@ -87,7 +103,8 @@ class TheStorePicker(ProductionCase):
         self.assertIn('<button type="button" role="tab" id="tab-stores" aria-controls="panel-stores"', page)
         self.assertEqual(rows(page), [("cos", True, "COS · Rakuten partner"), ("weekday", True, "Weekday · Rakuten partner")])
         self.assertNotIn("zara", panel(page).lower(), "a store without a programme is never listed")
-        self.assertIn("Your pieces are picked only from the stores you tick. At least one stays ticked.", words(panel(page)))
+        self.assertIn("Your pieces are picked only from the stores you tick. At least one store with products stays "
+                      "ticked.", words(panel(page)))
         self.assertIn('<input type="hidden" name="stores_shown" value="1">', panel(page))
         self.assertIn('role="group" aria-labelledby="stores" aria-describedby="stores-help"', panel(page))
 
@@ -96,7 +113,7 @@ class TheStorePicker(ProductionCase):
             stored = db.get_setting("profile")
             stored.pop("stores_off")                 # saved before there was a Stores tab
             db.set_setting("profile", stored)
-            self.assertEqual(profile_mod.stores(), ["cos", "weekday"])
+            self.assertEqual(profile_mod.stores(), ["cos", "weekday", *SIX])
             self.assertEqual({c["store"] for c in catalog.load()["candidates"]}, {"cos", "weekday"})
         self.assertEqual([on for _, on, _ in rows(self.ada.get("/profile").get_data(as_text=True))], [True, True])
         # A form without the Stores tab (an older page, a save from elsewhere) leaves the stores as they are.
@@ -112,7 +129,7 @@ class TheStorePicker(ProductionCase):
         self.assertEqual(saved.headers["Location"], "/profile#stores", "back to the tab it was sent from")
         with self.as_ada():
             self.assertEqual(profile_mod.load()["stores_off"], ["weekday"])
-            self.assertEqual(profile_mod.stores(), ["cos"])
+            self.assertEqual(profile_mod.stores(), ["cos", *SIX])
             self.assertEqual({c["store"] for c in catalog.load()["candidates"]}, {"cos"})
             self.assertEqual({c["store"] for c in db.get_catalog()["candidates"]}, {"cos", "weekday"},
                              "what is stored keeps Weekday's products, for when it is ticked again")
@@ -195,28 +212,84 @@ class TheStorePicker(ProductionCase):
             self.assertEqual((jumper["owned"], jumper["locked"], jumper["pick"]), (True, False, None))
 
     def test_the_last_store_cannot_be_unticked(self):
+        stay = "At least one store with products must stay ticked, so your stores stay as they were."
         saved = self.save(stores_shown="1")             # nothing ticked
-        self.assertIn("At least one store must stay ticked, so your stores stay as they were.", self.said(saved))
+        self.assertIn(stay, self.said(saved))
         with self.as_ada():
             self.assertEqual(profile_mod.load()["stores_off"], [])
         self.save(stores=["weekday"], stores_shown="1")
         self.save(stores_shown="1")
         with self.as_ada():
-            self.assertEqual(profile_mod.stores(), ["weekday"], "the one left stays")
-        self.save(stores=["zara"], stores_shown="1")    # a store not offered is no store to keep
+            self.assertEqual(profile_mod.stores(), ["weekday", *SIX], "the one left stays")
+        self.save(only=True, stores=["zara"], stores_shown="1")    # a store not offered is no store to keep
         with self.as_ada():
-            self.assertEqual(profile_mod.stores(), ["weekday"])
+            self.assertEqual(profile_mod.stores(), ["weekday", *SIX])
             # Should every store he kept stop being offered, he has all those that are, never none.
-            self.assertEqual(profile_mod.stores({"stores_off": ["cos", "weekday"]}), ["cos", "weekday"])
+            self.assertEqual(profile_mod.stores({"stores_off": ["cos", "weekday", *SIX]}), ["cos", "weekday", *SIX])
+
+    def test_a_store_with_no_products_yet_cannot_be_the_only_store_ticked(self):
+        # Hirmer and the other five have no products yet: his pieces cannot come from them. However many of them are
+        # ticked, a store with products must be ticked too, or the save changes no store and says why.
+        stay = "At least one store with products must stay ticked, so your stores stay as they were."
+        for ticked in (["hirmer"], SIX):
+            saved = self.save(only=True, stores=ticked, stores_shown="1")
+            self.assertIn(stay, self.said(saved), ticked)
+            with self.as_ada():
+                self.assertEqual(profile_mod.load()["stores_off"], [], ticked)
+        # With a store that has products, any of them may be ticked or not: his pieces come from COS alone here.
+        saved = self.save(only=True, stores=["cos", "hirmer"], stores_shown="1")
+        self.assertNotIn(stay, self.said(saved))
+        with self.as_ada():
+            self.assertEqual(profile_mod.stores(), ["cos", "hirmer"])
+            # A profile that somehow kept only such stores (saved another way) is read as every store offered.
+            self.assertEqual(profile_mod.stores({"stores_off": ["cos", "weekday"]}), ["cos", "weekday", *SIX])
+        page = self.ada.get("/profile").get_data(as_text=True)
+        self.assertEqual([(key, on) for key, on, _ in rows(page)], [("cos", True), ("weekday", False)])
+        self.assertEqual([key for key, on, _ in empty_rows(page) if on], ["hirmer"])
+
+    def test_stores_with_no_products_yet_are_shown_apart_and_only_take_pasted_links(self):
+        page = self.ada.get("/profile").get_data(as_text=True)
+        # Apart from COS and Weekday, under their own line, each a row to tick, without the word "partner": none of
+        # their programmes has been applied to.
+        self.assertIn("""<h3 class="store-empty-head" id="stores-empty">No products yet: paste a link on a piece's page</h3>""",
+                      panel(page))
+        self.assertEqual(empty_rows(page), [(key, True, name) for key, name in PASTE_ONLY.items()])
+        self.assertLess(panel(page).index('value="weekday"'), panel(page).index('id="stores-empty"'))
+        self.assertEqual(shared.stocked(), ["cos", "weekday"])
+        # Unticking one changes no piece, so nothing is said of pieces picked again.
+        before = self.picks()
+        saved = self.save(only=True, stores=["cos", "weekday", "hirmer"], stores_shown="1")
+        self.assertEqual(self.said(saved), "Profile saved. See your outfits")
+        self.assertEqual(self.picks(), before)
+        # A link from one that is ticked is added; from one that is not, refused.
+        piece = words(self.ada.get("/slot/indigo-jeans").get_data(as_text=True))
+        self.assertIn("Paste product page addresses from COS, Weekday or Hirmer, one per line. Menswear only.", piece)
+        self.post(self.ada, "/slot/indigo-jeans/import",
+                  urls="https://www.hirmer.de/herren/jeans/straight-fit-jeans-dunkelblau/p/1234567\n"
+                       "https://www.bergfreunde.de/herren-jeans-blau-7654321/")
+        said = html.unescape(self.ada.get("/slot/indigo-jeans").get_data(as_text=True))
+        self.assertIn("Added “Straight fit jeans dunkelblau”: only the link could be read", said)
+        self.assertIn("Not added: “https://www.bergfreunde.de/herren-jeans-blau-7654321/” is not a COS, Weekday or "
+                      "Hirmer link.", said)
+        # A store with products in the published list is no longer shown apart, whatever config/stores.toml lists.
+        pool = json.loads((paths.DATA_DIR / shared.POOL_NAME).read_text(encoding="utf-8"))
+        pool["products"].append({**shaped("cos", "1000000301", "Hemd aus Popeline", 79.0, "White", "shirt"),
+                                 "id": "hirmer-1000000301", "store": "hirmer"})
+        pool["published_at"] = "2026-11-16T09:00:00.000000+01:00"
+        (paths.DATA_DIR / shared.POOL_NAME).write_text(json.dumps(pool, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(shared.stocked(), ["cos", "weekday", "hirmer"])
+        page = self.ada.get("/profile").get_data(as_text=True)
+        self.assertEqual([key for key, _, _ in rows(page)], ["cos", "weekday", "hirmer"])
+        self.assertNotIn("hirmer", [key for key, _, _ in empty_rows(page)])
 
     def test_a_link_from_an_unticked_store_is_not_added(self):
         self.save(stores=["cos"], stores_shown="1")
         piece = self.ada.get("/slot/indigo-jeans").get_data(as_text=True)
-        self.assertIn("Paste product page addresses from COS, one per line.", words(piece))
+        self.assertIn(f"Paste product page addresses from COS, {SIX_NAMES}, one per line.", words(piece))
         link = "https://www.weekday.com/de-de/p/men/space-jeans-1000000299/"
         self.post(self.ada, "/slot/indigo-jeans/import", urls=link)
         page = html.unescape(self.ada.get("/slot/indigo-jeans").get_data(as_text=True))
-        self.assertIn(f"Not added: “{link}” is not a COS link.", page)
+        self.assertIn(f"Not added: “{link}” is not a link to one of the stores listed above.", page)
         with self.as_ada():
             self.assertNotIn("weekday-1000000299", {c["id"] for c in db.get_catalog()["candidates"]})
 
@@ -226,17 +299,18 @@ class TheStorePicker(ProductionCase):
         more = {**real, "musterhaus": SAMPLE}
         with mock.patch.object(programmes, "_stores", return_value=more):
             page = self.ada.get("/profile").get_data(as_text=True)
-            self.assertEqual(rows(page), [("cos", True, "COS · Rakuten partner"), ("weekday", False, "Weekday · Rakuten partner"),
-                                          ("musterhaus", True, "Musterhaus · Awin partner")])
+            # Musterhaus has no products yet either: it joins the stores shown apart, ticked like them.
+            self.assertEqual(rows(page), [("cos", True, "COS · Rakuten partner"), ("weekday", False, "Weekday · Rakuten partner")])
+            self.assertEqual(empty_rows(page)[-1], ("musterhaus", True, "Musterhaus"))
             with self.as_ada():
-                self.assertEqual(profile_mod.stores(), ["cos", "musterhaus"])
+                self.assertEqual(profile_mod.stores(), ["cos", *SIX, "musterhaus"])
         # Weekday stops being offered while he has it unticked, he saves, and it is offered again: still unticked.
         without = {**real, "weekday": {**real["weekday"], "programme": "none"}}
         with mock.patch.object(programmes, "_stores", return_value=without):
             self.assertEqual(rows(self.ada.get("/profile").get_data(as_text=True)), [("cos", True, "COS · Rakuten partner")])
             self.save(stores=["cos"], stores_shown="1")
         with self.as_ada():
-            self.assertEqual(profile_mod.stores(), ["cos"])
+            self.assertEqual(profile_mod.stores(), ["cos", *SIX])
 
 
 class OnYourOwnMachine(unittest.TestCase):

@@ -26,17 +26,20 @@ moves between outfits (by keyboard too: Next among the first Tab stops, focus go
 screen reader hears named, Tab leading into the outfit shown and Next keeping focus at the end of the row, the heart
 keeping focus, Escape hiding a dot's label),
 saves and "buys" one (keeping the example sizes as his own), saves an outfit with the heart and takes it back with the
-next tap (phone, computer and without JavaScript; under Saved it leaves the page, with Undo), prints the shopping list,
+next tap (phone, computer and without JavaScript; under Saved it leaves the page, with Undo; the step's own customer
+is deleted when it ends), prints the shopping list,
 logs in again and lands on the outfits, puts a model together on Profile's character screen (its tabs, the figure
 in the middle that follows every height, build, skin and hair choice at once, by mouse, keyboard and links, on a phone,
 a computer and without JavaScript, and "Your model" drawn by AI there), uploads a photo, sees Profile ask before
 changes not saved would be lost, unticks a store on Profile's Stores tab (its pieces picked again, said in one line;
-the last store stays ticked) and ticks it again, saves new colours (the plan is rebuilt,
+the last store with products stays ticked, and the six with none yet are listed apart) and ticks it again, saves new colours (the plan is rebuilt,
 keeping the swapped piece, and the budget bar takes the banner's place), sees that a phone's first
 screen shows the outfit on the model with its price and the heart (and every chip over it, whole,
 by keyboard), tabs through three pages to see that nothing with keyboard focus is hidden under the
 budget bar or the tab bar, locks and chooses on a piece's page by keyboard (focus stays where it was) and pastes
-a link that is not a store's (answered inside that section, on a phone's screen, with JavaScript on and off),
+a link that is not a store's (answered inside that section, on a phone's screen, with JavaScript on and off), then a
+link from Hirmer, a store with no products yet, with its page as he saved it (name and price filled in, no photo, no
+store asked for anything) and a women's link (refused: menswear only),
 sees an option's "Choose this" and "Open at COS" side by side wherever they fit, on three phones, adds and saves a
 piece of the plan (answered inside that piece, on a phone's screen), and deletes the account. On the way it watches
 everything that moves (app.css "Motion"): a tab slides the page forward or back and a tap while it slides is not lost,
@@ -2779,8 +2782,13 @@ def run(base: str) -> None:
             # cannot be unticked (said at once, and to a screen reader); ticking Weekday again brings it back. On a
             # phone, on a computer, and without JavaScript, where the save says that the last store stays.
             who = "picker-" + EMAIL
-            stores_of = """() => [...document.querySelectorAll('input[name=stores]')].map(box =>
+            # The stores Stilsmith has products from, and (apart, under their own line) those with none yet.
+            stores_of = """() => [...document.querySelectorAll('input[name=stores]:not([data-empty])')].map(box =>
                 [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
+            empty_of = """() => [...document.querySelectorAll('.store-empty input[name=stores][data-empty]')].map(box =>
+                [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
+            six = [["tom-tailor", True, "Tom Tailor"], ["otto", True, "OTTO"], ["hirmer", True, "Hirmer"],
+                   ["breuninger", True, "Breuninger"], ["blue-tomato", True, "Blue Tomato"], ["bergfreunde", True, "Bergfreunde"]]
             context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
             try:
                 phone = context.new_page()
@@ -2798,11 +2806,25 @@ def run(base: str) -> None:
                                                      ["weekday", True, "Weekday · Rakuten partner"]], phone.evaluate(stores_of)
                 rows = phone.locator(".store-row").evaluate_all("rs => rs.map(r => r.getBoundingClientRect().height)")
                 assert all(h >= 48 for h in rows), f"a store's row is under 48px to tap: {rows}"
+                # The six stores with no products yet: apart, under a line that says what they are for, below the
+                # stores with products, each a row to tick. Unticking one is no matter.
+                assert phone.evaluate(empty_of) == six, f"the stores with no products yet: {phone.evaluate(empty_of)}"
+                apart = phone.evaluate("""() => { const head = document.getElementById('stores-empty').getBoundingClientRect();
+                    const rows = [...document.querySelectorAll('.store-row')].map(r => [r.querySelector('input').hasAttribute('data-empty'), r.getBoundingClientRect().top]);
+                    return {words: document.getElementById('stores-empty').textContent.trim(),
+                            below: rows.every(([empty, top]) => empty ? top > head.top : top < head.top),
+                            wide: document.documentElement.scrollWidth > innerWidth}; }""")
+                assert apart == {"words": "No products yet: paste a link on a piece's page", "below": True, "wide": False}, apart
+                phone.get_by_role("checkbox", name="Hirmer").tap()
+                expect(phone.get_by_role("checkbox", name="Hirmer")).not_to_be_checked()
+                expect(phone.locator("[data-store-said]")).to_be_hidden()
+                phone.get_by_role("checkbox", name="Hirmer").tap()
                 phone.get_by_role("checkbox", name="Weekday · Rakuten partner").tap()
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
-                phone.get_by_role("checkbox", name="COS · Rakuten partner").tap()       # the last one ticked
+                # The last store with products cannot be unticked, however many of the six are ticked.
+                phone.get_by_role("checkbox", name="COS · Rakuten partner").tap()
                 expect(phone.get_by_role("checkbox", name="COS · Rakuten partner")).to_be_checked()
-                said = "At least one store must stay ticked: your pieces need a store to come from."
+                said = "At least one store with products must stay ticked: your pieces need a store to come from."
                 expect(phone.locator("[data-store-said]")).to_have_text(said)
                 expect(phone.locator("[data-store-said]")).to_be_in_viewport()
                 assert phone.locator("#announce").text_content() == said, "a screen reader is not told"
@@ -2860,14 +2882,15 @@ def run(base: str) -> None:
                 plain.click("button:has-text('Log in')")
                 plain.wait_for_load_state("networkidle")
                 plain.goto(base + "/profile", wait_until="networkidle")
-                for box in plain.locator("input[name=stores]").all():
+                # (Only the two with products are unticked: the six with none yet, left ticked, are not enough.)
+                for box in plain.locator("input[name=stores]:not([data-empty])").all():
                     box.uncheck()
                 plain.click("button:has-text('Save profile')")
                 plain.wait_for_load_state("networkidle")
                 flashes = plain.locator("main > .flash").all_inner_texts()
-                assert "At least one store must stay ticked, so your stores stay as they were." in flashes, flashes
+                assert "At least one store with products must stay ticked, so your stores stay as they were." in flashes, flashes
                 assert [on for _, on in plain.locator("input[name=stores]").evaluate_all(
-                    "bs => bs.map(b => [b.value, b.checked])")] == [True, True], "the stores did not stay as they were"
+                    "bs => bs.map(b => [b.value, b.checked])")] == [True] * 8, "the stores did not stay as they were"
             finally:
                 context.close()
 
@@ -3082,7 +3105,9 @@ def run(base: str) -> None:
             # does what it showed: filled on a page that has gone out of date (the outfit removed meanwhile under
             # Saved), a tap leaves it removed rather than saving it again. Under Saved, a tap on the heart takes the
             # outfit off the page at once, the page says which one in a line the screen shows, and its Undo puts it
-            # back. A customer of his own, so that what he saves is not in the other steps' way.
+            # back. A customer of his own, so that what he saves is not in the other steps' way; his account is deleted
+            # when the step ends, passed or failed (delete_the_hearts_customer), so that the step leaves nothing
+            # behind on whatever server it is run against: a night preview once kept fifteen "heart-" accounts.
             hearter = "heart-" + EMAIL
             context = browser.new_context()
             signing = context.new_page()
@@ -3195,8 +3220,45 @@ def run(base: str) -> None:
                         assert other.locator("#reel .slide").count() == n, f"{where}: {n} saved outfits left, but not {n} shown"
                     chip(other, "Saved", "everything removed")
                     assert "Nothing saved yet" in other.locator("main").inner_text(), f"{where}: no word that nothing is saved"
-                finally:
+                except BaseException:
                     context.close()
+                    delete_the_hearts_customer(hearter)     # a failed step leaves no account behind either
+                    raise
+                else:
+                    context.close()
+            delete_the_hearts_customer(hearter)
+            # Gone: his address and password no longer log anyone in.
+            context = browser.new_context()
+            try:
+                gone = context.new_page()
+                gone.goto(base + "/login", wait_until="networkidle")
+                gone.fill("input[name=email]", hearter)
+                gone.fill("input[name=password]", PASSWORD)
+                gone.click("button:has-text('Log in')")
+                gone.wait_for_load_state("networkidle")
+                assert "/login" in gone.url, f"the heart step's customer still has an account (now at {gone.url})"
+            finally:
+                context.close()
+
+        def delete_the_hearts_customer(email: str) -> None:
+            """Delete the account the heart step made, the way a customer does: Account, "Delete my account"."""
+            context = browser.new_context()
+            try:
+                leaving = context.new_page()
+                leaving.on("dialog", lambda d: d.accept())
+                leaving.goto(base + "/login", wait_until="networkidle")
+                leaving.fill("input[name=email]", email)
+                leaving.fill("input[name=password]", PASSWORD)
+                leaving.click("button:has-text('Log in')")
+                leaving.wait_for_load_state("networkidle")
+                if "/login" in leaving.url:
+                    return                                   # never made, or deleted already
+                leaving.goto(base + "/account", wait_until="networkidle")
+                leaving.locator("form[action$='/account/delete'] input[name=current]").fill(PASSWORD)
+                leaving.click("button:has-text('Delete my account')")
+                leaving.wait_for_load_state("networkidle")
+            finally:
+                context.close()
 
         def motion_quick_and_still():
             # Stilsmith moves to answer the customer (app.css "Motion"), on a phone (390 x 844, by touch) and a computer:
@@ -3715,11 +3777,59 @@ def run(base: str) -> None:
                                     shown: b.top >= top - 1 && b.bottom <= bottom + 1};
                         });
                     }""")
-                    assert said == [{"words": "Not added: “https://shop.example.org/jumper” is not a COS or Weekday link.",
-                                     "inside": True, "status": "status", "shown": True}], \
+                    assert said == [{"words": "Not added: “https://shop.example.org/jumper” is not a link to one of the "
+                                              "stores listed above.", "inside": True, "status": "status", "shown": True}], \
                         f"with JavaScript {'on' if javascript else 'off'} the rejected link is answered: {said}"
                 finally:
                     context.close()
+
+            # A link from Hirmer, a store with no products yet, with its page as the customer saved it (an invented
+            # page, tests/fixtures/pages): its name and price are filled in from the file, the option shows no photo,
+            # and no store is asked for anything. A women's link is refused in one sentence. Menswear only.
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            try:
+                phone = context.new_page()
+                asked_of: list[str] = []
+                phone.on("request", lambda r: asked_of.append(r.url))
+                phone.on("dialog", lambda d: d.accept())
+                phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                phone.goto(base + "/login", wait_until="networkidle")
+                phone.fill("input[name=email]", EMAIL)
+                phone.fill("input[name=password]", PASSWORD)
+                phone.click("button:has-text('Log in')")
+                phone.wait_for_load_state("networkidle")
+                phone.goto(address, wait_until="networkidle")
+                words = " ".join(phone.locator("#add").inner_text().split())
+                assert "Menswear only." in words and "Hirmer" in words, f"the link form does not name its stores: {words[:200]}"
+                phone.fill("#add textarea[name=urls]", "https://www.hirmer.de/herren/hemden/oxford-hemd-regular-fit-hellblau/p/9000001")
+                phone.set_input_files("#add input[name=page]", str(ROOT / "tests" / "fixtures" / "pages" / "mens-shirt.html"))
+                phone.locator("#add button", has_text="Add").click()
+                phone.wait_for_load_state("networkidle")
+                said = phone.locator("#add .flash").all_inner_texts()
+                assert said == ["Added “Oxford-Hemd Regular Fit”: its name, price, colour and fabric were read from the page "
+                                "you saved — add the sizes under “Add details”."], f"a Hirmer link with its saved page: {said}"
+                expect(phone.locator("#add .flash")).to_be_in_viewport()
+                card = phone.locator("#cand-hirmer-9000001")
+                shown = " ".join(card.inner_text().split())
+                assert "hirmer" in shown.lower() and "Oxford-Hemd Regular Fit" in shown and "49.99 €" in shown, \
+                    f"the option shows: {shown[:200]}"
+                assert not card.locator("img").count(), "an option added by its link shows a store's photo"
+                assert phone.evaluate("document.documentElement.scrollWidth <= innerWidth"), "the piece's page is wider than the phone"
+                women = "https://www.tom-tailor.de/damen/jacken/steppjacke-1041235_10668"
+                phone.fill("#add textarea[name=urls]", women)
+                phone.locator("#add button", has_text="Add").click()
+                phone.wait_for_load_state("networkidle")
+                said = phone.locator("#add .flash").all_inner_texts()
+                assert said == [f"Not added: “{women}” is a women's product, and Stilsmith is for menswear only."], said
+                expect(phone.locator("#add .flash")).to_be_in_viewport()
+                phone.locator("#cand-hirmer-9000001 button", has_text="Remove").click()     # as it was, for the next steps
+                phone.wait_for_load_state("networkidle")
+                assert not phone.locator("#cand-hirmer-9000001").count(), "the option added by its link was not removed"
+                stores = ("hirmer.de", "tom-tailor.de", "otto.de", "breuninger.com", "blue-tomato.com", "bergfreunde.de")
+                reached = [url for url in asked_of if any(store in url.split("/")[2] for store in stores)]
+                assert not reached, f"a store was asked for something: {reached}"
+            finally:
+                context.close()
 
         def options_fit_three_phones():
             # On a piece's page, each option's "Choose this" and "Open at COS" sit on one line wherever the two and the

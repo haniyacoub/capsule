@@ -65,6 +65,28 @@ def load() -> dict | None:
     return pool
 
 
+_in_list: tuple[dict, frozenset] | None = None      # (the published list, the stores with products in it)
+
+
+def stocked() -> list[str]:
+    """The stores Stilsmith has products from, in config/stores.toml's order: those the collector reads (their
+    category pages are listed there), and any other store with products in the published list (on your own
+    machine: among what was collected for your pieces). The other stores offered have no products yet: a customer
+    can paste a product link from them on a piece's page, and that is all. Profile's Stores tab shows them apart,
+    one of them cannot be his only store (profile.py), and the public pages name only the stores listed here."""
+    global _in_list
+    found = set(programmes.read_by_the_collector())
+    if settings.PRODUCTION:
+        pool = load()
+        if pool is not None:
+            if _in_list is None or _in_list[0] is not pool:     # worked out once per published list: it is asked often
+                _in_list = (pool, frozenset(p.get("store") for p in pool.get("products", [])))
+            found |= _in_list[1]
+    else:
+        found |= {c.get("store") for c in catalog.stored().get("candidates", []) if c.get("source") != "manual"}
+    return [key for key in programmes.offered() if key in found]
+
+
 def _corrected(pool: dict) -> dict:
     """The list as published, with each product's cut read again from its own name and description.
 
@@ -361,8 +383,10 @@ def stores_unticked(before: dict, after: dict) -> str:
     you had chosen yourself)."), or "" when no store was unticked. Works on your own machine too."""
     from . import selection        # here: selection itself builds on this module
 
-    kept = profile_mod.stores(after)
-    unticked = [key for key in profile_mod.stores(before) if key not in kept]
+    # Only the stores Stilsmith has products from (stocked): unticking a store with no products yet changes no piece.
+    have = stocked()
+    kept = [key for key in profile_mod.stores(after) if key in have]
+    unticked = [key for key in profile_mod.stores(before) if key not in profile_mod.stores(after) and key in have]
     if not unticked:
         return ""
     stored = catalog.stored()

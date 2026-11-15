@@ -155,6 +155,10 @@ class PublicSite(ProductionCase):
         page = self.app.test_client().get("/").get_data(as_text=True)
         text = words(page)
         self.assertRegex(text, r"\bmen's wardrobe\b")
+        # Menswear only, said in the headline, the page's title and the first step.
+        self.assertIn("A small menswear wardrobe where everything goes with everything.", text)
+        self.assertIn("<title>Stilsmith — menswear: a small wardrobe that works together</title>", page)
+        self.assertIn("Stilsmith plans 15 to 20 menswear pieces that all go together", text)
         for planner in ("slot", "candidate", "score"):
             self.assertNotIn(planner, text.lower())
         self.assertEqual(text.count("Log in"), 1, "one way to log in: the header's")

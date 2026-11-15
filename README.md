@@ -9,7 +9,8 @@ Only stores with a partner (affiliate) programme are offered: each store in
 [config/stores.toml](config/stores.toml) has a `programme` line, and a store
 whose programme is `"none"` is never shown or collected. Zara has none, so it
 is not offered. Of the stores offered, the Stores tab on the Profile page picks
-which ones your pieces come from (all of them to start with).
+which ones your pieces come from (all of them to start with). Stilsmith is for
+men only: every way a product comes in keeps menswear and refuses the rest.
 
 Run as described here, everything stays on this computer: no accounts, no
 cloud, no paid APIs. There is one exception, and it is off until you switch it
@@ -112,10 +113,21 @@ How it behaves:
 
 On any slot's page:
 
-- **Add a product by link**: paste COS or Weekday product addresses. The pages
-  are not opened; the tool takes what the link says and, if that article was
-  seen during a refresh, its name, price and picture. Links to a store that is
-  not offered are refused.
+- **Add a product by link**: paste product addresses from the stores offered.
+  The pages are not opened; the tool takes what the link says and, if that
+  article was seen during a refresh, its name, price and picture. Links to a
+  store that is not offered are refused. With one link you can also choose the
+  product's page as you saved it from your own browser ("Save page as"): its
+  name, price, colour and fabric are then read from that file
+  (`wardrobe/collect/generic.py`, for any store). The photo never is.
+- **Stores with no products yet**: Tom Tailor, OTTO, Hirmer, Breuninger, Blue
+  Tomato and Bergfreunde are offered for pasted links only. They have no
+  category pages in `config/stores.toml`, so nothing is ever collected from
+  them, and the Stores tab lists them apart ("No products yet: paste a link on
+  a piece's page"). One of them cannot be your only store.
+- **Menswear only** (`wardrobe/menswear.py`, no switch): a link, a saved page
+  or a feed product that says it is for women or for children is refused, with
+  a sentence saying so. One that says nothing is kept.
 - **Add details** on a candidate: type the fabric as printed on the product page
   ("80% Wolle, 20% Polyamid"), the sizes in stock, or a price. These win over
   collected data and survive the next refresh.

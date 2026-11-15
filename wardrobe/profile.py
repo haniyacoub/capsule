@@ -56,7 +56,19 @@ def stores(profile: dict | None = None) -> list[str]:
     should every store he kept stop being offered, he gets all those that are."""
     off = (load() if profile is None else profile).get("stores_off") or []
     offered = list(programmes.offered())
-    return [key for key in offered if key not in off] or offered
+    mine = [key for key in offered if key not in off]
+    # A store with no products yet (shared.stocked) cannot be his only store: his pieces would have nowhere to come
+    # from. Should that be all he kept (the stores he ticked lost their products), he gets every store offered.
+    return mine if _enough(mine) else offered
+
+
+def _enough(keys: list[str]) -> bool:
+    """Whether these stores can be all of a customer's stores: at least one, and one of them a store Stilsmith has
+    products from (shared.stocked; read here, late: shared.py builds on this module). While no store has products
+    at all, any store will do."""
+    from . import shared
+    stocked = shared.stocked()
+    return bool(keys) and (not stocked or any(key in stocked for key in keys))
 
 
 def _stores_from(form, current: dict) -> tuple[list[str], str | None]:
@@ -68,8 +80,9 @@ def _stores_from(form, current: dict) -> tuple[list[str], str | None]:
         return kept, None
     offered = list(programmes.offered())
     ticked = [key for key in form.getlist("stores") if key in offered]
-    if not ticked:
-        return kept, "At least one store must stay ticked, so your stores stay as they were."
+    if not _enough(ticked):
+        # None ticked, or only stores with no products yet (paste-a-link stores): his pieces need a store to come from.
+        return kept, "At least one store with products must stay ticked, so your stores stay as they were."
     return [key for key in offered if key not in ticked] + [key for key in kept if key not in offered], None
 
 

@@ -257,6 +257,11 @@ def site_password_given() -> Response | None:
         "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"})
 
 
+# A product's page as a customer saved it from his browser, sent with its link (slot_import; collect/generic.py).
+SAVED_PAGE = 3 * 1024 * 1024
+PAGE_TOO_LARGE = "Not added: the saved page is larger than 3 MB. Paste the link alone and type in the price."
+
+
 def create_app() -> Flask:
     conf.check()
     app = Flask(__name__)
@@ -289,7 +294,7 @@ def create_app() -> Flask:
         USES=profile_mod.USES, MODES=selection.MODES, OCCASIONS=outfits.OCCASIONS,
         ink_on=colours.ink_on, level_hints=selection.HINTS,
         # The stores customers are offered, {key: name}, and their names in a sentence (programmes.py).
-        STORES=programmes.OFFERED, store_names=programmes.names,
+        STORES=programmes.OFFERED, store_names=programmes.names, stocked_stores=shared.stocked,
         # The stores the signed-in customer ticked on Profile's Stores tab, [key], which his pieces come from.
         my_stores=profile_mod.stores,
         # What a customer added to a piece from a store that is no longer offered, listed on its page (_set_aside.html).
@@ -332,8 +337,10 @@ def create_app() -> Flask:
             abort(403)
         if not conf.PRODUCTION and not _this_computer(request.host):
             abort(403)
-        if request.endpoint == "profile_photo":     # the one form that carries a file
+        if request.endpoint == "profile_photo":     # the two forms that carry a file: a photo,
             request.max_content_length = person.MAX_PHOTO + 64 * 1024
+        elif request.endpoint == "slot_import":     # and a product's page as the customer saved it
+            request.max_content_length = SAVED_PAGE + 64 * 1024
 
     if conf.PRODUCTION:
         @app.before_request
@@ -430,6 +437,9 @@ def create_app() -> Flask:
         if err.code == 413 and request.endpoint == "profile_photo":     # back to the form, not to a dead end
             flash(f"Not saved. {person.TOO_LARGE}", "photo")
             return redirect(url_for("profile_page") + "#photo")
+        if err.code == 413 and request.endpoint == "slot_import":
+            flash(PAGE_TOO_LARGE, "import")
+            return redirect(url_for("slot_page", slot_id=(request.view_args or {}).get("slot_id", "")) + "#add")
         # abort(409, "That outfit changed…") stores its words on the error itself; Werkzeug's sentence for
         # each kind of error lives on the class.
         return error_page(err.code or 500, vars(err).get("description"))
@@ -742,8 +752,14 @@ def create_app() -> Flask:
         if not links:
             flash("Paste at least one product link.", "import")
             return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
-        # No browser is ever opened: only what the link itself says is taken.
-        results = manual.from_urls(links, slot)
+        # No browser is ever opened: only what the link itself says is taken, and, with one link, what the product's
+        # page says as the customer saved it from his own browser and sent along (read as text, never shown).
+        upload = request.files.get("page")
+        raw = upload.read(SAVED_PAGE + 1) if upload else b""
+        if len(raw) > SAVED_PAGE:
+            flash(PAGE_TOO_LARGE, "import")
+            return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
+        results = manual.from_urls(links, slot, raw.decode("utf-8", errors="replace") if raw else None)
 
         def add(cat: dict) -> None:
             for _, cand, _ in results:
@@ -1278,9 +1294,12 @@ def create_app() -> Flask:
         """The Stores tab: every store customers are offered (programmes.offered), with the network that runs its
         partner programme ("Rakuten") and whether he ticked it (profile.stores)."""
         mine = profile_mod.stores(profile)
-        return [{"key": key, "label": label, "on": key in mine,
+        stocked = shared.stocked()
+        rows = [{"key": key, "label": label, "on": key in mine, "empty": key not in stocked,
                  "network": owner.NETWORKS.get(programmes.network(key), programmes.network(key).title())}
                 for key, label in programmes.offered().items()]
+        # The stores with products first; those with none yet are shown apart, under their own line (profile.html).
+        return [row for row in rows if not row["empty"]] + [row for row in rows if row["empty"]]
 
     def back_to_tab():
         """Back to Profile, on the tab the form was sent from (app.js writes it in the form; without it, the first)."""

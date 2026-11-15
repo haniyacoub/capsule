@@ -19,6 +19,10 @@ from wardrobe.app import create_app
 from .test_production import ProductionCase, words
 
 PUBLISHED = "2026-11-11T17:55:27.180518+01:00"
+# The six men's stores of round 6: offered, but with no products yet. Only product links pasted by a customer come
+# from them (the research of 15 Nov 2026 recommends them; none has been applied to, none is collected).
+PASTE_ONLY = {"tom-tailor": "Tom Tailor", "otto": "OTTO", "hirmer": "Hirmer", "breuninger": "Breuninger",
+              "blue-tomato": "Blue Tomato", "bergfreunde": "Bergfreunde"}
 
 
 def shaped(store, sku, name, price, colour, category, **more):
@@ -63,8 +67,9 @@ class StoresWithAProgramme(unittest.TestCase):
         from wardrobe import programmes
         stores = config.load("stores.toml")
         listed = {key: table["programme"] for key, table in stores.items() if key != "collector"}
-        self.assertEqual(listed, {"cos": "rakuten", "weekday": "rakuten", "zara": "none"})
-        self.assertEqual(programmes.offered(), {"cos": "COS", "weekday": "Weekday"})
+        self.assertEqual(listed, {"cos": "rakuten", "weekday": "rakuten", **{key: "awin" for key in PASTE_ONLY},
+                                  "zara": "none"})
+        self.assertEqual(programmes.offered(), {"cos": "COS", "weekday": "Weekday", **PASTE_ONLY})
         self.assertFalse(programmes.is_offered("zara"))
         self.assertEqual(programmes.label("zara"), "Zara", "its name is still known, for the message that it went")
         # Weekday's German programme is not confirmed: it stays offered, and the file says so next to it.
@@ -76,6 +81,26 @@ class StoresWithAProgramme(unittest.TestCase):
         self.assertNotIn("zara", collect.ADAPTERS)
         self.assertNotIn("zara", collect.STORE_ORDER)
         self.assertNotIn("garments", stores["zara"])
+
+    def test_the_six_stores_of_round_6_take_pasted_links_and_are_never_collected(self):
+        # Tom Tailor, OTTO, Hirmer, Breuninger, Blue Tomato and Bergfreunde: each has a partner programme on Awin, so
+        # each is offered, and its web address is known, so a product link from it can be pasted. None has category
+        # pages listed or a reader, so the collector has nowhere to go and nothing to read there.
+        from wardrobe import collect, programmes
+        from wardrobe.collect import manual
+        stores = config.load("stores.toml")
+        self.assertEqual(programmes.read_by_the_collector(), ["cos", "weekday"])
+        for key, name in PASTE_ONLY.items():
+            self.assertEqual(sorted(stores[key]), ["base", "label", "programme"], f"{key}: nothing to collect from")
+            self.assertEqual((stores[key]["label"], stores[key]["programme"]), (name, "awin"))
+            self.assertRegex(stores[key]["base"], r"^https://www\.[a-z-]+\.(de|com)$")
+            self.assertNotIn(key, collect.ADAPTERS)
+            self.assertNotIn(key, collect.STORE_ORDER)
+        db.init()
+        self.assertEqual(manual.hosts(), {
+            "cos.com": "cos", "weekday.com": "weekday", "tom-tailor.de": "tom-tailor", "otto.de": "otto",
+            "hirmer.de": "hirmer", "breuninger.com": "breuninger", "blue-tomato.com": "blue-tomato",
+            "bergfreunde.de": "bergfreunde"})
 
     def test_a_store_must_say_its_programme(self):
         from wardrobe import programmes
@@ -102,8 +127,8 @@ class StoresWithAProgramme(unittest.TestCase):
         try:
             with mock.patch.object(programmes, "_stores", return_value=without):
                 self.assertEqual([c["store"] for c in catalog.load()["candidates"]], ["cos"])
-                self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#cos"))
-            self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#cos,weekday"))
+                self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#bergfreunde,blue-tomato,breuninger,cos,hirmer,otto,tom-tailor"))
+            self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#bergfreunde,blue-tomato,breuninger,cos,hirmer,otto,tom-tailor,weekday"))
         finally:
             paths.CATALOG_PATH.unlink(missing_ok=True)
             catalog._cache = None
@@ -268,7 +293,12 @@ class AccountsThatHadZara(ProductionCase):
         home = words(visitor.get("/").get_data(as_text=True))
         self.assertIn("picks the best-value real product for each from the high-street stores COS and Weekday,", home)
         for path in ("/", "/legal/impressum", "/legal/privacy", "/legal/terms", "/signup", "/login"):
-            self.assertNotIn("zara", visitor.get(path).get_data(as_text=True).lower(), path)
+            text = visitor.get(path).get_data(as_text=True)
+            self.assertNotIn("zara", text.lower(), path)
+            # Only the stores Stilsmith has products from are named: the six a customer may paste links from are not
+            # (no product of theirs is shown, and none of their programmes has been applied to).
+            for name in PASTE_ONLY.values():
+                self.assertNotIn(name, text, path)
 
     def test_the_message_counts_in_plain_words(self):
         with db.as_user(self.user_id("ada@example.com")):
@@ -392,7 +422,7 @@ class AccountsThatHadZara(ProductionCase):
         self.assertNotIn("zara", page.lower())
         counted.assert_not_called()
         with db.as_user(self.user_id("ada@example.com")):
-            self.assertEqual(db.get_setting("pool"), "2026-11-14T09:00:00.000000+01:00#refused#cos,weekday",
+            self.assertEqual(db.get_setting("pool"), "2026-11-14T09:00:00.000000+01:00#refused#bergfreunde,blue-tomato,breuninger,cos,hirmer,otto,tom-tailor,weekday",
                              "his products were rebuilt from the new publication")
         self.assertEqual(self.picks(), picks, "no piece was picked again")
         self.assertEqual(self.his_own(), [self.OWN], "still kept, set aside")

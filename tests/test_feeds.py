@@ -637,6 +637,7 @@ PLAN_STORES = {
     "otto": "awin", "breuninger": "awin", "peek-cloppenburg": "awin", "engelhorn": "awin",
     "herrenausstatter": "awin", "just4men": "awin", "braun-hamburg": "awin", "tom-tailor": "awin",
     "s-oliver": "awin", "suitsupply": "awin", "snipes": "awin", "lounge-by-zalando": "awin",
+    "hirmer": "awin", "blue-tomato": "awin", "bergfreunde": "awin",       # added by the research of 15 Nov 2026
     "cos": "rakuten", "weekday": "rakuten", "hm": "rakuten", "mango": "rakuten", "arket": "rakuten",
     "pull-and-bear": "tradedoubler", "about-you": "tradedoubler", "bershka": "tradedoubler",
     "massimo-dutti": "tradedoubler",
@@ -648,9 +649,11 @@ PLAN_STORES = {
 PLAN_IDS = {"breuninger": "11590", "peek-cloppenburg": "14716", "engelhorn": "13759", "herrenausstatter": "11952",
             "just4men": "11911", "braun-hamburg": "11864", "tom-tailor": "8617", "suitsupply": "10009",
             "lounge-by-zalando": "13789", "pull-and-bear": "317285", "bershka": "304030", "massimo-dutti": "359442",
-            "levis": "19949"}
+            "levis": "19949",
+            # read on the programmes' own pages on 15 Nov 2026 (research/round6/stores.md)
+            "hirmer": "14837", "blue-tomato": "11873", "bergfreunde": "14102", "snipes": "122628"}
 # Those whose German programme, or what was said about it, could not be confirmed.
-PLAN_UNCONFIRMED = {"weekday", "breuninger", "hm", "mango", "arket", "about-you", "bershka", "massimo-dutti",
+PLAN_UNCONFIRMED = {"weekday", "hm", "mango", "arket", "about-you", "bershka", "massimo-dutti",
                     "jack-and-jones", "selected-homme", "end-clothing"}
 # Stores with no open programme for Germany, or none found: never listed.
 NO_PROGRAMME = ("zara", "zalando", "uniqlo", "hugo boss", "marc o'polo", "asos", "scotch & soda", "manufactum")
@@ -692,6 +695,12 @@ class ProgrammeStores(FeedCase):
         # What the programmes require, said where the owner will read it.
         notes = {key: stores[key]["rules"]["notes"] for key in PLAN_STORES}
         self.assertIn("disclaimer", notes["peek-cloppenburg"])
+        # Stilsmith is for men: where a store also sells to women and children, the note says what its import does.
+        for key in ("blue-tomato", "bergfreunde"):
+            self.assertIn("keep only its men's products at import", notes[key])
+        self.assertIn("Men only.", notes["hirmer"])
+        self.assertIn("excludes cashback, display, e-mail and search-advertising partners", " ".join(notes["breuninger"].split()))
+        self.assertIn("neither a commission nor a product feed", " ".join(notes["snipes"].split()))
         self.assertIn("German", notes["lounge-by-zalando"])
         self.assertTrue(stores["mr-porter"]["rules"]["links_only"])
         self.assertIn("never import", notes["mr-porter"])
@@ -1549,7 +1558,7 @@ class OwnerCatalogue(ProductionCase):
         real = [key for key, values in registry.load().items() if not values["rules"].get("sample")]
         self.assertIn(f"{len(real)} stores with a partner programme: none applied for yet. Grouped by network, in the order "
                       "to apply.", page)
-        self.assertIn("Awin 12 stores", page)
+        self.assertIn("Awin 15 stores", page)
         self.assertIn("Samples Invented stores for trying the importers, left out in production", page)
         rows = dict(re.findall(r'<tr role="row" data-store="([a-z0-9-]+)"[^>]*>(.*?)</tr>', html, re.DOTALL))
         self.assertEqual(sorted(rows), sorted(s["key"] for s in db.list_stores()), "every store, once")
@@ -1569,13 +1578,17 @@ class OwnerCatalogue(ProductionCase):
         awin = html.split('id="cat-group-awin"')[1].split('class="cat-h3"')[0]
         labels = [db.get_store(key)["label"] for key in re.findall(r'data-store="([a-z0-9-]+)"', awin)]
         self.assertEqual(labels, sorted(labels, key=str.casefold))
-        self.assertEqual(len(labels), 12)
-        # Customers see nothing new: no store has a feed yet.
+        self.assertEqual(len(labels), 15)
+        # Customers see nothing of it: no store has a feed yet. (Breuninger is one of the six stores a customer may
+        # paste links from, config/stores.toml: it is named on Profile's Stores tab, under "No products yet", and
+        # nowhere else.)
         ada = self.member("ada@example.com")
         for address in ("/", "/outfits", "/list", "/account", "/profile"):
             text = ada.get(address).get_data(as_text=True)
-            for word in ("Breuninger", "Peek &amp; Cloppenburg", "Lounge by Zalando", "MR PORTER", "Not applied yet"):
+            for word in ("engelhorn", "Peek &amp; Cloppenburg", "Lounge by Zalando", "MR PORTER", "Not applied yet"):
                 self.assertNotIn(word, text, address)
+            if address != "/profile":
+                self.assertNotIn("Breuninger", text, address)
 
     def test_a_store_s_status_is_said_in_words(self):
         olga = self.an_owner()
