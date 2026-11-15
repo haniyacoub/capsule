@@ -262,6 +262,7 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
 
     def test_two_products_of_one_store_are_two_options(self):
         # Tom Tailor ends a link "article_colour": two products in the same colour are still two products.
+        self.sid = next(s for s in db.list_slots() if s["category"] == "coat")["id"]
         coat = "https://www.tom-tailor.de/herren/jacken/wollmantel-1041111_10668"
         parka = "https://www.tom-tailor.de/herren/jacken/parka-1042222_10668"
         only_link = "only the link could be read — add the price, fabric and sizes under “Add details”."
@@ -277,6 +278,27 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
                      "https://www.blue-tomato.com/de-DE/product/Girl-OG+T+Shirt-612388/",
                      "https://www.otto.de/p/herren-jeans-teen-spirit-C9000011/"):
             self.assertRegex(self.add(link)[0], "^Added “", link)
+
+    def test_a_link_whose_name_says_another_kind_of_garment_is_added_with_a_warning(self):
+        only_link = "only the link could be read — add the price, fabric and sizes under “Add details”"
+        move = "If it belongs to another piece, remove it here and paste the link there."
+        # Jeans pasted on the shirt: added, and the answer says what its name says and what to do.
+        self.assertEqual(self.add("https://www.otto.de/p/beispielmarke-slim-fit-jeans-C9000021/"), [
+            f"Added “Beispielmarke slim fit jeans”: {only_link}. Check the kind: its name says “Jeans”, and this "
+            f"piece is “Shirt”. {move}"])
+        # A shirt pasted on the coat, with the page he saved: the name comes from the page, and is read the same.
+        self.sid = next(s for s in db.list_slots() if s["category"] == "coat")["id"]
+        said = self.add(self.LINKS["hirmer"][0], page("mens-shirt.html"))
+        self.assertEqual(len(said), 1)
+        self.assertTrue(said[0].endswith(f". Check the kind: its name says “Shirt”, and this piece is “Coat”. {move}"),
+                        said)
+        # Nothing is said when the name says the piece's own kind, a kind worn in the same place, a word that
+        # only holds another kind ("Jeansjacke" on a coat or jacket), or no kind at all.
+        for link in ("https://www.tom-tailor.de/herren/jacken/wollmantel-1041111_10668",
+                     "https://www.tom-tailor.de/herren/jacken/parka-1042222_10668",
+                     "https://www.bergfreunde.de/beispielmarke-jeans-jacke-9000031/",
+                     "https://www.hirmer.de/herren/beispielmarke-modell-nord/p/9000032"):
+            self.assertNotIn("Check the kind", self.add(link)[0], link)
 
     def test_pasting_a_link_again_keeps_what_was_known_about_it(self):
         link = self.LINKS["hirmer"][0]
@@ -331,7 +353,8 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         self.assertEqual(self.add("https://www.tom-tailor.de/herren/hosen/chino-slim-fit-1041236_10668",
                                   page("mens-chinos-plain.html")),
                          ["Added “Chino Slim Fit”: its name, price and colour were read from the page you saved — add "
-                          "the fabric and sizes under “Add details”."])
+                          "the fabric and sizes under “Add details”. Check the kind: its name says “Chinos”, and this "
+                      "piece is “Shirt”. If it belongs to another piece, remove it here and paste the link there."])
 
     def test_a_saved_page_whose_breadcrumbs_say_women_or_children_is_refused(self):
         # Neither link says whom the product is for; the page does.

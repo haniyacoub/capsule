@@ -24,6 +24,10 @@ Menswear only (menswear.py): a link whose own words say women's or children's
 ("/damen/", "/kinder/"), or whose saved page says so in its breadcrumbs, is
 refused with a sentence saying why.
 
+The kind of garment is not checked hard, because a name read from a link is
+too rough for a refusal: a link whose name plainly says another kind (a shirt
+pasted on the coat) is added, and the answer says so and how to move it.
+
 What happened to each link is said to the customer after the product's name
 ("Added “X”: only the link could be read …") or after the link itself ("Not
 added: “link” is not a COS or Weekday link."), so the notes below read on from those.
@@ -34,7 +38,8 @@ import hashlib
 import re
 from urllib.parse import urlsplit
 
-from .. import catalog, composition, menswear, profile, programmes
+from .. import capsule, catalog, composition, menswear, profile, programmes
+from ..garments import GARMENTS
 from . import generic, load_settings, pages
 
 
@@ -166,6 +171,23 @@ def _from_saved_page(cand: dict, info: dict) -> str:
             f"{listed(missing)} under “Add details”")
 
 
+def _another_kind(cand: dict, slot: dict) -> str:
+    """A sentence to add when the product's name says another kind of garment than the piece it was pasted on:
+    an "Oxford-Hemd" on the coat. Said, never refused: names from links are rough. Only when the name says a kind
+    worn elsewhere on the body (a shirt on a coat, jeans on a jumper), and holds no word for the piece's own kind
+    ("Jeansjacke" on a jacket says nothing)."""
+    mine = GARMENTS.get(slot.get("category", ""))
+    text = f"{cand.get('name', '')} {cand.get('slug', '')}"
+    said = GARMENTS.get(capsule.detect_garment(text) or "")
+    if mine is None or said is None or said.layer == mine.layer:
+        return ""
+    low = re.sub(r"[-_+]", " ", text.lower())
+    if any(word in low for word in capsule.garment_words(mine.key)):
+        return ""
+    return (f". Check the kind: its name says “{said.label}”, and this piece is “{mine.label}”. If it belongs to "
+            "another piece, remove it here and paste the link there")
+
+
 def from_urls(urls: list[str], slot: dict, page: str | None = None) -> list[tuple[str, dict | None, str]]:
     """One (link, candidate or None, what happened) per pasted link. No page is ever opened.
     `page`: the HTML of the product's page as the customer saved it, read for one link only."""
@@ -209,5 +231,5 @@ def from_urls(urls: list[str], slot: dict, page: str | None = None) -> list[tupl
             note += ". The page you saved is not this store's, so it was not read"
         if page and len(urls) > 1:
             note += ". The saved page was not read: send it with one link at a time"
-        results.append((url, stub, note))
+        results.append((url, stub, note + _another_kind(stub, slot)))
     return results

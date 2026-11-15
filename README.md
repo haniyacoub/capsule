@@ -122,6 +122,9 @@ On any slot's page:
   (`wardrobe/collect/generic.py`, for any store). The photo never is. Pasting
   a link again keeps what was already known about it. A product with no price
   yet counts as neutral on price until you type one in.
+  A link whose name says another kind of garment than the piece (a shirt
+  pasted on the coat) is still added, and the answer says so and how to move
+  it; it is not refused, because a name read from a link is rough.
 - **Stores with no products yet**: Tom Tailor, OTTO, Hirmer, Breuninger, Blue
   Tomato and Bergfreunde are offered for pasted links only. They have no
   category pages in `config/stores.toml`, so nothing is ever collected from

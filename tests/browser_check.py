@@ -3812,8 +3812,14 @@ def run(base: str) -> None:
                 phone.locator("#add button", has_text="Add").click()
                 phone.wait_for_load_state("networkidle")
                 said = phone.locator("#add .flash").all_inner_texts()
-                assert said == ["Added “Oxford-Hemd Regular Fit”: its name, price, colour and fabric were read from the page "
-                                "you saved — add the sizes under “Add details”."], f"a Hirmer link with its saved page: {said}"
+                # (On a piece that is not worn where a shirt is, such as the coat, the answer goes on to say that
+                # its name says "Shirt" and how to move it: the link is added all the same. tests/test_menswear.py)
+                read = ("Added “Oxford-Hemd Regular Fit”: its name, price, colour and fabric were read from the page "
+                        "you saved — add the sizes under “Add details”.")
+                kind = re.compile(r" Check the kind: its name says “Shirt”, and this piece is “[^”]+”\. If it belongs "
+                                  r"to another piece, remove it here and paste the link there\.")
+                assert len(said) == 1 and said[0].startswith(read) and (said[0] == read or kind.fullmatch(said[0][len(read):])), \
+                    f"a Hirmer link with its saved page: {said}"
                 expect(phone.locator("#add .flash")).to_be_in_viewport()
                 card = phone.locator("#cand-hirmer-9000001")
                 shown = " ".join(card.inner_text().split())
