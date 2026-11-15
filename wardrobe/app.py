@@ -985,7 +985,7 @@ def create_app() -> Flask:
                        play: bool = False) -> str:
         offer = asking or (video is not None and video.status in ("failed", "limit", "consent"))
         return render_template("_video.html", key=outfit_key, look=look, video=video, asking=asking, play=play,
-                               left=videos.left() if offer else None, left_words=videos.left_words,
+                               left=videos.left() if offer else None, left_words=videos.left_words, told=videos.told,
                                needs_ok=offer and videos.needs_consent(look),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
 

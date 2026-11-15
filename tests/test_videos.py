@@ -606,6 +606,27 @@ class VideosForCustomers(WithVideos, ProductionCase):
                       refused)
         self.assertNotIn("Google", refused, "customers are told about the AI, not the inside")
 
+    def test_a_failure_that_used_the_last_video_does_not_say_try_again(self):
+        # Google worked on it and failed: it counts, and that was his one video today. The offer then says what went
+        # wrong and that none are left, with only Close: never "Try again" beside "No videos left today".
+        ada = self.member("ada@example.com")
+        key, look = self.picture_of(ada)
+        self.refuse_video = imagegen.DrawError("busy", "no answer in time")          # sent: it may have been billed
+        with mock.patch.object(settings, "on_this_machine", lambda: False):
+            shown = said(self.make(ada, key, look))
+            again = self.offer(ada, key, look)                                          # opened again later
+        for offer in (shown, again):
+            self.assertIn("The AI is busy or did not answer in time. No videos left today: more tomorrow.", offer)
+            self.assertNotIn("Try again", offer)
+            self.assertNotIn("Make the video", offer)
+            self.assertIn("Close", offer)
+        self.assertEqual(db.video_requests(0), 1)
+        # With a video left, the same failure still says to try again, with the button that does.
+        self.with_video_rules(per_customer_per_day=2)
+        with mock.patch.object(settings, "on_this_machine", lambda: False):
+            offer = self.offer(ada, key, look)
+        self.assertIn("The AI is busy or did not answer in time. Try again in a minute. 1 video left today.", offer)
+
     def test_a_problem_only_the_operator_can_fix_is_not_shown_to_customers(self):
         ada = self.member("ada@example.com")
         key, look = self.picture_of(ada)
@@ -844,6 +865,34 @@ class GoogleVideoModel(unittest.TestCase):
             videogen.make(self.service, PICTURE, "Turn.")
         self.assertFalse(caught.exception.free)
 
+    def test_a_clip_google_made_but_that_could_not_be_fetched_is_never_free(self):
+        # Google's first answer already has the clip, kept on its server: it was made, and billed. Fetching it then
+        # fails, even for want of a connection: the day's video is not given back (else each try would be billed
+        # again and given back again while Google's server stays out of reach).
+        uri = "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media"
+        unreachable = imagegen.DrawError("busy", "generativelanguage.googleapis.com could not be reached", free=True)
+        with mock.patch.object(imagegen, "_send", side_effect=[self.answer({"type": "video", "uri": uri}), unreachable]), \
+                self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertEqual(caught.exception.kind, "busy")
+        self.assertFalse(caught.exception.free, "Google made the video: it is not handed back as free")
+        # The same for a problem inside Google's first answer (its request was taken and worked on) …
+        failed = (200, json.dumps({"status": "failed", "steps": [{"type": "model_output", "error":
+                                                                  {"code": "invalid_argument", "message": "x"}}]}).encode())
+        self.answers.append(failed)
+        with self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertEqual(caught.exception.kind, "request")
+        self.assertFalse(caught.exception.free, "Google worked on it: it counts")
+        # … but not for a request Google turned away at the door, or one that never reached it: those are free.
+        self.answers.append((400, json.dumps({"error": {"code": 400, "status": "INVALID_ARGUMENT", "message": "x"}}).encode()))
+        with self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertTrue(caught.exception.free, "turned away at the door: nothing was made")
+        with mock.patch.object(imagegen, "_send", side_effect=[unreachable]), self.assertRaises(imagegen.DrawError) as caught:
+            videogen.make(self.service, PICTURE, "Turn.")
+        self.assertTrue(caught.exception.free, "never reached Google: nothing was made")
+
     def test_it_goes_through_the_pictures_opener(self):
         # The pictures' opener: proxies from the environment only (asking a Mac for its system proxy crashes a
         # web-server worker), and a redirect is never followed with the key (imagegen.py, tested in test_looks.py).
@@ -866,6 +915,25 @@ class Redirects(unittest.TestCase):
         self.assertEqual(answer, (302, b"https://storage.googleapis.com/some-bucket/abc.mp4"))
         self.assertEqual(opener.open.call_count, 1, "once: not followed")
         self.assertEqual(opener.open.call_args[0][0].get_method(), "GET")
+
+
+class TheOffersWords(unittest.TestCase):
+    def test_with_no_videos_left_it_never_asks_for_what_it_cannot_do(self):
+        # With none left, the offer ends "No videos left today: more tomorrow" and has only Close: no "Try again" in
+        # what went wrong, and no "tick the box" for a box it does not show. With some left, every word stays.
+        for kind in ("busy", "empty", "stalled", "unknown"):
+            message = videos.SAY[kind]
+            self.assertIn("Try again", message, kind)
+            self.assertNotIn("Try again", videos.told(message, 0), kind)
+            self.assertTrue(videos.told(message, 0).endswith("."), kind)
+            for left in (1, 5, None):
+                self.assertEqual(videos.told(message, left), message, f"{kind}, {left} left")
+        on_this_machine = f"{videos.SAY['busy']} Google had still not finished the video after going on 3 times."
+        self.assertEqual(videos.told(on_this_machine, 0), "The AI is busy or did not answer in time. "
+                                                          "Google had still not finished the video after going on 3 times.")
+        self.assertEqual(videos.told(videos.TICK_FIRST, 0), "", "it says what a video is instead")
+        self.assertEqual(videos.told(videos.TICK_FIRST, 1), videos.TICK_FIRST)
+        self.assertEqual(videos.told(videos.SAY["person"], 0), videos.SAY["person"], "nothing to leave out")
 
 
 class VideoSettings(WithVideos, AppCase):

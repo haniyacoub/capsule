@@ -82,7 +82,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, imagegen, looks, videogen  # noqa: E402
+from wardrobe import colours, imagegen, looks, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
@@ -111,10 +111,14 @@ def stand_in(service, prompt, photo=None):
 imagegen.draw = stand_in
 
 made: list[str] = []        # what the "video model" was asked to make
+refuse: list[imagegen.DrawError] = []   # a problem the "video model" is to have instead, next time (nothing made)
 CLIP = (ROOT / "tests" / "fixtures" / "test-pattern.mp4").read_bytes()     # 8 s of ffmpeg's test pattern, no person
 
 
 def video_stand_in(service, picture, prompt):
+    if refuse:
+        time.sleep(0.5)
+        raise refuse.pop(0)
     made.append(prompt)
     time.sleep(1.5)         # long enough for the page to show that it is being made
     return CLIP
@@ -891,10 +895,17 @@ def run(base: str) -> None:
             # value in degrees) without moving on to another outfit; "Play again" plays it from the start; "Show
             # picture" brings back the picture and its dots. Reloaded, playing it again is free. The customer's one
             # video a day is then used: another outfit says "No videos left today: more tomorrow", which a screen reader
-            # hears with its only button, Close. Nothing below the picture's line and scenes moves at any point.
+            # hears with its only button, Close. Nothing below the picture's line and scenes moves at any point. On a
+            # short phone, where the line and the scenes are below the tab bar, the page goes up as the offer opens,
+            # so that the whole offer and the button with keyboard focus show above the tab bar: for a first offer, for
+            # "No videos left today", and for a video that could not be made (said when the customer is still looking
+            # at its picture; the page stays where it is when he has read on past it). Places are measured on the
+            # page, not on the screen, so that a page that went up is not taken for one whose parts moved.
             page.goto(base + "/outfits", wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
-            geometry = """s => { const slide = document.querySelector(s), box = el => el && el.getBoundingClientRect();
+            on_page = """const box = el => { if (!el) return null; const r = el.getBoundingClientRect();
+                return {left: r.left, right: r.right, width: r.width, height: r.height, top: r.top + scrollY, bottom: r.bottom + scrollY}; };"""
+            geometry = """s => { const slide = document.querySelector(s); """ + on_page + """
                 const pic = box(slide.querySelector('.look-pic')), pill = box(slide.querySelector('.vid-pill'));
                 const dots = [...slide.querySelectorAll('.spot')].map(box).filter(d => d.width);
                 const clear = pill && dots.every(d => d.right + 10 <= pill.left || d.left - 10 >= pill.right
@@ -905,8 +916,12 @@ def run(base: str) -> None:
                         clear, words: slide.querySelector('.vid-pill') && slide.querySelector('.vid-pill').textContent.trim(),
                         scenes: box(slide.querySelector('.scenes')).top, scenes_end: box(slide.querySelector('.scenes')).bottom,
                         title: box(slide.querySelector('.about-head')).top}; }"""
-            offer_place = """s => { const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
-                const o = box(slide.querySelector('.vid-bar.ask')), p = box(slide.querySelector('.look-pic'));
+            offer_place = """s => { const slide = document.querySelector(s); """ + on_page + """
+                const tabs = document.querySelector('nav.tabs');
+                const bar = tabs && getComputedStyle(tabs).position === 'fixed' ? tabs.getBoundingClientRect().top : innerHeight;
+                const shows = el => { const r = el.getBoundingClientRect(); return r.height > 0 && r.top >= -.5 && r.bottom <= bar + .5; };
+                const form = slide.querySelector('.vid-bar.ask'), focused = document.activeElement;
+                const o = box(form), p = box(slide.querySelector('.look-pic'));
                 const buttons = [...slide.querySelectorAll('.vid-bar.ask button')].map(box);
                 const words = slide.querySelector('.vid-bar.ask > span');
                 return {covers: Math.max(0, Math.min(o.bottom, p.bottom) - Math.max(o.top, p.top)) / p.height,
@@ -914,7 +929,15 @@ def run(base: str) -> None:
                         side_by_side: buttons.length === 2 && Math.abs(buttons[0].top - buttons[1].top) < 1,
                         whole: words.scrollWidth <= words.clientWidth + 1 && o.left >= 0 && o.right <= innerWidth,
                         instead: [...slide.querySelectorAll('.look > .look-line, .look > .scenes')].every(el => !el.getClientRects().length),
-                        title: box(slide.querySelector('.about-head')).top}; }"""
+                        title: box(slide.querySelector('.about-head')).top,
+                        shows: shows(form) && [...form.querySelectorAll('button')].every(shows),
+                        focus: form.contains(focused) ? focused.textContent.trim() : null, focus_shows: shows(focused),
+                        bottom: Math.round(form.getBoundingClientRect().bottom), bar: Math.round(bar), scrolled: Math.round(scrollY)}; }"""
+            # Where the page comes to rest once it has stopped moving (it glides where more motion is allowed).
+            at_rest = """() => new Promise(done => { let last = NaN, same = 0;
+                const look = () => { if (scrollY === last) { if (++same >= 10) return done(scrollY); } else { last = scrollY; same = 0; }
+                                     requestAnimationFrame(look); };
+                look(); })"""
             before = page.evaluate(geometry, first)
             assert before["words"] == "See it move" and before["on_picture"] and before["clear"], \
                 f"'See it move' is not at the top right of the picture, clear of the dots: {before}"
@@ -922,11 +945,14 @@ def run(base: str) -> None:
             # the piece page's step): the walk-through waits for that, as a person always does.
             settled = "() => !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling')"
             # On phones from 320 to 390px, light and dark, the offer covers none of the picture: its words on two lines at
-            # most, whole, and its two buttons side by side, in the room of the picture's line and the scenes.
+            # most, whole, and its two buttons side by side, in the room of the picture's line and the scenes. All of it
+            # shows above the tab bar once the page has come to rest (where less motion is asked for too: 375 x 667), the
+            # button with keyboard focus too.
             for width, height, scheme in ((320, 568, "light"), (360, 740, "light"), (375, 667, "dark"), (390, 664, "light"),
                                           (390, 844, "dark")):
                 context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=True,
-                                              has_touch=True, color_scheme=scheme)
+                                              has_touch=True, color_scheme=scheme,
+                                              reduced_motion="reduce" if height == 667 else "no-preference")
                 other.goto(base + "/outfits", wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
                 other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
@@ -934,6 +960,7 @@ def run(base: str) -> None:
                 other.click(f"{first} .vid-pill")
                 other.wait_for_selector(f"{first} .vid-bar.ask")
                 other.wait_for_function(settled)
+                other.evaluate(at_rest)
                 placed = other.evaluate(offer_place, first)
                 where = f"{width} x {height}, {scheme}"
                 assert "1 video left today" in other.inner_text(f"{first} .vid-bar.ask"), f"{where}: the offer is not the first one"
@@ -941,7 +968,58 @@ def run(base: str) -> None:
                     and placed["whole"] and placed["page"] <= width, f"{where}: the offer does not fit under the picture: {placed}"
                 assert placed["end"] <= shut["scenes_end"] + 0.5 and placed["title"] == shut["title"], \
                     f"{where}: the offer took more room than the line and the scenes: {placed}, {shut}"
+                assert placed["shows"], f"{where}: after the tap the offer, or one of its buttons, is under the tab bar: {placed}"
+                assert placed["focus"] == "Make the video" and placed["focus_shows"], \
+                    f"{where}: keyboard focus is not on 'Make the video' where it can be seen: {placed}"
                 context.close()
+            # A video that could not be made, on a 320 x 568 phone (the AI busy, before Google took anything: the day's
+            # video is given back). While it is made the band is on the picture; when the box learns that it failed, the
+            # offer says why with "Try again", and keyboard focus is on "Try again". The customer had gone back up to the
+            # top of the page meanwhile, still looking at the picture: the page goes up again, until the offer and "Try
+            # again" show above the tab bar. Tried again, and this time he has read on past the picture when it fails:
+            # the page stays where he is. The failure is then forgotten (as after a restart), for the steps after.
+            context, other = logged_in_on(browser, viewport={"width": 320, "height": 568}, is_mobile=True, has_touch=True)
+            try:
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.wait_for_selector(f"{first} .look-pic img")
+                other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                other.click(f"{first} .vid-pill")
+                other.wait_for_selector(f"{first} .vid-bar.ask")
+                other.wait_for_function(settled)
+                other.evaluate(at_rest)
+                for read_on in (False, True):
+                    refuse.append(imagegen.DrawError("busy", "the stand-in was told to be busy", free=True))
+                    other.locator(f"{first} .vid-bar.ask button.btn").press("Enter")       # Make the video, then Try again
+                    other.wait_for_selector(f"{first} .vid-bar.wait")
+                    if read_on:
+                        other.evaluate("s => window.scrollTo(0, document.querySelector(s + ' .about').getBoundingClientRect().top"
+                                       " + scrollY)", first)
+                    else:
+                        other.evaluate("() => window.scrollTo(0, 0)")
+                    # What he reads where he is: the outfit's line under the picture, on the screen. (The browser keeps
+                    # it still when the box above it grows by a line: the page's scroll may change, the screen does not.)
+                    reading = "s => Math.round(document.querySelector(s + ' .about').getBoundingClientRect().top)"
+                    other.evaluate(at_rest)
+                    before_answer = other.evaluate(reading, first)
+                    other.wait_for_selector(f"{first} .vid-bar.ask .look-msg", timeout=20000)
+                    other.wait_for_function(settled)
+                    other.evaluate(at_rest)
+                    after_answer = other.evaluate(reading, first)
+                    placed = other.evaluate(offer_place, first)
+                    told = " ".join(other.inner_text(f"{first} .vid-bar.ask").split())
+                    assert told.startswith("The AI is busy or did not answer in time. Try again in a minute.") \
+                        and "1 video left today" in told, f"a video that could not be made is said as {told!r}"
+                    assert placed["focus"] == "Try again", f"keyboard focus is not on 'Try again': {placed}"
+                    if read_on:
+                        assert abs(after_answer - before_answer) <= 1, \
+                            f"read on past the picture, what he reads moved when the video failed: {before_answer} -> {after_answer}"
+                    else:
+                        assert placed["shows"] and placed["focus_shows"], \
+                            f"a video that could not be made is said under the tab bar, out of sight: {placed}"
+                assert refuse == [] and made == [], "the stand-in was not asked, or a video was made"
+            finally:
+                context.close()
+                videos.STARTED = time.time()                    # its failure is forgotten, as after a restart
             assert made == [], "opening the offer made a video"
             page.click(f"{first} .vid-pill")
             page.wait_for_selector(f"{first} .vid-bar.ask")
@@ -968,7 +1046,7 @@ def run(base: str) -> None:
             page.wait_for_selector(f"{first} .vid.on")
             page.wait_for_function("s => { const v = document.querySelector(s + ' .vid-clip'); return v.currentTime > 0.3; }",
                                    arg=first)
-            seen = page.evaluate("""s => { const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
+            seen = page.evaluate("""s => { const slide = document.querySelector(s); """ + on_page + """
                 const v = slide.querySelector('.vid-clip'), chip = slide.querySelector('.vid-box .ai-chip'), p = box(slide.querySelector('.look-pic'));
                 const b = box(slide.querySelector('.vid-box')), line = box(slide.querySelector('.vid-line'));
                 return {muted: v.muted, same_box: Math.abs(b.top - p.top) < 1 && Math.abs(b.height - p.height) < 1 && Math.abs(b.width - p.width) < 1,
@@ -1045,6 +1123,23 @@ def run(base: str) -> None:
             page.keyboard.press("Enter")                    # its one button, with keyboard focus: Close
             page.wait_for_selector(f"{second} .vid-pill")
             assert len(made) == 1
+            # On a short phone (390 x 664) the same words and Close, with keyboard focus, show above the tab bar.
+            context, other = logged_in_on(browser, viewport={"width": 390, "height": 664}, is_mobile=True, has_touch=True)
+            other.goto(base + "/outfits", wait_until="networkidle")
+            other.evaluate("() => { document.querySelectorAll('main > .demo').forEach(notice => notice.remove());"
+                           " const r = document.getElementById('reel'); r.style.scrollBehavior = 'auto';"
+                           " r.scrollLeft = r.clientWidth; r.style.scrollBehavior = ''; }")
+            other.wait_for_selector(f"{second} .look-pic img")
+            other.wait_for_timeout(400)
+            other.click(f"{second} .vid-pill")
+            other.wait_for_selector(f"{second} .vid-bar.ask")
+            other.wait_for_function(settled)
+            other.evaluate(at_rest)
+            placed = other.evaluate(offer_place, second)
+            assert "No videos left today: more tomorrow" in other.inner_text(f"{second} .vid-bar.ask"), placed
+            assert placed["shows"] and placed["focus"] == "Close" and placed["focus_shows"], \
+                f"on a short phone, 'No videos left today' or its Close is under the tab bar: {placed}"
+            context.close()
             page.goto(base + "/outfits", wait_until="networkidle")     # the next steps start from the first outfit
             page.wait_for_selector(f"{first} .look-pic img")
 

@@ -670,7 +670,8 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
    place of the picture's line and the scenes, so the picture stays whole while the customer decides. Its words on
    one or two lines, as tall as the line they replace (40px); its two buttons side by side under them, as tall as the
    scenes (40px): nothing below moves. A box to tick (a picture of the customer's own photo, once) or a longer reason
-   adds lines between the two. */
+   adds lines between the two. On a short phone that place is below the tab bar: app.js (15, bringUp) then moves the
+   page up until the whole offer shows above it. */
 .look:has(.vid-bar.ask) > :is(.look-line, .scenes) { display: none; }
 .vid-bar.ask {
   display: grid; grid-template-columns: auto auto 1fr; grid-auto-rows: minmax(40px, auto); align-items: center;

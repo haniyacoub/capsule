@@ -136,11 +136,11 @@ def make(service: Service, picture: bytes, prompt: str) -> bytes:
                 break
         return _clip(service, status, [answer for part in parts for answer in part], label)
     except DrawError as problem:
-        if not followed:
-            raise
-        # Google took the request and worked on it: whatever went wrong afterwards may have been billed. An address
-        # Google no longer knows is the interaction's, not the model's.
-        kind = "busy" if problem.kind == "model" else problem.kind
+        # Google took the request (its first answer was read): whatever went wrong afterwards may have been billed,
+        # so none of it is "free". That includes fetching a clip Google made and kept on its server: not reaching it
+        # is the same "could not be reached" as for the first request, but the clip was made by then. An address
+        # Google no longer knows, asked again, is the interaction's, not the model's.
+        kind = "busy" if followed and problem.kind == "model" else problem.kind
         raise DrawError(kind, problem.detail) from None
 
 

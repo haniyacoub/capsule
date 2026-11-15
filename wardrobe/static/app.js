@@ -592,8 +592,8 @@ if (swatchGrid) {
   // What HTMX puts in. A video that has just been made plays (data-play) and, on the outfit on screen, is announced
   // in the page's one live region ("Video ready"); so is the start of its making ("Making the video"), once, not
   // at each of the few seconds' asks that follow. Keyboard focus that was in the part that was replaced goes to what
-  // took its place: the box to tick or the button that makes the video (the offer's words describe both), the video
-  // itself, "See it move", or the outfit while the video is made.
+  // took its place: the box to tick or the button that makes the video (the offer's words describe both; the offer is
+  // brought into view first, bringUp), the video itself, "See it move", or the outfit while the video is made.
   const isVid = (el) => el instanceof Element && el.matches('.look-vid');
   const tell = (words) => {
     const announce = document.getElementById('announce');    // the same words again are read out only if they change
@@ -607,6 +607,26 @@ if (swatchGrid) {
     }
     box.dataset.making = box.querySelector('.vid-bar.wait') ? 'was' : '';
   });
+  // Whether this box's outfit is the one on screen in the row (not swiped away meanwhile).
+  const inRow = (box) => {
+    const slide = box.closest('[data-slide]');
+    const row = slide && slide.parentElement;
+    return !row || Math.round(row.scrollLeft / row.clientWidth) === [...row.children].indexOf(slide);
+  };
+  // The offer stands under the picture, in place of its line and the scenes (app.css, .vid-bar.ask). On a short phone
+  // that is below the tab bar, out of sight: a tap on "See it move" would seem to do nothing, and keyboard focus would
+  // go to a button nobody can see. So the page goes up just far enough for the whole offer to show above the tab bar
+  // (the room html's scroll-padding-bottom keeps for it), never so far that its top leaves the screen; only the
+  // page, never the row of outfits. At once where less motion is asked for, else a short glide. The same for every
+  // kind of offer: what a video is, why one was not made, that none are left today. It only ever brings up an offer
+  // that is below: one that comes while the customer has read on past the picture (a video that could not be made,
+  // a minute after the tap) is above the screen, and the page stays where he is.
+  const bringUp = (offer) => {
+    const room = innerHeight - (parseFloat(getComputedStyle(document.documentElement).scrollPaddingBottom) || 0);
+    const { top, bottom } = offer.getBoundingClientRect();
+    const by = Math.min(bottom - room, top);
+    if (by > 0) window.scrollBy({ top: by, behavior: still.matches ? 'auto' : 'smooth' });
+  };
   document.body.addEventListener('htmx:afterSwap', (e) => {
     const box = e.detail.target;
     if (!isVid(box)) return;
@@ -620,10 +640,7 @@ if (swatchGrid) {
       // It plays where it can be seen: on the outfit on screen. On another one (swiped away meanwhile) the picture
       // stays, with "See it move" to play it.
       vid.removeAttribute('data-play');
-      const slide = box.closest('[data-slide]');
-      const row = slide && slide.parentElement;
-      const inView = !row || Math.round(row.scrollLeft / row.clientWidth) === [...row.children].indexOf(slide);
-      if (!inView) {
+      if (!inRow(box)) {
         vid.classList.remove('on');
         return;
       }
@@ -631,6 +648,9 @@ if (swatchGrid) {
       tell('Video ready');
       return;
     }
+    // An offer on the outfit on screen (after a tap, or when a video being made could not be) is brought into view.
+    const offer = box.querySelector('.vid-bar.ask');
+    if (offer && inRow(box)) bringUp(offer);
     if (!focus) return;
     const next = box.querySelector('.vid-bar input[type="checkbox"], .vid-bar button, .vid-pill');
     if (next) next.focus({ preventScroll: true });

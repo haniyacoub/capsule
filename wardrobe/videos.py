@@ -209,6 +209,19 @@ def left_words(number: int) -> str:
     return f"{number} video{'' if number == 1 else 's'} left today"
 
 
+_TRY_AGAIN = re.compile(r" ?Try again(?: in a minute)?\.")
+
+
+def told(message: str, left: int | None) -> str:
+    """What the offer says about the last try (`message`), next to how many videos are `left` today. With none left,
+    it ends "No videos left today: more tomorrow" and has no button to try with: so a failure's "Try again" is left
+    out ("The AI is busy or did not answer in time. No videos left today: more tomorrow."), and a box to tick that
+    is not there is not asked for (TICK_FIRST: the offer says what a video is instead)."""
+    if left != 0:
+        return message
+    return "" if message == TICK_FIRST else _TRY_AGAIN.sub("", message)
+
+
 # ── a picture of the customer's photo: his agreement first ───────────────────
 
 def consented() -> bool:

@@ -52,11 +52,13 @@
 </p>
 {% elif asking or (video and video.status in ('failed', 'limit', 'consent')) %}
 {% set failed = video and video.status == 'failed' %}
+{# What went wrong, without "Try again" when none are left today (videos.told). #}
+{% set message = told(video.message, left) if video and video.message else '' %}
 <form class="vid-bar ask" method="post" action="{{ url_for('outfits_video_make') }}" hx-post="{{ url_for('outfits_video_make') }}">{{ csrf_field() }}
   <input type="hidden" name="look" value="{{ look.key }}">
   <input type="hidden" name="outfit" value="{{ key }}">
   <span id="vid-said-{{ key }}">
-    {%- if video and video.message %}<span class="look-msg" role="status">{{ video.message }}</span>
+    {%- if message %}<span class="look-msg" role="status">{{ message }}</span>
     {%- else %}An 8-second AI video: the model turns round once, then poses.{% endif %}
     {%- if left is not none and not (video and video.status == 'limit') %} <b>{{ left_words(left) }}.</b>{% endif -%}
   </span>
