@@ -320,16 +320,35 @@ def run(base: str) -> None:
                     f"at {width} x {height} the picture ends at {seen['bottom']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
 
         def own_typefaces():
-            # The text font and the serif for titles come from Stilsmith itself. They must really load, under the
-            # site's own security policy: a font that fails is replaced by another without any error to see.
+            # The one typeface, Archivo, comes from Stilsmith itself. It must really load, under the site's own
+            # security policy: a font that fails is replaced by another without any error to see. Text is set at
+            # the normal width; the wordmark is the site's name in capitals (by the stylesheet), wide and bold; no
+            # font is fetched from another site.
+            fonts: list[str] = []
+            listen = lambda r: fonts.append(r.url) if r.resource_type == "font" else None  # noqa: E731
+            page.on("request", listen)
             page.goto(base + "/profile", wait_until="networkidle")
             loaded = page.evaluate("() => document.fonts.ready.then(() => [...document.fonts]"
                                    ".filter(f => f.status === 'loaded').map(f => f.family.replace(/\"/g, '')))")
-            assert "Instrument Sans" in loaded and "Instrument Serif" in loaded, f"Stilsmith's fonts did not load: {loaded}"
-            assert page.evaluate("() => getComputedStyle(document.body).fontFamily").startswith('"Instrument Sans"'), \
-                "the text is not set in Instrument Sans"
-            assert page.evaluate("() => getComputedStyle(document.querySelector('.brand')).fontFamily").startswith(
-                '"Instrument Serif"'), "the wordmark is not set in Instrument Serif"
+            page.remove_listener("request", listen)
+            assert set(loaded) == {"Archivo"}, f"Stilsmith's font did not load, or another did: {loaded}"
+            assert fonts and all(url.startswith(base + "/static/fonts/archivo-") for url in fonts), \
+                f"fonts fetched: {fonts}"
+            assert page.evaluate("() => getComputedStyle(document.body).fontFamily").startswith('Archivo'), \
+                "the text is not set in Archivo"
+            mark = page.evaluate("""() => { const el = document.querySelector('.brand'), s = getComputedStyle(el);
+                return {family: s.fontFamily, stretch: s.fontStretch, weight: s.fontWeight, caps: s.textTransform,
+                        typed: el.textContent.trim(), shown: el.innerText.trim()}; }""")
+            assert mark["family"].startswith("Archivo") and mark["stretch"] == "125%" and mark["weight"] == "700", \
+                f"the wordmark is not wide, bold Archivo: {mark}"
+            assert mark["caps"] == "uppercase" and mark["typed"] != mark["typed"].upper() \
+                and mark["shown"] == mark["typed"].upper(), f"the wordmark is not the site's name put in capitals: {mark}"
+            title = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('main h1'));
+                return {family: s.fontFamily, stretch: s.fontStretch, weight: s.fontWeight}; }""")
+            assert title == {"family": mark["family"], "stretch": "125%", "weight": "600"}, \
+                f"the page's title is not wide, semi-bold Archivo: {title}"
+            assert page.evaluate("() => getComputedStyle(document.body).fontVariantNumeric") == "tabular-nums", \
+                "digits are not the same width"
 
         def nothing_scrolls_sideways():
             # A page wider than the screen makes a phone zoom out until everything on it is tiny, and lets
@@ -391,7 +410,7 @@ def run(base: str) -> None:
         def the_landing_page():
             # A stranger gives the page a few seconds. It says what Stilsmith is and who it is for, in plain words,
             # with the way in on a phone's first screen and one 'Log in' there (the header's), the headline in
-            # Stilsmith's serif, no text cut off, nothing drawn from the demo data, and a description for search
+            # Stilsmith's wide Archivo, no text cut off, nothing drawn from the demo data, and a description for search
             # results. A customer back on the public pages is one tap from the outfits.
             for width, phone in ((390, True), (1280, False)):
                 context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
@@ -405,7 +424,8 @@ def run(base: str) -> None:
                     return {text: document.querySelector('main').innerText.toLowerCase(),
                             log_in: [...document.querySelectorAll('a, button')].filter(el => el.textContent.trim() === 'Log in' && shown(el)).length,
                             join: !!join && shown(join) && join.getBoundingClientRect().bottom <= innerHeight,
-                            serif: getComputedStyle(document.querySelector('main h1')).fontFamily,
+                            title: getComputedStyle(document.querySelector('main h1')).fontFamily,
+                            wide: getComputedStyle(document.querySelector('main h1')).fontStretch,
                             loaded: [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family.replace(/"/g, '')),
                             description: (document.querySelector('meta[name=description]') || {}).content || '',
                             cut: [...document.querySelectorAll('main h1, main h2, main p, main .btn')]
@@ -417,8 +437,10 @@ def run(base: str) -> None:
                 assert not planner, f"the planner's words on the landing page: {planner}"
                 assert seen["log_in"] == 1, f"'Log in' is on the first screen {seen['log_in']} times at {width}px"
                 assert seen["join"], f"'Create a free account' is not on the first screen at {width}px"
-                assert seen["serif"].startswith('"Instrument Serif"') and "Instrument Serif" in seen["loaded"], \
-                    f"the headline is not set in Instrument Serif at {width}px"
+                assert seen["title"].startswith("Archivo") and seen["wide"] == "125%" and seen["loaded"] == ["Archivo"], \
+                    f"the headline is not set in wide Archivo at {width}px: {seen['title']}, {seen['wide']}, {seen['loaded']}"
+                assert not [url for url in fetched if "font" in url and not url.startswith(base + "/static/fonts/")], \
+                    f"the landing page fetches a font from elsewhere at {width}px"
                 assert not seen["cut"], f"text cut off at {width}px: {seen['cut']}"
                 assert seen["description"], "no description for search results and shared links"
                 assert not [url for url in fetched if "/mock/img/" in url], "the landing page still loads the demo drawings"
