@@ -22,17 +22,7 @@
    price level no longer changes it, with Undo (a form: it changes the piece again). After leaving a piece off or
    wearing another in its place: a link to the outfit as it was. #}
 <div class="flash said{{ ' short' if said.kind != 'changed' }}" role="status">
-  {% if said.kind == 'changed' %}{% set v = said.view %}
-  {{ v.slot.name }} changed in all your outfits: <span lang="de">{{ v.chosen.data.name }}</span>, {{ v.chosen.price|eur }}{% if said.was_price %} (was {{ said.was_price|eur }}){% endif %}. It stays when you change the price level.
-  {% if said.undo %}
-  <form method="post" action="{{ url_for('slot_restore', slot_id=v.slot.id) }}">{{ csrf_field() }}
-    <input type="hidden" name="was" value="{{ said.was }}">
-    <input type="hidden" name="was_locked" value="{{ said.was_locked }}">
-    <input type="hidden" name="outfit" value="{{ said.at }}">
-    <input type="hidden" name="occasion" value="{{ occasion }}">
-    <button>Undo</button>
-  </form>
-  {% endif %}
+  {% if said.kind == 'changed' %}{% include "_changed.html" %}
   {% elif said.kind == 'left' %}
   Showing this outfit without the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Put it back</a>
   {% else %}
@@ -166,6 +156,12 @@
               <span class="piece-text"><b>{{ p.slot_name }}</b>{% if p.owned %}<span>You own this</span>{% elif p.gone %}<span>No longer offered</span>{% else %}<span{% if p.store_name %} lang="de"{% endif %}>{{ p.name }}</span>{% endif %}</span>
               <span class="piece-price">{% if p.owned %}0 €{% else %}{{ p.price|eur }}{% if not p.gone %}<small>{{ STORES.get(p.store, p.store) }}{% if p.changed %} · changed{% endif %}</small>{% endif %}{% endif %}</span>
             {% endcall %}
+            {# Its product is sold out in his size: said under the piece, with the next best in his size in one
+               tap (_sold_out.html). The outfit stays. Under Saved, only while the piece is still that product. #}
+            {% set gone = sold.get(p.slot_id) if not p.owned and not p.gone else none %}
+            {% if gone and (o.sig or p.cand_id == gone.chosen.id) %}
+            {% with s = gone, back = 'outfit' if o.sig else 'saved', sig = o.sig, qty = 1 %}{% include "_sold_out.html" %}{% endwith %}
+            {% endif %}
           </li>
           {% endfor %}
         </ul>

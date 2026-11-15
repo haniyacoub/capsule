@@ -511,6 +511,24 @@ def create_app() -> Flask:
         known = occasion in outfits.OCCASIONS or occasion == "saved"
         return {"from": "outfit", "at": at, **({"occasion": occasion} if known else {})}
 
+    def back_to(where: str | None, outfit: str, occasion: str | None, **said) -> str:
+        """The page a change to a piece was made from, to go back to it: the outfit it was made in (the pop-up, or
+        the outfit's own list of pieces), the Saved outfits, the Wardrobe, the Shopping list, or Buy this outfit.
+        Those are the places that offer a swap for a product sold out in his size (_sold_out.html); the form says
+        which in `back`. `said`: what the change did, for the line there with Undo (change_said). Buy this outfit
+        needs its outfit to exist still; if the change broke it, the outfits page says so instead."""
+        outfit = outfit[:400]
+        if where == "wardrobe":
+            return url_for("wardrobe", **said)
+        if where == "list":
+            return url_for("list_page", **said)
+        if where == "saved":
+            return url_for("outfits_page", occasion="saved", **said)
+        if where == "buy" and outfit and outfits.find_by_sig(selection.build(), outfit) is not None:
+            return url_for("outfits_buy", at=outfit, **said)
+        return url_for("outfits_page", at=outfit or None,
+                       occasion=occasion if occasion in outfits.OCCASIONS else None, **said)
+
     def earlier_option(view: selection.SlotView, cand_id: str) -> dict | None:
         """A product this piece had before a change, by its id: its name and price, if it is one of the piece's
         options now or (in production) a product a lock to it brings back among them (shared.brought_back_by_a_lock:
@@ -523,14 +541,16 @@ def create_app() -> Flask:
             return None
         return {"name": product.get("name", ""), "price": selection.usable_price(product.get("price"))}
 
-    def change_said(w: selection.Wardrobe, shown: outfits.Outfit | None) -> dict | None:
+    def change_said(w: selection.Wardrobe, shown: outfits.Outfit | None, where: str = "") -> dict | None:
         """What a change just made from an outfit did, for the line over the outfits (outfits.html), read from the
         address it led to. Each value is checked against this customer's own wardrobe, and one that does not match is
         left out: such an address can come from anywhere (an old tab, a link). `shown` is the outfit at the address.
 
         Choose in the pop-up (slot_pick): ?changed=<piece>&was=<product before, or empty>&was_locked=<0|1>: the piece
         now locked to another product than `was`. Said with Undo where `was` and was_locked describe a state it can
-        go back to (see slot_restore).
+        go back to (see slot_restore). The swap offered for a product sold out in his size is the same change, made
+        from the Wardrobe, the Shopping list, Buy this outfit and the Saved outfits too: those pages read the same
+        address and say the same line (`where`: which of them, so that Undo comes back to it; see back_to).
         'Leave the coat off' and 'Wear the … instead' (_piece.html): ?left=<piece>&back=<outfit> or
         ?instead=<piece>&back=<outfit>: the outfit shown is the one at `back` without that piece, or with another in
         its place. Said with the link back to it."""
@@ -540,7 +560,8 @@ def create_app() -> Flask:
             was, was_locked = args.get("was", ""), args.get("was_locked")
             if view is None or view.state != "locked" or view.chosen is None or view.chosen.id == was:
                 return None             # (after Undo and then Back, say: what the address says changed is undone)
-            said = {"kind": "changed", "view": view, "was": was, "was_locked": was_locked, "at": args.get("at", "")[:400]}
+            said = {"kind": "changed", "view": view, "was": was, "was_locked": was_locked, "at": args.get("at", "")[:400],
+                    "back": where}
             earlier = earlier_option(view, was) if was else None
             if (was_locked == "1" and earlier) or (was_locked == "0" and (earlier or not was)):
                 said["undo"], said["was_price"] = True, earlier["price"] if earlier else None
@@ -581,7 +602,8 @@ def create_app() -> Flask:
                                    photos=_photos_on(), invite=bool(conf.INVITE_CODE))
         # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
         gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
-        return page("wardrobe.html", tab="wardrobe", gone=gone,
+        w = selection.build()
+        return page("wardrobe.html", w=w, tab="wardrobe", gone=gone, said=change_said(w, None, "wardrobe"),
                     example_sizes=profile_mod.sizes_unconfirmed(profile_mod.load()))   # "in the example size"
 
     @app.post("/settings")
@@ -627,15 +649,17 @@ def create_app() -> Flask:
         db.update_slot(slot_id, pick=cand_id, locked=True, owned=False)
         if conf.PRODUCTION and before and before.id != cand_id and shared.kept_for_its_lock(view.slot, before.data):
             sync_catalog()      # the product it was locked to, in a colour he refused since, was kept only for that
-        if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
-            # with what was there before, so that the page says what changed and can undo it (change_said). The
+        where = request.form.get("back")
+        if request.form.get("outfit") or where in ("wardrobe", "list", "saved"):
+            # Swapped from inside an outfit: back to it, now with the new piece. Or the swap for a product sold out
+            # in his size, from the page that offered it (back_to). Either way the address carries
+            # what was there before, so that the page says what changed and can undo it (change_said). The
             # pop-up's form says what it showed; a form without it (an older pop-up) gets the piece as it was here.
             was, was_locked = request.form.get("was"), request.form.get("was_locked")
             if was is None or was_locked not in ("0", "1"):
                 was = view.chosen.id if view.chosen and view.state != "owned" else ""
                 was_locked = "1" if view.state == "locked" else "0"
-            return redirect(url_for("outfits_page", at=request.form["outfit"][:400],
-                                    occasion=request.form.get("occasion") or None,
+            return redirect(back_to(where, request.form.get("outfit", ""), request.form.get("occasion"),
                                     changed=slot_id, was=was[:200], was_locked=was_locked))
         return after_slot_change(slot_id)
 
@@ -651,7 +675,8 @@ def create_app() -> Flask:
             abort(404)
         outfit = request.form.get("outfit", "")[:400]
         occasion = request.form.get("occasion", "")
-        back = url_for("outfits_page", at=outfit or None, occasion=occasion if occasion in outfits.OCCASIONS else None)
+        where = request.form.get("back")
+        back = back_to(where, outfit, occasion)
         earlier = earlier_option(view, was) if locked == "1" else None
         if locked == "1" and earlier is None:
             flash(f"The product your {view.slot['name'].lower()} had before is no longer in {conf.SITE_NAME}'s product "
@@ -678,6 +703,8 @@ def create_app() -> Flask:
         if conf.PRODUCTION and (brought_back or shared.kept_for_its_lock(view.slot, *letting_go)):
             sync_catalog()
         now = selection.build().get(slot_id)
+        if where == "buy":      # worked out before the change: is that outfit still one, with the product put back?
+            back = back_to(where, outfit, occasion)
         if now is not None and now.chosen is not None:     # "Indigo jeans: back to …" (the look: app.css .said)
             flash(Markup('%s: back to <span lang="de">%s</span>, %s, in all your outfits.%s') % (
                 view.slot["name"], now.chosen.data.get("name", ""), eur(now.chosen.price),
@@ -887,6 +914,7 @@ def create_app() -> Flask:
                                "cost": round(sum(p["price"] for p in fav["pieces"]), 2),
                                "saved": True, "saved_at": catalog.collected_label({"collected_at": fav["saved_at"]})})
             total = len(boards)
+            said = change_said(w, None, "saved")       # the swap for a sold-out product, made under Saved
         else:
             chosen, total = outfits.generate(w, occasion=occasion, limit=n, seed=seed)
             at = request.args.get("at", "")
@@ -911,6 +939,8 @@ def create_app() -> Flask:
         videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved), removed=removed,
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
+                    # Pieces whose chosen product is sold out in his size: said under the piece, with the swap.
+                    sold={s.slot["id"]: s for s in w.slots if s.sold_out},
                     looks_on=looks_on, videos_on=videos_on, turn_seconds=(videos.rules() or {}).get("turn_seconds", 6),
                     scenes=looks.scenes() if looks_on else [],     # the studio picture first; the others on a tap
                     # Until the profile is saved, the starter banner stands where the budget bar would: a budget
@@ -947,7 +977,7 @@ def create_app() -> Flask:
         if outfit is None:
             abort(404)
         return page("buy.html", w=w, tab="outfits", outfit=outfit, sl=export.build(w, only=outfit.slots),
-                    **your_sizes())
+                    said=change_said(w, outfit, "buy"), **your_sizes())
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
 
@@ -1108,7 +1138,8 @@ def create_app() -> Flask:
     @app.get("/list")
     def list_page():
         w = selection.build()
-        return page("list.html", w=w, tab="list", sl=export.build(w), **your_sizes())
+        return page("list.html", w=w, tab="list", sl=export.build(w), said=change_said(w, None, "list"),
+                    **your_sizes())
 
     @app.get("/list.md")
     def list_markdown():

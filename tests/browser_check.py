@@ -27,7 +27,9 @@ screen reader hears named, Tab leading into the outfit shown and Next keeping fo
 keeping focus, Escape hiding a dot's label),
 saves and "buys" one (keeping the example sizes as his own), saves an outfit with the heart and takes it back with the
 next tap (phone, computer and without JavaScript; under Saved it leaves the page, with Undo; the step's own customer
-is deleted when it ends), prints the shopping list,
+is deleted when it ends), chooses a product that is sold out in his size and finds it said wherever the piece shows,
+left out of every total, with the next best in his size one tap away and Undo after it (another customer of the
+step's own, deleted too), prints the shopping list,
 logs in again and lands on the outfits, puts a model together on Profile's character screen (its tabs, the figure
 in the middle that follows every height, build, skin and hair choice at once, by mouse, keyboard and links, on a phone,
 a computer and without JavaScript, and "Your model" drawn by AI there), uploads a photo, sees Profile ask before
@@ -93,7 +95,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, imagegen, looks, person, videogen, videos  # noqa: E402
+from wardrobe import colours, imagegen, looks, person, settings, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
@@ -141,6 +143,9 @@ def never(*args, **kwargs):
 
 videogen.make = video_stand_in
 imagegen._send = never
+# The walk-through's customers all sign up from one address within minutes: more of them than one connection may
+# make in an hour (ten; that limit has its own tests in test_production.py). Lifted here, as on the night previews.
+settings.SIGNUPS_PER_IP_PER_HOUR = 1_000
 
 failures: list[str] = []
 swapped: dict[str, str] = {}    # the piece swapped inside an outfit: its slot and the product chosen
@@ -3266,6 +3271,194 @@ def run(base: str) -> None:
             finally:
                 context.close()
 
+        def sold_out_in_his_size():
+            # A product he chose by hand that is sold out in his size stays the piece's product, and the outfit stays.
+            # Wherever the piece shows (the outfit's list and pop-up, the Wardrobe, the Shopping list, Buy this outfit)
+            # it says "Sold out in M at Weekday", with the store's own label for his size, and offers the next best
+            # product in his size in one tap, with what it costs more or less. No total counts the sold-out product,
+            # and each total that leaves it out says so. The tap chooses the other product and comes back to the same
+            # page, which says what changed, with Undo, which comes back there too: by touch on a phone, by mouse on a
+            # computer, and with JavaScript off. A customer of his own, deleted when the step ends, passed or failed.
+            buyer = "soldout-" + EMAIL
+
+            def as_buyer(**screen):
+                context = browser.new_context(**screen)
+                view = context.new_page()
+                view.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                        if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                view.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                view.goto(base + "/login", wait_until="networkidle")
+                view.fill("input[name=email]", buyer)
+                view.fill("input[name=password]", PASSWORD)
+                view.click("button:has-text('Log in')")
+                view.wait_for_load_state("networkidle")
+                return context, view
+
+            def euros(text: str) -> float:
+                return float(re.sub(r"[^\d.]", "", text.replace(",", "")) or 0)
+
+            def read(view, selector: str) -> str:
+                return " ".join(view.locator(selector).first.evaluate("el => el.innerText").replace("\xa0", " ").split())
+
+            context = browser.new_context(viewport={"width": 1280, "height": 860})
+            try:
+                signing = context.new_page()
+                signing.goto(base + "/signup", wait_until="networkidle")
+                signing.fill("input[name=email]", buyer)
+                signing.fill("input[name=password]", PASSWORD)
+                signing.click("button:has-text('Create account')")
+                signing.wait_for_url(base + "/outfits")
+                signing.wait_for_load_state("networkidle")
+                rows = signing.locator(f"{first} .piece-row[hx-get]").evaluate_all("rs => rs.map(r => r.getAttribute('hx-get'))")
+                at = re.search(r"at=([^&]+)", rows[0]).group(1)
+                signing.goto(f"{base}/outfits/buy?at={at}", wait_until="networkidle")
+                whole = euros(signing.locator(".buy-head b").inner_text())      # the outfit, all of it in stock
+                slot = ""
+                for row in rows:
+                    piece = re.search(r"slot=([^&]+)", row).group(1)
+                    signing.goto(f"{base}/slot/{piece}", wait_until="networkidle")
+                    gone = signing.locator("li.cand.out:has(.sizeline:has-text('sold out'))", has=signing.locator("button:has-text('Choose this')"))
+                    if gone.count():
+                        # What the piece has cost in the outfit until now: the product picked for him, in stock.
+                        price = euros(signing.locator("li.cand.chosen .cand-top .price").evaluate("el => el.firstChild.textContent"))
+                        gone.first.locator("button:has-text('Choose this')").click()
+                        signing.wait_for_load_state("networkidle")
+                        signing.wait_for_selector("li.cand.out.chosen")
+                        slot = piece
+                        break
+                assert slot, "no piece of the first outfit has an option that is sold out in the example size"
+            finally:
+                context.close()
+            mine = f"{first} .pieces li:has(.piece-row[hx-get*='slot={slot}&']) .soldout"
+            outfit, buy = f"{base}/outfits?at={at}", f"{base}/outfits/buy?at={at}"
+
+            def said_and_offered(view, block: str, where: str) -> str:
+                """The block says the fact and offers one button, whole on the screen's width; what the button says."""
+                assert view.locator(block).count() == 1, f"{where}: the piece is not said to be sold out"
+                fact = read(view, f"{block} .soldout-said")
+                assert re.fullmatch(r"Sold out in \S+ at [\w &]+", fact), f"{where}: the piece says {fact!r}"
+                assert view.locator(f"{block} form button").count() == 1, f"{where}: not one swap button"
+                button = read(view, f"{block} form button")
+                assert re.fullmatch(r"Swap for .+, (same price|[+−][\d.,]+ € ?[\d.,]+ € (more|less))( for \d+)?", button), \
+                    f"{where}: the button reads {button!r}"
+                more = read(view, f"{block} .soldout-more")
+                assert re.search(r"€( each)? at .+, in stock in \S+\. It takes this piece's place in all your outfits\.$", more), \
+                    f"{where}: under the button: {more!r}"
+                box = view.locator(f"{block} form button").bounding_box()
+                wide = view.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
+                assert box["height"] >= 44, f"{where}: the swap button is {box['height']:.0f}px tall"
+                assert box["x"] >= 0 and box["x"] + box["width"] <= wide[1] and wide[0] <= wide[1], \
+                    f"{where}: the swap button or the page is wider than the screen ({box}, {wide})"
+                return button
+
+            def not_counted(view, where: str) -> None:
+                """The page's total is what its stores' baskets come to: the sold-out piece is in none of them."""
+                baskets = view.locator(".store-list:not(.sold-list) .subtotal").all_inner_texts()
+                assert read(view, ".sold-list .store-head") == "Sold out in your size 1 piece not counted", \
+                    f"{where}: the sold-out piece's section is headed {read(view, '.sold-list .store-head')!r}"
+                total = euros(view.locator(".buy-head b, .grand .grand-row b").first.inner_text())
+                assert abs(total - sum(euros(b) for b in baskets)) < 0.01, f"{where}: {total} is not the baskets' {baskets}"
+
+            def pressed(view, selector: str, phone: bool) -> None:
+                with view.expect_navigation():       # a plain form: the server answers with the page to go back to
+                    (view.locator(selector).first.tap() if phone else view.locator(selector).first.click())
+                view.wait_for_load_state("networkidle")
+
+            try:
+                for where, screen, phone in (("phone", {"width": 390, "height": 844}, True), ("computer", {"width": 1280, "height": 860}, False)):
+                    context, view = as_buyer(viewport=screen, is_mobile=phone, has_touch=phone)
+                    try:
+                        # The outfit stays, with the product he chose; under the piece it says so and offers the swap.
+                        view.goto(outfit, wait_until="networkidle")
+                        now = view.locator(f"{first} .piece-row[hx-get]").evaluate_all("rs => rs.map(r => r.getAttribute('hx-get'))")
+                        assert now == rows, f"{where}: the outfit did not stay as it was"
+                        offered = said_and_offered(view, mine, f"{where}, the outfit's list")
+                        # … and in the piece's pop-up, before the quick changes.
+                        view.locator(f"{first} .piece-row[hx-get*='slot={slot}&']").evaluate("r => r.click()")
+                        view.wait_for_selector("dialog#piece[open] .soldout")
+                        motion_ended(view)
+                        assert said_and_offered(view, "dialog#piece[open] .soldout", f"{where}, the pop-up") == offered
+                        view.keyboard.press("Escape")
+                        # The Wardrobe: on the piece's card, its price struck out, and the bar says why one is not to buy.
+                        view.goto(base + "/", wait_until="networkidle")
+                        said_and_offered(view, f"#card-{slot} .soldout", f"{where}, the Wardrobe")
+                        assert view.locator(f"#card-{slot} .slot-price s").count() == 1, f"{where}: the Wardrobe card's price is not struck out"
+                        assert "sold out in your size" in view.locator("#summary").evaluate("el => el.textContent"), \
+                            f"{where}: the budget bar does not say a piece is sold out in his size"
+                        # The Shopping list and Buy this outfit: apart from the baskets, in no total, and said.
+                        view.goto(base + "/list", wait_until="networkidle")
+                        said_and_offered(view, ".sold-list .soldout", f"{where}, the Shopping list")
+                        not_counted(view, f"{where}, the Shopping list")
+                        grand = read(view, ".grand")
+                        assert "you can buy" in grand and "Sold out in your size 1 piece, not counted" in grand, f"{where}: the list's total reads {grand!r}"
+                        view.goto(buy, wait_until="networkidle")
+                        said_and_offered(view, ".sold-list .soldout", f"{where}, Buy this outfit")
+                        not_counted(view, f"{where}, Buy this outfit")
+                        head = read(view, ".buy-head")
+                        assert "1 sold out in your size, not counted" in head, f"{where}: Buy this outfit is headed {head!r}"
+                        assert abs(euros(view.locator(".buy-head b").inner_text()) - (whole - price)) < 0.01, \
+                            f"{where}: Buy this outfit counts {head!r}; the outfit was {whole} with this piece at {price}"
+
+                        # One tap, on each page that offers it: the other product is chosen, the same page says so
+                        # with Undo, and Undo comes back to the same page with the product he had.
+                        for page_name, address, block in (("Buy this outfit", buy, ".sold-list .soldout"),
+                                                          ("the outfit's list", outfit, mine),
+                                                          ("the Wardrobe", base + "/", f"#card-{slot} .soldout"),
+                                                          ("the Shopping list", base + "/list", ".sold-list .soldout")):
+                            view.goto(address, wait_until="networkidle")
+                            name = re.match(r"Swap for (.+), (?:same price|[+−])", read(view, f"{block} form button")).group(1)
+                            pressed(view, f"{block} form button", phone)
+                            here = address.split("?")[0]
+                            assert view.url.split("?")[0] == here and "changed=" + slot in view.url, \
+                                f"{where}: the swap on {page_name} led to {view.url}"
+                            line = said_over_the_outfits(view)
+                            assert " changed in all your outfits: " in line and line.endswith("It stays when you change the price level. Undo"), \
+                                f"{where}, {page_name}: after the swap the line reads {line!r}"
+                            assert view.locator(".soldout").count() == 0, f"{where}, {page_name}: still said to be sold out after the swap"
+                            motion_ended(view)
+                            assert view.locator("main > .said").evaluate("""el => { const b = el.getBoundingClientRect();
+                                return b.top >= 0 && b.bottom <= innerHeight; }"""), f"{where}, {page_name}: the line with Undo is off the screen"
+                            if address == buy:      # the piece counts again, at the new product's price
+                                assert "sold out" not in read(view, ".buy-head"), f"{where}: {read(view, '.buy-head')!r}"
+                            if address == outfit:   # the outfit wears the new product (named in English on the button where known)
+                                assert view.locator(f"{first} .piece-row[hx-get]").count() == len(rows), f"{where}: the outfit lost a piece"
+                            pressed(view, "main > .said button", phone)
+                            assert view.url.split("?")[0] == here, f"{where}: Undo on {page_name} led to {view.url}"
+                            assert view.locator(block).count() == 1, f"{where}, {page_name}: after Undo the piece is not said to be sold out again"
+                            back = [f for f in view.locator("main > .flash").all_inner_texts() if ": back to " in f]
+                            assert back, f"{where}, {page_name}: nothing says the product is back: {view.locator('main > .flash').all_inner_texts()}"
+                            assert name not in back[0], f"{where}, {page_name}: Undo says {back[0]!r}"
+                    finally:
+                        context.close()
+
+                # With JavaScript off the same tap and the same Undo, on the Shopping list.
+                context, plain = as_buyer(viewport={"width": 390, "height": 844}, java_script_enabled=False)
+                try:
+                    plain.goto(base + "/list", wait_until="networkidle")
+                    said_and_offered(plain, ".sold-list .soldout", "no JavaScript, the Shopping list")
+                    pressed(plain, ".sold-list .soldout form button", False)
+                    assert plain.url.startswith(base + "/list?") and plain.locator(".soldout").count() == 0, \
+                        f"without JavaScript the swap led to {plain.url}"
+                    assert said_over_the_outfits(plain).endswith("Undo"), "without JavaScript: no Undo after the swap"
+                    pressed(plain, "main > .said button", False)
+                    assert plain.url == base + "/list" and plain.locator(".sold-list .soldout").count() == 1, \
+                        f"without JavaScript Undo led to {plain.url}"
+                finally:
+                    context.close()
+            finally:
+                delete_the_hearts_customer(buyer)       # (it deletes whichever customer it is given)
+            context = browser.new_context()
+            try:
+                gone_page = context.new_page()
+                gone_page.goto(base + "/login", wait_until="networkidle")
+                gone_page.fill("input[name=email]", buyer)
+                gone_page.fill("input[name=password]", PASSWORD)
+                gone_page.click("button:has-text('Log in')")
+                gone_page.wait_for_load_state("networkidle")
+                assert "/login" in gone_page.url, f"the sold-out step's customer still has an account (now at {gone_page.url})"
+            finally:
+                context.close()
+
         def motion_quick_and_still():
             # Stilsmith moves to answer the customer (app.css "Motion"), on a phone (390 x 844, by touch) and a computer:
             # a tab changes the page with a slide, forward along the tabs and back again, and a tap made while it slides
@@ -4078,6 +4271,7 @@ def run(base: str) -> None:
                  ("save an outfit and buy it", save_and_buy),
                  ("the heart saves and takes back, Saved with Undo", the_heart_saves_and_takes_back),
                  ("a store's pages open one by one, each ticked", a_stores_pages_open_one_by_one),
+                 ("sold out in his size: said, one tap swaps, Undo", sold_out_in_his_size),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("the landing page says what Stilsmith is", the_landing_page),

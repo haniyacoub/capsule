@@ -17,6 +17,10 @@ Rules, in order:
      is considered only when none known to be in your size reaches the minimum
      quality. One known to be sold out in your size, or not made in it, is never
      picked automatically; it stays on the piece's page, marked, to choose by hand.
+  4. A product chosen by hand (rule 2) can sell out in your size afterwards, or be chosen
+     although it is. It stays the piece's product, so the outfits stay as they are, but it
+     is said to be sold out, it counts nothing in the total (it cannot be bought), and the
+     next best product that is in stock in your size is offered in its place (next_best).
 """
 from __future__ import annotations
 
@@ -122,16 +126,44 @@ class SlotView:
     # tap (see _offer), or, when there are none, why the piece stays out of the outfits and the total.
     offers: list[colours.Colour] = field(default_factory=list)
     left_out: str | None = None
+    # For a chosen product that is sold out in his size: the next best one that is in stock in it (next_best),
+    # offered in one tap wherever the piece shows (_sold_out.html). None when no other is in stock in his size.
+    swap: Cand | None = None
 
     @property
     def qty(self) -> int:
         return int(self.slot.get("qty") or 1)
 
     @property
+    def sold_out(self) -> bool:
+        """The chosen product cannot be bought in his size: sold out in it since he chose it, or not made in it.
+        Only a product chosen by hand can be: the automatic pick never takes one (choose)."""
+        return self.state != "owned" and self.chosen is not None and not self.chosen.available
+
+    @property
+    def sold_words(self) -> str:
+        """'Sold out in M', with the store's own label for his size, or 'Not made in your size'."""
+        label = self.chosen.size.label if self.chosen else None
+        return f"Sold out in {label}" if label else "Not made in your size"
+
+    @property
+    def swap_cents(self) -> int:
+        """What the product offered in place of a sold-out one costs more (or, below zero, less), in cents, for
+        one of them."""
+        if self.swap is None or self.chosen is None:
+            return 0
+        return round(self.swap.price * 100) - round(self.chosen.price * 100)
+
+    @property
+    def price(self) -> float:
+        """What the chosen product costs for this piece, in stock or not."""
+        return 0.0 if self.state == "owned" or self.chosen is None else self.chosen.price * self.qty
+
+    @property
     def cost(self) -> float:
-        if self.state == "owned" or self.chosen is None:
-            return 0.0
-        return self.chosen.price * self.qty
+        """What this piece adds to the total: nothing while its product is sold out in his size, as it cannot be
+        bought. Every page that shows the piece says so."""
+        return 0.0 if self.sold_out else self.price
 
     @property
     def n_available(self) -> int:
@@ -193,7 +225,12 @@ class Wardrobe:
 
     @property
     def n_buy(self) -> int:
-        return sum(s.qty for s in self.slots if s.state != "owned" and s.chosen)
+        return sum(s.qty for s in self.slots if s.state != "owned" and s.chosen and not s.sold_out)
+
+    @property
+    def n_sold_out(self) -> int:
+        """Pieces whose chosen product is sold out in his size (or not made in it): not to buy, not in the total."""
+        return sum(s.qty for s in self.slots if s.sold_out)
 
     @property
     def n_owned(self) -> int:
@@ -217,7 +254,7 @@ class Wardrobe:
     def n_nothing_to_buy(self) -> int:
         """Every piece nothing is picked for, whatever the reason: all a phone's budget bar has room to say when
         there is more than one reason."""
-        return self.n_missing + self.n_no_size + self.n_no_price
+        return self.n_missing + self.n_no_size + self.n_no_price + self.n_sold_out
 
     @property
     def n_no_price(self) -> int:
@@ -228,10 +265,11 @@ class Wardrobe:
     @property
     def unfilled_words(self) -> list[str]:
         """The budget bar's count of pieces nothing is picked for, by why: '6 pieces not in the product list
-        yet', '1 piece not in stock in your size', '1 piece with no price yet'. Each count is true on its own."""
+        yet', '1 piece not in stock in your size', '1 piece with no price yet', '1 piece sold out in your size' (its
+        chosen product is, and others may not be). Each count is true on its own."""
         out = []
         for n, why in ((self.n_missing, "not in the product list yet"), (self.n_no_size, "not in stock in your size"),
-                       (self.n_no_price, "with no price yet")):
+                       (self.n_no_price, "with no price yet"), (self.n_sold_out, "sold out in your size")):
             if n:
                 out.append(f"{n} {'piece' if n == 1 else 'pieces'} {why}")
         return out
@@ -305,6 +343,19 @@ def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tu
             return best, f"Nothing reaches {threshold} — this is the best in your size", True
         return best, f"Nothing reaches {threshold} — this is the best available", True
     return at_level(in_your_size_first(good), mode), None, False
+
+
+def next_best(cands: list[Cand], sold_out: Cand, threshold: int) -> Cand | None:
+    """What to offer in place of a chosen product that is sold out in his size: among the piece's other products
+    known to be in stock in his size, with a price, the one nearest in price to the one he chose (at equal
+    distance the better one, then the cheaper). Those that reach the minimum quality first; if none does, any.
+    Never one whose sizes were not checked: the offer says "in stock in your size", and that must be known.
+    None when nothing else is in stock in his size."""
+    pool = [c for c in cands if c.id != sold_out.id and c.size.rank == sizes.IN_YOUR_SIZE and c.price > 0]
+    pool = [c for c in pool if c.score.total >= threshold] or pool
+    if not pool:
+        return None
+    return min(pool, key=lambda c: (abs(round(c.price * 100) - round(sold_out.price * 100)), -c.score.total, c.price))
 
 
 # ── best for budget: the wardrobe as a whole ──────────────────────────────────
@@ -429,8 +480,9 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
                 picked = next((c for c in cands if c.id == slot["pick"]), None)
             if picked:
                 view.state, view.chosen = "locked", picked
-                if not picked.available:
-                    view.note, view.warn = "Your locked choice is not in stock in your size", True
+                if not picked.available:      # said wherever the piece shows, with the next best in his size
+                    view.note, view.warn = view.sold_words, True
+                    view.swap = next_best(cands, picked, threshold)
             else:
                 view.chosen, view.note, view.warn = choose(cands, mode, threshold, view.colour.label.lower())
                 if slot["locked"] and slot["pick"] and cands:     # (with nothing on offer, choose said so)

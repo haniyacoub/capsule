@@ -61,6 +61,9 @@
 </div>
 {% endif %}
 
+{# Sold out in his size: said first, with the next best in his size in one tap (_sold_out.html). #}
+{% if s.sold_out %}{% with back = 'outfit', qty = 1 %}{% include "_sold_out.html" %}{% endwith %}{% endif %}
+
 {% if swaps or without %}
 <h3 class="sec">In this outfit</h3>
 <div class="chips">

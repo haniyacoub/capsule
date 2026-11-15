@@ -363,6 +363,25 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .offer .dot { width: 14px; height: 14px; }
 .left-out { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .slot .offer { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
+/* A chosen product that is sold out in his size (_sold_out.html): the fact in the colour of a size that is not
+   there (as .sizeline .no), then one button, "Swap for <the next best in his size>, +10 €", whose words wrap
+   inside it rather than widen the page, and one quiet line about what the tap does. The same block under a piece
+   in an outfit's list (in line with the piece's words, past its photo), in the pop-up, under a Wardrobe card, and
+   on the Shopping list and Buy this outfit. A struck-out price is one that is not counted in the total. */
+.soldout { display: grid; gap: var(--s-1); justify-items: start; min-width: 0; font-size: var(--t-s); line-height: var(--lh-s); }
+.soldout p { margin: 0; }
+.soldout-said { color: var(--poor); }
+.soldout-said b { font-weight: 500; }
+.soldout-said .ic { width: 12px; height: 12px; vertical-align: -1px; }
+.soldout form { display: flex; max-width: 100%; }
+.soldout .btn { display: block; min-height: 44px; padding: var(--s-2) var(--s-3); text-align: left; overflow-wrap: anywhere; }
+.soldout-more { color: var(--muted); }
+.soldout-more a { display: inline-block; padding: var(--s-1) 0; color: var(--ink); text-underline-offset: 3px; }
+.slot .soldout { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
+.pieces .soldout { padding: 0 12px var(--s-3) 66px; }
+.sheet .soldout { margin-top: var(--s-4); padding-top: var(--s-3); border-top: 1px solid var(--line); }
+.buy .soldout { margin-top: var(--s-1); }
+.slot-price s, .buy-total s { color: var(--muted); font-weight: 400; text-decoration-thickness: 1px; }
 
 /* ── One slot: its candidates ────────────────────────────────────────────── */
 .crumb { margin: 0 0 10px; font-size: var(--t-s); }

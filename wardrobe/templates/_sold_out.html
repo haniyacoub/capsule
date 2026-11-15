@@ -1,0 +1,35 @@
+{# A piece whose chosen product cannot be bought in his size (selection.SlotView.sold_out): sold out in it since he
+   chose it, or not made in it. Said wherever the piece shows: under it in an outfit's list of pieces, in its pop-up,
+   on its Wardrobe card, on the Shopping list and on Buy this outfit. First the fact, with the size as the store
+   labels it ("Sold out in M at Weekday"). Then one tap: the next best product that is known to be in stock in his
+   size (selection.next_best), with what it costs more or less than the one he chose. The tap chooses it as the
+   pop-up's Choose does (app.slot_pick), in every outfit, and the page it comes back to says so with Undo
+   (_changed.html). The outfit stays as it is either way. With nothing else in stock in his size, that is said, with
+   the way to add a product he found himself.
+   `s`: the piece. `back`: the page this is on (outfit, saved, wardrobe, list or buy), to come back to; `sig`: the
+   outfit, where there is one. `note_id`: an id for the fact, where a link is described by it (the Wardrobe card).
+   `qty`: how many of the piece that place counts (the Wardrobe and the Shopping list buy a white tee twice, an
+   outfit wears one): the difference is said for that many, as the total there will change by it ("−10 € for 2"). #}
+{% from "_macros.html" import icon %}
+{% set c, n = s.chosen, s.swap %}
+<div class="soldout">
+  <p class="soldout-said"{% if note_id %} id="{{ note_id }}"{% endif %}>{{ icon('flag') }} <b>{{ s.sold_words }}</b> at {{ STORES.get(c.data.store, c.data.store) }}</p>
+  {% if n %}
+  {% set many = qty|default(1) %}
+  {% set en, cents = n.data.name|english, s.swap_cents * many %}
+  <form class="no-print" method="post" action="{{ url_for('slot_pick', slot_id=s.slot.id) }}">{{ csrf_field() }}
+    <input type="hidden" name="candidate" value="{{ n.id }}">
+    <input type="hidden" name="back" value="{{ back }}">
+    <input type="hidden" name="outfit" value="{{ sig or '' }}">
+    <input type="hidden" name="occasion" value="{{ occasion if occasion is defined and occasion != 'saved' else '' }}">
+    <input type="hidden" name="was" value="{{ c.id }}">
+    <input type="hidden" name="was_locked" value="{{ 1 if s.state == 'locked' else 0 }}">
+    {# One span: the button lays its children out in a row, and these words are one sentence that wraps. #}
+    <button class="btn small"><span>Swap for <span lang="{{ 'en' if en else 'de' }}">{{ en or n.data.name }}</span>,
+      {% if cents == 0 %}same price{% else %}<span aria-hidden="true">{{ '−' if cents < 0 else '+' }}{{ (cents|abs / 100)|eur }}</span><span class="sr">{{ (cents|abs / 100)|eur }} {{ 'less' if cents < 0 else 'more' }}</span>{% if many > 1 %} for {{ many }}{% endif %}{% endif %}</span></button>
+  </form>
+  <p class="soldout-more">{{ n.price|eur }}{{ ' each' if many > 1 }} at {{ STORES.get(n.data.store, n.data.store) }}, in stock in {{ n.size.label }}. It takes this piece's place in all your outfits.</p>
+  {% else %}
+  <p class="soldout-more">Nothing else for this piece is in stock in your size. <a class="no-print" href="{{ url_for('slot_page', slot_id=s.slot.id, **({'from': 'outfit', 'at': sig} if sig and back == 'outfit' else {})) }}#add">Add one you found yourself</a></p>
+  {% endif %}
+</div>
