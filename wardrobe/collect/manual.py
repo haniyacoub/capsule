@@ -8,7 +8,9 @@ colour and picture. Whatever is still missing you type in on the piece's page.
 
 With one link you may also send the product's page as you saved it from your
 own browser ("Save page as"). Then its name, price, colour and fabric are read
-from that file by the generic reader (generic.py), which works for any store.
+from that file, where it states them, by the generic reader (generic.py),
+which works for any store. Pasting a link again never wipes what was known
+about it: what the saved page gave, or what was typed in, is kept.
 Stilsmith still asks the store nothing. The photo is never taken from it.
 
 Only links to stores customers are offered are taken (programmes.py): a link
@@ -74,14 +76,33 @@ def _slug(url: str) -> str:
     return parts[-1] if parts else ""
 
 
+def _article(url: str) -> str:
+    """The product's article number as its link gives it, which tells two products of one store apart.
+    COS ends a link "…-black-4100000902", Zara "…-p01234567", others "…/p/1001234567/". Tom Tailor ends one
+    "…-1041234_10668", article then colour: both are taken ("1041234-10668"), because the colour's number alone
+    is the same for every product in that colour. A link without a number is told apart by the whole link."""
+    path = urlsplit(url).path
+    last = re.sub(r"\.html?$", "", path.rstrip("/").rsplit("/", 1)[-1])
+    number = (re.search(r"(\d{7,13})$", last) or re.search(r"p(\d{8})", last)
+              # else the path's last long number, with the shorter numbers joined to it by "_"
+              or re.search(r"(\d{5,13}(?:_\d+)*)(?!.*\d{5})", path))
+    if number:
+        return number.group(1).replace("_", "-")
+    return hashlib.sha1(url.encode(), usedforsecurity=False).hexdigest()[:10]
+
+
+def _knows_more(cand: dict) -> bool:
+    """Whether a product he pasted before holds more than its link says: a price, a fabric, a colour, sizes,
+    from the page he saved or typed in under "Add details"."""
+    return bool(cand.get("price", 0) > 0 or cand.get("composition_text") or cand.get("colour")
+                or cand.get("sizes_in_stock") or cand.get("manual"))
+
+
 def _from_link_alone(url: str, store: str, slot: dict, known: list[dict]) -> tuple[dict, str]:
     """What a link says by itself, plus anything a refresh already saw for that article."""
     from ..settings import SITE_NAME            # the product's name, for the note below
-    last = re.sub(r"\.html?$", "", urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1])
     slug = _slug(url)
-    number = (re.search(r"(\d{7,13})$", last) or re.search(r"p(\d{8})", last)
-              or re.search(r"(\d{5,13})(?!.*\d{5})", urlsplit(url).path))     # else the path's last long number
-    sku = number.group(1) if number else hashlib.sha1(url.encode(), usedforsecurity=False).hexdigest()[:10]
+    sku = _article(url)
     # Seen by a refresh, that is: not what he pasted himself before, which knew no more than this link does.
     seen = next((c for c in known if c.get("store") == store and c.get("id") == f"{store}-{sku}"
                  and c.get("source") != "manual"), None)
@@ -133,8 +154,14 @@ def _from_saved_page(cand: dict, info: dict) -> str:
     if not read:
         return "the page you saved says nothing about the product, so only the link could be read — add the " \
                "price, fabric and sizes under “Add details”"
-    missing = [word for word in ("price", "fabric") if word not in read] + ["sizes"]
     listed = lambda words: ", ".join(words[:-1]) + " and " + words[-1] if len(words) > 1 else words[0]  # noqa: E731
+    typed = cand.get("manual") or {}
+    missing = [word for word, there in (
+        ("price", cand.get("price", 0) > 0 or typed.get("price")),
+        ("fabric", cand.get("composition_text") or typed.get("composition_text")),
+        ("sizes", cand.get("sizes_in_stock") or typed.get("sizes_in_stock"))) if not there]
+    if not missing:
+        return f"its {listed(read)} {'was' if len(read) == 1 else 'were'} read from the page you saved"
     return (f"its {listed(read)} {'was' if len(read) == 1 else 'were'} read from the page you saved — add the "
             f"{listed(missing)} under “Add details”")
 
@@ -164,10 +191,22 @@ def from_urls(urls: list[str], slot: dict, page: str | None = None) -> list[tupl
             results.append((url, None, _not_menswear(whom)))
             continue
         stub, note = _from_link_alone(url, store, slot, known)
-        if said is None:
+        # Pasted on this piece before, and more is known about it than a link says (from the page he saved then,
+        # or typed in): that is kept, not wiped by pasting the link again.
+        before = next((c for c in known if c.get("id") == stub["id"] and c.get("slot_id") == slot["id"]
+                       and c.get("source") == "manual" and _knows_more(c)), None)
+        kept = before is not None and stub.get("price", 0) <= 0      # a product a refresh saw is better still
+        if before is not None and kept:
+            stub = {**before, "url": url, "collected_at": catalog.now_iso()}
+            note = "you added this link before, and what was known about it was kept"
+            if said and page and len(urls) == 1 and any(said.get(k) for k in ("name", "price", "colour", "material")):
+                note = _from_saved_page(stub, said)
+        elif said is None:
             note += ". The page you saved is not this store's, so it was not read"
         elif page and len(urls) == 1 and stub.get("price", 0) <= 0:   # what the list already had is better
             note = _from_saved_page(stub, said)
+        if said is None and kept:
+            note += ". The page you saved is not this store's, so it was not read"
         if page and len(urls) > 1:
             note += ". The saved page was not read: send it with one link at a time"
         results.append((url, stub, note))

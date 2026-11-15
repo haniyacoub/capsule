@@ -2831,6 +2831,12 @@ def run(base: str) -> None:
                 phone.focus("input[name=stores][value=cos]")
                 phone.keyboard.press("Space")
                 expect(phone.get_by_role("checkbox", name="COS · Rakuten partner"), "by keyboard too").to_be_checked()
+                # The line goes away again with the next tick or untick of any other store.
+                expect(phone.locator("[data-store-said]")).to_be_visible()
+                phone.get_by_role("checkbox", name="Hirmer").tap()
+                expect(phone.locator("[data-store-said]"), "the line stayed after another store was unticked").to_be_hidden()
+                phone.get_by_role("checkbox", name="Hirmer").tap()
+                expect(phone.locator("[data-store-said]")).to_be_hidden()
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/outfits")          # a first save shows the outfits
                 told = phone.locator("main > .flash", has_text="Your pieces now come only from COS:")

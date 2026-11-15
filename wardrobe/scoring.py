@@ -184,6 +184,8 @@ def price_part(price: float, category: str, rules: dict) -> tuple[float, list[st
     plural = GARMENTS[category].plural if category in GARMENTS else category
     if not band:
         return 70.0, [f"{settings.SITE_NAME} has no usual price range for {plural} yet → neutral 70"]
+    if price <= 0:      # one added by its link has no price until it is typed in: that is not a low price
+        return 70.0, ["No price yet, so the price counts as neutral, 70, until you type it in under “Add details”"]
 
     low_score = float(cfg.get("score_when_suspicious", 40))
     high_score = float(cfg.get("score_when_steep", 55))

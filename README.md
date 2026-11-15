@@ -118,8 +118,10 @@ On any slot's page:
   article was seen during a refresh, its name, price and picture. Links to a
   store that is not offered are refused. With one link you can also choose the
   product's page as you saved it from your own browser ("Save page as"): its
-  name, price, colour and fabric are then read from that file
-  (`wardrobe/collect/generic.py`, for any store). The photo never is.
+  name, price, colour and fabric are read from that file where it states them
+  (`wardrobe/collect/generic.py`, for any store). The photo never is. Pasting
+  a link again keeps what was already known about it. A product with no price
+  yet counts as neutral on price until you type one in.
 - **Stores with no products yet**: Tom Tailor, OTTO, Hirmer, Breuninger, Blue
   Tomato and Bergfreunde are offered for pasted links only. They have no
   category pages in `config/stores.toml`, so nothing is ever collected from
@@ -127,7 +129,10 @@ On any slot's page:
   a piece's page"). One of them cannot be your only store.
 - **Menswear only** (`wardrobe/menswear.py`, no switch): a link, a saved page
   or a feed product that says it is for women or for children is refused, with
-  a sentence saying so. One that says nothing is kept.
+  a sentence saying so. One that says nothing is kept. A children's word
+  inside a brand's or a product's name ("Billionaire Boys Club") does not
+  count: only a folder (`/kinder/`, "Kinder > Jungen") does, and a men's word
+  beside it wins.
 - **Add details** on a candidate: type the fabric as printed on the product page
   ("80% Wolle, 20% Polyamid"), the sizes in stock, or a price. These win over
   collected data and survive the next refresh.

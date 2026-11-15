@@ -750,7 +750,8 @@ if (storePick) {
       const announce = document.getElementById('announce');
       if (announce) announce.textContent = storeSaid.textContent;
     } else {
-      storeSaid.hidden = true;
+      storeSaid.hidden = true;       // any other tick or untick takes the line away again
+      storeSaid.textContent = '';
     }
   });
 }

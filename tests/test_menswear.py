@@ -55,7 +55,22 @@ class WhoAProductIsFor(unittest.TestCase):
                 (None, None, "Kinderschuhe", "children"),
                 (None, None, "Mädchen > Kleider", "children"),
                 ("female", "kids", None, "children"),
-                (None, None, "Baby > Strampler", "children")):
+                (None, None, "Baby > Strampler", "children"),
+                # A children's word inside a brand's or a product's name is not a folder: these are for men.
+                ("male", None, "Herren > Marken > Billionaire Boys Club", None),
+                ("male", None, "Marken > Billionaire Boys Club", None),
+                (None, None, "Herren > Jeans > Teen Spirit", None),
+                ("male", "adult", "Skate > Girl", None),
+                ("M", None, None, None),
+                ("männlich", None, None, None),
+                (None, None, "Sale > Menswear", None),
+                # Women's words as German, Dutch and English stores also write them.
+                ("weiblich", None, None, "women"),
+                ("W", None, None, "women"),
+                ("F", None, "Jacken", "women"),
+                (None, None, "Sale > Womenswear", "women"),
+                (None, None, "Dames > Jassen", "women"),
+                (None, None, "Kids & Teens > Jacken", "children")):
             self.assertEqual(says(gender, age, filed), verdict, (gender, age, filed))
 
     def test_what_a_links_own_words_say(self):
@@ -68,6 +83,15 @@ class WhoAProductIsFor(unittest.TestCase):
                 ("https://www.bergfreunde.de/beispielmarke-baby-blue-shirt-9000007/", None),
                 ("https://www.blue-tomato.com/de-DE/product/boyfriend-fit-jeans-9000008/", None),
                 ("https://www.otto.de/p/hemd-C1/?gender=damen", None),                # only the path is read
+                # A brand or a product with a children's word in its name is not a children's product.
+                ("https://www.breuninger.com/de/herren/billionaire-boys-club-hoodie/1001234777/p/", None),
+                ("https://www.blue-tomato.com/de-DE/product/Girl-OG+T+Shirt-612388/", None),
+                ("https://www.otto.de/p/herren-jeans-teen-spirit-C9000011/", None),
+                ("https://www.hirmer.de/herren/kids-see-ghosts-hoodie/p/9000012", None),
+                ("https://www.breuninger.com/de/womenswear/jacken/steppjacke/p/9000013", "women"),
+                ("https://www.blue-tomato.com/nl-NL/dames/product/hoodie-9000014/", "women"),
+                ("https://www.blue-tomato.com/de-DE/kids/product/hoodie-9000015/", "children"),
+                ("https://www.otto.de/kids-boys/p/hoodie-C9000016/", "children"),
                 ("https://www.tom-tailor.de/damen/jacken/steppjacke-1041235_10668", "women"),
                 ("https://www.otto.de/p/beispielmarke-damenjacke-C1689044822/", "women"),
                 ("https://www.blue-tomato.com/de-DE/products/categories/Women-00000002/product/hoodie-9000009/", "women"),
@@ -236,6 +260,47 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         self.assertIn("Open at Hirmer", shown)
         self.assertIn("Stilsmith has not rated Hirmer yet, so its brand counts as the middle, 50/100", shown)
 
+    def test_two_products_of_one_store_are_two_options(self):
+        # Tom Tailor ends a link "article_colour": two products in the same colour are still two products.
+        coat = "https://www.tom-tailor.de/herren/jacken/wollmantel-1041111_10668"
+        parka = "https://www.tom-tailor.de/herren/jacken/parka-1042222_10668"
+        only_link = "only the link could be read — add the price, fabric and sizes under “Add details”."
+        self.assertEqual(self.add(coat), [f"Added “Wollmantel”: {only_link}"])
+        self.assertEqual(self.add(parka), [f"Added “Parka”: {only_link}"])
+        self.assertEqual(sorted((c["id"], c["name"]) for c in catalog.stored()["candidates"] if c["store"] == "tom-tailor"),
+                         [("tom-tailor-1041111-10668", "Wollmantel"), ("tom-tailor-1042222-10668", "Parka")])
+        # And for each of the six: a second product never takes the first one's place.
+        for store, (link, _) in self.LINKS.items():
+            other = re.sub(r"\d{5,}", lambda m: str(int(m.group()) + 1), link, count=1)
+            self.assertNotEqual(manual._article(link), manual._article(other), store)
+        for link in ("https://www.breuninger.com/de/herren/billionaire-boys-club-hoodie/1001234777/p/",
+                     "https://www.blue-tomato.com/de-DE/product/Girl-OG+T+Shirt-612388/",
+                     "https://www.otto.de/p/herren-jeans-teen-spirit-C9000011/"):
+            self.assertRegex(self.add(link)[0], "^Added “", link)
+
+    def test_pasting_a_link_again_keeps_what_was_known_about_it(self):
+        link = self.LINKS["hirmer"][0]
+        self.add(link, page("mens-shirt.html"))
+        self.client.post(f"/slot/{self.sid}/details", data={"candidate": "hirmer-9000001", "sizes": "M, L"})
+        self.assertEqual(self.add(link), ["Added “Oxford-Hemd Regular Fit”: you added this link before, and what was "
+                                          "known about it was kept."])
+        cand = self.stored("hirmer-9000001")
+        self.assertEqual((cand["name"], cand["price"], cand["colour"], cand["composition_text"]),
+                         ("Oxford-Hemd Regular Fit", 49.99, "Hellblau", "100% Baumwolle"))
+        self.assertEqual(cand["manual"]["sizes_in_stock"], ["M", "L"], "what he typed in is kept too")
+        self.assertEqual(len([c for c in catalog.stored()["candidates"] if c["id"] == "hirmer-9000001"]), 1)
+        # With the page again, it is read again, and nothing is asked for that he already gave.
+        self.assertEqual(self.add(link, page("mens-shirt.html")), [
+            "Added “Oxford-Hemd Regular Fit”: its name, price, colour and fabric were read from the page you saved."])
+        self.assertEqual(self.stored("hirmer-9000001")["manual"]["sizes_in_stock"], ["M", "L"])
+
+    def test_a_product_with_no_price_yet_is_not_called_cheap(self):
+        self.add(self.LINKS["hirmer"][0])
+        shown = html.unescape(self.client.get(f"/slot/{self.sid}").get_data(as_text=True))
+        self.assertIn("No price yet, so the price counts as neutral, 70, until you type it in under “Add details”", shown)
+        self.assertNotIn("0 € is far below", shown)
+        self.assertNotIn("0,00 € is far below", shown)
+
     def test_a_womens_or_childrens_link_is_refused_with_a_plain_sentence(self):
         women = "https://www.tom-tailor.de/damen/jacken/steppjacke-1041235_10668"
         kids = "https://www.bergfreunde.de/kinder/jacken/regenjacke-9000010/"
@@ -312,3 +377,5 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         self.assertIn('enctype="multipart/form-data"', section)
         self.assertIn('<input type="file" name="page" accept=".html,.htm,text/html" aria-describedby="page-help">', section)
         self.assertIn("The product's page, saved from your browser (optional)", text)
+        # Promised only where the page states them: a page may carry no such data.
+        self.assertIn("Its name, price, colour and fabric are filled in where the page states them.", text)
