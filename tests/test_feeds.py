@@ -171,7 +171,10 @@ class FeedCase(unittest.TestCase):
 
 # What version 7 adds besides (the videos, "See it move", and the Pro accounts: db.SCHEMA_VIDEOS, test_videos.py).
 VERSION_7_ADDS = [("index", "sqlite_autoindex_videos_1"), ("index", "video_requests_at"), ("index", "videos_picture"),
-                  ("table", "pro"), ("table", "video_requests"), ("table", "videos")]
+                  ("table", "pro"), ("table", "video_requests"), ("table", "videos"),
+                  # … and version 8: which front picture an outfit's further pictures were made from (db.SCHEMA_PHOTOS).
+                  ("index", "looks_made_from_front"), ("index", "sqlite_autoindex_looks_made_from_1"),
+                  ("table", "looks_made_from")]
 
 
 class Schema(FeedCase):
@@ -222,7 +225,7 @@ class Schema(FeedCase):
                                      ("table", "stores")] + VERSION_7_ADDS))
             self.assertEqual({t: sorted(con.execute(f"SELECT * FROM {t}").fetchall()) for t in old_tables},  # nosec
                              rows_before, "every row is as it was")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master")), after)
@@ -255,7 +258,7 @@ class Schema(FeedCase):
             self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
                              sorted([("table", "owners")] + VERSION_7_ADDS))
             self.assertEqual({t: con.execute(f"SELECT * FROM {t}").fetchall() for t in rows_before}, rows_before)  # nosec
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM owners").fetchone()[0], 0, "nobody is an owner by itself")
 
 

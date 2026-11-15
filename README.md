@@ -243,14 +243,24 @@ Things to know:
   `auto = false` in [config/looks.toml](config/looks.toml) to draw only when
   you press "See it worn". `per_day` in the same file caps how many are started
   in 24 hours.
-- **Scenes:** under each picture, Studio, Street, Library and Café. The studio
-  picture is the one drawn by itself; another scene is drawn only when you tap
-  it. Each scene is a picture of its own: billed and counted in `per_day` like
-  any other, and kept, so switching back and forth costs nothing. The scenes
-  and their words are under `[scenes]` in `config/looks.toml`. The words
-  describe the place and the light only: the model, the pose and the clothes
-  stay the same, and so do the dots.
-- **See it move:** on a finished picture, in any scene, "See it move" asks
+- **Six pictures of an outfit:** the one drawn by itself is the front picture:
+  the man standing, facing the camera, on a white studio background, with the
+  dots. Under it, "More photos" draws five more: walking and turned (white
+  studio), then on a street, in a café and in a library, each with its own
+  natural pose. These five are made *from the front picture*: it is sent to
+  the image service with a short instruction ("the same man in the same
+  outfit, now walking"), so the man and the clothes stay the same. They show
+  as small pictures under the outfit as they arrive; tap one to see it large
+  (no dots on those: the man stands differently). Each is a picture of its
+  own: billed and counted in `per_day` like any other (the page says so
+  before the tap), and kept, so looking again costs nothing. When the front
+  picture is drawn again, the five made from the old one are deleted. Their
+  words are under `[poses]` and `[scenes]` in `config/looks.toml`; another
+  pose or place is one more block there. To judge a real service by eye,
+  `python -m wardrobe looks --test-set` draws a sample outfit's six pictures
+  into `data/looks/` (six pictures billed). With OpenAI the five go to its
+  "edits" address with the front picture; that has not been tried for real.
+- **See it move:** on a finished picture (any of the six), "See it move" asks
   Google's video model for an 8-second clip that starts from that picture: the
   model turns round once, then poses. It plays once (muted), and can then be
   played again or dragged round, sideways or with the arrow keys. It needs

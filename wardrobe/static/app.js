@@ -197,10 +197,33 @@ if (reel) {
   //     is lost once the picture covers the photos. Then focus goes to the outfit's first dot, or to the outfit
   //     itself until the picture, and its dots, are there. And the outfit on screen says when its picture is ready
   //     (or why a new one was not drawn).
+  //     The row of the outfit's small pictures (_shots.html) is also replaced on its own: when 'More photos' is
+  //     tapped, and as each picture arrives. Focus that was on 'More photos', which is gone then, goes to the
+  //     picture shown, in the row; and the outfit on screen says that the photos are being drawn, and when all are there.
   const isBox = (el) => el instanceof Element && el.matches('.look');
+  const isRow = (el) => el instanceof Element && el.matches('.shots');
+  let rowFocus = false;
   document.body.addEventListener('htmx:beforeSwap', (e) => {
     const box = e.detail.target;
     if (isBox(box) && box.closest('.stage').contains(document.activeElement)) box.dataset.focus = 'in';
+    if (isRow(box)) rowFocus = box.contains(document.activeElement);
+  });
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    const was = e.detail.target;
+    if (!isRow(was)) return;
+    const row = document.getElementById(was.id);
+    if (!row) return;
+    const drawing = !!row.querySelector('.spin');
+    if (row.closest('[data-slide]') === onScreen() && !row.querySelector('.look-msg')) {
+      if (drawing && !was.querySelector('.spin')) say('Drawing more photos');
+      if (!drawing && was.querySelector('.spin')) say('More photos ready');
+    }
+    const here = document.activeElement;
+    if (rowFocus && (!here || here === document.body)) {
+      const shown = row.querySelector('[aria-pressed="true"]');
+      if (shown) shown.focus({ preventScroll: true });
+    }
+    rowFocus = false;
   });
   document.body.addEventListener('htmx:afterSwap', (e) => {
     const box = e.detail.target;
@@ -1003,7 +1026,7 @@ if (swatchGrid) {
       rest = setTimeout(() => reel.querySelectorAll('.vid.on').forEach((vid) => { if (!inRow(vid)) shut(vid); }), 200);
     }, { passive: true });
   }
-  // The offer stands under the picture, in place of its line and the scenes (app.css, .vid-bar.ask). On a short phone
+  // The offer stands under the picture, in place of its line and the small pictures (app.css, .vid-bar.ask). On a short phone
   // that is below the tab bar, out of sight: a tap on "See it move" would seem to do nothing, and keyboard focus would
   // go to a button nobody can see. So the page goes up just far enough for the whole offer to show above the tab bar
   // (the room html's scroll-padding-bottom keeps for it), never so far that its top leaves the screen; only the
@@ -1107,7 +1130,7 @@ if (swatchGrid) {
     else meant.click();
   }, true);
 
-  // 16b. The AI picture develops in. When HTMX puts a finished picture in (drawn at last, or another scene tapped), it
+  // 16b. The AI picture develops in. When HTMX puts a finished picture in (drawn at last, or a small picture tapped), it
   //      stays hidden until its file has arrived, over the pieces' photos, or over the picture it replaces (kept for
   //      that moment, .look-was), and then comes up over them (app.css). With less motion asked for it simply shows
   //      once it is whole. Pictures of the outfits off screen that are still loading when the page opens do the same.

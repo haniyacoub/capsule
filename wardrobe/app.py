@@ -887,16 +887,16 @@ def create_app() -> Flask:
             said = change_said(w, first)
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
                        "saved": o.key in saved} for o in chosen]
-        # A scene tapped without JavaScript (outfits_look): that outfit shows that scene's picture.
+        # A small picture tapped without JavaScript (outfits_look): that outfit shows that picture large.
         for board in boards:
-            if board["key"] == request.args.get("scene_of"):
-                board["scene"] = looks.scene_named(request.args.get("scene"))
+            if board["key"] == request.args.get("shot_of"):
+                board["shot"] = looks.shot_named(request.args.get("shot"))
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
         videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved), removed=removed,
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
                     looks_on=looks_on, videos_on=videos_on, turn_seconds=(videos.rules() or {}).get("turn_seconds", 6),
-                    scenes=looks.scenes() if looks_on else [],     # the studio picture first; the others on a tap
+                    allowance=looks.allowance_words() if looks_on else "",    # said beside "More photos"
                     # Until the profile is saved, the starter banner stands where the budget bar would: a budget
                     # the customer never set says nothing yet. Saving the profile brings the bar back.
                     starter=starter_line() if prof["example"] else "",
@@ -935,49 +935,98 @@ def create_app() -> Flask:
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
 
-    def scene_shown(outfit_key: str, scene: str) -> str:
+    def shot_shown(outfit_key: str, shot: str) -> str:
         """Where a picture asked for without JavaScript leads: back to the outfits page it was asked from (its
-        occasion, its outfits), with that outfit in view (#outfit-<key>) showing the scene it was asked for in
-        (scene=, scene_of=; nothing for the studio). So a tap on Street shows the street, not the studio again."""
+        occasion, its outfits), with that outfit in view (#outfit-<key>) showing the picture that was asked for
+        (shot=, shot_of=; nothing for the front picture). So a tap on Street shows the street, not the front again."""
         back = urlsplit(request.referrer or "")
         same = back.path == url_for("outfits_page") and back.netloc in ("", request.host)
-        args = {name: value for name, value in parse_qsl(back.query) if same and name not in ("scene", "scene_of")}
-        if scene != looks.STUDIO:
-            args.update(scene=scene, scene_of=outfit_key)
+        args = {name: value for name, value in parse_qsl(back.query) if same and name not in ("shot", "shot_of")}
+        if shot != looks.FRONT:
+            args.update(shot=shot, shot_of=outfit_key)
         return url_for("outfits_page") + (f"?{urlencode(args)}" if args else "") + f"#outfit-{outfit_key}"
 
-    def look_fragment(outfit_key: str, look: looks.Look | None, scene: str) -> str:
-        return render_template("_look.html", key=outfit_key, look=look, scene=scene, scenes=looks.scenes(),
+    def pieces_of(outfit_key: str) -> list[dict] | None:
+        """The pieces of one of today's outfits or of a saved one, as its pictures describe them; None if it is gone."""
+        outfit = outfits.find(selection.build(), outfit_key)
+        if outfit:
+            return outfits.snapshot(outfit)
+        return next((fav["pieces"] for fav in db.list_saved() if fav["key"] == outfit_key), None)
+
+    def look_fragment(outfit_key: str, photos: list[looks.Photo], shot: str) -> str:
+        """The picture box of one outfit: the picture `shot` large (the front one if there is nothing of it to
+        show), and the row of the outfit's small pictures under it."""
+        large = looks.shown(photos, shot)
+        return render_template("_look.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
+                               allowance=looks.allowance_words(),
                                auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off(),
-                               videos_on=videos.service() is not None, video=videos.of(look),
+                               videos_on=videos.service() is not None, video=videos.of(large.look),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
+
+    def shots_fragment(outfit_key: str, photos: list[looks.Photo], shot: str, said: str = "") -> str:
+        """Only the row of small pictures (it is swapped on its own while pictures arrive, so the large picture
+        stays as it is). `said`: why "More photos" did not start all of them."""
+        large = looks.shown(photos, shot)
+        return render_template("_shots.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
+                               allowance=looks.allowance_words(), said=said)
 
     @app.post("/outfits/look")
     def outfits_look():
-        """Ask for the picture of an outfit, or for a new version of it."""
+        """Ask for a picture of an outfit: its front picture, one of the others (shot=, a small picture tapped),
+        all of the others ("More photos", more=1), or a new version of one (again=1)."""
         key = request.form.get("key", "")
-        outfit = outfits.find(selection.build(), key)
-        pieces = outfits.snapshot(outfit) if outfit else next(
-            (fav["pieces"] for fav in db.list_saved() if fav["key"] == key), None)
+        pieces = pieces_of(key)
         if pieces is None:
             abort(409, "That outfit no longer exists — reload the page.")
-        scene = looks.scene_named(request.form.get("scene"))     # a scene tapped under the picture; else the studio
-        look = looks.request(pieces, again=request.form.get("again") == "1", scene=scene)
+        if request.form.get("more") == "1":
+            # "More photos": the pictures after the front one are started, each one picture of the day's allowance.
+            # The picture shown large stays; only the row of small pictures is answered.
+            if looks.service() is None:
+                abort(404)
+            said = looks.request_more(pieces)
+            staying = looks.shot_named(request.form.get("shown"))
+            if not request.headers.get("HX-Request"):
+                if said:
+                    flash(said)
+                return redirect(shot_shown(key, staying))
+            return shots_fragment(key, looks.gallery(pieces) or [], staying, said)
+        shot = looks.shot_named(request.form.get("shot"))      # a small picture tapped; else the front picture
+        front = (looks.gallery(pieces) or [looks.Photo(looks.FRONT, looks.FRONT_LABEL)])[0].look
+        if not (front and front.status == "ready"):
+            shot = looks.FRONT              # nothing can be made from a front picture that is not there: it is asked for
+        look = looks.request(pieces, again=request.form.get("again") == "1", shot=shot)
         if look is None:
             abort(404)                      # AI pictures are switched off
+        photos = looks.gallery(pieces) or []
+        for photo in photos:                # what was just answered, with its reason if it was refused
+            if photo.name == shot:
+                photo.look = look
         if not request.headers.get("HX-Request"):
-            return redirect(scene_shown(key, scene))
-        return look_fragment(key, look, scene)
+            return redirect(shot_shown(key, shot))
+        return look_fragment(key, photos, shot)
 
     @app.get("/outfits/look/<look_key>")
     def outfits_look_state(look_key: str):
-        """Asked every few seconds while a picture is being drawn."""
+        """Asked every few seconds while the picture shown large is being drawn."""
         look = looks.get(look_key) if re.fullmatch(r"[0-9a-f]{24}", look_key) else None
         if look is None:
             abort(404)
         outfit_key = request.args.get("outfit", "")
-        return look_fragment(outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else "", look,
-                             looks.scene_named(request.args.get("scene")))
+        outfit_key = outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else ""
+        pieces = pieces_of(outfit_key) if outfit_key else None
+        shot = looks.shot_named(request.args.get("shot"))
+        photos = (looks.gallery(pieces) if pieces else None) or [looks.Photo(looks.FRONT, looks.FRONT_LABEL, look)]
+        return look_fragment(outfit_key, photos, shot if len(photos) > 1 else looks.FRONT)
+
+    @app.get("/outfits/photos")
+    def outfits_photos():
+        """Asked every few seconds while some of an outfit's small pictures are being drawn: the row of them."""
+        outfit_key = request.args.get("outfit", "")
+        pieces = pieces_of(outfit_key) if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else None
+        photos = looks.gallery(pieces) if pieces else None
+        if not photos:
+            abort(404)
+        return shots_fragment(outfit_key, photos, looks.shot_named(request.args.get("shot")))
 
     # ── AI videos of outfits: "See it move" (videos.py) ──────────────────────
     # The part of a picture box about its video is swapped on its own (_video.html), so the picture is not sent

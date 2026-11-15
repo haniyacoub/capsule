@@ -8,6 +8,7 @@
     python -m wardrobe publish ./data-production   give your own or an invite-only service the collected products
     python -m wardrobe looks                  are the AI pictures of outfits switched on?
     python -m wardrobe looks --test           draw one sample picture, to check the key (costs one picture)
+    python -m wardrobe looks --test-set       draw a sample outfit's whole set: the front picture and the five made from it
     python -m wardrobe stores [sync | end KEY]    the stores whose feeds Stilsmith may use (config/feeds.toml)
     python -m wardrobe feeds [--store KEY] [--from FILE]   import the approved stores' product feeds (feeds/)
     python -m wardrobe owner [add EMAIL | remove EMAIL]    who sees the owner's pages, such as /stores (owner.py)
@@ -177,9 +178,22 @@ def check_looks(args: argparse.Namespace) -> None:
                  '  export OPENAI_API_KEY="sk-…"      (or GEMINI_API_KEY="…")\n'
                  "and start the app from the same terminal. To keep the key for every new terminal,\n"
                  "add that line to the file ~/.zshrc.")
+    if args.test_set:
+        # The whole set of one made-up outfit, to judge with your own eyes: is it the same man in the same clothes
+        # in every picture, and do the street, the café and the library look photographed?
+        print(f"Drawing a sample outfit's {len(looks.shots())} pictures: the front picture, then the others made from it.\n"
+              "This takes a few minutes and each picture is billed to your key…", flush=True)
+        try:
+            looks.sample_set(lambda line: print("  " + line, flush=True))
+        except imagegen.DrawError as problem:
+            sys.exit(f"\nIt did not work: {looks.SAY.get(problem.kind, looks.SAY['unknown'])}\n  {problem.detail}")
+        print("Done. Open the files side by side to compare them.")
+        return
     if not args.test:
         print("To check the key by drawing one sample picture (the service bills it, a few cents):\n"
-              "  python -m wardrobe looks --test")
+              "  python -m wardrobe looks --test\n"
+              "To see a whole set (the front picture and the five made from it, six pictures billed):\n"
+              "  python -m wardrobe looks --test-set")
         return
     print("Drawing a sample outfit. This takes up to a minute and is billed to your key…", flush=True)
     try:
@@ -236,6 +250,8 @@ def main(argv: list[str] | None = None) -> None:
 
     p_looks = sub.add_parser("looks", help="check the AI pictures of outfits and the key they need")
     p_looks.add_argument("--test", action="store_true", help="draw one sample picture (billed by the service)")
+    p_looks.add_argument("--test-set", action="store_true",
+                         help="draw a sample outfit's whole set: the front picture and the pictures made from it (each billed)")
     p_looks.set_defaults(func=check_looks)
 
     p_mock = sub.add_parser("mock", help="go back to the invented demo catalogue")

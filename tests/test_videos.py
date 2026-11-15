@@ -130,7 +130,8 @@ class SeeItMove(WithVideos, AppCase):
         self.assertIn("data-play", shown, "it plays once it is there")
         self.assertIn('<span class="ai-chip">AI video</span>', shown)
 
-        street = self.post("/outfits/look", key=outfit.key, scene="street").data.decode()   # another scene
+        self.post("/outfits/look", key=outfit.key, more="1")                                # "More photos"
+        street = self.post("/outfits/look", key=outfit.key, shot="street").data.decode()    # another of its pictures
         self.assertIn('class="look-vid"', street)
         other = looks.get(re.search(r'data-look="([0-9a-f]{24})"', street).group(1))
         self.assertNotEqual(other.key, look.key)
@@ -989,7 +990,7 @@ class Schema(unittest.TestCase):
                              [("index", "sqlite_autoindex_videos_1"), ("index", "video_requests_at"),
                               ("index", "videos_picture"), ("table", "pro"), ("table", "video_requests"),
                               ("table", "videos")])
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 7)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM pro").fetchone()[0], 0, "nobody is Pro by itself")
         db.init()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:

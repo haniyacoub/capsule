@@ -473,14 +473,14 @@ details.why summary::-webkit-details-marker { display: none; }
    the photo radius (see "Wider screens"). On a phone the first screen shows the whole model, its price and the
    heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
    the budget bar (--bar-h) and 302px: the header, the chips and the lead line above the picture (150px), the line
-   under it (40px), the outfit line and the tab bar below; and --scenes-h, the scenes under the line (see .scenes),
+   under it (40px), the outfit line and the tab bar below; and --shots-h, the small pictures under the line (see .shots),
    where there are any. The picture is never under 240px wide; on a shorter screen it then ends just above the tab
    bar, and the outfit line follows below. Its width is kept as --stage-w, so that the arrows can be placed beside
    the picture (see .reel-nav). */
 .looks { --told: 0px; --least: 240px; --lead-more: 0px; }
-.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--scenes-h) - var(--lead-more) - var(--told)) * 2 / 3))); }
-.looks { --scenes-h: 0px; }
-.looks:has(.scenes) { --scenes-h: 40px; }
+.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--shots-h) - var(--lead-more) - var(--told)) * 2 / 3))); }
+.looks { --shots-h: 0px; }
+.looks:has(.shots) { --shots-h: 40px; }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
    room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
@@ -497,10 +497,10 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 @media (max-width: 759.98px) {
   main:has(> .said) .looks { --told: var(--said-h, calc(4 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 150px; }
   main:has(> .said.short) .looks { --told: var(--said-h, calc(2 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 170px; }
-  /* With the scenes under the picture as well (40px more), the smallest width gives up the same 40px of height (a
+  /* With the small pictures under the picture as well (40px more), the smallest width gives up the same 40px of height (a
      third less width, 2:3), so the whole model still ends above the tab bar on that 390 x 664 phone. */
-  main:has(> .said) .looks:has(.scenes) { --least: 124px; }
-  main:has(> .said.short) .looks:has(.scenes) { --least: 144px; }
+  main:has(> .said) .looks:has(.shots) { --least: 124px; }
+  main:has(> .said.short) .looks:has(.shots) { --least: 144px; }
 }
 /* The stage is also the box the line under the picture measures itself against (see .look-line). */
 .stage {
@@ -597,25 +597,35 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .look-links { display: flex; gap: var(--s-3); flex: none; align-self: stretch; }
 .look-links .link { display: inline-flex; align-items: center; padding: 0; font-size: var(--t-s); }   /* each the line's 40px tall */
 .look-msg { color: var(--ok); }
-/* Why a new version was not drawn: right under the line with "Draw again", as wide as it, above the scenes. */
+/* Why a new version was not drawn: right under the line with "Draw again", as wide as it, above the small pictures. */
 p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var(--s-2); font-size: var(--t-s); line-height: var(--lh-s); }
-/* The scenes under the line (config/looks.toml [scenes]): Studio, Street, Library, Café as one row of equal cells on
-   a --soft track, as wide as the line above it and 40px tall in every state (--scenes-h gives the picture's room for
-   it). The scene shown is filled with ink, like any choice of one of several. Each cell is the row's whole height, a
-   finger-sized target, with the corners of a segmented control's cells (--r-ui) inside the track's (--r-track); a 2px
-   inner ring in the track's colour draws the track around the filled one. */
-.scenes {
-  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
-  width: max(100%, 272px); height: 40px; margin: 0 min(0px, (100% - 272px) / 2);
-  background: var(--soft); border-radius: var(--r-track);
+/* The outfit's small pictures under the line (_shots.html): the front picture, then "More photos" with what it
+   costs beside it, or, once that was tapped, a cell for each of the other pictures (a spinner until it arrives, a
+   plus where it was not drawn). One row, as wide as the line above it and 40px tall in every state, empty until
+   the front picture is there (--shots-h gives the picture's room for it). Each cell is 30 by 40px, the top of its
+   picture (the head and the chest; in a surrounding, the place too): a finger can hit it, and six of them with
+   their gaps fit the narrowest row (272px). */
+.shots { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2); }
+.shots-row { display: flex; align-items: center; gap: var(--s-2); height: 40px; }
+.shots-row form { display: contents; }
+.shots-row button[aria-pressed] {
+  position: relative; flex: none; display: grid; place-items: center; width: 30px; height: 40px; padding: 0;
+  border: 0; border-radius: 4px; overflow: hidden; background: var(--soft); color: var(--muted); cursor: pointer;
 }
-.scenes button {
-  min-width: 0; height: 40px; padding: 0 var(--s-1); border: 0; border-radius: var(--r-ui); background: none;
-  font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; color: var(--muted); cursor: pointer;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .15s ease-out, background-color .15s ease-out;
-}
-.scenes [aria-pressed="false"]:hover { color: var(--ink); }   /* the one shown keeps its page-colour words */
-.scenes [aria-pressed="true"] { background: var(--ink); color: var(--bg); box-shadow: inset 0 0 0 2px var(--soft); cursor: default; }
+.shots-row img { display: block; width: 30px; height: 40px; object-fit: cover; object-position: 50% 15%; }
+/* A hairline round each cell, over its picture: a white studio picture has an edge on a light page too. */
+.shots-row button[aria-pressed]::before { content: ""; position: absolute; inset: 0; border: 1px solid var(--line); border-radius: inherit; pointer-events: none; }
+.shots-row [aria-pressed="true"] { cursor: default; }
+/* The one shown: an ink frame, and inside it a ring in the page's colour, so the frame stands clear of a white
+   picture on a dark page and of a dark one on a light page. */
+.shots-row [aria-pressed="true"]::after { content: ""; position: absolute; inset: 0; border: 2px solid var(--ink); border-radius: inherit; box-shadow: inset 0 0 0 2px var(--bg); pointer-events: none; }
+.shots-row [aria-pressed="false"]:hover { color: var(--ink); }
+.shots-row .plus { font-size: var(--t-l, 18px); line-height: 1; }
+.shots-row .btn { flex: none; }
+.shots-note { min-width: 0; font-size: var(--t-s); line-height: 1.25; color: var(--muted); }
+.shots p.look-msg { margin-top: var(--s-1); }
+/* The dots are placed for the front picture's pose: over any of the other pictures there are none. */
+.stage:has(.look-pic.more) .spots { display: none; }
 /* "See it move" (_video.html, app.js 15): the outfit's AI video, over its picture.
    The button on the picture, at its top right (clear of the head, which is centred, and of the dots): the same dark
    veil and white as the 'AI picture' label (7.4:1 on the studio grey), 32px tall to the eye and 48px to a finger. Its
@@ -647,7 +657,7 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
    shoes). On either side the picture it started from shows through: the same ground, so the edges do not show.
    It is labelled 'AI video' like the picture. While it shows, the dots (which
    would not follow the model as he turns) are hidden, and its own two lines take the place of the picture's line
-   and the scenes: the same 40px each, so nothing moves. The first keeps the picture's caption where it was ('Look
+   and the small pictures: the same 40px each, so nothing moves. The first keeps the picture's caption where it was ('Look
    and fit will differ', which holds for the video too); the second has 'Drag to turn', 'Play again' and 'Show
    picture'. It is turned by dragging sideways across it (touch-action: a sideways drag turns him rather than moving
    on to the next outfit) or with the arrow keys once it has focus. */
@@ -664,7 +674,7 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
   outline: 2px solid #1b1b1a; outline-offset: -2px; box-shadow: inset 0 0 0 4px #fff;
 }
 .stage:has(.vid.on) .spots, .stage:has(.vid.on) .look-pic .ai-chip { display: none; }   /* its own label is on the video */
-.look:has(.vid.on) > :is(.look-line, .scenes) { display: none; }
+.look:has(.vid.on) > :is(.look-line, .shots) { display: none; }
 .vid-line {
   display: none; width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2);
   font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); white-space: nowrap;
@@ -674,12 +684,12 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .vid-hint { display: inline-flex; align-items: center; min-width: 0; }
 .vid-line .ic { width: 16px; height: 16px; margin-right: 2px; }
 /* The offer under the picture ("See it move" tapped; also why a video was not made, or that none are left today): in
-   place of the picture's line and the scenes, so the picture stays whole while the customer decides. Its words on
+   place of the picture's line and the small pictures, so the picture stays whole while the customer decides. Its words on
    one or two lines, as tall as the line they replace (40px); its two buttons side by side under them, as tall as the
-   scenes (40px): nothing below moves. A box to tick (a picture of the customer's own photo, once) or a longer reason
+   small pictures (40px): nothing below moves. A box to tick (a picture of the customer's own photo, once) or a longer reason
    adds lines between the two. On a short phone that place is below the tab bar: app.js (15, bringUp) then moves the
    page up until the whole offer shows above it. */
-.look:has(.vid-bar.ask) > :is(.look-line, .scenes) { display: none; }
+.look:has(.vid-bar.ask) > :is(.look-line, .shots) { display: none; }
 .vid-bar.ask {
   display: grid; grid-template-columns: auto auto 1fr; grid-auto-rows: minmax(40px, auto); align-items: center;
   column-gap: var(--s-4); width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2);
@@ -796,7 +806,7 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
   .reel { scroll-behavior: auto; }
   .spin { animation: none; }
   .look-pic { transition: none; }
-  .scenes button { transition: none; }
+  .shots-row button[aria-pressed] { transition: none; }
   .vid-pill { transition: none; }
 }
 
@@ -1422,12 +1432,12 @@ details[open] > summary .edit { visibility: hidden; }
 
   /* Buttons, chips and choices answer a tap: they give a little under the finger, and a choice fills with ink rather
      than switching at once. (Profile's own controls move as its section says.) */
-  :is(.btn, .chip-link, .act, .reel-nav, .heart, .vid-pill, .scenes button, .sheet-close, .piece-row, .tile, .tabs a, .seg span) {
+  :is(.btn, .chip-link, .act, .reel-nav, .heart, .vid-pill, .shots-row button[aria-pressed], .sheet-close, .piece-row, .tile, .tabs a, .seg span) {
     transition: background-color var(--dur-quick) var(--ease-out), border-color var(--dur-quick) var(--ease-out),
                 color var(--dur-quick) var(--ease-out), opacity var(--dur-quick) var(--ease-out),
                 transform var(--dur-press) var(--ease-out);
   }
-  :is(.btn, .chip-link, .reel-nav, .heart, .vid-pill, .scenes button[aria-pressed="false"], .sheet-close):active:not(:disabled, [aria-disabled="true"]),
+  :is(.btn, .chip-link, .reel-nav, .heart, .vid-pill, .shots-row button[aria-pressed="false"], .sheet-close):active:not(:disabled, [aria-disabled="true"]),
   .act:active:not(:disabled), .tabs a:active, .seg label:active span { transform: scale(.96); }
   /* The dots come and go with a short fade as the pointer reaches or leaves the picture or the list. */
   .spot { transition: opacity var(--dur-quick) var(--ease-out), box-shadow var(--dur-quick) var(--ease-out), transform var(--dur-press) var(--ease-out); }
@@ -1633,9 +1643,9 @@ details[open] > summary .edit { visibility: hidden; }
   .reel { margin: calc(-1 * var(--s-4)) 0; }   /* the 16px of room for focus rings stays (see .reel) */
   .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: var(--s-6); padding: var(--s-4) 60px; }
   /* The picture beside the pieces, as tall as the screen allows below the budget bar (--bar-h), the header, the
-     chips and the lead line, with the line under it (210px) and the scenes under that (--scenes-h), less any
+     chips and the lead line, with the line under it (210px) and the small pictures under that (--shots-h), less any
      message's room (see .looks). */
-  .looks { --stage-w: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--scenes-h) - var(--told)) * 2 / 3))); }
+  .looks { --stage-w: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--shots-h) - var(--told)) * 2 / 3))); }
   .looks { --pair: calc(var(--stage-w) + var(--s-6) + 420px); }   /* the picture, the gap and the list: the slide's columns */
   .stage { margin: 0; }
   .collage, .look-pic { border-radius: var(--r-img); }

@@ -30,7 +30,7 @@ from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 LOCAL_USER_ID = 1
 
 SCHEMA = """
@@ -173,6 +173,18 @@ CREATE TABLE IF NOT EXISTS owners (     -- `python -m wardrobe owner add | remov
 """
 
 
+# Added in version 8: an outfit's further pictures (walking, turned, on a street …) are made from its front picture
+# (looks.py). This says which front picture each was made from, so that they go when it is drawn again. A database
+# of version 7 gains this table and nothing else changes: the pictures it has are front pictures.
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_PHOTOS = """
+CREATE TABLE IF NOT EXISTS looks_made_from (
+    key   TEXT PRIMARY KEY REFERENCES looks(key) ON DELETE CASCADE,   -- the picture that was made
+    front TEXT NOT NULL                 -- the file of the front picture it was made from (looks.file)
+);
+CREATE INDEX IF NOT EXISTS looks_made_from_front ON looks_made_from (front);
+"""
+
 # Added in version 7: the AI videos of outfits ("See it move", videos.py), counted apart from the pictures, and the
 # accounts marked Pro, which may ask for more videos a day (`python -m wardrobe pro add EMAIL`). A database from
 # version 6 gains these tables and nothing else changes.
@@ -278,6 +290,9 @@ def _migrate() -> None:
         if version == 3:
             con.execute("INSERT INTO look_requests (user_id, at) SELECT user_id, at FROM look_requests_v3")
             con.execute("DROP TABLE look_requests_v3")
+        for statement in SCHEMA_PHOTOS.split(";"):     # new in version 8, safe to repeat
+            if statement.strip():
+                con.execute(statement)
         for statement in SCHEMA_FEEDS.split(";"):      # new in version 5, safe to repeat
             if statement.strip():
                 con.execute(statement)
@@ -664,15 +679,18 @@ def look_rows(keys: list[str]) -> dict[str, dict]:
 
 
 def start_look(key: str, service: str, stale_before: float, waiting_before: float,
-               again: bool = False, owner: int | None = None) -> bool:
+               again: bool = False, owner: int | None = None, made_from: str | None = None) -> bool:
     """Claim the drawing of one picture. True for exactly one caller: a new picture, another try
     after a failure or after an attempt that died (drawing since before `stale_before`, or waiting
-    its turn since before `waiting_before`), or with `again` a fresh version of a finished one."""
+    its turn since before `waiting_before`), or with `again` a fresh version of a finished one.
+    `made_from`: the file of the front picture it is made from (looks.py), for one of an outfit's further pictures."""
     now = time.time()
     with connect() as con:
         cur = con.execute("INSERT OR IGNORE INTO looks (key, user_id, status, started_at, service) "
                           "VALUES (?, ?, 'waiting', ?, ?)", (key, owner, now, service))
         if cur.rowcount == 1:
+            if made_from:
+                con.execute("INSERT OR REPLACE INTO looks_made_from (key, front) VALUES (?, ?)", (key, made_from))
             return True
         cur = con.execute(
             "UPDATE looks SET status = 'waiting', started_at = ?, error = NULL, service = ? WHERE key = ? AND "
@@ -714,6 +732,17 @@ def drop_personal_looks(user_id: int) -> list[str]:
         files = [r["file"] for r in con.execute("SELECT file FROM looks WHERE user_id = ? AND file IS NOT NULL",
                                                 (user_id,))]
         con.execute("DELETE FROM looks WHERE user_id = ?", (user_id,))
+    return files
+
+
+def drop_looks_made_from(file: str) -> list[str]:
+    """Forget the pictures made from a front picture that is gone (drawn again). Returns their files, for deleting."""
+    with exclusive() as con:
+        files = [r["file"] for r in con.execute(
+            "SELECT file FROM looks WHERE file IS NOT NULL AND key IN (SELECT key FROM looks_made_from WHERE front = ?)",
+            (file,))]
+        con.execute("DELETE FROM looks WHERE key IN (SELECT key FROM looks_made_from WHERE front = ?)", (file,))
+        con.execute("DELETE FROM looks_made_from WHERE front = ?", (file,))
     return files
 
 

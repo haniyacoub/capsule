@@ -12,10 +12,11 @@ from .test_app import AppCase
 from .test_production import ProductionCase
 from .test_looks import PHOTO, WithPictures, look_key, some_outfits
 
-# The words the standard studio picture was asked for before the body reached it (round 5, 30b8a2a), as a
-# fingerprint of the whole description of looks.SAMPLE. It must never change for a customer who changed nothing:
-# a different description is a different picture, drawn and paid for again.
-UNTOUCHED = "a9222a284fca1c05"
+# The words the standard front picture is asked for, as a fingerprint of the whole description of looks.SAMPLE.
+# It must not change for a customer who changed nothing: a different description is a different picture, drawn and
+# paid for again. (It changed once on purpose, in round 6: the front picture moved from a light-grey studio to a
+# white one, in new words, and every picture is drawn anew. Before that it was a9222a284fca1c05.)
+UNTOUCHED = "89098e042ecf3449"
 
 
 def body(height=180, weight=78, chest=None, waist=None) -> dict:
@@ -233,6 +234,10 @@ class ThePrivacyPage(ProductionCase):
         for words in ("once you have entered your own height, weight, chest or waist on Profile, by your body in a few "
                       "words worked out from them", "how your chest compares with your waist",
                       "The numbers themselves are not sent", "is sent with each picture to an AI image service, "
-                      "OpenAI or Google", "No name, email address or clothing size goes with it"):
+                      "OpenAI or Google", "No name, email address or clothing size goes with it",
+                      "An outfit's further pictures (“More photos”: other poses and surroundings) are made from its "
+                      "first picture: that AI picture is sent to the same service again",
+                      "the further pictures of an outfit are made from that picture of you, which then goes to the "
+                      "same service in place of the photo"):
             self.assertIn(words, page)
         self.assertNotIn("No name, email address or size goes with it. If you upload", page)

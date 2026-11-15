@@ -222,7 +222,7 @@
          it back. The consent's words are dated: app.py stores PHOTO_CONSENT with the photo; change the two together.
          `videos_on`: the pictures of him can also be made into videos ("See it move", videos.py), by Google. #}
       <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
-        <p class="photo-facts" id="photo-facts">Your photo goes to {{ drawn_by }} each time a picture of you is drawn, so the model looks like you.
+        <p class="photo-facts" id="photo-facts">Your photo goes to {{ drawn_by }} each time a picture of you is drawn, so the model looks like you. An outfit's further photos (“More photos”) are made from that picture of you, which goes to {{ drawn_by }} again.
           {%- if videos_on %} When you ask for a video of a picture of you (“See it move”), that picture goes to Google, which makes the video from it.{% endif %}
           {{ site_name }} keeps it{{ ' in data/people on this computer' if not production }}, without where and when it was taken, until you delete it; you can delete it here at any time, and the pictures made from it go with it{{ ', with their videos' if videos_on }}.
           How {{ site_name }} handles your data: <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>.</p>
