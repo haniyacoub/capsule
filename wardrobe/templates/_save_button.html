@@ -1,13 +1,21 @@
-{# The heart under an outfit. Posting swaps this form for its other state. The button keeps its id through the swap,
-   so keyboard focus stays on it (HTMX puts focus back on the element with the same id). A screen reader always
-   hears "Save outfit", with pressed or not pressed for whether it is saved (aria-pressed); the tooltip says what a
-   tap does now. #}
+{# The heart under an outfit. A tap saves the outfit; a tap on a filled heart takes it out of the saved ones again.
+   The form says which of the two it asks for (want), so a tap always does what the heart showed (app.py,
+   outfits_save). Among today's outfits, posting swaps this form for its other state, and the Saved chip for one with
+   the new number. The button keeps its id through the swap, so keyboard focus stays on it (HTMX puts focus back on
+   the element with the same id). Under Saved the form is sent as a plain form: the page comes back without the
+   outfit and says so, with Undo. A screen reader always hears "Save outfit", with pressed or not pressed for whether
+   it is saved (aria-pressed); the tooltip says what a tap does now. #}
+{% from "_macros.html" import saved_chip %}
 {% set key = o.key if o is defined else key %}
 {% set is_saved = o.saved if o is defined else saved %}
-<form class="save" method="post" action="{{ url_for('outfits_save') }}" hx-post="{{ url_for('outfits_save') }}" hx-target="this" hx-swap="outerHTML">{{ csrf_field() }}
+{% set under_saved = occasion is defined and occasion == 'saved' %}
+<form class="save" method="post" action="{{ url_for('outfits_save') }}"{% if not under_saved %} hx-post="{{ url_for('outfits_save') }}" hx-target="this" hx-swap="outerHTML"{% endif %}>{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
+  <input type="hidden" name="want" value="{{ 'remove' if is_saved else 'save' }}">
+  {% if under_saved %}<input type="hidden" name="on" value="saved">{% endif %}
   <button class="heart{% if is_saved %} on{% endif %}" id="save-{{ key }}" aria-pressed="{{ 'true' if is_saved else 'false' }}" title="{{ 'Saved — tap to remove' if is_saved else 'Save this outfit' }}">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="{{ 'currentColor' if is_saved else 'none' }}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>
     <span class="sr">Save outfit</span>
   </button>
 </form>
+{% if chip is defined %}{{ saved_chip(chip, swap=true) }}{% endif %}

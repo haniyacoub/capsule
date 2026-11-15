@@ -25,7 +25,8 @@ sees the label 'AI picture' clear of every dot on a picture as narrow as 124px,
 moves between outfits (by keyboard too: Next among the first Tab stops, focus going with the outfit shown, which a
 screen reader hears named, Tab leading into the outfit shown and Next keeping focus at the end of the row, the heart
 keeping focus, Escape hiding a dot's label),
-saves and "buys" one (keeping the example sizes as his own), prints the shopping list,
+saves and "buys" one (keeping the example sizes as his own), saves an outfit with the heart and takes it back with the
+next tap (phone, computer and without JavaScript; under Saved it leaves the page, with Undo), prints the shopping list,
 logs in again and lands on the outfits, puts a model together on Profile's character screen (its tabs, the figure
 in the middle that follows every height, build, skin and hair choice at once, by mouse, keyboard and links, on a phone,
 a computer and without JavaScript, and "Your model" drawn by AI there), uploads a photo, sees Profile ask before
@@ -2923,6 +2924,129 @@ def run(base: str) -> None:
             else:
                 assert "Not kept: " in said, f"the swapped piece is gone and the message does not say so: {said!r}"
 
+        def the_heart_saves_and_takes_back():
+            # The heart under an outfit saves it; a tap on the filled heart takes it out of the saved ones again: on a
+            # phone by touch, on a computer by mouse, and with JavaScript off. The second tap works the moment the
+            # heart has filled, and the Saved chip's number is right at once ("Saved 1", then "Saved"). A heart always
+            # does what it showed: filled on a page that has gone out of date (the outfit removed meanwhile under
+            # Saved), a tap leaves it removed rather than saving it again. Under Saved, a tap on the heart takes the
+            # outfit off the page at once, the page says which one in a line the screen shows, and its Undo puts it
+            # back. A customer of his own, so that what he saves is not in the other steps' way.
+            hearter = "heart-" + EMAIL
+            context = browser.new_context()
+            signing = context.new_page()
+            signing.goto(base + "/signup", wait_until="networkidle")
+            signing.fill("input[name=email]", hearter)
+            signing.fill("input[name=password]", PASSWORD)
+            signing.click("button:has-text('Create account')")
+            signing.wait_for_url(base + "/outfits")
+            context.close()
+            second = "#reel .slide:nth-child(2)"
+            for where, phone, script in (("phone", True, True), ("computer", False, True), ("phone, no JavaScript", True, False)):
+                screen = {"width": 390, "height": 844} if phone else {"width": 1280, "height": 860}
+                context = browser.new_context(viewport=screen, is_mobile=phone, has_touch=phone, java_script_enabled=script)
+                try:
+                    other = context.new_page()
+                    other.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                             if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                    other.goto(base + "/login", wait_until="networkidle")
+                    other.fill("input[name=email]", hearter)
+                    other.fill("input[name=password]", PASSWORD)
+                    other.click("button:has-text('Log in')")
+                    other.wait_for_url(base + "/outfits")
+                    other.wait_for_load_state("networkidle")
+
+                    def tap(view, selector: str) -> None:
+                        (view.locator(selector).first.tap() if phone else view.locator(selector).first.click())
+
+                    def heart(view, slide: str, pressed: str) -> None:
+                        try:
+                            view.wait_for_selector(f"{slide} .heart[aria-pressed={pressed}]", timeout=5000)
+                        except Exception:  # noqa: BLE001 - it never came: said in the customer's terms
+                            raise AssertionError(f"{where}: after a tap the heart is not {'filled' if pressed == 'true' else 'empty'}") from None
+
+                    def chip(view, words: str, when: str) -> None:
+                        if not script:
+                            view.wait_for_load_state("networkidle")
+                        try:            # (with JavaScript the chip is swapped in a moment after the tap)
+                            view.wait_for_function("words => document.querySelector('.chips a[href$=occasion\\\\=saved]').textContent.trim() === words",
+                                                   arg=words, timeout=3000) if script else None
+                        except Exception:  # noqa: BLE001 - it never said so: reported just below, in words
+                            pass
+                        seen = view.locator(".chips a[href$='occasion=saved']").inner_text().strip()
+                        assert seen == words, f"{where}: {when}, the chip says {seen!r}, not {words!r}"
+
+                    def truly(pressed: str, when: str) -> None:      # what a fresh page says of the first outfit
+                        other.goto(base + "/outfits", wait_until="networkidle")
+                        seen = other.get_attribute(f"{first} .heart", "aria-pressed")
+                        assert seen == pressed, f"{where}: {when}, a reload shows the heart {'filled' if seen == 'true' else 'empty'}"
+
+                    # Saved, and taken back with the very next tap.
+                    chip(other, "Saved", "before anything is saved")
+                    tap(other, f"{first} .heart")
+                    heart(other, first, "true")
+                    tap(other, f"{first} .heart")           # at once: the moment the heart has filled
+                    heart(other, first, "false")
+                    chip(other, "Saved", "saved and taken back")
+                    truly("false", "saved and taken back")
+                    tap(other, f"{first} .heart")
+                    heart(other, first, "true")
+                    chip(other, "Saved 1", "with one outfit saved")
+                    truly("true", "saved")
+
+                    # A heart that shows filled takes the outfit out, also when it was removed meanwhile elsewhere.
+                    elsewhere = context.new_page()
+                    elsewhere.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
+                    tap(elsewhere, f"{first} .heart")
+                    elsewhere.wait_for_url("**removed=*")
+                    elsewhere.close()
+                    assert other.get_attribute(f"{first} .heart", "aria-pressed") == "true"     # this page still shows it filled
+                    tap(other, f"{first} .heart")
+                    heart(other, first, "false")
+                    truly("false", "a filled heart tapped on a page gone out of date")
+
+                    # Under Saved: the outfit leaves the page, the page says so where the screen shows it, and Undo.
+                    tap(other, f"{first} .heart")
+                    heart(other, first, "true")
+                    if phone and script:
+                        other.evaluate("document.getElementById('reel').scrollTo({left: innerWidth, behavior: 'instant'})")
+                        other.wait_for_timeout(400)         # the row has come to rest on the second outfit
+                    tap(other, f"{second} .heart")
+                    heart(other, second, "true")
+                    chip(other, "Saved 2", "with two outfits saved")
+                    other.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
+                    keys = [slide.get_attribute("id") for slide in other.locator("#reel .slide").all()]
+                    assert len(keys) == 2, f"{where}: two outfits saved, {len(keys)} under Saved"
+                    tap(other, f"{first} .heart")
+                    other.wait_for_url("**removed=*")
+                    other.wait_for_load_state("networkidle")
+                    left = [slide.get_attribute("id") for slide in other.locator("#reel .slide").all()]
+                    assert left == keys[1:], f"{where}: the outfit removed under Saved is still on the page ({len(left)} shown)"
+                    chip(other, "Saved 1", "one of two removed under Saved")
+                    said = other.locator("main > .said")
+                    assert said.count() == 1 and "Removed" in said.inner_text() and "from your saved outfits" in said.inner_text(), \
+                        f"{where}: the page does not say an outfit was removed"
+                    box = said.bounding_box()
+                    assert box["y"] >= 0 and box["y"] + box["height"] <= screen["height"], \
+                        f"{where}: the line that says an outfit was removed, with Undo, is off the screen ({box})"
+                    tap(other, "main > .said button:has-text('Undo')")
+                    other.wait_for_url("**occasion=saved#outfit-*")
+                    other.wait_for_load_state("networkidle")
+                    back = [slide.get_attribute("id") for slide in other.locator("#reel .slide").all()]
+                    assert back == keys, f"{where}: Undo did not put the removed outfit back where it was"
+                    chip(other, "Saved 2", "after Undo")
+                    assert other.locator("main > .said").count() == 0, f"{where}: after Undo the page still says 'Removed'"
+                    for n in (1, 0):                         # both removed: nothing left for the next screen
+                        other.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
+                        tap(other, f"{first} .heart")
+                        other.wait_for_url("**removed=*")
+                        other.wait_for_load_state("networkidle")
+                        assert other.locator("#reel .slide").count() == n, f"{where}: {n} saved outfits left, but not {n} shown"
+                    chip(other, "Saved", "everything removed")
+                    assert "Nothing saved yet" in other.locator("main").inner_text(), f"{where}: no word that nothing is saved"
+                finally:
+                    context.close()
+
         def motion_quick_and_still():
             # Stilsmith moves to answer the customer (app.css "Motion"), on a phone (390 x 844, by touch) and a computer:
             # a tab changes the page with a slide, forward along the tabs and back again, and a tap made while it slides
@@ -3678,6 +3802,7 @@ def run(base: str) -> None:
                  ("arrows for every mouse, your place kept on Back", arrows_for_every_mouse_and_your_place_kept),
                  ("the outfit row by keyboard and screen reader", the_outfit_row_by_keyboard),
                  ("save an outfit and buy it", save_and_buy),
+                 ("the heart saves and takes back, Saved with Undo", the_heart_saves_and_takes_back),
                  ("the shopping list prints without photos", list_prints_without_photos),
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("the landing page says what Stilsmith is", the_landing_page),

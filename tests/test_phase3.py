@@ -158,6 +158,80 @@ class SavedOutfits(AppCase):
         self.assertEqual(db.saved_keys(), set())
         self.assertIn("Nothing saved yet", self.client.get("/outfits?occasion=saved").data.decode())
 
+    def test_the_heart_does_what_it_showed_also_on_a_page_out_of_date(self):
+        # The heart's form says what it asks for. A filled heart asks to remove: on a page gone out of date (the outfit
+        # was removed meanwhile, or a second tap came before the first was answered) it leaves the outfit removed
+        # rather than saving it again. An empty heart asks to save, and asked twice the outfit is saved once.
+        key, _ = self.first_key()
+        page = self.client.get("/outfits").data.decode()
+        form = page[page.index('<form class="save"'):]
+        form = form[:form.index("</form>")]
+        self.assertIn('name="want" value="save"', form, "an empty heart asks to save")
+        for _ in range(2):
+            r = self.client.post("/outfits/save", data={"key": key, "want": "save"}, headers=HX)
+            self.assertIn('aria-pressed="true"', r.data.decode())
+            self.assertIn('name="want" value="remove"', r.data.decode(), "a filled heart asks to remove")
+            self.assertEqual(db.saved_keys(), {key})
+        for _ in range(2):
+            r = self.client.post("/outfits/save", data={"key": key, "want": "remove"}, headers=HX)
+            self.assertEqual(r.status_code, 200)
+            self.assertIn('aria-pressed="false"', r.data.decode())
+            self.assertEqual(db.saved_keys(), set(), "a filled heart tapped twice saved the outfit again")
+
+    def test_the_saved_chip_counts_at_once(self):
+        # With the heart's new state comes the Saved chip with its new number, to take the place of the one on the
+        # page (HTMX swaps it in for the chip that leads to Saved): "Saved 1" the moment an outfit is saved, "Saved"
+        # again when it is not.
+        key, _ = self.first_key()
+        swapped_in = r"""<a class="chip-link" href="/outfits\?occasion=saved" hx-swap-oob="outerHTML:.chips a\[href\$='occasion=saved'\]">.*? Saved%s</a>"""
+        self.assertRegex(self.client.get("/outfits").data.decode(), r'<a class="chip-link" href="/outfits\?occasion=saved">.*? Saved</a>')
+        saved = self.client.post("/outfits/save", data={"key": key, "want": "save"}, headers=HX).data.decode()
+        self.assertRegex(saved, swapped_in % " 1")
+        removed = self.client.post("/outfits/save", data={"key": key, "want": "remove"}, headers=HX).data.decode()
+        self.assertRegex(removed, swapped_in % "")
+
+    def test_under_saved_the_heart_removes_the_outfit_from_the_page_with_undo(self):
+        # Under Saved the heart takes the outfit off the page (it is sent as a plain form, with JavaScript too), the
+        # page says which one was removed, and Undo puts back exactly what was saved: the same day, the same pieces
+        # and prices, also when today's wardrobe no longer makes that outfit.
+        boards, _ = outfits.generate(selection.build(), limit=4)
+        for outfit in boards[:2]:
+            self.client.post("/outfits/save", data={"key": outfit.key, "want": "save"}, headers=HX)
+        key = boards[0].key
+        before = next(fav for fav in db.list_saved() if fav["key"] == key)
+        page = self.client.get("/outfits?occasion=saved").data.decode()
+        form = page[page.index('<form class="save"'):]
+        form = form[:form.index("</form>")]
+        self.assertNotIn("hx-post", form)
+        self.assertIn('name="on" value="saved"', form)
+        self.assertIn('name="want" value="remove"', form)
+        self.client.post("/settings", data={"mode": "cheapest", "threshold": "70"}, headers=HX)
+        catalog.update(lambda cat: cat["candidates"].clear())      # the wardrobe can no longer make it
+
+        r = self.client.post("/outfits/save", data={"key": key, "want": "remove", "on": "saved"})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r.headers["Location"], f"/outfits?occasion=saved&removed={key}")
+        page = self.client.get(r.headers["Location"]).data.decode()
+        self.assertNotIn(f'id="outfit-{key}"', page, "the outfit removed is still on the Saved page")
+        self.assertIn(f'id="outfit-{boards[1].key}"', page)
+        self.assertIn("Saved 1</a>", page)
+        self.assertIn(f"Removed “{before['label']}” from your saved outfits.", page)
+        self.assertIn('name="want" value="restore"', page)
+        # (Asked again, by a second tap or Back: it stays removed, and nothing breaks.)
+        self.assertEqual(self.client.post("/outfits/save", data={"key": key, "want": "remove", "on": "saved"}).status_code, 302)
+        self.assertEqual(db.saved_keys(), {boards[1].key})
+
+        r = self.client.post("/outfits/save", data={"key": key, "want": "restore", "on": "saved"})
+        self.assertEqual(r.headers["Location"], f"/outfits?occasion=saved#outfit-{key}")
+        self.assertEqual(next(fav for fav in db.list_saved() if fav["key"] == key), before)
+        page = self.client.get(f"/outfits?occasion=saved&removed={key}").data.decode()      # Back to the page that said so
+        self.assertIn(f'id="outfit-{key}"', page)
+        self.assertNotIn("from your saved outfits", page, "after Undo the page still says the outfit was removed")
+        # Undo asked twice changes nothing; an outfit that was never removed and no longer exists is refused.
+        self.assertEqual(self.client.post("/outfits/save", data={"key": key, "want": "restore", "on": "saved"}).status_code, 302)
+        self.assertEqual(len(db.list_saved()), 2)
+        self.assertEqual(self.client.post("/outfits/save", data={"key": "000000000000", "want": "restore"}).status_code, 409)
+
     def test_a_favourite_keeps_its_pieces_when_the_wardrobe_moves_on(self):
         key, outfit = self.first_key()
         self.client.post("/outfits/save", data={"key": key}, headers=HX)

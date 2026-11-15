@@ -14,7 +14,7 @@
 {% else %}{{ super() }}{% endif %}
 {% endblock %}
 {% block main %}
-{% from "_macros.html" import icon, pic %}
+{% from "_macros.html" import icon, pic, saved_chip %}
 <h1 class="sr">Outfits</h1>
 {% if said %}
 {# What a change just made from an outfit did, in words, with the way back (app.py, change_said), where the other
@@ -38,6 +38,19 @@
   {% else %}
   Wearing the {{ said.new.slot.name|lower }} instead of the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Undo</a>
   {% endif %}
+</div>
+{% endif %}
+{% if removed %}
+{# Under Saved, after the heart took an outfit out: which one, and the way back. Undo saves it again exactly as it
+   was (app.py, outfits_save). #}
+<div class="flash said short" role="status">
+  Removed “{{ removed.label }}” from your saved outfits.
+  <form method="post" action="{{ url_for('outfits_save') }}">{{ csrf_field() }}
+    <input type="hidden" name="key" value="{{ removed.key }}">
+    <input type="hidden" name="want" value="restore">
+    <input type="hidden" name="on" value="saved">
+    <button>Undo</button>
+  </form>
 </div>
 {% endif %}
 
@@ -71,7 +84,7 @@
     {% for key, label in OCCASIONS.items() %}
     <a class="chip-link{% if occasion == key %} on{% endif %}" href="{{ url_for('outfits_page', occasion=key) }}"{% if occasion == key %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
-    <a class="chip-link{% if occasion == 'saved' %} on{% endif %}" href="{{ url_for('outfits_page', occasion='saved') }}"{% if occasion == 'saved' %} aria-current="page"{% endif %}>{{ icon('heart') }} Saved{% if n_saved %} {{ n_saved }}{% endif %}</a>
+    {{ saved_chip(n_saved, on=occasion == 'saved') }}
   </div>
   {% if occasion != 'saved' %}
   <a class="btn ghost shuffle" href="{{ url_for('outfits_page', occasion=occasion, n=n, seed=next_seed) }}">{{ icon('shuffle') }}<span>Shuffle</span></a>

@@ -848,7 +848,11 @@ def create_app() -> Flask:
         saved = db.saved_keys()
         said = None             # what a change just made from an outfit did (change_said)
 
+        removed = None          # under Saved: the outfit just removed there, said with Undo (outfits_save)
         if occasion == "saved":
+            kept = db.get_setting("removed_outfit")
+            if kept and kept["key"] == request.args.get("removed") and kept["key"] not in saved:
+                removed = kept
             now_picked = {s.slot["id"]: (s.chosen.id if s.chosen and s.state != "owned" else None) for s in w.slots}
             boards = []
             for fav in db.list_saved():
@@ -889,7 +893,7 @@ def create_app() -> Flask:
                 board["scene"] = looks.scene_named(request.args.get("scene"))
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
         videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
-        return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved),
+        return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved), removed=removed,
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
                     looks_on=looks_on, videos_on=videos_on, turn_seconds=(videos.rules() or {}).get("turn_seconds", 6),
                     scenes=looks.scenes() if looks_on else [],     # the studio picture first; the others on a tap
@@ -1036,20 +1040,46 @@ def create_app() -> Flask:
 
     @app.post("/outfits/save")
     def outfits_save():
-        """Heart button: save an outfit as a favourite, or forget it again."""
+        """The heart under an outfit: save it as a favourite, or take it out of the saved ones again.
+
+        The button says which of the two it asks for ("want": save or remove), so a tap always does what the heart
+        showed, also on a page that has gone out of date (the outfit removed meanwhile under Saved, on another
+        device, by a second quick tap): asked twice, the same thing is simply true twice. A form without it (an
+        older page) switches the outfit over, as the heart always did.
+
+        Under Saved (the form says on=saved) a removed outfit leaves the page at once, the page says so, and its Undo
+        ("want": restore) puts back exactly what was removed: the pieces and prices as they were saved, which today's
+        wardrobe may no longer make. The last outfit removed is kept for that (the setting "removed_outfit").
+        """
         key = request.form.get("key", "")
-        if key in db.saved_keys():
-            db.unsave_outfit(key)
-            is_saved = False
-        else:
-            outfit = outfits.find(selection.build(), key)
-            if outfit is None:   # the wardrobe changed under the page
-                abort(409, "That outfit no longer exists — reload the page.")
-            db.save_outfit(key, catalog.now_iso(), outfit.label, outfits.snapshot(outfit))
-            is_saved = True
+        want = request.form.get("want", "")
+        on_saved = request.form.get("on") == "saved"
+        earlier = db.list_saved()
+        keys = [fav["key"] for fav in earlier]
+        if want not in ("save", "remove", "restore"):
+            want = "remove" if key in keys else "save"
+        if want == "remove":
+            if key in keys:
+                db.set_setting("removed_outfit", earlier[keys.index(key)])
+                db.unsave_outfit(key)
+        elif key not in keys:
+            removed = db.get_setting("removed_outfit")
+            if want == "restore" and removed and removed["key"] == key:
+                db.save_outfit(key, removed["saved_at"], removed["label"], removed["pieces"])
+                db.set_setting("removed_outfit", None)
+            else:
+                outfit = outfits.find(selection.build(), key)
+                if outfit is None:   # the wardrobe changed under the page
+                    abort(409, "That outfit no longer exists — reload the page.")
+                db.save_outfit(key, catalog.now_iso(), outfit.label, outfits.snapshot(outfit))
+        if on_saved:
+            if want == "remove":        # the page from its top, where it says what was removed, with Undo
+                return redirect(url_for("outfits_page", occasion="saved", removed=key))
+            return redirect(url_for("outfits_page", occasion="saved", _anchor=f"outfit-{key}"))     # shown again
         if not request.headers.get("HX-Request"):
             return redirect(request.referrer or url_for("outfits_page"))
-        return render_template("_save_button.html", key=key, saved=is_saved)
+        # The heart's new state and, beside it, the Saved chip with its new number (it is swapped in where it stands).
+        return render_template("_save_button.html", key=key, saved=want != "remove", chip=len(db.saved_keys()))
 
     # ── Shopping list ─────────────────────────────────────────────────────────
 
