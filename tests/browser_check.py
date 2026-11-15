@@ -34,7 +34,11 @@ by keyboard), tabs through three pages to see that nothing with keyboard focus i
 budget bar or the tab bar, locks and chooses on a piece's page by keyboard (focus stays where it was) and pastes
 a link that is not a store's (answered inside that section, on a phone's screen, with JavaScript on and off),
 sees an option's "Choose this" and "Open at COS" side by side wherever they fit, on three phones, adds and saves a
-piece of the plan (answered inside that piece, on a phone's screen), and deletes the account.
+piece of the plan (answered inside that piece, on a phone's screen), and deletes the account. On the way it watches
+everything that moves (app.css "Motion"): a tab slides the page forward or back and a tap while it slides is not lost,
+the pop-up slides up and lets a tap through as it closes, the heart grows in, the AI picture comes up whole over the
+pieces' photos (never blank, never half-loaded, on a slow connection too), all within 300 ms and without a layout
+shift; and with less motion asked for, the same taps move nothing.
 
 On the way a second customer, on a small product list published for that step alone, goes from the
 starter outfits to his profile with "Make them mine" and fills a piece the list has nothing for with one tap.
@@ -135,6 +139,49 @@ failures: list[str] = []
 swapped: dict[str, str] = {}    # the piece swapped inside an outfit: its slot and the product chosen
 heard: list[str] = []           # every address the server was asked for, in order (see main)
 PASSWORD = "only for this check 123"
+# Nothing that moves with an end of its own is still moving (see motion_ended() in run).
+
+# Everything that moves on a page, written down as it starts (motion_quick_and_still): what moved, on what, how long it
+# takes from the moment it starts (its delay and all its runs), whether it loops (a spinner, the light over something
+# loading) or follows a scroll (the outfit row) rather than a clock; whether the page arrived with a view transition
+# (a page change that slides), and which way; and the page's layout shifts, every one, those just after a tap too.
+MOTION_RECORDER = """(() => {
+  window.moved = []; window.change = null; window.jumps = 0;
+  const known = new WeakSet();
+  const write = () => document.getAnimations().forEach((a) => {
+    if (known.has(a) || !a.effect) return;
+    known.add(a);
+    const t = a.effect.getComputedTiming(), on = a.effect.target;
+    window.moved.push({what: a.animationName || a.transitionProperty || 'script',
+                       on: (on ? on.id || on.getAttribute('class') || on.tagName : '') + (a.effect.pseudoElement || ''),
+                       total: Math.round(t.delay + t.activeDuration), loop: t.iterations === Infinity,
+                       scroll: !(a.timeline instanceof DocumentTimeline)});
+  });
+  ['animationstart', 'transitionrun'].forEach((kind) => document.addEventListener(kind, write, true));
+  const tick = () => { write(); requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+  addEventListener('pagereveal', (e) => {
+    window.change = {slides: !!e.viewTransition};
+    if (e.viewTransition) e.viewTransition.ready.then(() => { window.change.types = [...e.viewTransition.types];
+                                                               window.change.ready = true; write(); }, () => {});
+  });
+  new PerformanceObserver((list) => list.getEntries().forEach((e) => { window.jumps += e.value; }))
+    .observe({type: 'layout-shift', buffered: true});
+})();"""
+# Every frame of an outfit's picture box from now on: the picture in it shown before its file has arrived (a picture
+# that builds up in front of you), or the box showing neither the picture nor the pieces' photos (a blank box).
+PICTURE_FRAMES = """s => { window.frames = []; const stage = document.querySelector(s + ' .stage');
+  const look = () => {
+    const pic = stage.querySelector('.look-pic'), img = pic && pic.querySelector('img');
+    const photos = getComputedStyle(stage.querySelector('.collage')).visibility === 'visible';
+    const before = !!stage.querySelector('.look-was'), shown = pic ? +getComputedStyle(pic).opacity : 0;
+    const whole = !!(img && img.complete && img.naturalWidth);
+    if (pic) window.frames.push({half: shown > 0.02 && !whole, blank: !photos && !before && (shown < 0.02 || !whole)});
+    if (!pic || window.frames.length < 120) requestAnimationFrame(look);
+  };
+  requestAnimationFrame(look); }"""
+STILL = """() => document.getAnimations().every(a => a.playState !== 'running' || !(a.timeline instanceof DocumentTimeline)
+                                                  || a.effect.getComputedTiming().iterations === Infinity)"""
 EMAIL = f"check-{secrets.token_hex(4)}@example.com"
 
 
@@ -158,9 +205,18 @@ def run(base: str) -> None:
             page.wait_for_function("s => { const i = document.querySelector(s); return i && i.complete; }", arg=selector)
             assert page.eval_on_selector(selector, "i => i.naturalWidth") > 0, f"{what} has its place on the page but did not load"
 
+        def motion_ended(where_page) -> None:
+            """What moves after a tap (app.css "Motion": the page sliding in, the pop-up sliding up, the picture coming
+            up) has come to rest, as it has for a person's eye before he reads or taps: a step that measures where
+            things are, or what is under a point, waits for it. It takes at most 300 ms, so 2 s is a failure. Loops (a
+            spinner, the light over something loading) and what follows the outfit row as it scrolls have no end of
+            their own and are not waited for."""
+            where_page.wait_for_function(STILL, timeout=2000)
+
         def in_view(selector: str, words: str) -> None:
             """A message is where the eye is after the page has jumped: on the screen, with nothing over it."""
             page.wait_for_selector(selector)
+            motion_ended(page)
             assert words in page.locator(selector).first.inner_text(), f"no message saying {words!r} at {selector}"
             where = page.eval_on_selector(selector, """el => {
                 const box = el.getBoundingClientRect();
@@ -573,7 +629,8 @@ def run(base: str) -> None:
                 f"while the only picture is drawn, the status is not 'Drawing this outfit…' inside the picture's box: {status}"
             page.wait_for_selector(f"{first} .look-pic img")
             shows(f"{first} .look-pic img", "the picture of the outfit")
-            assert page.locator(f"{first} .collage").is_hidden(), "the product photos still show under the picture"
+            # The pieces' photos stay under the picture while it comes up over them (280 ms), and not a moment after.
+            expect(page.locator(f"{first} .collage"), "the product photos still show under the picture").to_be_hidden(timeout=1000)
             assert page.locator(f"{first} .spot").count() == page.locator(f"{first} .piece-row").count(), "a dot per piece"
             labelled(page, "1280 x 860")
 
@@ -1325,6 +1382,7 @@ def run(base: str) -> None:
             sig = re.search(r"at=([^&]+)", spot.get_attribute("hx-get")).group(1)
             spot.tap()
             other.wait_for_selector("dialog#piece[open] #piece-title")
+            motion_ended(other)
             sheet = other.locator("dialog#piece")
             expect(sheet, "the pop-up is not named by the piece").to_have_accessible_name(
                 other.locator("#piece-title").inner_text().strip())
@@ -1456,6 +1514,7 @@ def run(base: str) -> None:
             (coat.first if coat.count() else other.locator(f"{first} .piece-row").first).click()
             other.wait_for_selector("dialog#piece[open] #piece-title")
             other.wait_for_load_state("networkidle")
+            motion_ended(other)
 
         def a_pieces_card_reads_the_same_everywhere():
             # A piece's card says the same lines in the same order in the pop-up, on its Wardrobe card, on its own page
@@ -1806,8 +1865,8 @@ def run(base: str) -> None:
             # With a mouse the arrows show at every width (a touch screen swipes, see the phone's first screen), and on a
             # computer they sit beside the outfit: within 48px of the picture's left edge and of the list's right edge,
             # centred on the picture. With "reduce motion" asked for, Next shows the next outfit at once, without
-            # sliding. The outfit on screen is kept in the address without a new step in the history, so Back from
-            # 'Buy this outfit' and a reload come back to it.
+            # sliding, and no outfit fades as the row moves. The outfit on screen is kept in the address without a new
+            # step in the history, so Back from 'Buy this outfit' and a reload come back to it.
             def shown() -> int:
                 return page.evaluate("() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth); }")
 
@@ -1849,6 +1908,10 @@ def run(base: str) -> None:
                 width = page.evaluate("() => document.getElementById('reel').clientWidth")
                 assert sorted(set(seen)) == [0, width], \
                     f"with reduced motion Next slides the row (positions every 30 ms: {sorted(set(seen))}), not one step to {width}"
+                # Nor does an outfit fade or step back as the row moves (app.css "Motion"), on either side of the move.
+                faded = page.evaluate("() => [...document.querySelectorAll('#reel .slide > *')].filter(el => "
+                                      "getComputedStyle(el).animationName !== 'none').length")
+                assert faded == 0, f"with reduced motion {faded} parts of outfits still fade as the row moves"
             finally:
                 page.emulate_media(reduced_motion="no-preference")
                 page.set_viewport_size({"width": 1280, "height": 860})
@@ -2338,6 +2401,215 @@ def run(base: str) -> None:
                 assert swapped["product"] in card, f"the kept piece shows {card!r}, not {swapped['product']!r}"
             else:
                 assert "Not kept: " in said, f"the swapped piece is gone and the message does not say so: {said!r}"
+
+        def motion_quick_and_still():
+            # Stilsmith moves to answer the customer (app.css "Motion"), on a phone (390 x 844, by touch) and a computer:
+            # a tab changes the page with a slide, forward along the tabs and back again, and a tap made while it slides
+            # is not lost; the pop-up slides up and, closing, lets a tap through to the page at once; the heart grows in
+            # as the outfit is saved; the AI picture, when it arrives, comes up whole over the pieces' photos (never a
+            # blank box, never a half-loaded picture, on a slow connection too); a price level fills. Everything that
+            # moves after a tap ends within 300 ms, keyboard focus is in full view once the pop-up is up, and nothing on
+            # the page shifts (all layout shifts together, those just after a tap too, at most 0.05). For people who ask
+            # their device for less motion, the same taps move nothing at all: no page slides, nothing fades or grows,
+            # and the picture still shows only once it is whole.
+            # A customer of its own, so that the two pictures drawn here count against his day's pictures, not the
+            # first customer's (whose steps have spent most of theirs by now).
+            mover = "motion-" + EMAIL
+            context = browser.new_context()
+            signing = context.new_page()
+            signing.goto(base + "/signup", wait_until="networkidle")
+            signing.fill("input[name=email]", mover)
+            signing.fill("input[name=password]", PASSWORD)
+            signing.click("button:has-text('Create account')")
+            signing.wait_for_url(base + "/outfits")
+            context.close()
+
+            def recorded(motion: str, phone: bool):
+                screen = {"width": 390, "height": 844} if phone else {"width": 1280, "height": 860}
+                context = browser.new_context(viewport=screen, is_mobile=phone, has_touch=phone, reduced_motion=motion)
+                context.add_init_script(MOTION_RECORDER)
+                other = context.new_page()
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", mover)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_url(base + "/outfits")
+                other.wait_for_load_state("networkidle")
+                other.wait_for_selector(f"{first} .look-pic img", timeout=20000)
+                return context, other
+
+            def tap(other, phone: bool, selector: str) -> None:
+                (other.locator(selector).first.tap() if phone else other.locator(selector).first.click())
+
+            def moved(other) -> list:
+                return [m for m in other.evaluate("window.moved") if not m["scroll"]]
+
+            def tab(other, phone: bool, name: str, path: str) -> dict:
+                tap(other, phone, f"nav.tabs a:has-text('{name}')")
+                other.wait_for_url(base + path)
+                other.wait_for_function("() => window.change && (!window.change.slides || window.change.ready)")
+                return other.evaluate("window.change")
+
+            def arrives_whole(other, where: str, seeds) -> None:
+                # On a slow connection: the picture's file comes 300 ms after it is asked for.
+                other.route("**/looks/*", lambda route: (other.wait_for_timeout(300), route.continue_()))
+                for seed in seeds:                       # a shuffle whose first outfit has no picture yet
+                    other.goto(base + f"/outfits?seed={seed}", wait_until="domcontentloaded")
+                    if not other.locator(f"{first} .look-pic").count():
+                        break
+                else:
+                    raise AssertionError("the first outfit of every shuffle tried already has its picture")
+                other.evaluate(PICTURE_FRAMES, first)
+                other.wait_for_selector(f"{first} .look-pic img", timeout=20000)
+                other.wait_for_function("s => document.querySelector(s + ' .look-pic img').complete", arg=first)
+                motion_ended(other)
+                other.wait_for_timeout(100)
+                frames = other.evaluate("window.frames")
+                other.unroute("**/looks/*")
+                assert len(frames) >= 10, f"{where}: too few frames of the picture's arrival were seen: {len(frames)}"
+                assert not any(f["blank"] for f in frames), \
+                    f"{where}: the picture's box was blank in {sum(f['blank'] for f in frames)} of {len(frames)} frames"
+                assert not any(f["half"] for f in frames), \
+                    f"{where}: the picture showed before its file had arrived in {sum(f['half'] for f in frames)} of {len(frames)} frames"
+
+            failed_slow: list[str] = []
+
+            def quick(other, what: str) -> None:
+                """Everything that moved for this ended within 300 ms (a loop and what follows a scroll aside)."""
+                slow = [m for m in moved(other) if not m["loop"] and m["total"] > 300]
+                if slow:
+                    failed_slow.append(f"{what}: {slow[:3]}")
+                other.evaluate("window.moved = []")
+
+            # With motion, on a phone.
+            context, other = recorded("no-preference", True)
+            # The row: each outfit beside the one on screen fades as the row moves, and is exactly itself at rest.
+            row = other.evaluate("""s => { const stage = document.querySelector(s + ' .stage'), style = getComputedStyle(stage);
+                return {name: style.animationName, opacity: style.opacity, transform: style.transform,
+                        can: CSS.supports('animation-timeline: view()')}; }""", first)
+            assert not row["can"] or (row["name"] == "outfit-pass" and row["opacity"] == "1" and row["transform"] == "none"), \
+                f"the outfit on screen does not follow the row as it moves, or is not itself at rest: {row}"
+            change = tab(other, True, "Wardrobe", "/")
+            assert change["slides"] and change.get("types") == ["forward"], f"Outfits to Wardrobe does not slide forward: {change}"
+            motion_ended(other)
+            quick(other, "Outfits to Wardrobe")
+            tap(other, True, ".levels label:has-text('Top')")
+            other.wait_for_function("() => document.querySelector('#summary .num b').textContent === document.querySelector('#level-top').textContent")
+            motion_ended(other)
+            quick(other, "a price level")
+            # A tap made while the page slides in goes where it was meant to: here the next tab, Shopping.
+            shopping = other.locator("nav.tabs a:has-text('Shopping')").bounding_box()
+            tap(other, True, "nav.tabs a:has-text('Outfits')")
+            other.wait_for_url(base + "/outfits")
+            other.wait_for_function("() => window.change && window.change.ready")
+            sliding = other.evaluate("() => document.getAnimations().some(a => (a.effect.pseudoElement || '').startsWith('::view-transition'))")
+            other.touchscreen.tap(shopping["x"] + shopping["width"] / 2, shopping["y"] + shopping["height"] / 2)
+            assert sliding, "the page had already stopped sliding, so this checks nothing"
+            other.wait_for_url(base + "/list", timeout=3000)
+            change = tab(other, True, "Outfits", "/outfits")
+            assert change["slides"] and change.get("types") == ["back"], f"Shopping to Outfits does not slide back: {change}"
+            other.wait_for_selector(f"{first} .look-pic img")
+            motion_ended(other)
+            other.evaluate("window.moved = []")
+            # The pop-up: up within 300 ms, then in place, with keyboard focus (on Close) in full view.
+            tap(other, True, f"{first} .spot")
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            motion_ended(other)
+            sheet = other.evaluate("""() => { const sheet = document.querySelector('dialog#piece'), close = sheet.querySelector('.sheet-close');
+                let seen = 1; for (let el = close; el; el = el.parentElement) seen *= +getComputedStyle(el).opacity;
+                return {moved: [...document.getAnimations()].some(a => a.effect.target === sheet), transform: getComputedStyle(sheet).transform,
+                        focus: document.activeElement === close, seen, bottom: sheet.getBoundingClientRect().bottom, height: innerHeight}; }""")
+            assert sheet["moved"] or any(m["on"].startswith("piece") for m in moved(other)), "the pop-up did not slide up"
+            assert sheet["transform"] == "none" and sheet["focus"] and sheet["seen"] == 1 and sheet["bottom"] <= sheet["height"] + 0.5, \
+                f"once the pop-up is up it is not in place with Close in full view and focused: {sheet}"
+            quick(other, "the pop-up opening")
+            # Closing, it lets a tap through to the page at once.
+            tap(other, True, "dialog#piece .sheet-close")
+            through = other.evaluate("""s => { const heart = document.querySelector(s + ' .heart'), box = heart.getBoundingClientRect();
+                const under = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+                return {open: document.querySelector('dialog#piece').open, heart: !!under && heart.contains(under)}; }""", first)
+            assert not through["open"] and through["heart"], f"while the pop-up closes a tap does not reach the page: {through}"
+            motion_ended(other)
+            quick(other, "the pop-up closing")
+            # The heart grows in as the outfit is saved.
+            flipped = "([s, was]) => document.querySelector(s + ' .heart').getAttribute('aria-pressed') !== was"
+            was = other.get_attribute(f"{first} .heart", "aria-pressed")
+            for _ in range(2):                           # (an outfit saved already is first unsaved)
+                now = other.get_attribute(f"{first} .heart", "aria-pressed")
+                tap(other, True, f"{first} .heart")
+                other.wait_for_function(flipped, arg=[first, now])
+                if now == "false":
+                    break
+            try:        # (HTMX hands the new heart over a moment after it has swapped it in: it grows from then)
+                other.wait_for_function("() => window.moved.some(m => m.what === 'heart-pop')", timeout=1000)
+            except Exception:  # noqa: BLE001 - the assertion below says what went wrong
+                pass
+            motion_ended(other)
+            assert any(m["what"] in ("heart-pop", "heart-ring") for m in moved(other)), "the heart did not grow in as the outfit was saved"
+            quick(other, "the heart")
+            if was == "false":
+                tap(other, True, f"{first} .heart")
+                other.wait_for_selector(f"{first} .heart[aria-pressed=false]")
+            assert other.evaluate("window.jumps") <= 0.05, f"the outfits page shifted: {other.evaluate('window.jumps'):.3f}"
+            # The AI picture comes up whole, and its coming up is quick.
+            arrives_whole(other, "390 x 844", range(201, 241))
+            assert any(m["what"] == "develop" for m in moved(other)), "the picture did not come up: it just appeared"
+            quick(other, "the picture coming up")
+            assert other.evaluate("window.jumps") <= 0.05, f"the picture's arrival shifted the page: {other.evaluate('window.jumps'):.3f}"
+            context.close()
+
+            # With motion, on a computer: the pop-up fades in, and out.
+            context, other = recorded("no-preference", False)
+            other.evaluate("window.moved = []")
+            tap(other, False, f"{first} .piece-row")
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            motion_ended(other)
+            assert any(m["on"].startswith("piece") for m in moved(other)), "on a computer the pop-up did not fade in"
+            quick(other, "the pop-up opening on a computer")
+            other.keyboard.press("Escape")
+            other.wait_for_selector("dialog#piece:not([open])", state="attached")
+            motion_ended(other)
+            quick(other, "the pop-up closing on a computer")
+            context.close()
+            assert not failed_slow, "took longer than 300 ms: " + "; ".join(failed_slow)
+
+            # With less motion asked for: the same taps move nothing.
+            context, other = recorded("reduce", True)
+            stirred: list[str] = []
+
+            def nothing_moved(what: str) -> None:
+                other.wait_for_timeout(350)              # anything started by now would have shown
+                if moved(other):
+                    stirred.append(f"{what}: {moved(other)[:3]}")
+                other.evaluate("window.moved = []")
+
+            row = other.evaluate("s => getComputedStyle(document.querySelector(s + ' .stage')).animationName", first)
+            assert row == "none", f"with less motion asked for, the outfits still fade as the row moves ({row})"
+            change = tab(other, True, "Wardrobe", "/")
+            assert not change["slides"], "with less motion asked for, the page slides"
+            nothing_moved("Outfits to Wardrobe")
+            tap(other, True, ".levels label:has-text('Top')")
+            other.wait_for_function("() => document.querySelector('#summary .num b').textContent === document.querySelector('#level-top').textContent")
+            nothing_moved("a price level")
+            tab(other, True, "Outfits", "/outfits")
+            other.wait_for_selector(f"{first} .look-pic img")
+            nothing_moved("Wardrobe to Outfits")
+            tap(other, True, f"{first} .spot")
+            other.wait_for_selector("dialog#piece[open] #piece-title")
+            nothing_moved("the pop-up opening")
+            tap(other, True, "dialog#piece .sheet-close")
+            other.wait_for_selector("dialog#piece:not([open])", state="attached")
+            nothing_moved("the pop-up closing")
+            was = other.get_attribute(f"{first} .heart", "aria-pressed")
+            tap(other, True, f"{first} .heart")
+            other.wait_for_function("([s, was]) => document.querySelector(s + ' .heart').getAttribute('aria-pressed') !== was", arg=[first, was])
+            nothing_moved("the heart")
+            tap(other, True, f"{first} .heart")
+            other.wait_for_function("([s, was]) => document.querySelector(s + ' .heart').getAttribute('aria-pressed') === was", arg=[first, was])
+            arrives_whole(other, "390 x 844, less motion", range(241, 281))
+            nothing_moved("the picture arriving")
+            context.close()
+            assert not stirred, "with less motion asked for, these moved: " + "; ".join(stirred)
 
         def the_outfit_on_a_phones_first_screen():
             # The model view is the heart of Stilsmith. On a phone (390 x 844) the first screen shows the AI picture and,
@@ -2887,6 +3159,7 @@ def run(base: str) -> None:
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
                  ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),
+                 ("motion: quick, never in the way, still if asked", motion_quick_and_still),
                  ("the budget bar never hides what has focus", budget_bar_never_hides_the_focus),
                  ("a piece's page by keyboard, links answered there", a_pieces_page_by_keyboard),
                  ("an option's two actions on three phones", options_fit_three_phones),
