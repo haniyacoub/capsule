@@ -364,6 +364,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .soldout .btn { display: block; min-height: 44px; padding: var(--s-2) var(--s-3); text-align: left; overflow-wrap: anywhere; }
 .soldout-more { color: var(--muted); }
 .about-less { margin: 0; color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }
+.about-why { margin: 0; color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }   /* why the outfit fits his style brief */
 @media screen { .print-only { display: none !important; } }     /* on paper the button is gone: its product is named */
 .soldout-more a { display: inline-block; padding: var(--s-1) 0; color: var(--ink); text-underline-offset: 3px; }
 .slot .soldout { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
@@ -486,9 +487,14 @@ details.why summary::-webkit-details-marker { display: none; }
    bar, and the outfit line follows below. Its width is kept as --stage-w, so that the arrows can be placed beside
    the picture (see .reel-nav). */
 .looks { --told: 0px; --least: 240px; --lead-more: 0px; --yes-h: 0px; }
-.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--shots-h) - var(--lead-more) - var(--told) - var(--yes-h)) * 2 / 3))); }
+.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--shots-h) - var(--why-h) - var(--lead-more) - var(--told) - var(--yes-h)) * 2 / 3))); }
 .looks { --shots-h: 0px; }
 .looks:has(.shots) { --shots-h: 40px; }
+/* With a style brief, an outfit that fits it says so in a line under its name (.about-why, up to two lines on a
+   phone): the picture gives up that room, on a short phone too (it may be 208px wide for it), so the line is above
+   the tab bar on the first screen, not behind it. */
+.looks { --why-h: 0px; }
+.looks:has(.about-why) { --why-h: calc(2 * var(--t-s) * var(--lh-s)); --least: 208px; }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
 .looks.reusing { --lead-more: calc(var(--t-s) * var(--lh-s)); }   /* … and two once it says why the outfits are in this order */
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
@@ -1199,6 +1205,28 @@ details[open] > summary .edit { visibility: hidden; }
 #model h2 { margin: 0; }
 .cc-save { margin-top: var(--s-5); }
 .cc-photo { margin-top: var(--s-5); padding-top: var(--s-5); border-top: 1px solid var(--line); }
+/* "Describe your style" (Profile): the style chat and the style brief start a new part of the card, like the photo.
+   His own lines stand to the right on a soft ground, the assistant's to the left with a line beside them; the
+   question it asks back is in ink. Nothing here is wider than a form. */
+.cc-style { margin-top: var(--s-5); padding-top: var(--s-5); border-top: 1px solid var(--line); }
+.style-chat { display: grid; gap: var(--s-3); min-width: 0; max-width: var(--form-w); }
+.style-chat p, .style-chat h3 { margin: 0; }
+.chat-lines { display: grid; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.chat-lines li { max-width: 88%; padding: var(--s-2) var(--s-3); font-size: var(--t-m); line-height: var(--lh-m); overflow-wrap: anywhere; }
+.chat-lines .me { justify-self: end; background: var(--soft); border-radius: var(--r-ui); }
+.chat-lines .it { justify-self: start; border-left: 2px solid var(--ink); }
+.chat-q { display: block; margin-top: var(--s-1); font-weight: 500; }
+/* The message field with Send beside it, so that the answer above and the field fit on a phone's screen together
+   (the figure and the tabs keep the top of it). While a message is on its way the button is pale and says
+   "Sending…", and a line under the field says the answer can take a few seconds (app.js, 13d). */
+.chat-say { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s-2); align-items: end; }
+.chat-say .field { min-width: 0; }
+.chat-say button:disabled { opacity: .55; cursor: progress; }
+.chat-say .chat-wait { grid-column: 1 / -1; }
+.chat-say .chat-wait[hidden] { display: none; }
+.brief { padding: var(--s-4); border: 1px solid var(--field); border-radius: var(--r-ui); }
+.brief-head { font-size: var(--t-l); line-height: var(--lh-l); }
+.brief-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); }
 .cc[data-tabs] .cc-save {     /* stuck to the bottom of the screen while the controls go on under it */
   position: sticky; bottom: 0; z-index: 3; margin: var(--s-5) calc(-1 * var(--s-4)) calc(-1 * var(--s-4));
   padding: var(--s-3) var(--s-4); background: var(--surface); border-top: 1px solid var(--line); border-radius: 0 0 var(--r-ui) var(--r-ui);

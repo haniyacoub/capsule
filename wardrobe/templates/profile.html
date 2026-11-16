@@ -7,6 +7,9 @@
    so), and so is what became of it. #}
 {% set model_menu = looks_on or not production %}
 {% set photo_part = model_menu or has_photo or get_flashed_messages(category_filter=['photo']) %}
+{# "Describe your style" (the style chat, where a key for it is set) and the style brief, once there is one; and
+   what the brief's own buttons just did, said there (also when "Remove brief" left nothing else to show). #}
+{% set style_part = chat_on or brief_shown or get_flashed_messages(category_filter=['style', 'style-bad']) %}
 <div class="cc-head">
   <h1>About you</h1>
   <p class="muted">Your sizes decide what counts as in stock, your colours and what you dress for shape the outfits you are offered, and the budget sets the bar at the top.</p>
@@ -38,7 +41,7 @@
 
   <div class="cc-tabs" role="tablist" aria-label="Your profile" data-cc-tabs hidden>
     {% for key, label in tabs.items() if key != 'body' or model_menu %}
-    <button type="button" role="tab" id="tab-{{ key }}" aria-controls="panel-{{ key }}{{ ' photo-panel' if key == 'you' and photo_part }}" aria-selected="false" tabindex="-1">{{ label }}</button>
+    <button type="button" role="tab" id="tab-{{ key }}" aria-controls="panel-{{ key }}{{ ' style-panel' if key == 'you' and style_part }}{{ ' photo-panel' if key == 'you' and photo_part }}" aria-selected="false" tabindex="-1">{{ label }}</button>
     {% endfor %}
   </div>
 
@@ -55,6 +58,16 @@
           <label><input type="radio" name="use" value="{{ key }}"{% if profile.use == key %} checked{% endif %}><span>{{ label }}</span></label>
           {% endfor %}
         </div>
+        {# The styles: tappable, any number of them. They are the style brief's styles (style.py): they change which
+           products and outfits come first, not the plan. `styles_shown` tells a form with them from one without. #}
+        <input type="hidden" name="styles_shown" value="1">
+        <fieldset class="pick" data-styles>
+          <legend>And in which style? <small>(any that fit, or none)</small></legend>
+          {% for key, label in STYLES.items() %}
+          <label><input type="checkbox" name="styles" value="{{ key }}"{% if key in brief.styles %} checked{% endif %}><span>{{ label }}</span></label>
+          {% endfor %}
+        </fieldset>
+        <p class="muted small">A style changes which products are picked for your pieces and which outfits you see first. Your plan stays the same.{% if chat_on %} To say it in your own words, use <a href="#style">Describe your style</a> below.{% endif %}</p>
         <label class="check"><input type="checkbox" name="shoes"{% if profile.shoes %} checked{% endif %}> Include shoes</label>
         <label class="check"><input type="checkbox" name="outerwear"{% if profile.outerwear %} checked{% endif %}> Include outerwear</label>
 
@@ -195,6 +208,14 @@
     {# The one Save, for every tab: always in view (app.css), at the bottom of the screen on a phone. It sends the form
        above from outside it (form="about-you"), so that the photo's own forms below can follow it on the page. #}
     <div class="cc-save"><button class="btn" form="about-you">Save profile</button></div>
+
+    {% if style_part %}
+    {# Part of the You tab: the style chat and the style brief, with their own forms (_style_chat.html). #}
+    <section class="cc-panel cc-style" id="style-panel" data-tab="you" aria-labelledby="tab-you">
+      <div id="style"></div>
+      {% include "_style_chat.html" %}
+    </section>
+    {% endif %}
 
     {% if photo_part %}
     {# Part of the You tab: the customer's own photo, with its own forms (a file is sent on its own, with consent). #}

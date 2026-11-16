@@ -192,6 +192,8 @@
           </div>
         </header>
         {% if off.said %}<p class="about-less">Not counted: {{ off.said|join('; ') }}</p>{% endif %}
+        {# Why this outfit fits his style brief, in one line (style.why): only with a brief, and only when it does. #}
+        {% if o.why %}<p class="about-why" data-why>{{ o.why }}</p>{% endif %}
         {# What a yes would add to his wardrobe (yes.adds): "2 new pieces 208.99 €, 3 already in your wardrobe". An
            outfit that would take him over his budget says by how much next, above the two answers on every screen,
            so it is read before the yes. Then the two answers: "Add to my wardrobe" (_save_button.html) and a quiet

@@ -91,7 +91,9 @@ class StoresWithAProgramme(unittest.TestCase):
         stores = config.load("stores.toml")
         self.assertEqual(programmes.read_by_the_collector(), ["cos", "weekday"])
         for key, name in PASTE_ONLY.items():
-            self.assertEqual(sorted(stores[key]), ["base", "label", "programme"], f"{key}: nothing to collect from")
+            # (`styles` and `price` say what the store is like, for a style brief: wardrobe/style.py)
+            self.assertEqual(sorted(stores[key]), ["base", "label", "price", "programme", "styles"],
+                             f"{key}: nothing to collect from")
             self.assertEqual((stores[key]["label"], stores[key]["programme"]), (name, "awin"))
             self.assertRegex(stores[key]["base"], r"^https://www\.[a-z-]+\.(de|com)$")
             self.assertNotIn(key, collect.ADAPTERS)

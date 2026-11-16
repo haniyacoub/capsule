@@ -40,7 +40,12 @@ logs in again and lands on the outfits, puts a model together on Profile's chara
 in the middle that follows every height, build, skin and hair choice at once, by mouse, keyboard and links, on a phone,
 a computer and without JavaScript, and "Your model" drawn by AI there), uploads a photo, sees Profile ask before
 changes not saved would be lost, unticks a store on Profile's Stores tab (its pieces picked again, said in one line;
-the last store with products stays ticked, and the six with none yet are listed apart) and ticks it again, saves new colours (the plan is rebuilt,
+the last store with products stays ticked, and the six with none yet are listed apart) and ticks it again, ticks a
+style and describes his style to the style chat (a stand-in answers, the keyboard stays in the message field and a
+screen reader hears the answer; the brief it suggests changes nothing until he presses "Use this brief"; then the
+outfits that are his style as a whole say so and the others say nothing, never "Street" on an Office outfit; what the
+brief did to his pieces and total is said on the screen the page comes back to, on a phone, a computer and with
+JavaScript off; his account deleted after), saves new colours (the plan is rebuilt,
 keeping the swapped piece), sees that a phone's first
 screen shows the outfit on the model with its price (and every chip over it, whole,
 by keyboard), tabs through three pages to see that nothing with keyboard focus is hidden under the
@@ -69,6 +74,8 @@ a page throws. The GitHub checks run it on every push (.github/workflows/checks.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
 import re
@@ -101,7 +108,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, db, imagegen, looks, person, settings, videogen, videos  # noqa: E402
+from wardrobe import colours, db, imagegen, looks, mockchat, person, settings, stylechat, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
@@ -164,6 +171,7 @@ def never(*args, **kwargs):
 
 videogen.make = video_stand_in
 imagegen._send = never
+stylechat.ask = mockchat.answer     # the style chat's text model: a stand-in that spots a few words (mockchat.py)
 # The walk-through's customers all sign up from one address within minutes: more of them than one connection may
 # make in an hour (ten; that limit has its own tests in test_production.py). Lifted here, as on the night previews.
 settings.SIGNUPS_PER_IP_PER_HOUR = 1_000
@@ -2978,7 +2986,7 @@ def run(base: str) -> None:
                 assert tabs.all_inner_texts() == ["You", "Body", "Sizes", "Colours", "Budget", "Stores"], \
                     f"the tabs: {tabs.all_inner_texts()}"
                 expect(phone.get_by_role("tab", name="You")).to_have_attribute("aria-selected", "true")
-                assert phone.locator(".cc-panel:visible").evaluate_all("ps => ps.map(p => p.dataset.tab)") == ["you", "you"], \
+                assert phone.locator(".cc-panel:visible").evaluate_all("ps => ps.map(p => p.dataset.tab)") == ["you", "you", "you"], \
                     "other tabs' controls show beside the first tab's"
                 # By keyboard: the arrow keys move between the tabs and open them (round from the last to the first),
                 # Home and End go to the ends, and Tab goes from the open tab into its controls.
@@ -2990,8 +2998,8 @@ def run(base: str) -> None:
                         document.querySelector('[role=tab][aria-selected=true]').id,
                         [...document.querySelectorAll('.cc-panel')].filter(p => !p.hidden).map(p => p.id).join(' ')]"""))
                 expected = [("tab-body", "panel-body"), ("tab-sizes", "panel-sizes"), ("tab-stores", "panel-stores"),
-                            ("tab-you", "panel-you photo-panel"), ("tab-stores", "panel-stores"),
-                            ("tab-you", "panel-you photo-panel"), ("tab-stores", "panel-stores")]
+                            ("tab-you", "panel-you style-panel photo-panel"), ("tab-stores", "panel-stores"),
+                            ("tab-you", "panel-you style-panel photo-panel"), ("tab-stores", "panel-stores")]
                 assert walked == [[tab, tab, panel] for tab, panel in expected], f"the arrow keys went {walked}"
                 assert phone.evaluate("location.hash") == "#stores", "the address does not keep the open tab"
                 phone.keyboard.press("Tab")
@@ -3290,7 +3298,7 @@ def run(base: str) -> None:
                 assert not plain.locator("[data-cc-tabs]").is_visible(), "without JavaScript the tabs show, doing nothing"
                 visible = plain.locator(".cc-panel").evaluate_all("ps => ps.map(p => [p.id, p.getBoundingClientRect().height > 0])")
                 assert visible == [[pid, True] for pid in ("panel-you", "panel-body", "panel-sizes", "panel-colours",
-                                                           "panel-budget", "panel-stores", "photo-panel")], \
+                                                           "panel-budget", "panel-stores", "style-panel", "photo-panel")], \
                     f"without JavaScript: {visible}"
                 assert plain.locator("[data-figure]").is_visible(), "the figure is not drawn without JavaScript"
                 assert plain.locator("[data-figure-words]").inner_text() == "180 cm, broad build, any skin tone, any hair"
@@ -5154,6 +5162,342 @@ def run(base: str) -> None:
             finally:
                 db.remove_owner(EMAIL)
 
+        def the_style_chat():
+            # Profile, "What do you dress for?": six styles to tick beside Everyday/Office/Both. Below, "Describe your
+            # style": he writes in his own words, the assistant (a stand-in here) answers with one question back and a
+            # suggested brief, and nothing changes until he presses "Use this brief". Then an outfit that is his style
+            # as a whole says so in one line, and the others say nothing: no outfit titled Smart casual or Office is
+            # called street. What "Use this brief", "Start again" and "Remove brief" did is said where the page comes
+            # back to, on the screen without scrolling (a phone, a computer, and with JavaScript off), with what it did
+            # to his pieces and his total. While a message is on its way the page says "Sending…"; after it the
+            # keyboard is still in the message field, a screen reader hears the answer, and on a phone the answer, its
+            # question and the field are on the screen together. A message that gets no answer back says so and
+            # keeps his words. "No leather" leaves the leather shoes, says that they still go against the brief, and
+            # no outfit with them says it fits. On a phone the line under an outfit's name is above the tab bar. What
+            # he typed is shown as text, never as markup. On a phone and a computer nothing is wider than the screen.
+            # A customer of his own, deleted when the step ends.
+            who = "style-" + EMAIL
+            whys = "() => [...document.querySelectorAll('[data-why]')].map(p => p.textContent.trim())"
+            # Each outfit on the page: its title (Everyday, Smart casual, Office) and the line under it, if it has one.
+            boards = """() => [...document.querySelectorAll('#reel [data-slide]')].filter(s => s.querySelector('.about-head h2')).map(s => ({
+                title: s.querySelector('.about-head h2').firstChild.textContent.trim(),
+                why: (s.querySelector('[data-why]') || {textContent: ''}).textContent.trim()}))"""
+            # The sentence beside the brief that holds these words: whether all of it, and its link, are on the screen
+            # as the page stands, with nothing over them (the tab bar, the Save bar, the figure that stays at the top).
+            seen = """words => {
+                const said = [...document.querySelectorAll('#style-chat [data-style-said]')].find(p => p.textContent.includes(words));
+                if (!said) return {found: false, said: [...document.querySelectorAll('.flash')].map(p => p.textContent.trim())};
+                const shows = el => { const r = el.getBoundingClientRect();
+                    return r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth
+                        && [[r.left + 3, r.top + 3], [r.right - 3, r.bottom - 3], [(r.left + r.right) / 2, (r.top + r.bottom) / 2]]
+                            .every(([x, y]) => { const at = document.elementFromPoint(x, y); return !!at && said.contains(at); }); };
+                const link = said.querySelector('a');
+                return {found: true, text: said.innerText.replace(/\\s+/g, ' ').trim(), seen: shows(said),
+                        link: link ? link.getAttribute('href') : '', link_seen: link ? shows(link) : null,
+                        top: Math.round(said.getBoundingClientRect().top), screen: innerHeight, scrolled: Math.round(scrollY)}; }"""
+
+            def log_in(view) -> None:
+                view.goto(base + "/login", wait_until="networkidle")
+                view.fill("input[name=email]", who)
+                view.fill("input[name=password]", PASSWORD)
+                view.click("button:has-text('Log in')")
+                view.wait_for_url(base + "/outfits")
+
+            def bought(view) -> dict[str, tuple[str, int, float]]:
+                """What his pieces are picked as now, read from the shopping list's CSV file: for each piece its
+                product, how many of it, and what they cost together."""
+                text = view.request.get(base + "/list.csv").text().lstrip("﻿")
+                return {row["slot"]: (row["link"] or row["product"], int(row["quantity"]), float(row["total_eur"]))
+                        for row in csv.DictReader(io.StringIO(text))}
+
+            def change(before: dict, after: dict, what: str, none: str) -> str:
+                """The sentence that says what a change of the brief did, worked out here from the two shopping lists:
+                "Your brief changed 2 pieces: +4 € 4 € more ." (the second amount is the screen reader's)."""
+                pieces = sum(many for piece, (product, many, _) in after.items() if before.get(piece, ("",))[0] != product)
+                cents = round(sum(cost for _, _, cost in after.values()) * 100) - round(sum(cost for _, _, cost in before.values()) * 100)
+                if not pieces:
+                    assert not cents, f"no piece changed, yet the total moved by {cents} cents"
+                    return none
+                lead = f"{what} changed {pieces} piece{'' if pieces == 1 else 's'}"
+                if not cents:
+                    return f"{lead}. Your total is the same."
+                euros = abs(cents) / 100
+                amount = (f"{euros:,.0f}" if cents % 100 == 0 else f"{euros:,.2f}") + " €"
+                return f"{lead}: {'+' if cents > 0 else '−'}{amount} {amount} {'more' if cents > 0 else 'less'} ."
+
+            def said_on_screen(view, words: str, link: str, where: str) -> str:
+                """The sentence with these words stands beside the brief, whole and on the screen without scrolling,
+                and so does its link, if it is to have one. Gives the sentence back."""
+                found = view.evaluate(seen, words)
+                assert found["found"], f"{where}: {words!r} is not said beside the brief; the page says {found['said']}"
+                assert found["seen"], f"{where}: {words!r} is not on the screen as the page comes back: {found}"
+                assert found["link"] == link, f"{where}: the sentence's link leads to {found['link']!r}, not {link!r}"
+                assert not link or found["link_seen"], f"{where}: the link to the outfits is not on the screen: {found}"
+                assert view.locator("main > .flash").count() == 0, f"{where}: it is said a second time at the top of the page"
+                return found["text"]
+
+            context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+            try:
+                phone = context.new_page()
+                phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                phone.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                         if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                phone.goto(base + "/signup", wait_until="networkidle")
+                phone.fill("input[name=email]", who)
+                phone.fill("input[name=password]", PASSWORD)
+                phone.click("button:has-text('Create account')")
+                phone.wait_for_url(base + "/outfits")
+                assert phone.evaluate(whys) == [], "an outfit says why it fits a brief nobody gave"
+                # The styles: six choices to tap, any number of them, beside the three that were there.
+                phone.goto(base + "/profile", wait_until="networkidle")
+                assert phone.locator("input[name=use]").count() == 3, "Everyday, Office and Both are not all there"
+                styles = phone.locator("[data-styles] label").all_inner_texts()
+                assert [text.strip() for text in styles] == ["Smart casual", "Street", "Minimal", "Tailored", "Workwear",
+                                                              "Outdoor"], f"the styles to tick: {styles}"
+                heights = phone.locator("[data-styles] label").evaluate_all("ls => ls.map(l => l.getBoundingClientRect().height)")
+                assert all(h >= 24 for h in heights), f"a style is under 24px to tap: {heights}"
+                phone.locator("[data-styles] label:has-text('Workwear')").tap()
+                phone.locator("[data-styles] label:has-text('Street')").tap()
+                with phone.expect_navigation(wait_until="networkidle"):
+                    phone.locator(".cc-save button").tap()
+                phone.goto(base + "/profile", wait_until="networkidle")
+                ticked = phone.locator("[data-styles] input:checked").evaluate_all("bs => bs.map(b => b.value)")
+                assert ticked == ["street", "workwear"], f"two styles ticked and saved, the page shows {ticked}"
+                phone.goto(base + "/outfits", wait_until="networkidle")
+                shown = phone.evaluate(boards)
+                said = [board["why"] for board in shown]
+                assert any(said), f"with two styles ticked no outfit says why it fits: {shown}"
+                assert all(re.match(r"^(Street|Workwear): [a-z -]+(, [a-z -]+){1,4}$", line) for line in said if line), \
+                    f"a line does not name a style and at least two pieces: {said}"
+                # The line tells the outfits apart: only an outfit that is the style as a whole says so. Street and
+                # workwear stop below Smart casual, so neither is ever said of a Smart casual or an Office outfit.
+                assert not all(said), f"every outfit says it is his style, the formal ones too: {shown}"
+                wrong = [board for board in shown if board["why"] and board["title"] != "Everyday"]
+                assert not wrong, f"an outfit that is not an everyday one is called street or workwear: {wrong}"
+                assert said[0], f"the first outfit offered is not one that is his style: {shown[:3]}"
+                # The chat: his own words, an answer with one question back, and a suggestion that is not in use.
+                phone.goto(base + "/profile#style", wait_until="networkidle")
+                expect(phone.locator("#tab-you")).to_have_attribute("aria-selected", "true")
+                expect(phone.locator("#style-chat textarea")).to_be_visible()
+                note = phone.locator("[data-chat-sent]").inner_text()
+                assert "goes to Google" in note and "Your name, email address, sizes, budget and photo are not sent" in note, \
+                    f"beside the chat it does not say what is sent: {note!r}"
+                phone.fill("#style-chat textarea", "street style, Berlin vibe <b>bold</b>")
+                phone.evaluate("() => { document.getElementById('announce').dataset.before = 'the answer'; }")
+                # While the message is on its way (held back here; with Google it can be many seconds) the page says
+                # so: the button reads "Sending…" and is off, a line under the field says the answer can take a few
+                # seconds, and a screen reader hears it.
+                held: list = []
+                phone.route("**/profile/style/say", lambda route: held.append(route))
+                phone.locator("#style-chat .chat-say button").tap()
+                try:
+                    phone.wait_for_function("() => document.querySelector('#style-chat .chat-say button').textContent.trim() === 'Sending…'",
+                                            timeout=5000)
+                except Exception:
+                    raise AssertionError("while a message is on its way the Send button does not say so") from None
+                sending = phone.evaluate("""() => {
+                    const form = document.querySelector('#style-chat .chat-say'), wait = form.querySelector('[data-chat-wait]');
+                    const box = wait ? wait.getBoundingClientRect() : {height: 0, top: 0, bottom: 0};
+                    return {off: form.querySelector('button').disabled, line: wait ? wait.textContent.trim() : '',
+                            shown: !!wait && !wait.hidden && box.height > 0, heard: document.getElementById('announce').textContent.trim(),
+                            kept: form.querySelector('textarea').value}; }""")
+                assert sending["off"], "Send can be pressed a second time while the first message is on its way"
+                assert sending["shown"] and sending["line"] == "Sending your message. The answer can take a few seconds.", \
+                    f"while a message is on its way the page does not say so under the field: {sending}"
+                assert sending["heard"] == sending["line"], f"a screen reader does not hear that the message is on its way: {sending}"
+                assert len(held) == 1, f"{len(held)} requests were sent for one message"
+                held[0].continue_()
+                phone.unroute("**/profile/style/say")
+                phone.wait_for_selector("[data-brief=suggested]")
+                lines = phone.locator(".chat-lines li").all_inner_texts()
+                assert len(lines) == 2 and "street style, Berlin vibe <b>bold</b>" in lines[0], f"the conversation: {lines}"
+                assert phone.locator(".chat-lines b:not(.chat-q)").count() == 0, "what he typed became markup on the page"
+                assert "I understood" in lines[1] and "dark colours" in lines[1] and "Should it stay all dark" in lines[1], f"the answer: {lines[1]!r}"
+                # The answer is read out: by the live region that was on the page before it came, not by a new one.
+                heard_it = phone.locator("#announce[data-before][aria-live=polite]").text_content() or ""
+                assert "Style assistant:" in heard_it and "I understood" in heard_it and "Should it stay all dark" in heard_it \
+                    and "A suggested style brief is below. It is not in use yet." in heard_it, \
+                    f"a screen reader does not hear the new answer; the live region says {heard_it!r}"
+                assert phone.evaluate("() => document.activeElement === document.querySelector('#style-chat .chat-say textarea')"), \
+                    "after a message the keyboard is no longer in the message field"
+                # On the phone the answer from its first line, the question it asks back, the field that holds the
+                # keyboard and Send are on the screen together: nothing of them under the Save bar, the tab bar or
+                # the figure and tabs that stay at the top.
+                on_screen = phone.evaluate("""() => {
+                    const shows = el => { const r = el.getBoundingClientRect();
+                        return r.height > 0 && [[r.left + 4, r.top + 4], [r.right - 4, r.bottom - 4]].every(([x, y]) => {
+                            const at = document.elementFromPoint(x, y); return !!at && el.contains(at); }); };
+                    const chat = document.getElementById('style-chat'), box = el => { const r = el.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; };
+                    const parts = {answer: chat.querySelector('[data-chat-new]'), question: chat.querySelector('.chat-q'),
+                                   field: chat.querySelector('.chat-say textarea'), send: chat.querySelector('.chat-say button')};
+                    const save = document.querySelector('.cc-save'), tabs = document.querySelector('.cc-tabs');
+                    return {hidden: Object.keys(parts).filter(name => !shows(parts[name])),
+                            at: Object.fromEntries(Object.entries(parts).map(([name, el]) => [name, box(el)])),
+                            save_bar: save ? box(save) : null, tabs: tabs ? box(tabs) : null, screen: innerHeight}; }""")
+                assert not on_screen["hidden"], \
+                    f"after the answer on a phone, not on the screen: {on_screen['hidden']} (where things are: {on_screen})"
+                assert "Not in use yet." in phone.locator("[data-brief]").inner_text(), "the suggestion does not say it is not in use"
+                assert phone.locator("[data-brief] input[name=fits]:checked").evaluate_all("bs => bs.map(b => b.value)") == ["relaxed"]
+                assert phone.input_value("[data-brief] input[name=colours_like]") == "black, charcoal"
+                assert "Weekday" in phone.locator("[data-brief-stores]").inner_text(), "no store named that suits street"
+                # "Smart casual" is a style there, and only that: the levels of formality have names of their own.
+                choices = [text.strip() for text in phone.locator("[data-brief] fieldset label").all_inner_texts()]
+                assert choices.count("Smart casual") == 1, f"Smart casual stands in the brief more than once: {choices}"
+                formal = phone.locator("[data-brief] fieldset:has(legend:text-is('How formal')) label").all_inner_texts()
+                assert [text.strip() for text in formal] == ["Any", "Casual", "In between", "Formal"], f"How formal: {formal}"
+                assert phone.evaluate("document.documentElement.scrollWidth") <= 391, "the chat is wider than a phone"
+                phone.goto(base + "/outfits", wait_until="networkidle")
+                assert phone.evaluate(whys) == [line for line in said if line], "a suggestion nobody confirmed changed the outfits"
+                # Opened again later, the suggestion is still there; he corrects it and confirms. What that did is said
+                # on the screen the page comes back to: the sentence, what changed, and the link to the outfits.
+                phone.goto(base + "/profile#style", wait_until="networkidle")
+                phone.wait_for_selector("[data-brief=suggested]")
+                phone.locator("[data-brief] label:has-text('Workwear')").tap()        # not workwear after all
+                phone.fill("[data-brief] input[name=not_wanted]", "logo")
+                before = bought(phone)
+                with phone.expect_navigation(wait_until="networkidle"):
+                    phone.locator("button:has-text('Use this brief')").tap()
+                in_use = phone.locator("[data-brief=in-use]")
+                expect(in_use).to_be_attached()
+                with_brief = bought(phone)
+                sentence = said_on_screen(phone, "Style brief saved.", "/outfits", "Use this brief on a phone")
+                expected = f"Style brief saved. {change(before, with_brief, 'Your brief', 'It changed none of your pieces.')} See your outfits"
+                assert sentence == expected, f"after Use this brief the page says {sentence!r}, and the shopping list says {expected!r}"
+                assert "Your brief changed" in sentence, "this brief changes pieces of the example plan, and that is not said"
+                assert phone.locator("[data-styles] input:checked").evaluate_all("bs => bs.map(b => b.value)") == ["street"]
+                with phone.expect_navigation(wait_until="networkidle"):
+                    phone.locator("[data-style-said] a").tap()
+                assert phone.url == base + "/outfits", f"See your outfits leads to {phone.url}"
+                shown = phone.evaluate(boards)
+                now = [board["why"] for board in shown if board["why"]]
+                assert now and all(line.startswith("Street: ") for line in now), f"with the brief in use: {now}"
+                assert shown[0]["why"], f"with the brief in use the first outfit is not a street one: {shown[:3]}"
+                assert all(board["title"] == "Everyday" for board in shown if board["why"]), f"street is said of a formal outfit: {shown}"
+                assert any("relaxed" in line for line in now), f"no outfit names a relaxed piece: {now}"
+                # The line of the first outfit is on the phone's first screen, above the tab bar, not behind it. (The
+                # "Demo data" notice over this page is not on the live site. The picture gives up room for it, so it is
+                # taken away here: without it the picture is as large as it gets, and the line stood behind the bar.)
+                phone.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                line = phone.evaluate("""() => { const r = document.querySelector('#reel [data-slide] [data-why]').getBoundingClientRect();
+                    return {top: Math.round(r.top), bottom: Math.round(r.bottom), scrolled: Math.round(scrollY),
+                            bar: Math.round(document.querySelector('nav.tabs').getBoundingClientRect().top)}; }""")
+                assert line["scrolled"] == 0 and line["top"] >= 0 and line["bottom"] <= line["bar"], \
+                    f"on a phone the line under the outfit's name is not above the tab bar on the first screen: {line}"
+                assert phone.evaluate("document.documentElement.scrollWidth") <= 391, "the outfits are wider than a phone"
+            finally:
+                context.close()
+            try:
+                # On a computer the chat and the brief fit. A message sent by keyboard leaves the keyboard in the message
+                # field, and "Start again" deletes the conversation only.
+                context = browser.new_context(viewport={"width": 1280, "height": 860})
+                wide = context.new_page()
+                wide.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                log_in(wide)
+                wide.goto(base + "/profile#style", wait_until="networkidle")
+                assert wide.evaluate("document.documentElement.scrollWidth") <= 1281, "Profile with the chat is wider than the screen"
+                assert wide.locator(".chat-lines li").count() == 2, "the conversation is gone on another device"
+                # A message that gets no answer back (the connection is cut here): said under the field, read out,
+                # his words still in the field and Send ready again.
+                wide.route("**/profile/style/say", lambda route: route.abort())
+                wide.fill("#style-chat .chat-say textarea", "no leather at all")
+                wide.locator("#style-chat .chat-say button").click()
+                expect(wide.locator("#style-chat [data-chat-wait]")).to_have_text(
+                    "No answer came back. Check your connection and send it again.")
+                expect(wide.locator("#style-chat [data-chat-wait]")).to_be_visible()
+                expect(wide.locator("#style-chat .chat-say button")).to_have_text("Send")
+                expect(wide.locator("#style-chat .chat-say button")).to_be_enabled()
+                assert wide.input_value("#style-chat .chat-say textarea") == "no leather at all", "his words are gone"
+                assert "No answer came back." in (wide.locator("#announce").text_content() or ""), "it is not read out"
+                assert wide.locator(".chat-lines li").count() == 2, "a message that was not sent stands in the conversation"
+                wide.unroute("**/profile/style/say")
+                wide.fill("#style-chat .chat-say textarea", "")
+                wide.locator("#style-chat .chat-say textarea").focus()
+                wide.keyboard.type("no leather")
+                wide.keyboard.press("Tab")
+                assert wide.evaluate("() => document.activeElement.textContent.trim()") == "Send", "Tab from the message does not reach Send"
+                wide.keyboard.press("Enter")
+                wide.wait_for_function("() => document.querySelectorAll('.chat-lines li').length === 4")
+                wide.wait_for_function("() => document.activeElement === document.querySelector('#style-chat .chat-say textarea')")
+                wide.keyboard.type("and no wool")          # the next message can be typed at once
+                assert wide.input_value("#style-chat .chat-say textarea") == "and no wool", "typing after a message goes nowhere"
+                heard_it = wide.locator("#announce").text_content() or ""
+                assert "I understood no leather" in heard_it, f"the second answer is not read out: {heard_it!r}"
+                wide.fill("#style-chat .chat-say textarea", "")
+                # He confirms "no leather". Every pair of shoes and sneakers the example plan can take is leather, so
+                # they stay, and the page says that they still go against the brief. No outfit with them is said to fit
+                # it, and every outfit has shoes: no line at all, where the same brief without the wish had lines.
+                assert wide.input_value("[data-brief=suggested] input[name=not_wanted]") == "logo, leather", "the suggestion"
+                before = bought(wide)
+                with wide.expect_navigation(wait_until="networkidle"):
+                    wide.click("button:has-text('Use this brief')")
+                after = bought(wide)
+                sentence = said_on_screen(wide, "Style brief saved.", "/outfits", "Use this brief with no leather")
+                shoes = {piece: product for piece, (product, _, _) in after.items() if "sneakers" in piece or "shoes" in piece}
+                assert len(shoes) == 2 and all(before[piece][0] == product for piece, product in shoes.items()), \
+                    f"no leather changed the shoes to other shoes: {[(before[piece][0], product) for piece, product in shoes.items()]}"
+                expected = (f"Style brief saved. {change(before, after, 'Your brief', 'It changed none of your pieces.')} "
+                            "2 pieces still go against it: White leather sneakers, Dark brown derby shoes. See your outfits")
+                assert sentence == expected, f"after Use this brief with no leather the page says {sentence!r}, not {expected!r}"
+                wide.goto(base + "/outfits", wait_until="networkidle")
+                lines = wide.evaluate(whys)
+                assert lines == [], f"he wants no leather, and outfits with leather shoes say they fit his brief: {lines}"
+                wide.goto(base + "/profile#style", wait_until="networkidle")
+                with wide.expect_navigation(wait_until="networkidle"):
+                    wide.click("button:has-text('Start again')")
+                sentence = said_on_screen(wide, "The conversation is deleted.", "", "Start again on a computer")
+                assert sentence == "The conversation is deleted. Your style brief stays in use.", sentence
+                assert wide.locator(".chat-lines li").count() == 0, "Start again left the conversation"
+                expect(wide.locator("[data-brief=in-use]")).to_be_visible()
+                context.close()
+                # With JavaScript off: a message comes back to the chat on Profile, with its suggestion, and "Remove
+                # brief" says what it did on the screen the page comes back to.
+                context = browser.new_context(viewport={"width": 390, "height": 844}, java_script_enabled=False)
+                plain = context.new_page()
+                log_in(plain)
+                plain.goto(base + "/profile", wait_until="networkidle")
+                plain.fill("#style-chat textarea", "office, navy, no logos")
+                plain.click("#style-chat .chat-say button")
+                plain.wait_for_load_state("networkidle")
+                assert plain.url.endswith("/profile#style"), f"without JavaScript a message leads to {plain.url}"
+                suggested = plain.locator("[data-brief=suggested]")
+                assert suggested.locator("input[name=styles]:checked").evaluate_all("bs => bs.map(b => b.value)") == ["street", "tailored"]
+                assert "In use now: styles Street" in suggested.inner_text(), "it does not say which brief is in use meanwhile"
+                before = bought(plain)
+                plain.click("button:has-text('Remove brief')")
+                plain.wait_for_load_state("networkidle")
+                assert plain.locator("[data-brief]").count() == 0, "Remove brief left a brief on the page"
+                sentence = said_on_screen(plain, "Style brief removed.", "/outfits", "Remove brief without JavaScript")
+                expected = f"Style brief removed. {change(before, bought(plain), 'Removing it', 'That changed none of your pieces.')} See your outfits"
+                assert sentence == expected, f"after Remove brief the page says {sentence!r}, and the shopping list says {expected!r}"
+                plain.goto(base + "/outfits", wait_until="networkidle")
+                assert plain.locator("[data-why]").count() == 0, "without a brief an outfit still says why it fits one"
+                context.close()
+                # And on a phone, "Start again" and "Remove brief" are said on the screen the page comes back to as well.
+                context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+                phone = context.new_page()
+                phone.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                log_in(phone)
+                phone.goto(base + "/profile#style", wait_until="networkidle")
+                phone.fill("#style-chat textarea", "street style, Berlin vibe")
+                phone.locator("#style-chat .chat-say button").tap()
+                phone.wait_for_selector("[data-brief=suggested]")
+                with phone.expect_navigation(wait_until="networkidle"):
+                    phone.locator("button:has-text('Use this brief')").tap()
+                said_on_screen(phone, "Style brief saved.", "/outfits", "Use this brief on a phone, a second time")
+                with phone.expect_navigation(wait_until="networkidle"):
+                    phone.locator("button:has-text('Start again')").tap()
+                said_on_screen(phone, "The conversation is deleted. Your style brief stays in use.", "", "Start again on a phone")
+                before = bought(phone)
+                with phone.expect_navigation(wait_until="networkidle"):
+                    phone.locator("button:has-text('Remove brief')").tap()
+                sentence = said_on_screen(phone, "Style brief removed.", "/outfits", "Remove brief on a phone")
+                expected = f"Style brief removed. {change(before, bought(phone), 'Removing it', 'That changed none of your pieces.')} See your outfits"
+                assert sentence == expected, f"after Remove brief the page says {sentence!r}, and the shopping list says {expected!r}"
+                assert phone.locator("[data-brief]").count() == 0, "Remove brief left a brief on the page"
+            finally:
+                context.close()
+                delete_a_steps_customer(who)
+
         steps = [("create an account", sign_up), ("Stilsmith's own typefaces load", own_typefaces),
                  ("price levels and best for budget", price_levels),
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
@@ -5196,6 +5540,7 @@ def run(base: str) -> None:
                  ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
                  ("Profile is a character screen", profile_is_a_character_screen),
                  ("the store picker: only the stores ticked", the_store_picker),
+                 ("the style chat: his words, a brief he confirms", the_style_chat),
                  ("colours picked by tapping swatches", colours_by_tapping_swatches),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),

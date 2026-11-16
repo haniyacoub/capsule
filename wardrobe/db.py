@@ -30,7 +30,7 @@ from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 LOCAL_USER_ID = 1
 
 SCHEMA = """
@@ -220,9 +220,10 @@ CREATE TABLE IF NOT EXISTS pro (        -- `python -m wardrobe pro add | remove 
 # (the heart's "Saved" was the same thing), which gains the column `sig`: the ids of the pieces it combines, top to
 # bottom, joined by "~". A no ("Not for me") is a row here, and that combination is not offered again.
 # Whether a database has had this upgrade is not read from its number: it is read from the database itself, which
-# has the column `sig` once it did (_migrate). The style chat, built at the same time on a branch of its own, also
-# calls its upgrade version 9. When the two are joined one of them gets the next number, and a database that already
-# carries the other's 9 must still get this one, once, and never twice.
+# has the column `sig` once it did (_migrate). The style chat was built at the same time on a branch of its own and
+# also called its upgrade version 9 there. Joined, this one is version 9 and the chat is version 10 (SCHEMA_CHAT), so
+# a database numbered 9 may hold either of the two: one that carries only the chat's table still gets this upgrade,
+# once, and one that has had it never gets it twice.
 # (No semicolons inside the comments: the statements are split on them.)
 SCHEMA_YES = """
 CREATE TABLE IF NOT EXISTS outfits_declined (
@@ -231,6 +232,21 @@ CREATE TABLE IF NOT EXISTS outfits_declined (
     at      TEXT NOT NULL,
     PRIMARY KEY (user_id, sig)
 );
+"""
+
+
+# Added in version 10: the style chat (stylechat.py). When a message was sent to the text model, for the daily
+# limits, as with the pictures: an entry outlives its account, with no name on it. A database from before gains this
+# table and nothing else changes. (On its own branch this was called version 9: a database numbered 9 that already
+# has the table keeps it as it is, and one that has only the wardrobe's version 9 gains it.)
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_CHAT = """
+CREATE TABLE IF NOT EXISTS chat_requests (   -- when the style chat was asked: the daily limits
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_requests_at ON chat_requests (at);
 """
 
 
@@ -332,6 +348,9 @@ def _migrate() -> None:
                 con.execute(statement)
         if before_yes:                                 # once: never again for a database that has had it
             _wardrobe_from_yes(con)
+        for statement in SCHEMA_CHAT.split(";"):       # new in version 10, safe to repeat
+            if statement.strip():
+                con.execute(statement)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
@@ -535,6 +554,7 @@ def export_user() -> dict:
         owner = con.execute("SELECT added_at FROM owners WHERE user_id = ?", (user_id,)).fetchone()
         videos = con.execute("SELECT at FROM video_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
         pro = con.execute("SELECT added_at FROM pro WHERE user_id = ?", (user_id,)).fetchone()
+        chats = con.execute("SELECT at FROM chat_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
     account = dict(user) if user else {}
     if owner:       # only on the copy of someone who runs Stilsmith (owner.py)
         account["owner_since"] = owner["added_at"]
@@ -552,6 +572,8 @@ def export_user() -> dict:
                                      for r in asked],
         "ai_videos_asked_for_at": [datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="seconds")
                                    for r in videos],
+        "style_chat_asked_at": [datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="seconds")
+                                for r in chats],
     }
 
 
@@ -624,6 +646,12 @@ def set_setting(key: str, value) -> None:
             "ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value",
             (uid(), key, json.dumps(value)),
         )
+
+
+def delete_setting(key: str) -> None:
+    """Forget a setting altogether: its row goes, so nothing is kept of it and get_setting gives the default."""
+    with connect() as con:
+        con.execute("DELETE FROM settings WHERE user_id = ? AND key = ?", (uid(), key))
 
 
 # ── slots ─────────────────────────────────────────────────────────────────────
@@ -892,6 +920,10 @@ _TICKETS = {
                        "SELECT COUNT(*) FROM video_requests WHERE user_id = ? AND at > ?",
                        "SELECT COUNT(*) FROM video_requests WHERE at > ?",
                        "INSERT INTO video_requests (user_id, at) VALUES (?, ?)"),
+    "chat_requests": ("DELETE FROM chat_requests WHERE at < ?",
+                      "SELECT COUNT(*) FROM chat_requests WHERE user_id = ? AND at > ?",
+                      "SELECT COUNT(*) FROM chat_requests WHERE at > ?",
+                      "INSERT INTO chat_requests (user_id, at) VALUES (?, ?)"),
 }
 
 
@@ -923,6 +955,28 @@ def look_requests(since: float, mine: bool = False) -> int:
             return con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ? AND at > ?",
                                (uid(), since)).fetchone()[0]
         return con.execute("SELECT COUNT(*) FROM look_requests WHERE at > ?", (since,)).fetchone()[0]
+
+
+# ── the style chat (stylechat.py) ─────────────────────────────────────────────
+
+def take_chat_ticket(since: float, per_day: int, per_user: int | None) -> tuple[int, str]:
+    """Count one message to the style chat for the current user, if the limits leave room (see take_look_ticket)."""
+    return _take_ticket("chat_requests", since, per_day, per_user)
+
+
+def drop_chat_request(ticket: int) -> None:
+    """Give a ticket back: a message that certainly cost nothing does not count towards the day's limits."""
+    with connect() as con:
+        con.execute("DELETE FROM chat_requests WHERE id = ?", (ticket,))
+
+
+def chat_requests(since: float, mine: bool = False) -> int:
+    """How many messages to the style chat were counted since then: the current user's, or everyone's."""
+    with connect() as con:
+        if mine:
+            return con.execute("SELECT COUNT(*) FROM chat_requests WHERE user_id = ? AND at > ?",
+                               (uid(), since)).fetchone()[0]
+        return con.execute("SELECT COUNT(*) FROM chat_requests WHERE at > ?", (since,)).fetchone()[0]
 
 
 # ── AI videos of outfits (videos.py) ──────────────────────────────────────────

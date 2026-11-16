@@ -1169,7 +1169,7 @@ class WhoWasACustomerBefore(YesCase):
 
         db.init()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 9)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
         self.assertEqual(self.rows("slots"), slots, "every piece of the plan is as it was")
         self.assertEqual(self.rows("saved_outfits", "user_id, key, saved_at, label, pieces"), saved)
         self.assertEqual(self.rows("saved_outfits", "sig"), [(a.sig,)], "the saved outfit says which pieces it combines")
@@ -1271,21 +1271,21 @@ class WhoWasACustomerBefore(YesCase):
         return selection.build().levels["cheapest"]
 
     def test_a_database_at_this_number_that_never_had_this_upgrade_gets_it_when_the_number_goes_up(self):
-        # The style chat, built alongside on a branch of its own, calls its upgrade version 9 as well. When the two
-        # are joined one of them gets the next number. A database that carries the chat's 9 holds saved outfits
-        # without `sig`: whether this upgrade ran is read from that, not from the number, so it still gets it.
+        # The style chat, built alongside on a branch of its own, called its upgrade version 9 as well. Joined, this
+        # upgrade is version 9 and the chat's is version 10. A database that carries the chat's 9 holds the chat's
+        # table and saved outfits without `sig`: whether this upgrade ran is read from that, not from the number, so
+        # it still gets it.
         self.page("/")
         a, _ = self.two_that_share()
         self.client.post("/outfits/save", data={"key": a.key}, headers=HX)
-        self.version_8()
+        self.version_8()                                     # (the chat's table stays: its branch had made it)
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
-            con.executescript("CREATE TABLE chat_requests (id INTEGER PRIMARY KEY, user_id INTEGER, at REAL NOT NULL); "
-                              f"PRAGMA user_version = {db.SCHEMA_VERSION};")
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM chat_requests").fetchone()[0], 0)
+            con.executescript("PRAGMA user_version = 9;")
             con.commit()
-        with mock.patch.object(db, "SCHEMA_VERSION", db.SCHEMA_VERSION + 1):
-            db.init()
-            with closing(sqlite3.connect(paths.DB_PATH)) as con:
-                self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
+        db.init()
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
         self.assertEqual(self.rows("saved_outfits", "sig"), [(a.sig,)])
         self.assertEqual((db.get_setting("kept_pieces"), db.get_setting("wardrobe_news")), ([], True))
         self.assertEqual(self.rows("outfits_declined"), [])

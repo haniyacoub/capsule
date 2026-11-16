@@ -22,12 +22,13 @@ import secrets
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from flask import Flask, Response, abort, flash, g, redirect, render_template, request, send_file, url_for
+from flask import (Flask, Response, abort, flash, g, get_flashed_messages, redirect, render_template, request,
+                   send_file, url_for)
 from markupsafe import Markup
 from werkzeug.exceptions import HTTPException, NotFound
 
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
-               owner, person, programmes, selection, shared, tryon, yes)
+               owner, person, programmes, selection, shared, style, stylechat, tryon, yes)
 from . import figure
 from . import videos
 from . import profile as profile_mod
@@ -200,6 +201,26 @@ def eur(value) -> str:
     value = float(value or 0)
     text = f"{value:,.0f}" if abs(value - round(value)) < 0.005 else f"{value:,.2f}"
     return f"{text} €"
+
+
+def brief_changed(before: tuple[dict, float], after: tuple[dict, float], what: str) -> Markup | str:
+    """What a change of the style brief did to his picks, in one sentence: "Your brief changed 1 piece: +4 €."
+    (the pieces that now have another product, and what that does to the wardrobe's total), or "" when every piece
+    kept its product. `before` and `after`: each piece's product and how many of it the plan has ({piece: (product,
+    how many)}), and the total, from before and after the change (picks_of in create_app). `what` did it: "Your
+    brief", "Removing it", "Your styles"."""
+    (was, total_was), (now, total_now) = before, after
+    n = sum(qty for slot_id, (product, qty) in now.items() if was.get(slot_id, (None, 0))[0] != product)
+    if not n:
+        return ""
+    pieces = f"{n} {'piece' if n == 1 else 'pieces'}"
+    cents = round(total_now * 100) - round(total_was * 100)
+    if not cents:
+        return Markup("%s changed %s. Your total is the same.") % (what, pieces)
+    amount = eur(abs(cents) / 100)
+    # "+4 €" to the eye, "4 € more" to a screen reader, as beside the options of a piece (_piece.html).
+    return Markup('%s changed %s: <span aria-hidden="true">%s%s</span><span class="sr">%s %s</span>.') % (
+        what, pieces, "+" if cents > 0 else "−", amount, amount, "more" if cents > 0 else "less")
 
 
 def weblink(url) -> str:
@@ -1069,6 +1090,9 @@ def create_app() -> Flask:
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
                        "saved": o.sig in yes_sigs, "yes_sig": o.sig, "adds": yes.adds(w, o, yes_sigs)}
                       for o in chosen]
+            if w.brief:         # with a style brief, an outfit that fits it says why in one line (style.why)
+                for board, outfit in zip(boards, chosen):
+                    board["why"] = style.why(board["pieces"], outfit.level, w.brief)
         # A small picture tapped without JavaScript (outfits_look): that outfit shows that picture large.
         for board in boards:
             if board["key"] == request.args.get("shot_of"):
@@ -1597,6 +1621,8 @@ def create_app() -> Flask:
                         videos_on=chosen is not None and videos.service() is not None,
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
                         store_rows=store_rows(current),
+                        # A message that was not sent without JavaScript: its words came along (profile_style_say).
+                        **style_context(kept=next(iter(get_flashed_messages(category_filter=["style-kept"])), "")),
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
                         # What he has not answered yet is said where it is asked, in a plain line: his sizes,
                         # his colours (the plan starts with Stilsmith's), his budget (its field stays empty).
@@ -1604,6 +1630,23 @@ def create_app() -> Flask:
                         answered=profile_mod.answered(current))
 
         new, notes = profile_mod.from_form(request.form, current)
+        answer = save_answers(current, new, notes)
+        # The styles ticked under "What do you dress for?" are the style brief's styles (style.py). `styles_shown`
+        # tells a form that has them from one that does not. They change which products and outfits come first,
+        # never the plan itself. They are saved last, after everything else this save changes (the budget, the
+        # sizes, a plan built anew), so that what the styles did to his picks can be told apart from the rest and
+        # said: "Your styles changed 1 piece: +70 €."
+        if "styles_shown" in request.form and style.styles_differ(request.form.getlist("styles")):
+            before = picks_of(selection.build())
+            style.set_styles(request.form.getlist("styles"))
+            changed = brief_changed(before, picks_of(selection.build()), "Your styles")
+            if changed:
+                flash(changed)
+        return answer
+
+    def save_answers(current: dict, new: dict, notes: list[str]):
+        """Profile's form, sent: everything in it but the styles is saved, and the page to go to next is given
+        back (profile_page saves the styles after it)."""
         # The model's choices (the Body tab) are sent with the same form, where the menu is shown. A save that changed
         # only them saves only them, as the model's own button did (person.py): the profile stays as it was, also
         # while it holds the example's values, and the message is said beside the model.
@@ -1667,6 +1710,96 @@ def create_app() -> Flask:
                 for key, label in programmes.offered().items()]
         # The stores with products first; those with none yet are shown apart, under their own line (profile.html).
         return [row for row in rows if not row["empty"]] + [row for row in rows if row["empty"]]
+
+    def style_context(said: str = "", kept: str = "") -> dict:
+        """What Profile's style part shows (_style_chat.html): the styles to tick, the brief in use, and, where the
+        chat is offered, the conversation and the brief it suggested. `said`: what just went wrong, if anything,
+        and `kept`: the message that was not sent then, put back in the field so that he need not type it again."""
+        chat = stylechat.state()
+        brief = style.stored()
+        shown = chat["draft"] or (brief if style.active(brief) else None)      # the brief the editor shows
+        mine = profile_mod.stores()
+        stocked = shared.stocked()
+        most = int(style.load_rules()["chat"]["max_message_chars"])
+        return {"STYLES": style.styles(), "FORMALITIES": style.formalities(), "PRICE_FEELINGS": style.prices(),
+                "STYLE_FITS": style.FITS, "brief": brief, "brief_in_use": style.active(brief),
+                "brief_words": style.in_words(brief), "chat_on": stylechat.available(), "chat": chat,
+                "brief_shown": shown, "chat_said": said, "chat_kept": kept[:most],
+                "chat_allowance": stylechat.allowance(), "chat_max": most,
+                # The stores that suit the brief shown, ranked by the style table (config/stores.toml), among the
+                # stores he ticked: a name, and whether Stilsmith has products from it yet.
+                "brief_stores": [{"label": programmes.label(key), "empty": key not in stocked}
+                                 for key in (style.stores_that_suit(shown, mine) if shown else [])]}
+
+    def picks_of(w: selection.Wardrobe) -> tuple[dict[str, tuple[str | None, int]], float]:
+        """Each piece's product as it is picked in a wardrobe (and how many of it the plan has), and the wardrobe's
+        total: taken before and after a change of the style brief, to say what the change did (brief_changed)."""
+        return {view.slot["id"]: (view.chosen.id if view.chosen else None, view.qty) for view in w.slots}, w.total
+
+    def still_against(w: selection.Wardrobe) -> Markup | str:
+        """The pieces whose product the brief in use speaks against (a colour he avoids, something he does not
+        want: style.against), in one sentence, or "". Such a product stays where nothing else good enough was
+        found for the piece, or where he chose it himself; saying so keeps "no leather" from reading as if the
+        leather shoes were gone."""
+        names = [(view.slot["name"], view.qty) for view in w.slots
+                 if view.state != "owned" and view.chosen is not None
+                 and style.against(view.chosen.data, view.slot["category"], w.brief)]
+        if not names:
+            return ""
+        n = sum(qty for _, qty in names)
+        shown = ", ".join(name for name, _ in names[:3])
+        more = f" and {len(names) - 3} more" if len(names) > 3 else ""
+        return Markup("%s still %s against it: %s%s.") % (f"{n} {'piece' if n == 1 else 'pieces'}",
+                                                         "goes" if n == 1 else "go", shown, more)
+
+    @app.post("/profile/style/say")
+    def profile_style_say():
+        """One message to the style chat. Its answer and the brief it suggests are shown; nothing is in use yet."""
+        message = request.form.get("message", "")
+        said = stylechat.say(message)
+        if request.headers.get("HX-Request"):
+            return render_template("_style_chat.html", **style_context(said, message if said else ""))
+        if said:
+            # Without JavaScript the page is loaded again: what went wrong is said beside the chat, where the page
+            # comes back to, and his words are put back in the field there as well (_style_chat.html).
+            flash(said, "style-bad")
+            if message.strip():
+                flash(message[:int(style.load_rules()["chat"]["max_message_chars"])], "style-kept")
+        return redirect(url_for("profile_page") + "#style")
+
+    @app.post("/profile/style/brief")
+    def profile_style_brief():
+        """The brief's own buttons: "Use this brief" (as he corrected it), "Remove brief", "Start again". What each
+        did is said beside the brief, where the page comes back to, with what it did to his picks and total."""
+        do = request.form.get("do")
+        see_outfits = Markup('<a href="%s">See your outfits</a>') % url_for("outfits_page")
+        if do == "use":
+            brief = style.from_form(request.form)
+            before = picks_of(selection.build())
+            style.save(brief)                   # one that says nothing is none: style.save removes it
+            stylechat.confirmed()
+            now = selection.build()
+            if style.active(brief):
+                changed = brief_changed(before, picks_of(now), "Your brief")
+                against = still_against(now)
+                flash(Markup("Style brief saved. %s %s%s") % (changed or "It changed none of your pieces.",
+                                                              against + " " if against else "", see_outfits), "style")
+            else:
+                changed = brief_changed(before, picks_of(now), "Removing the one you had")
+                flash(Markup("The brief was empty, so none is in use. %s %s")
+                      % (changed or "Your picks are as they are without one.", see_outfits), "style")
+        elif do == "remove":
+            before = picks_of(selection.build())
+            style.remove()
+            stylechat.forget()
+            changed = brief_changed(before, picks_of(selection.build()), "Removing it")
+            flash(Markup("Style brief removed. %s %s") % (changed or "That changed none of your pieces.", see_outfits),
+                  "style")
+        elif do == "forget":
+            stylechat.forget()
+            flash("The conversation is deleted." + (" Your style brief stays in use." if style.current() else ""),
+                  "style")
+        return redirect(url_for("profile_page") + "#style")
 
     def back_to_tab():
         """Back to Profile, on the tab the form was sent from (app.js writes it in the form; without it, the first)."""

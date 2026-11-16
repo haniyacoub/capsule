@@ -528,7 +528,7 @@ if (aboutYou) {
 // 13a. Profile: the tabs, a real tablist. One tab is open at a time; the arrow keys (and Home and End) move between the
 //      tabs and open them, and Tab goes from the open tab into its controls. The address keeps the open tab
 //      (/profile#colours), so a link to a place on the page opens its tab: #budget (the budget bar), #sizes ("Change"
-//      by Your sizes), #model (where "Model saved" is said), #photo (where the photo's messages are said). The form
+//      by Your sizes), #model (where "Model saved" is said), #photo (where the photo's messages are said), #style (the style chat). The form
 //      carries the open tab, so that a save comes back to it. Over the middle, a switch shows the drawn figure or
 //      "Your model" (the AI picture); changing a choice that the figure shows brings the figure back.
 const profileCreator = document.querySelector('[data-cc]');
@@ -539,7 +539,7 @@ if (profileCreator) {
   const panelsOf = (name) => [...profileCreator.querySelectorAll(`.cc-panel[data-tab="${name}"]`)];
   const tabField = profileCreator.querySelector('[data-cc-tab-field]');
   const tabOf = (hash) => {
-    const name = { model: 'body', photo: 'you' }[hash] || hash;
+    const name = { model: 'body', photo: 'you', style: 'you' }[hash] || hash;
     return names.includes(name) ? name : null;
   };
   // The top of the controls' card, brought back into view when the page was scrolled past it (on a phone it then
@@ -835,6 +835,94 @@ if (storePick) {
     }
   });
 }
+
+// 13d. Profile: the style chat (_style_chat.html). While a message is on its way to the server (and from there to
+//      Google, which can take some seconds), the page says so: the button, which HTMX switches off, reads
+//      "Sending…", a line under the field says the answer can take a few seconds, and the live region reads it out.
+//      After it, HTMX puts the whole chat in again, with the answer and the brief it suggests. The keyboard stays
+//      in the message field (the new one, in place of the one that was typed in), so the next message can be
+//      written at once; the page moves so that the answer and the field are on the screen together; and the new
+//      answer, or what went wrong, is read out by the page's one live region (base.html), which was on the page
+//      before the answer came. A message that no answer came back for (the connection was cut, or the server
+//      answered with an error) is said under the field, with his words still in it. It does not say whether the
+//      message was counted: from here that cannot be known.
+const chatHeard = (words) => {
+  const announce = document.getElementById('announce');
+  if (announce) announce.textContent = announce.textContent === words ? `${words}\u00a0` : words;   // the same words again are read again
+};
+const chatForm = (e) => {
+  const form = e.detail.elt;
+  return form instanceof Element && form.matches('#style-chat .chat-say') ? form : null;
+};
+document.body.addEventListener('htmx:beforeRequest', (e) => {
+  const form = chatForm(e);
+  if (!form) return;
+  const button = form.querySelector('button');
+  const wait = form.querySelector('[data-chat-wait]');
+  if (button) button.textContent = 'Sending…';
+  if (wait) {
+    wait.textContent = 'Sending your message. The answer can take a few seconds.';
+    wait.classList.remove('flash', 'bad');
+    wait.hidden = false;
+    chatHeard(wait.textContent);
+  }
+  form.setAttribute('aria-busy', 'true');
+});
+['htmx:sendError', 'htmx:timeout', 'htmx:responseError'].forEach((name) => {
+  document.body.addEventListener(name, (e) => {
+    const form = chatForm(e);
+    if (!form || (e.detail.xhr && e.detail.xhr.status === 409)) return;      // 409: the page is reloaded (11)
+    const button = form.querySelector('button');
+    const wait = form.querySelector('[data-chat-wait]');
+    if (button) button.textContent = 'Send';
+    form.removeAttribute('aria-busy');
+    if (!wait) return;
+    wait.textContent = name === 'htmx:responseError'
+      ? 'Something went wrong with that message. Load the page again and try once more.'
+      : 'No answer came back. Check your connection and send it again.';
+    wait.classList.add('flash', 'bad');
+    wait.hidden = false;
+    chatHeard(wait.textContent);
+  });
+});
+// The answer and the field on the screen together: the page moves up until the field and Send are above whatever
+// stands at the bottom of the screen (the Save bar, the tab bar, a phone's keyboard), but never so far that the
+// first line of the answer leaves at the top, under the tabs that stick there. A long answer is read first.
+const chatInView = (chat, said, field) => {
+  const gap = 8;
+  const view = window.visualViewport;
+  let floor = view ? view.offsetTop + view.height : window.innerHeight;
+  document.querySelectorAll('.cc-save, nav.tabs').forEach((bar) => {
+    const box = bar.getBoundingClientRect();
+    if (box.height && box.top > window.innerHeight / 2) floor = Math.min(floor, box.top);
+  });
+  const tabs = document.querySelector('.cc-tabs');
+  const ceiling = tabs ? Math.max(0, tabs.getBoundingClientRect().bottom) : 0;
+  const button = chat.querySelector('.chat-say button');
+  const lowest = Math.max(field.getBoundingClientRect().bottom, button ? button.getBoundingClientRect().bottom : 0);
+  const first = said.getBoundingClientRect().top - gap - ceiling;      // how far the answer's start is below the top
+  const by = first < 0 ? first : Math.min(lowest + gap - floor, first);
+  if (by > 0 || first < 0) window.scrollBy({ top: by, behavior: 'auto' });      // at once: he is about to type
+};
+document.body.addEventListener('htmx:afterSwap', (e) => {
+  const was = e.detail.target;
+  if (!(was instanceof Element) || was.id !== 'style-chat') return;
+  const chat = document.getElementById('style-chat');
+  if (!chat) return;
+  const field = chat.querySelector('.chat-say textarea');
+  if (field) {
+    field.focus({ preventScroll: true });
+    field.setSelectionRange(field.value.length, field.value.length);     // after his words, when they came back unsent
+  }
+  const said = chat.querySelector('[data-chat-said]') || chat.querySelector('[data-chat-new]');
+  if (!said) return;
+  if (field) chatInView(chat, said, field);
+  let words = said.textContent.replace(/\s+/g, ' ').trim();
+  if (!said.matches('[data-chat-said]') && chat.querySelector('[data-brief="suggested"]')) {
+    words += ' A suggested style brief is below. It is not in use yet.';
+  }
+  chatHeard(words);
+});
 
 // 14. Profile: the colours as swatches to tap. Once: a colour you like, numbered in the order you tapped it (1 counts
 //     most, which is how the plan reads "most important first"). Twice: a colour to avoid. Three times: neither.
