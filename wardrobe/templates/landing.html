@@ -25,12 +25,13 @@
     <p>Your sizes, the colours you like and avoid, and your budget. {{ site_name }} plans 15 to 20 menswear pieces that all go together, and you can change any of them.</p>
   </li>
   <li>
-    <h2><span class="step-n">2</span> See every outfit{% if looks_on %} on a model{% endif %}</h2>
-    <p>Swipe through your outfits one at a time{% if looks_on %}, each drawn by AI{% endif %}. Tap a piece to swap it or leave it off.</p>
+    <h2><span class="step-n">2</span> Say yes to the outfits you like</h2>
+    {# The wardrobe is the outfits he says yes to (yes.py): said here as it works, in the customer's words. #}
+    <p>See the outfits one at a time{% if looks_on %}, each drawn by AI on a model{% endif %}. Your wardrobe is the pieces of the outfits you say yes to, and each outfit says what it would add: how many new pieces, and what they cost. Tap a piece to swap it or leave it off.</p>
   </li>
   <li>
     <h2><span class="step-n">3</span> Buy it, store by store</h2>
-    <p>Pick a price level from Cheapest to Top, or let {{ site_name }} fit everything to your budget. Every option's quality is rated on fabric, brand and price, with the working shown.</p>
+    <p>Your shopping list holds only the pieces of the outfits you said yes to. Pick a price level from Cheapest to Top, or let {{ site_name }} fit everything to your budget. Every option's quality is rated on fabric, brand and price, with the working shown.</p>
   </li>
 </ol>
 {% endblock %}

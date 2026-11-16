@@ -124,6 +124,7 @@ class Selection(AppCase):
             self.assertIn('class="slot ', html)
 
     def test_total_is_price_times_quantity(self):
+        having.the_whole_plan()         # every piece is in his wardrobe, the white tee with its spare
         w = selection.build()
         expected = sum(s.chosen.price * s.qty for s in w.slots)
         self.assertAlmostEqual(w.total, expected, places=2)
@@ -304,8 +305,9 @@ class APiecesPageInPlainWords(AppCase):
         self.assertNotIn("slot", text.lower())
         self.assertIn(f"{pieces} pieces in {n_colours} colours, planned from your profile. These are the pieces your "
                       "outfits are made from. A piece is in your wardrobe, and in your total, once you add an outfit "
-                      "that wears it. Change anything: rename, recolour, remove or add. Your outfits update straight "
-                      "away.", text)
+                      "that wears it. Where the plan has a piece twice (×2), an outfit adds one; the second is a spare "
+                      "you can add on the piece's card in your Wardrobe. Change anything: rename, recolour, remove or "
+                      "add. Your outfits update straight away.", text)
         self.assertIn("Planned for everyday and the office.", text)       # the example profile dresses for both
         self.assertIn('data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, '
                       'locked choices and pieces marked as yours are lost. The pieces of the outfits you said yes to '
@@ -426,6 +428,15 @@ class SlotsAndProfile(AppCase):
         after = self.view("white-tee")
         self.assertEqual((after.state, after.chosen.id), ("locked", other.id), "the choice made by hand is kept")
         self.assertIn("Kept your 1 hand-picked piece.", self.client.get("/outfits").data.decode())
+
+    def test_a_colour_both_liked_and_refused_is_refused_whatever_the_budget_field_holds(self):
+        form = {"top_size": "L", "waist": "34", "length": "32", "shoe": "44", "height_cm": "185", "weight_kg": "85",
+                "liked": "black, navy", "refused": "navy", "use": "everyday", "shoes": "on"}
+        for budget in ("900", "", "0"):
+            profile, notes = profile_mod.from_form({**form, "budget": budget}, profile_mod.load())
+            self.assertEqual((profile["liked"], profile["refused"]), (["black"], ["navy"]), f"budget typed: {budget!r}")
+            self.assertIn("You both like and refuse navy — treated as refused.", notes)
+            self.assertEqual("A budget has to be more than 0 €, so what you typed was not saved as your budget." in notes, budget == "0")
 
     def test_the_profile_says_what_each_field_is(self):
         page = self.client.get("/profile").data.decode()

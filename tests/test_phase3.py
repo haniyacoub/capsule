@@ -4,7 +4,7 @@ import io
 import re
 import unittest
 
-from wardrobe import catalog, db, export, outfits, paths, programmes, selection, sizecheck, sizes
+from wardrobe import catalog, db, export, outfits, paths, programmes, selection, sizecheck, sizes, yes
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app
 
@@ -218,7 +218,7 @@ class SavedOutfits(AppCase):
         self.assertNotIn(f'id="outfit-{key}"', page, "the outfit removed is still on the Saved page")
         self.assertIn(f'id="outfit-{boards[1].key}"', page)
         self.assertIn("My outfits 1</a>", page)
-        self.assertIn(f"Took “{before['label']}” out of your wardrobe.", page)
+        self.assertIn(f"Took the {yes.name(before['pieces'])} out of your wardrobe.", page)
         self.assertIn('name="want" value="restore"', page)
         # (Asked again, by a second tap or Back: it stays removed, and nothing breaks.)
         self.assertEqual(self.client.post("/outfits/save", data={"key": key, "want": "remove", "on": "saved"}).status_code, 302)
@@ -270,6 +270,7 @@ class SavedOutfits(AppCase):
 
 class ShoppingList(AppCase):
     def test_grouped_by_store_with_subtotals_that_add_up(self):
+        having.the_whole_plan()         # every piece is in his wardrobe, the white tee with its spare
         coat = next(s for s in selection.build().slots if s.garment.key == "coat")
         self.client.post(f"/slot/{coat.slot['id']}/own", headers=HX)
         profile_mod.save({**profile_mod.load(), "shoe": "49"})       # nobody stocks a 49

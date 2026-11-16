@@ -76,6 +76,22 @@
       </form>
       {% endif %}
     </div>
+    {% if s.n_spare and c %}
+    {# The plan has this piece more than once (two white tees). An outfit wears one, and a yes adds that one. The
+       other is a spare he may add himself: counted in his total and his shopping list only then, and said as a
+       spare (app.py, slot_spare). #}
+    <form class="spare" method="post" action="{{ url_for('slot_spare', slot_id=s.slot.id) }}">{{ csrf_field() }}
+      {% if s.qty > 1 %}
+      <span>{{ s.spare_words[0] }}.</span>
+      <input type="hidden" name="want" value="out">
+      <button class="btn ghost small" id="spare-{{ s.slot.id }}">{{ s.spare_words[2] }}</button>
+      {% else %}
+      <span>Your outfits wear one. The plan has {{ s.planned }}.</span>
+      <input type="hidden" name="want" value="in">
+      <button class="btn ghost small" id="spare-{{ s.slot.id }}">{{ s.spare_words[1] }}{% if not gone %} <span class="plus">+ {{ (c.price * s.n_spare)|eur }}</span>{% endif %}</button>
+      {% endif %}
+    </form>
+    {% endif %}
     {% if s.offers or s.left_out %}{% include "_colour_offer.html" %}{% endif %}
     {% if gone %}{% with back = 'wardrobe', sig = '', note_id = 'note-' ~ s.slot.id, qty = s.qty %}{% include "_sold_out.html" %}{% endwith %}{% endif %}
   </article>

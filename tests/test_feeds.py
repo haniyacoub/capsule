@@ -179,7 +179,7 @@ VERSION_7_ADDS = [("index", "sqlite_autoindex_videos_1"), ("index", "video_reque
                   ("index", "sqlite_autoindex_outfits_declined_1"), ("table", "outfits_declined")]
 
 # Version 9 also changes one table on purpose: saved_outfits gains the column `sig` (a saved outfit is an outfit he
-# said yes to), and every customer with a plan gains two settings (test_yes.py tests what they hold).
+# said yes to), and every customer with a plan gains three settings (test_yes.py tests what they hold).
 VERSION_9_CHANGES = {"saved_outfits", "settings"}
 
 
@@ -235,11 +235,12 @@ class Schema(FeedCase):
                              {t: rows for t, rows in rows_before.items() if t not in VERSION_9_CHANGES},
                              "every row is as it was")
             # The two tables version 9 touches keep what they held: the saved outfit with its new column (empty: it
-            # was saved without pieces), and the customer's setting beside the two new ones.
+            # was saved without pieces), and the customer's setting beside the three new ones.
             self.assertEqual(con.execute("SELECT * FROM saved_outfits").fetchall(),
                              [row + ("",) for row in rows_before["saved_outfits"]])
             self.assertEqual(sorted(con.execute("SELECT * FROM settings").fetchall()),
-                             sorted(rows_before["settings"] + [(2, "kept_pieces", "[]"), (2, "wardrobe_news", "true")]))
+                             sorted(rows_before["settings"] + [(2, "kept_pieces", "[]"), (2, "spares", "[]"),
+                                                               (2, "wardrobe_news", "true")]))
             self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:

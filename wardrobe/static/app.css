@@ -343,6 +343,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .offer .dot { width: 14px; height: 14px; }
 .left-out { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .slot .offer { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
+/* A piece the plan has twice (two white tees): an outfit wears one, and the card offers the other as a spare, in a
+   row under the piece and its buttons: what is so, and "Add a spare" with its price, or "Take the spare out". */
+.slot .spare {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-1) var(--s-3);
+  padding: var(--s-2) var(--s-3); border-top: 1px solid var(--line); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted);
+}
+.slot .spare .btn .plus { font-weight: 400; opacity: .85; white-space: nowrap; }
 /* A chosen product that is sold out in his size (_sold_out.html): the fact in the colour of a size that is not
    there (as .sizeline .no), then one button, "Swap for <the next best in his size>, +10 €", whose words wrap
    inside it rather than widen the page, and one quiet line about what the tap does. The same block under a piece
@@ -1695,26 +1702,59 @@ details[open] > summary .edit { visibility: hidden; }
 @media (max-width: 759.98px) {
   .summary .empty-wardrobe .more { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 }
-/* Under an outfit's price: what a yes would add ("2 new pieces 208.99 €, 3 already in your wardrobe"), and in the
-   caution's colour by how much it would take him over his budget. */
+/* Under an outfit's price: what a yes would add ("2 new pieces 208.99 €, 3 already in your wardrobe"), then, in the
+   caution's colour, by how much it would take him over his budget, then the two answers: the warning is always
+   above the yes. */
 .adds { margin: 0; padding: 0 2px; font-size: var(--t-m); line-height: var(--lh-m); }
 .adds.in { color: var(--muted); }
 .adds.over { color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }
-/* On a phone the first screen shows the whole model, the outfit's price and the two answers: the picture gives up
-   the room of the answers' row (--yes-h, see .looks), and the answers come before the line that says in full what
-   a yes adds. The button says the sum itself ("+ 59 €"). */
-@media (max-width: 759.98px) {
-  .looks:not(.saved) { --yes-h: 60px; }
-  .yes-box { display: flex; flex-direction: column-reverse; }
-  .yes-box .answer { margin: 0 0 var(--s-2); }
-  .yes-box .adds-lines { margin-bottom: var(--s-3); }
-}
 .btn.yes .plus { font-weight: 400; opacity: .85; white-space: nowrap; }
 /* The two answers: "Add to my wardrobe", the main button, and a quiet "Not for me" beside it. */
 .answer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); margin: var(--s-2) 0 var(--s-3); padding: 0 2px; }
 .answer .save { flex: 1 1 auto; }
 .answer .btn.yes { width: 100%; gap: var(--s-2); }
 .answer .btn.yes.on { width: auto; }
+/* On a phone: what a yes adds and the two answers, for the outfit that is showing, in a bar that stays above the tab
+   bar (56px high, see .tabs), so they are in reach on every phone and wherever the page is scrolled to. app.js (17a)
+   moves the outfit's box in here and tells the page the bar's height (--dock-h), which the page's foot and the
+   picture make room for: the first screen shows the whole model above the bar (--yes-h, see .looks; on a short
+   phone the picture may be a little narrower for it, --least). The button does not repeat the sum: the line right
+   above it says it. Never on a computer, where the box is beside the picture. */
+.dock { display: none; }
+@media (max-width: 759.98px) {
+  .looks:not(.saved) { --yes-h: 88px; --least: 198px; }
+  /* Under a message at the top of the page (a profile save, say) the picture may be narrower still, so that the
+     whole model shows above the bar on a short phone (390 x 664) then too. */
+  main:has(> .flash:not(.said), > .demo) .looks:not(.saved) { --least: 150px; }
+  /* … and narrower again where the line over the outfits is two lines as well (it says why they are in this order). */
+  main:has(> .flash:not(.said), > .demo) .looks.reusing:not(.saved) { --least: 138px; }
+  /* An outfit that would take him over his budget says so in the bar, in up to two more lines. Then every picture
+     of the row gives up that room too (not only that outfit's: the pictures stay one size while he swipes). */
+  main:has(.adds.over) .looks:not(.saved) { --yes-h: 126px; --least: 172px; }
+  /* Right after an answer the page says what was done, above the outfits, and the picture already gives up room
+     for that line (--told): it does not give up the bar's room as well. The whole model still shows above the
+     bar; the outfit's title under the picture is then behind it until the page is scrolled. */
+  main:has(> .said[data-answered]) .looks:not(.saved) { --yes-h: 0px; }      /* (also where an outfit has a warning) */
+  main:has(> .said.short[data-answered]) .looks:not(.saved) { --least: 138px; }
+  .dock:not([hidden]) {
+    display: block; position: fixed; left: 0; right: 0; bottom: calc(56px + env(safe-area-inset-bottom)); z-index: 39;
+    padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l); background: var(--surface); border-top: 1px solid var(--line);
+  }
+  .dock .adds { padding: 0; font-size: var(--t-s); line-height: var(--lh-s); }
+  .dock .adds.over { margin-top: 2px; }
+  .dock .answer { flex-wrap: nowrap; margin: var(--s-1) 0 0; padding: 0; }
+  .dock .btn.yes .plus { display: none; }
+  .dock .quiet { white-space: nowrap; }
+  body:has(.dock:not([hidden])) { padding-bottom: calc(64px + var(--dock-h, 84px) + env(safe-area-inset-bottom)); }
+  html:has(.dock:not([hidden])) { scroll-padding-bottom: calc(72px + var(--dock-h, 84px) + env(safe-area-inset-bottom)); }
+}
+/* After an answer the page comes back scrolled to where it was (app.js 17b). If the line that says what was done,
+   with Undo, is then above the screen, it stays in sight at the top of the screen while he is scrolled down. */
+main > .said.in-sight { position: sticky; top: var(--s-2); z-index: 38; box-shadow: 0 1px 0 var(--line), 0 6px 18px rgb(0 0 0 / .12); }
+/* The address of an outfit ("#outfit-…": after "Not for me", "Show more outfits", Back) moves the row to it and
+   leaves the page where it is, at its top: without this the browser would also scroll the page down to the outfit,
+   under the bar that sticks to the top, and whatever the page says above the outfits would be out of sight. */
+.slide { scroll-margin-top: 100vh; }
 .btn.yes { display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); }
 .quiet {
   font: inherit; font-size: var(--t-s); color: var(--muted); background: none; border: 0; padding: 0 var(--s-1); min-height: 44px;
@@ -1724,6 +1764,7 @@ details[open] > summary .edit { visibility: hidden; }
 .foot.declined { display: block; }
 .foot.declined .quiet { min-height: 24px; padding: var(--s-1) 0; }
 .saved-on a { display: inline-block; padding: var(--s-1) 0; text-underline-offset: 3px; }
+.saved-on.gone-piece { color: var(--poor); }   /* under My outfits: a piece of the outfit is no longer in his plan */
 /* A piece's card, pop-up and page: "In 4 of your outfits". */
 .in-outfits { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .slot-head .in-outfits { margin-top: var(--s-1); }

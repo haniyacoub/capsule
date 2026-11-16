@@ -186,6 +186,11 @@ class PublicSite(ProductionCase):
         self.assertIn("A small menswear wardrobe where everything goes with everything.", text)
         self.assertIn("<title>Stilsmith — menswear: a small wardrobe that works together</title>", page)
         self.assertIn("Stilsmith plans 15 to 20 menswear pieces that all go together", text)
+        # How the wardrobe comes about is said as it works: it is the outfits he says yes to (test_yes.py).
+        self.assertIn("Say yes to the outfits you like", text)
+        self.assertIn("Your wardrobe is the pieces of the outfits you say yes to, and each outfit says what it would "
+                      "add: how many new pieces, and what they cost.", text)
+        self.assertIn("Your shopping list holds only the pieces of the outfits you said yes to.", text)
         for planner in ("slot", "candidate", "score"):
             self.assertNotIn(planner, text.lower())
         self.assertEqual(text.count("Log in"), 1, "one way to log in: the header's")

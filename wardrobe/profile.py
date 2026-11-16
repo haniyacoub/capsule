@@ -143,6 +143,19 @@ def budget_known(profile: dict | None = None) -> bool:
     return "budget" in answered(profile)
 
 
+NOT_A_BUDGET = "A budget has to be more than 0 €, so what you typed was not saved as your budget."
+
+
+def given_budget(value) -> int | None:
+    """The budget typed into a field, in whole euros, or None when the field holds no budget: nothing, a word, or
+    0. (A budget of 0 € cannot be meant: every outfit would be "over" it. An empty field means no budget.)"""
+    try:
+        budget = int(float(str(value).replace(",", ".")))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return min(budget, 100000) if budget > 0 else None
+
+
 def _int(value, default: int, lo: int, hi: int) -> int:
     try:
         return max(lo, min(hi, int(float(str(value).replace(",", ".")))))
@@ -171,6 +184,8 @@ def from_form(form, current: dict) -> tuple[dict, list[str]]:
         names = ", ".join(colours.get(k).label.lower() for k in clash)
         notes.append(f"You both like and refuse {names} — treated as refused.")
         liked = [k for k in liked if k not in refused]
+    if str(form.get("budget") or "").strip() and given_budget(form.get("budget")) is None:
+        notes.append(NOT_A_BUDGET)      # "0", or not a number: the budget he had stays (below)
 
     top = str(form.get("top_size", "")).upper()
     shoe = str(form.get("shoe", "")).replace(",", ".").strip()
@@ -193,7 +208,7 @@ def from_form(form, current: dict) -> tuple[dict, list[str]]:
         "weight_kg": _int(form.get("weight_kg"), current["weight_kg"], 40, 200),
         "chest_cm": _optional_cm(form.get("chest_cm"), 70, 150),
         "waist_cm": _optional_cm(form.get("waist_cm"), 55, 150),
-        "budget": _int(form.get("budget"), current["budget"], 0, 100000),
+        "budget": given_budget(form.get("budget")) or current["budget"],
         "liked": liked,
         "refused": refused,
         "use": form.get("use") if form.get("use") in USES else current["use"],

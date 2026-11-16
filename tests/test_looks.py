@@ -2586,7 +2586,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         visitor = self.app.test_client()
         page = visitor.get("/").get_data(as_text=True)
         self.assertIn("every outfit they make, worn by a model — or by you.", words(page))
-        self.assertIn("See every outfit on a model", words(page))
+        self.assertIn("See the outfits one at a time, each drawn by AI on a model.", words(page))    # the second step
         self.assertIn("price level", words(page))
         self.assertIn("every outfit shown on a model", description(page))
         self.with_rules(photos=False)

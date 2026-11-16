@@ -57,7 +57,7 @@
         {% if en %}<span class="orig" lang="de">{{ line.product }}</span>{% endif %}
         <span class="buy-opened no-print" data-line="{{ line.slot }}" hidden>{{ icon('check') }} Opened in a new tab</span>
         {% if c %}{{ fabric_fit(c, 'span', buying=true) }}{% endif %}
-        <span class="buy-meta">{% if line.colour %}Colour: <span lang="de">{{ line.colour }}</span> · {% endif %}Size: <b>{{ line.size }}</b>{% if line.qty > 1 %} · {{ line.qty }} × {{ line.unit_price|eur }}{% endif %}</span>
+        <span class="buy-meta">{% if line.colour %}Colour: <span lang="de">{{ line.colour }}</span> · {% endif %}Size: <b>{{ line.size }}</b>{% if line.qty > 1 %} · {{ line.qty }} × {{ line.unit_price|eur }}{% if line.spares %} ({{ line.spare_words }}){% endif %}{% endif %}</span>
         {% for note in (line.cautions if c else line.notes) %}<span class="buy-note">{{ note }}</span>{% endfor %}
       </div>
     </li>

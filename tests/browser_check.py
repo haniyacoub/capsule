@@ -290,6 +290,8 @@ def run(base: str) -> None:
                          else con.execute("SELECT MAX(id) FROM users")).fetchone()[0]
             with db.as_user(found):
                 db.set_setting("kept_pieces", [slot["id"] for slot in db.list_slots()] if his else [])
+                # … with the spare of each piece the plan has twice, as such a customer has after the upgrade.
+                db.set_setting("spares", [slot["id"] for slot in db.list_slots() if slot["qty"] > 1] if his else [])
                 profile_mod.answer("budget")
 
         def a_customer_from_before(where_page) -> None:
@@ -376,9 +378,13 @@ def run(base: str) -> None:
             page.goto(base + "/outfits", wait_until="networkidle")
 
         def the_yes_is_on_a_phones_first_screen():
-            # On three phones the whole picture, its lowest dot included, ends above the tab bar; and where the screen is
-            # tall enough for both (800px and more), "Add to my wardrobe" is on that first screen too, with what it adds.
-            for width, height in ((390, 844), (375, 667), (360, 740)):
+            # On a phone the two answers are always in reach: what a yes adds, "Add to my wardrobe" and "Not for me"
+            # stand in a bar above the tab bar, for the outfit that is showing (app.js 17a), whole on the first screen
+            # of six phones, the short ones included (a phone's browser with its own bars showing leaves 640 to 664px).
+            # The whole picture, its lowest dot included, ends above that bar, and so do the outfit's title and price
+            # where the screen is tall enough (800px and more). The bar follows the outfit on screen, and the page
+            # still ends below it: its last line can be scrolled clear of the bar.
+            for width, height in ((390, 844), (375, 667), (360, 740), (390, 664), (360, 640), (412, 785)):
                 context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=True, has_touch=True)
                 other = context.new_page()
                 other.goto(base + "/login", wait_until="networkidle")
@@ -389,21 +395,54 @@ def run(base: str) -> None:
                 other.wait_for_selector(f"{first} .look-pic img")
                 # Invented products here, so the page opens with the "Demo data" notice that customers never see.
                 other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
-                seen = {**top_bar(other), **other.evaluate("""s => {
-                    const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
-                    return {bottom: Math.max(box(slide.querySelector('.look-pic')).bottom,
+                measure = """() => {
+                    const reel = document.getElementById('reel'), slides = [...reel.querySelectorAll('.slide')];
+                    const slide = slides[Math.round(reel.scrollLeft / reel.clientWidth)], box = el => el.getBoundingClientRect();
+                    const dock = document.getElementById('dock'), inside = sel => dock.querySelector(sel);
+                    // (The outfit swiped to has no picture yet: then the box the picture will lie in.)
+                    return {bottom: Math.max(box(slide.querySelector('.look-pic') || slide.querySelector('.stage')).bottom,
                                              ...[...slide.querySelectorAll('.spot')].map(d => box(d).bottom)),
-                            yes: box(slide.querySelector('.btn.yes')).bottom, plus: slide.querySelector('.btn.yes .plus').textContent,
-                            tabs: box(document.querySelector('nav.tabs')).top};
-                }""", first)}
-                context.close()
-                assert seen["height"] <= 96, f"at {width} x {height} the bar at the top is {seen['height']:.0f}px tall"
-                assert seen["bottom"] <= seen["tabs"], \
-                    f"at {width} x {height} the picture ends at {seen['bottom']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
-                assert re.fullmatch(r"\+ [\d.,]+\s€", seen["plus"]), f"the yes button says of what it adds: {seen['plus']!r}"
+                            line: Math.max(...[...slide.querySelectorAll('.about-head h2, .count, .board-cost')].map(el => box(el).bottom)),
+                            dock: [box(dock).top, box(dock).bottom], fixed: getComputedStyle(dock).position,
+                            adds: inside('.adds') && [box(inside('.adds')).top, box(inside('.adds')).bottom, inside('.adds').textContent.trim()],
+                            yes: inside('.btn.yes') && [box(inside('.btn.yes')).top, box(inside('.btn.yes')).bottom],
+                            no: inside('form.no button') && [box(inside('form.no button')).top, box(inside('form.no button')).bottom],
+                            key: (inside('input[name=key]') || {}).value, slide: slide.id, left_in_outfit: slide.querySelectorAll('[data-answer]').length,
+                            tabs: box(document.querySelector('nav.tabs')).top, wide: document.documentElement.scrollWidth};
+                }"""
+                seen = {**top_bar(other), **other.evaluate(measure)}
+                size = f"at {width} x {height}"
+                assert seen["height"] <= 96, f"{size} the bar at the top is {seen['height']:.0f}px tall"
+                assert seen["fixed"] == "fixed" and seen["dock"][1] <= seen["tabs"] + 1 and seen["dock"][0] > 0, \
+                    f"{size} the bar with the answers is not above the tab bar ({seen['tabs']:.0f}px): {seen['dock']} ({seen['fixed']})"
+                for what, name in (("adds", "what a yes adds"), ("yes", "'Add to my wardrobe'"), ("no", "'Not for me'")):
+                    assert seen[what] and seen["dock"][0] <= seen[what][0] and seen[what][1] <= seen["tabs"], \
+                        f"{size} {name} is not on the first screen above the tab bar ({seen['tabs']:.0f}px): {seen[what]}"
+                assert re.fullmatch(r"(\d+ new pieces? [\d.,]+\s€.*|Nothing new to buy: .+ in your wardrobe)", seen["adds"][2]), \
+                    f"{size} the bar says of what a yes adds: {seen['adds'][2]!r}"
+                assert seen["slide"] == f"outfit-{seen['key']}" and not seen["left_in_outfit"], \
+                    f"{size} the bar's answers are not those of the outfit on screen, or they are there twice: {seen}"
+                assert seen["wide"] <= width, f"{size} the page is {seen['wide']}px wide"
+                if height >= 640:
+                    assert seen["bottom"] <= seen["dock"][0] + 1, \
+                        f"{size} the picture ends at {seen['bottom']:.0f}px, under the bar with the answers at {seen['dock'][0]:.0f}px"
                 if height >= 800:
-                    assert seen["yes"] <= seen["tabs"], \
-                        f"at {width} x {height} 'Add to my wardrobe' ends at {seen['yes']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
+                    assert seen["line"] <= seen["dock"][0] + 1, \
+                        f"{size} the outfit's title and price end at {seen['line']:.0f}px, under the bar with the answers at {seen['dock'][0]:.0f}px"
+                # Swipe to the next outfit: the bar now holds that outfit's answers, and the first one's are back in it.
+                other.evaluate("() => { const r = document.getElementById('reel'); r.scrollTo({left: r.clientWidth, behavior: 'instant'}); }")
+                other.wait_for_function("() => { const r = document.getElementById('reel'), d = document.querySelector('#dock input[name=key]');"
+                                        " return d && r.querySelectorAll('.slide')[1].id === 'outfit-' + d.value; }")
+                moved = other.evaluate(measure)
+                assert moved["key"] != seen["key"] and other.locator(f"{first} [data-answer] .btn.yes").count() == 1, \
+                    f"{size} after a swipe the bar's answers did not follow the outfit: {moved}"
+                # Scrolled to its end, the page's last line is clear of the bar.
+                other.evaluate("() => window.scrollTo(0, document.documentElement.scrollHeight)")
+                other.wait_for_timeout(100)
+                end = other.evaluate("""() => { const last = document.querySelector('footer.site-foot') || [...document.querySelectorAll('main > *')].filter(el => el.getClientRects().length && getComputedStyle(el).position !== 'fixed').pop();
+                    return {last: last.getBoundingClientRect().bottom, dock: document.getElementById('dock').getBoundingClientRect().top}; }""")
+                assert end["last"] <= end["dock"] + 1, f"{size} the page's last line ends at {end['last']:.0f}px, behind the bar with the answers ({end['dock']:.0f}px)"
+                context.close()
 
         def own_typefaces():
             # The one typeface, Archivo, comes from Stilsmith itself. It must really load, under the site's own
@@ -2469,11 +2508,11 @@ def run(base: str) -> None:
                 yes_button.focus()
                 page.keyboard.press("Enter")
                 page.wait_for_url("**added=*")
-                in_view("main > .said", "Added “")
+                in_view("main > .said", "Added the outfit with the ")
                 page.locator("main > .said button:has-text('Undo')").focus()
                 page.keyboard.press("Enter")
                 page.wait_for_url("**removed=*")
-                in_view("main > .said", "Took “")
+                in_view("main > .said", "Took the outfit with the ")
                 assert page.locator(f"{first} .btn.yes").inner_text().startswith("Add to my wardrobe"), "after Undo the outfit is not on offer again, first"
                 page.goto(base + "/outfits", wait_until="networkidle")
 
@@ -3597,8 +3636,14 @@ def run(base: str) -> None:
             old = [name for name in names if name.startswith(("Navy ", "Olive ")) and name not in stay]
             assert not old, f"the old colours are still planned: {old}"
             if any(name.startswith(("Navy ", "Olive ", "Indigo ", "Stone ", "Dark brown ")) for name in stay):
-                assert "Also kept, as" in said and "of your wardrobe that the new plan has no place for" in said, \
-                    f"pieces of his outfit stayed, and the message does not say so: {said!r}"
+                counted = re.search(r"Your plan now has (\d+) pieces? in your colours\. (?:Kept [^.]+\. )?The (\d+) pieces? of your "
+                                    r"wardrobe that the new plan has no place for (?:was kept as it was|were kept as they were): "
+                                    r"(\d+) pieces in all\.", said)
+                assert counted, f"pieces of his outfit stayed, and the message does not say so: {said!r}"
+                fresh, kept, in_all = (int(number) for number in counted.groups())
+                with db.as_user(me):
+                    planned = sum(slot["qty"] for slot in db.list_slots())
+                assert fresh + kept == in_all == planned, f"the message counts a piece twice or not at all ({planned} in the plan): {said!r}"
             page.goto(base + "/", wait_until="networkidle")
             lock = page.locator(f"#lock-{swapped['slot']}")
             if lock.count():            # the new plan has the swapped piece: its product and lock stay
@@ -3618,8 +3663,10 @@ def run(base: str) -> None:
             # wardrobe"), the ones that reuse most come first and the page says why, and one that would take him over
             # his budget says by how much before he says yes. "Not for me": the outfit is not offered again, with Undo.
             # Taking an outfit out under "My outfits" removes only the pieces no other outfit of his wears, names them,
-            # and Undo puts it back. On a phone by touch, on a computer by mouse, and with JavaScript off. His account
-            # is deleted when the step ends, passed or failed, so that the step leaves nothing behind.
+            # and Undo puts it back. A yes adds one of each piece, for the outfit's own price; the plan's second white
+            # tee is a spare he adds on its card. After a yes or a no he goes on from where he was: the next outfit in
+            # line, the page scrolled as it was. On a phone by touch, on a computer by mouse, and with JavaScript off.
+            # His account is deleted when the step ends, passed or failed, so that the step leaves nothing behind.
             for where, phone, script in (("phone", True, True), ("computer", False, True), ("phone, no JavaScript", True, False)):
                 customer = f"yes{'-nojs' if not script else '-phone' if phone else ''}-" + EMAIL
                 screen = {"width": 390, "height": 844} if phone else {"width": 1280, "height": 860}
@@ -3630,12 +3677,15 @@ def run(base: str) -> None:
                             if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
                     view.on("pageerror", lambda e: failures.append(f"script error: {e}"))
 
-                    def tap(selector: str) -> None:
-                        """A tap on a button that sends a form: back when the page it leads to is there."""
+                    def tap(selector: str) -> float:
+                        """A tap on a button that sends a form: back when the page it leads to is there. Returns how
+                        far down the page was scrolled when it was tapped."""
                         target = view.locator(selector).first
                         target.scroll_into_view_if_needed()
+                        scrolled = view.evaluate("() => window.scrollY")
                         with view.expect_navigation(wait_until="networkidle"):
                             (target.tap() if phone else target.click())
+                        return scrolled
 
                     def money(text: str) -> float:
                         return float(re.search(r"([\d.,]+)\s€", text).group(1).replace(",", ""))
@@ -3648,13 +3698,49 @@ def run(base: str) -> None:
                     def chip() -> str:
                         return " ".join(view.locator(".chips a[href$='occasion=saved']").inner_text().split())
 
+                    # On a phone the answers of the outfit on screen stand in the bar over the tab bar (app.js 17a);
+                    # everywhere else, and without JavaScript, they are under their outfit.
+                    docked = phone and script
+                    BOXES = """const reel = document.getElementById('reel'), slides = [...reel.querySelectorAll('.slide')];
+                        const on = slides[Math.round(reel.scrollLeft / reel.clientWidth)];
+                        const box = slide => slide.querySelector('[data-answer]') || (slide === on ? document.querySelector('#dock [data-answer]') : null);"""
+
                     def offered() -> list[dict]:
                         """Every outfit on offer, in the order shown: its pieces, its price, what it says it adds."""
-                        return view.evaluate("""() => [...document.querySelectorAll('#reel .slide')].filter(s => s.querySelector('form.no')).map(slide => ({
-                            pieces: slide.querySelector('form.save input[name=sig]').value.split('~'),
-                            cost: slide.querySelector('.board-cost').textContent.trim(),
-                            adds: [...slide.querySelectorAll('.adds')].map(p => p.textContent.trim()),
-                            plus: slide.querySelector('.btn.yes .plus').textContent.trim()}))""")
+                        return view.evaluate("() => {" + BOXES + """
+                            return slides.filter(s => box(s) && box(s).querySelector('form.no')).map(slide => ({
+                                pieces: box(slide).querySelector('form.save input[name=sig]').value.split('~'),
+                                cost: slide.querySelector('.board-cost').textContent.trim(),
+                                adds: [...box(slide).querySelectorAll('.adds')].map(p => p.textContent.trim()),
+                                plus: box(slide).querySelector('.btn.yes .plus').textContent.trim()})); }""")
+
+                    def answer(what: str, index: int = 0) -> str:
+                        """The button to tap for an answer ("yes" or "no") to the outfit at this place in the row, which is
+                        on screen."""
+                        button = ".btn.yes" if what == "yes" else "form.no button"
+                        return f"#dock {button}" if docked else f"#reel .slide:nth-child({index + 1}) {button}"
+
+                    def show(index: int) -> None:
+                        """Bring the outfit at this place in the row on screen, as a swipe does, and let the row come to rest."""
+                        view.evaluate("i => { const r = document.getElementById('reel'); r.scrollTo({left: i * r.clientWidth, behavior: 'instant'}); }", index)
+                        view.wait_for_function("i => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth) === i; }", arg=index)
+                        view.wait_for_timeout(350)
+
+                    def answers() -> dict:
+                        """Where the answers of the outfit on screen stand: what a yes adds, the warning about his budget
+                        (if any), the two buttons; where the screen ends for them (the tab bar's top on a phone); which
+                        outfit is on screen; how far down the page is scrolled; what has the keyboard."""
+                        return view.evaluate("() => {" + BOXES + """
+                            const at = el => { if (!el) return null; const b = el.getBoundingClientRect(); return [b.top, b.bottom]; };
+                            const tabs = document.querySelector('nav.tabs'), here = document.activeElement;
+                            return {index: slides.indexOf(on), pieces: box(on).querySelector('form.save input[name=sig]').value.split('~'),
+                                    in_bar: !!document.querySelector('#dock [data-answer]'),
+                                    adds: at(box(on).querySelector('.adds:not(.over)')), over: at(box(on).querySelector('.adds.over')),
+                                    yes: at(box(on).querySelector('.btn.yes')), no: at(box(on).querySelector('form.no button')),
+                                    floor: getComputedStyle(tabs).position === 'fixed' ? tabs.getBoundingClientRect().top : window.innerHeight,
+                                    scrolled: window.scrollY,
+                                    keyboard: here === document.body ? 'nothing' : here.matches('.btn.yes') && box(on).contains(here) ? 'yes of the outfit on screen'
+                                              : here.matches('[data-slide]') ? 'an outfit' : here.tagName + '.' + here.className}; }""")
 
                     def said() -> str:
                         line = view.locator("main > .said")
@@ -3695,12 +3781,19 @@ def run(base: str) -> None:
                     view.goto(base + "/outfits", wait_until="networkidle")
                     before = offered()
                     one = before[0]
-                    assert re.fullmatch(r"\d+ new pieces [\d.,]+\s€( \(2 × [^)]+\))?", one["adds"][0]), f"{where}: the first outfit adds {one['adds']}"
-                    assert money(one["plus"]) == money(one["adds"][0]), f"{where}: the button says {one['plus']!r}, the line {one['adds'][0]!r}"
-                    tap(f"{first} .btn.yes")
+                    # It adds one of each piece it wears, for the outfit's own price: the line, the button and the
+                    # price beside the outfit's name say the same sum.
+                    assert re.fullmatch(rf"{len(one['pieces'])} new pieces [\d.,]+\s€", one["adds"][0]), \
+                        f"{where}: the first outfit, of {len(one['pieces'])} pieces, adds {one['adds']}"
+                    assert money(one["plus"]) == money(one["adds"][0]) == money(one["cost"]), \
+                        f"{where}: the outfit costs {one['cost']!r}, its button says {one['plus']!r}, the line {one['adds'][0]!r}"
+                    tap(answer("yes"))
                     assert "added=" in view.url, f"{where}: a yes led to {view.url}"
-                    assert said().startswith("Added “") and " ".join(one["adds"][0].split())[1:] in said() and said().endswith("Undo"), \
-                        f"{where}: after a yes the page says {said()!r}"
+                    # The message names the outfit by its main pieces, never by its occasion alone ("Everyday" is a
+                    # filter, and dozens of outfits).
+                    assert re.match(r"Added the outfit with the [a-z' -]+ and [a-z' -]+ to your wardrobe: ", said()) \
+                        and " ".join(one["adds"][0].split())[1:] in said() and said().endswith("Undo") and "“" not in said() \
+                        and not re.search(r"Everyday|Smart casual|Office", said()), f"{where}: after a yes the page says {said()!r}"
                     assert chip() == "My outfits 1", f"{where}: after a yes the chip says {chip()!r}"
                     figures = bar()
                     assert money(figures["Total"]) == money(one["adds"][0]), f"{where}: the outfit added {one['adds'][0]!r}, the bar's total is {figures['Total']}"
@@ -3716,9 +3809,9 @@ def run(base: str) -> None:
                     for outfit, n in zip(after, reused):
                         new = len(outfit["pieces"]) - n
                         if n and new:
-                            wanted = rf"{new} new pieces? [\d.,]+\s€( \(2 × [^)]+\))?, {n} already in your wardrobe"
+                            wanted = rf"{new} new pieces? [\d.,]+\s€, {n} already in your wardrobe"
                             assert re.fullmatch(wanted, outfit["adds"][0]), f"{where}: an outfit with {new} new and {n} of his pieces says {outfit['adds'][0]!r}"
-                            assert money(outfit["adds"][0]) < money(outfit["cost"]) or "2 ×" in outfit["adds"][0], \
+                            assert money(outfit["adds"][0]) < money(outfit["cost"]), \
                                 f"{where}: an outfit that reuses his pieces adds {outfit['adds'][0]!r}, no less than its price {outfit['cost']}"
                         over = money(figures["Total"]) + money(outfit["plus"]) - 700
                         if over > 0.005 and money(outfit["plus"]) > 0:
@@ -3728,6 +3821,25 @@ def run(base: str) -> None:
                         else:
                             assert len(outfit["adds"]) == 1, f"{where}: an outfit within his budget speaks of going over: {outfit['adds']}"
                     assert any(len(o["adds"]) == 2 for o in after), f"{where}: no outfit on offer would take him over 700 €, so nothing was checked"
+                    # That warning is read before the yes: it stands above "Add to my wardrobe". On a phone both are
+                    # on the first screen, in the bar over the tab bar, on a tall phone and on short ones.
+                    over = next(i for i, o in enumerate(after) if len(o["adds"]) == 2)
+                    for size in ((390, 844), (390, 664), (360, 640), (412, 785)) if docked else (None,):
+                        if size:
+                            view.set_viewport_size({"width": size[0], "height": size[1]})
+                        view.evaluate("() => window.scrollTo(0, 0)")
+                        show(over)
+                        seen = answers()
+                        assert seen["pieces"] == after[over]["pieces"] and seen["over"] and seen["over"][1] <= seen["yes"][0] + 1, \
+                            f"{where}{size or ''}: the warning about his budget is not above 'Add to my wardrobe': {seen}"
+                        if docked:
+                            assert seen["in_bar"] and seen["scrolled"] == 0 and seen["adds"][0] >= 0 \
+                                and max(seen["over"][1], seen["yes"][1], seen["no"][1]) <= seen["floor"], \
+                                f"{where} {size}: what a yes adds, the warning and the two answers are not all on the first screen above the tab bar: {seen}"
+                        else:
+                            assert not seen["in_bar"], f"{where}: the answers are in the phone's bar: {seen}"
+                    if docked:
+                        view.set_viewport_size(screen)
 
                     # The Wardrobe and the shopping list hold that outfit's pieces and no others.
                     cards = in_wardrobe()
@@ -3737,11 +3849,50 @@ def run(base: str) -> None:
                     view.goto(base + "/list", wait_until="networkidle")
                     lines = view.locator("li.buy").count()
                     assert lines == len(one["pieces"]), f"{where}: {lines} lines on the shopping list for an outfit of {len(one['pieces'])} pieces"
+                    doubled = view.locator("li.buy .qty").all_inner_texts()
+                    assert not doubled, f"{where}: a yes put more than one of a piece on the shopping list: {doubled}"
 
-                    # Yes to the next one on offer (it reuses his pieces): the shared pieces now say "In 2".
+                    # Yes to the third outfit on offer, with the page scrolled down a little. He goes on from where he
+                    # was: the page comes back on the outfit now third in line (never back at the first), the two he
+                    # had passed still in front of it, scrolled to where it was, and what it says was done is in sight.
+                    # Behind the two, the outfits that reuse most of his pieces come first, and the page says from
+                    # where. The bar gained what the button had said.
                     view.goto(base + "/outfits", wait_until="networkidle")
-                    two = offered()[0]
-                    tap(f"{first} .btn.yes")
+                    row = offered()
+                    show(2)
+                    view.evaluate("() => window.scrollTo(0, 140)")
+                    two, total = row[2], money(bar()["Total"])
+                    assert answers()["pieces"] == two["pieces"], f"{where}: the third outfit is not the one on screen: {answers()}"
+                    was_at = tap(answer("yes", 2))
+                    assert "added=" in view.url and "front=" in view.url and re.search(r"#outfit-[0-9a-f]{12}$", view.url), \
+                        f"{where}: a yes to the third outfit led to {view.url}"
+                    went_up = money(bar()["Total"]) - total
+                    assert abs(went_up - money(two["plus"])) < 0.005, f"{where}: the button said {two['plus']!r}, the bar went up by {went_up:.2f} €"
+                    now = offered()
+                    assert [o["pieces"] for o in now[:2]] == [o["pieces"] for o in row[:2]], \
+                        f"{where}: after a yes to the third outfit the two he had passed are not in front any more"
+                    if script:
+                        view.wait_for_function("() => document.readyState === 'complete'")
+                        view.wait_for_timeout(150)
+                    seen = answers()
+                    assert seen["index"] == 2 and seen["pieces"] == now[2]["pieces"] and seen["pieces"] != two["pieces"], \
+                        f"{where}: after a yes to the third outfit the page shows outfit {seen['index'] + 1}, not the next in line"
+                    his = mine | set(two["pieces"])
+                    reused = [len(his & set(o["pieces"])) for o in now[2:]]
+                    assert reused == sorted(reused, reverse=True) and reused[0] > 0, \
+                        f"{where}: behind the outfits he passed, those that reuse his pieces are not first: {reused}"
+                    lead = " ".join(view.locator("p.lead").inner_text().split())
+                    assert "from outfit 3 on, those that use pieces you already have come first" in lead, f"{where}: the page says of the order: {lead!r}"
+                    if script:
+                        assert was_at > 0 and abs(seen["scrolled"] - was_at) <= 1, \
+                            f"{where}: he answered with the page scrolled {was_at:.0f}px down, and it came back at {seen['scrolled']:.0f}px"
+                        line = view.locator("main > .said").bounding_box()
+                        assert line["y"] >= 0 and line["y"] + line["height"] <= seen["floor"], \
+                            f"{where}: the page came back scrolled, and the line with Undo is off the screen ({line})"
+                        assert seen["keyboard"] == "nothing", f"{where}: after a tap the keyboard is on {seen['keyboard']}"
+                    if docked:
+                        assert seen["in_bar"] and max(seen["yes"][1], seen["no"][1]) <= seen["floor"], \
+                            f"{where}: after a yes the next outfit's answers are not in reach above the tab bar: {seen}"
                     assert chip() == "My outfits 2", f"{where}: after two yeses the chip says {chip()!r}"
                     cards = in_wardrobe()
                     assert sorted(cards) == sorted(mine | set(two["pieces"])), f"{where}: after two yeses the Wardrobe shows {cards}"
@@ -3750,16 +3901,90 @@ def run(base: str) -> None:
                         note = " ".join(view.locator(f"#card-{piece} .in-outfits").inner_text().split())
                         assert note == "In 2 of your outfits", f"{where}: a piece of both outfits says {note!r}"
 
-                    # Not for me, and Undo.
+                    # Not for me, on the fifth outfit: that one outfit is not offered again, and he goes on from where he
+                    # was. The page comes back on the outfit that followed, the four he had passed still in front of it,
+                    # scrolled to where it was, and it says what was done, with Undo.
                     view.goto(base + "/outfits", wait_until="networkidle")
-                    no = offered()[0]["pieces"]
-                    tap(f"{first} form.no button")
-                    assert "declined=" in view.url and "will not be offered again" in said(), f"{where}: after 'Not for me' the page says {said()!r} at {view.url}"
-                    assert no not in [o["pieces"] for o in offered()], f"{where}: the outfit he said no to is offered again"
+                    row = [o["pieces"] for o in offered()]
+                    show(4)
+                    assert answers()["pieces"] == row[4], f"{where}: the fifth outfit is not the one on screen: {answers()}"
+                    was_at = tap(answer("no", 4))
+                    assert "declined=" in view.url and re.search(r"#outfit-[0-9a-f]{12}$", view.url), f"{where}: 'Not for me' led to {view.url}"
+                    assert re.fullmatch(r"The outfit with the [a-z' -]+ and [a-z' -]+ will not be offered again\. Undo", said()) \
+                        and not re.search(r"Everyday|Smart casual|Office", said()), f"{where}: after 'Not for me' the page says {said()!r}"
+                    now = [o["pieces"] for o in offered()]
+                    assert row[4] not in now, f"{where}: the outfit he said no to is offered again"
+                    assert [o for o in now if o in row] == row[:4] + row[5:], f"{where}: after a no the other outfits are not in the order they were in"
+                    seen = answers()
+                    assert seen["pieces"] == row[5] and all(o in now[:seen["index"]] for o in row[:4]), \
+                        f"{where}: after a no to the fifth outfit the page shows outfit {seen['index'] + 1}, not the one that followed it"
+                    assert abs(seen["scrolled"] - (was_at if script else 0)) <= 1, \
+                        f"{where}: he said no with the page scrolled {was_at:.0f}px down, and it came back at {seen['scrolled']:.0f}px"
+                    line = view.locator("main > .said").bounding_box()
+                    assert line["y"] >= 0 and line["y"] + line["height"] <= seen["floor"], f"{where}: the line with Undo is off the screen ({line})"
+                    if script:      # he tapped or clicked: nothing is given the keyboard, and no ring is drawn around an outfit
+                        view.wait_for_function("() => document.readyState === 'complete'")
+                        view.wait_for_timeout(100)
+                        assert answers()["keyboard"] == "nothing", f"{where}: after a tap the keyboard is on {answers()['keyboard']}"
+                    if docked:
+                        assert seen["in_bar"] and max(seen["yes"][1], seen["no"][1]) <= seen["floor"], \
+                            f"{where}: after a no the next outfit's answers are not in reach above the tab bar: {seen}"
                     assert "You said no to 1 outfit" in view.locator("form.declined").inner_text(), f"{where}: no word of the outfit he said no to"
                     tap("main > .said button:has-text('Undo')")
-                    assert offered()[0]["pieces"] == no, f"{where}: Undo after 'Not for me' does not show the outfit again"
+                    assert [o["pieces"] for o in offered()] == row and answers()["pieces"] == row[4], \
+                        f"{where}: Undo after 'Not for me' does not put the outfit back in its place and show it (outfit {answers()['index'] + 1} shows)"
                     assert not view.locator("form.declined").count(), f"{where}: after Undo the page still counts an outfit he said no to"
+
+                    if script and not phone:
+                        # With the keyboard: after an answer the keyboard is on "Add to my wardrobe" of the outfit that
+                        # now shows (it was back at the page's top, some twenty presses of Tab away), and the line that
+                        # says what was done is read out. Enter there answers that outfit.
+                        view.goto(base + "/outfits", wait_until="networkidle")
+                        row = [o["pieces"] for o in offered()]
+                        view.keyboard.press("Tab")
+                        view.keyboard.press("ArrowRight")
+                        view.wait_for_function("() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth) === 1; }")
+                        view.wait_for_timeout(350)
+                        view.locator(answer("no", 1)).focus()
+                        with view.expect_navigation(wait_until="networkidle"):
+                            view.keyboard.press("Enter")
+                        view.wait_for_function("() => document.activeElement && document.activeElement.matches('.btn.yes')")
+                        seen = answers()
+                        assert seen["pieces"] == row[2] and seen["keyboard"] == "yes of the outfit on screen", \
+                            f"{where}: after a no given with the keyboard, the keyboard is on {seen['keyboard']} (outfit {seen['index'] + 1} shows)"
+                        heard = view.wait_for_function("() => document.getElementById('announce').textContent").json_value()
+                        assert re.fullmatch(r"The outfit with the [a-z' -]+ and [a-z' -]+ will not be offered again\. Undo is at the top of the page\.", heard), \
+                            f"{where}: after a no given with the keyboard a screen reader hears {heard!r}"
+                        tap("main > .said button:has-text('Undo')")
+
+                        # "Best for budget": a yes adds what the outfit said here too, and he gets the products it
+                        # showed. (The level is fitted for the whole plan, so a piece does not change its product when it
+                        # joins his wardrobe; it did, and the bar went up by more than the button had said.)
+                        view.goto(base + "/", wait_until="networkidle")
+                        view.locator("label:has(input[name=mode][value=budget])").click()
+                        view.wait_for_load_state("networkidle")
+                        view.reload(wait_until="networkidle")
+                        assert view.locator("input[name=mode][value=budget]").is_checked(), f"{where}: 'Best for budget' was not chosen"
+                        for _ in range(2):
+                            view.goto(base + "/outfits", wait_until="networkidle")
+                            on_offer = offered()
+                            index = next(i for i, o in enumerate(on_offer) if money(o["plus"]) > 0)
+                            adding, total = on_offer[index], money(bar()["Total"])
+                            show(index)
+                            tap(answer("yes", index))
+                            went_up = money(bar()["Total"]) - total
+                            assert abs(went_up - money(adding["plus"])) < 0.005 and " ".join(adding["adds"][0].split())[1:] in said(), \
+                                f"{where}: at 'Best for budget' the outfit said {adding['adds'][0]!r} and the bar went up by {went_up:.2f} €"
+                            view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
+                            marked = [text for text in view.locator(f"{first} .piece-price small").all_inner_texts() if "changed" in text]
+                            assert not marked, f"{where}: at 'Best for budget' the outfit he just added has pieces marked {marked}"
+                        # … and those two outfits are taken out again, so that what follows starts as it would have.
+                        for _ in range(2):
+                            view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
+                            tap(f"{first} .btn.yes")
+                        view.goto(base + "/", wait_until="networkidle")
+                        view.locator("label:has(input[name=mode][value=cheapest])").click()
+                        view.wait_for_load_state("networkidle")
 
                     # Take the first outfit out under "My outfits": only what the other does not wear goes, and Undo.
                     view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
@@ -3769,7 +3994,8 @@ def run(base: str) -> None:
                     tap(f"{first} .btn.yes")                 # (the newest is first: the second yes)
                     only_two = sorted(set(two["pieces"]) - mine)
                     line = said()
-                    assert line.startswith("Took “") and "out of your wardrobe" in line and line.endswith("Undo"), f"{where}: after taking an outfit out: {line!r}"
+                    assert re.match(r"Took the outfit with the [a-z' -]+ and [a-z' -]+ out of your wardrobe\.", line) and line.endswith("Undo") and "“" not in line, \
+                        f"{where}: after taking an outfit out: {line!r}"
                     if only_two:
                         assert f"no other outfit of yours wears {'them' if len(only_two) > 1 else 'it'}" in line, f"{where}: which pieces went: {line!r}"
                     else:
@@ -3782,6 +4008,57 @@ def run(base: str) -> None:
                     tap("main > .said button:has-text('Undo')")
                     assert chip() == "My outfits 2", f"{where}: after Undo the chip says {chip()!r}"
                     assert sorted(in_wardrobe()) == sorted(mine | set(two["pieces"])), f"{where}: Undo did not put the outfit's pieces back"
+
+                    # A piece the plan has twice (two white tees). An outfit wears one, and a yes adds that one: its card
+                    # says so and offers the second as a spare, with its price. "Add a spare": the page says what was
+                    # added, the bar goes up by that price, the card and the shopping list count two and say that one
+                    # is a spare. "Take the spare out" and Undo take it back and put it back.
+                    view.goto(base + "/slots", wait_until="networkidle")
+                    twice = view.evaluate("""() => { const row = [...document.querySelectorAll('li[id^=slot-]')].find(li => li.querySelector('summary .qty'));
+                        return row ? row.id.replace('slot-', '') : ''; }""")
+                    assert twice, f"{where}: the plan has no piece twice, so the spare was not walked"
+                    if twice not in in_wardrobe():
+                        view.goto(base + "/outfits?n=60", wait_until="networkidle")
+                        on_offer = offered()
+                        index = next(i for i, o in enumerate(on_offer) if twice in o["pieces"])
+                        show(index)
+                        total = money(bar()["Total"])
+                        tap(answer("yes", index))
+                        went_up = money(bar()["Total"]) - total
+                        assert abs(went_up - money(on_offer[index]["plus"])) < 0.005, \
+                            f"{where}: an outfit with a piece the plan has twice said {on_offer[index]['plus']!r}, and the bar went up by {went_up:.2f} €"
+                        view.goto(base + "/", wait_until="networkidle")
+
+                    def spare_line() -> str:
+                        return " ".join(view.locator(f"#card-{twice} form.spare").inner_text().split())
+
+                    def in_all() -> int:
+                        return int(re.match(r"(\d+) pieces? in your wardrobe", " ".join(view.locator("p.plan-line").inner_text().split())).group(1))
+
+                    assert re.fullmatch(r"Your outfits wear one\. The plan has 2\. Add a spare \+ [\d.,]+\s€", spare_line()), \
+                        f"{where}: the card of a piece the plan has twice says {spare_line()!r}"
+                    assert not view.locator(f"#card-{twice} .slot-name .qty").count(), f"{where}: one of the piece is his, and its card says ×2"
+                    assert view.evaluate("() => document.documentElement.scrollWidth") <= screen["width"], f"{where}: the spare's line makes the Wardrobe wider than the screen"
+                    total, pieces, price = money(bar()["Total"]), in_all(), money(spare_line())
+                    tap(f"#spare-{twice}")
+                    assert re.fullmatch(r"Added a spare “[^”]+” to your wardrobe: [\d.,]+\s€\. Undo", said()) and abs(money(said()) - price) < 0.005, \
+                        f"{where}: after 'Add a spare' the page says {said()!r}"
+                    assert abs(money(bar()["Total"]) - total - price) < 0.005 and in_all() == pieces + 1, \
+                        f"{where}: a spare for {price} €: the total went from {total} to {bar()['Total']}, the pieces from {pieces} to {in_all()}"
+                    assert spare_line() == "One of the 2 is a spare. Take the spare out", f"{where}: with its spare the card says {spare_line()!r}"
+                    assert view.locator(f"#card-{twice} .slot-name .qty").inner_text().strip() == "×2", f"{where}: with its spare the card does not say ×2"
+                    view.goto(base + "/list", wait_until="networkidle")
+                    spares = [" ".join(text.split()) for text in view.locator("li.buy .buy-meta").all_inner_texts() if "spare" in text]
+                    assert len(spares) == 1 and re.search(r"2 × [\d.,]+\s€ \(one is a spare\)$", spares[0]), \
+                        f"{where}: the shopping list says of the spare: {spares}"
+                    view.goto(base + "/", wait_until="networkidle")
+                    tap(f"#spare-{twice}")
+                    assert re.fullmatch(r"Took the spare “[^”]+” out of your wardrobe: [\d.,]+\s€ less\. Undo", said()), \
+                        f"{where}: after 'Take the spare out' the page says {said()!r}"
+                    assert abs(money(bar()["Total"]) - total) < 0.005 and in_all() == pieces, f"{where}: with the spare out the total is {bar()['Total']}, not {total}"
+                    tap("main > .said button:has-text('Undo')")
+                    assert abs(money(bar()["Total"]) - total - price) < 0.005 and spare_line().startswith("One of the 2 is a spare."), \
+                        f"{where}: Undo did not put the spare back (total {bar()['Total']})"
                 finally:
                     context.close()
                     delete_a_steps_customer(customer)       # passed or failed: no account is left behind
@@ -4010,9 +4287,11 @@ def run(base: str) -> None:
                         # Under Saved: the saved outfit says it while the piece is still that product, with the same
                         # tap; the swap and its Undo both come back to Saved.
                         view.goto(outfit, wait_until="networkidle")
-                        if view.locator(f"{first} .btn.yes").inner_text().startswith("Add"):
-                            view.locator(f"{first} .btn.yes").click()
-                            view.wait_for_load_state("networkidle")
+                        # (On a phone the answers of the outfit on screen stand in the bar over the tabs, app.js 17a.)
+                        yes_button = view.locator(f"#dock .btn.yes, {first} .btn.yes").first
+                        if yes_button.inner_text().startswith("Add"):
+                            with view.expect_navigation(wait_until="networkidle"):
+                                yes_button.click()
                         view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
                         kept = ".pieces li .soldout"
                         said_and_offered(view, kept, f"{where}, Saved")
@@ -4318,23 +4597,27 @@ def run(base: str) -> None:
                     const picture = box(slide.querySelector('.look-pic'));
                     return {top: picture.top, bottom: Math.max(picture.bottom, ...[...slide.querySelectorAll('.spot')].map(d => box(d).bottom)),
                             line: Math.max(...[...slide.querySelectorAll('.about-head h2, .count, .board-cost')].map(el => box(el).bottom)),
-                            tabs: box(document.querySelector('nav.tabs')).top};
+                            tabs: box(document.querySelector('nav.tabs')).top,
+                            // The bar with the two answers stands over the tab bar on a phone (app.js 17a): its top.
+                            dock: box(document.getElementById('dock')).top};
                 }""")
 
             def rings_whole(other, where: str) -> None:
+                # ('Add to my wardrobe' stands in the bar over the tab bar on a phone: its ring is whole inside the bar.)
                 for what in (".btn.yes", ".about-actions a"):
                     other.keyboard.press("Tab")             # a key was pressed: focus from here on shows its ring
-                    ring = other.evaluate("""s => {
-                        const el = document.querySelector(s);
+                    ring = other.evaluate("""([s, docked]) => {
+                        const el = document.querySelector(s) || document.querySelector(docked);
                         el.focus();
                         el.scrollIntoView({block: 'center'});
-                        const style = getComputedStyle(el), r = el.getBoundingClientRect(), row = document.getElementById('reel').getBoundingClientRect();
+                        const style = getComputedStyle(el), r = el.getBoundingClientRect();
+                        const row = (el.closest('#dock') || document.getElementById('reel')).getBoundingClientRect();
                         const reach = parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset);
                         return {shown: el.matches(':focus-visible') && style.outlineStyle !== 'none',
                                 cut: [['left', r.left - reach < row.left], ['top', r.top - reach < row.top],
                                       ['right', r.right + reach > row.right], ['bottom', r.bottom + reach > row.bottom]]
                                      .filter(side => side[1]).map(side => side[0])};
-                    }""", f"{first} {what}")
+                    }""", [f"{first} {what}", f"#dock {what}"])
                     assert ring["shown"] and not ring["cut"], f"{where}: the focus ring of {what} is cut off at {ring['cut']}"
 
             context, other = opened(390, 844, True)
@@ -4343,8 +4626,8 @@ def run(base: str) -> None:
             # (… and the second line over the outfits, once it says why they are in this order: the picture gives up its room.)
             extra += max(0, other.locator("p.lead").bounding_box()["height"] - 22)
             assert seen["top"] <= 210 + max(0, extra), f"at 390 x 844 the picture starts {seen['top']:.0f}px down"
-            assert seen["line"] <= seen["tabs"], \
-                f"at 390 x 844 the outfit's title and price end at {seen['line']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
+            assert seen["line"] <= seen["dock"] + 1 <= seen["tabs"] + 1, \
+                f"at 390 x 844 the outfit's title and price end at {seen['line']:.0f}px, under the bar with the answers at {seen['dock']:.0f}px"
             row = other.evaluate("""() => {
                 const chips = document.querySelector('.toolbar .chips'), items = [...chips.children, document.querySelector('.toolbar .shuffle')];
                 const boxes = items.map(el => el.getBoundingClientRect()), shuffle = boxes[boxes.length - 1];
@@ -4374,10 +4657,11 @@ def run(base: str) -> None:
             for path, where in (("/outfits", "390 x 664"), ("/outfits?at=no~such~outfit", "390 x 664 under a message")):
                 context, other = opened(390, 664, True, path)
                 seen = screen(other)
-                assert seen["bottom"] <= seen["tabs"], f"at {where} the picture ends at {seen['bottom']:.0f}px, under the tab bar at {seen['tabs']:.0f}px"
+                assert seen["bottom"] <= seen["dock"] + 1 <= seen["tabs"] + 1, \
+                    f"at {where} the picture ends at {seen['bottom']:.0f}px, under the bar with the answers at {seen['dock']:.0f}px"
                 if "at=" in path:
                     message = other.locator("main > .flash").first.bounding_box()
-                    assert message and 0 <= message["y"] and message["y"] + message["height"] <= seen["tabs"], \
+                    assert message and 0 <= message["y"] and message["y"] + message["height"] <= seen["dock"], \
                         f"the message at the top of the outfits is not whole on the first screen: {message}"
                 context.close()
 

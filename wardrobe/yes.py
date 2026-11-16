@@ -6,12 +6,18 @@ not offered again (db.decline_outfit). A piece is in his wardrobe when an outfit
 owns it, or when he kept it (selection.SlotView.mine); the Wardrobe page, the shopping list and the budget bar
 count only those (selection.Wardrobe.mine).
 
+A yes adds exactly what the outfit shows: one of each piece it wears, with the product and at the price shown. So
+the outfit's own price, what the button says it adds, what the bar gains and "Buy this outfit" agree, at every
+price level (selection.build picks a piece's product without looking at what he has said yes to). Where the plan
+has a piece twice (two white tees), the second is a spare he may add himself on the piece's card (spare, below).
+
 This module works out what follows from a yes before and after it is given:
 
     adds(w, outfit)       what the outfit would add: which pieces are new, what they cost, how many he has
                           already, and by how much it would take him over his budget
     leaving(w, sig)       taking an outfit out again: the pieces no other yes-outfit wears, which go with it
     offer(...)            the outfits to offer: none he answered, and those that reuse his pieces first
+    name(pieces)          how a message names one outfit: by its two main pieces, never by its occasion alone
 """
 from __future__ import annotations
 
@@ -43,18 +49,12 @@ class Adds:
 
     @property
     def n_new(self) -> int:
-        """Pieces to add, counted as the bar counts them: a white tee the plan wants twice is two."""
-        return sum(view.qty for view in self.new)
+        """Pieces to add: one of each new piece the outfit wears, as the bar will count them."""
+        return len(self.new)
 
     @property
     def n_have(self) -> int:
         return len(self.have)
-
-    @property
-    def twice(self) -> str:
-        """'2 × White tee' for new pieces the plan wants more than one of, so the count and the sum can be checked
-        against the outfit's own price, which is for one of each."""
-        return ", ".join(f"{view.qty} × {view.slot['name']}" for view in self.new if view.qty > 1)
 
     @property
     def words(self) -> str:
@@ -63,11 +63,9 @@ class Adds:
             return "In your wardrobe"
         n = len(self.new) + len(self.have)
         if not self.new:
-            return (f"Nothing new to buy: {'the piece is' if n == 1 else f'all {n} pieces are'} "
-                    "already in your wardrobe")
+            # (Short enough for one line of a phone's bar over the tabs, app.css .dock.)
+            return f"Nothing new to buy: {'its piece is' if n == 1 else f'all {n} are'} in your wardrobe"
         said = f"{self.n_new} new {pieces_word(self.n_new)} {eur(self.cost)}"
-        if self.twice:
-            said += f" ({self.twice})"
         if self.have:
             said += f", {self.n_have} already in your wardrobe"
         return said
@@ -106,18 +104,46 @@ def leaving(w: Wardrobe, sig: str) -> list[SlotView]:
 
 
 def names(views: list[SlotView]) -> str:
-    """'Charcoal wool coat', 'Charcoal wool coat and White tee', 'Charcoal wool coat, White tee and Indigo jeans'."""
-    words = [view.slot["name"] for view in views]
+    """'Charcoal wool coat', 'Charcoal wool coat and White tee', 'Charcoal wool coat, White tee and Indigo jeans'.
+    A piece whose spare is in his wardrobe too says so: 'White tee with its spare'."""
+    return names_of([view.slot["name"] + (f" with its {'spare' if view.n_spare == 1 else 'spares'}" if view.qty > 1 else "")
+                     for view in views])
+
+
+def names_of(words: list[str]) -> str:
     return ", ".join(words[:-1]) + " and " + words[-1] if len(words) > 1 else "".join(words)
 
 
-def offer(w: Wardrobe, occasion: str, limit: int, seed: int) -> tuple[list[outfits.Outfit], int, int]:
+def offer(w: Wardrobe, occasion: str, limit: int, seed: int,
+          front: tuple[str, ...] | list[str] = ()) -> tuple[list[outfits.Outfit], int, int]:
     """The outfits to offer now: (a varied handful, how many there are to offer in all, how many he said no to).
-    None he answered already, with a yes or a no. Those that wear pieces he already has come first, most first."""
+    None he answered already, with a yes or a no. Those that wear pieces he already has come first, most first.
+    A no leaves the others in their places (outfits.generate, `passed`). A yes changes what he has, and so the
+    order: of the outfits behind the one he answered. Those that stood in front of it (`front`, their keys) stay
+    where they were, so he goes on from where he was."""
     yes, no = set(db.yes_sigs()), db.declined_sigs()
     have = {view.slot["id"] for view in w.slots if view.mine}
-    chosen, total = outfits.generate(w, occasion=occasion, limit=limit, seed=seed, skip=yes | no, have=have)
+    chosen, total = outfits.generate(w, occasion=occasion, limit=limit, seed=seed, skip=yes, have=have, passed=no,
+                                     front=front)
     return chosen, total, len(no)
+
+
+def name(pieces: list[dict] | None) -> str:
+    """How a message names one outfit: by its two main pieces, 'outfit with the charcoal wool coat and indigo
+    jeans' (the page puts "the" or "that" before it). The outermost thing worn on top and the trousers: what is
+    seen of it first. Never its occasion alone: "Everyday" is also a filter's name, and that of dozens of outfits.
+    `pieces`: the outfit's pieces as plain data, top to bottom (outfits.snapshot, or as a yes stored them)."""
+    if not pieces:
+        return "outfit"
+    main = [pieces[0]] + [piece for piece in pieces[1:] if piece.get("layer") == "bottom"][:1]
+    return "outfit with the " + " and ".join(str(piece.get("slot_name") or "").lower() for piece in main)
+
+
+def spare(slot_id: str, added: bool) -> None:
+    """Put the spare of a piece into the wardrobe, or take it out again (the setting "spares"): the further ones of
+    a piece the plan has more than one of. An outfit wears one, and a yes adds that one (selection.SlotView.qty)."""
+    now = [key for key in (db.get_setting("spares") or []) if key != slot_id]
+    db.set_setting("spares", now + [slot_id] if added else now)
 
 
 def keep(slot_id: str, kept: bool) -> None:
