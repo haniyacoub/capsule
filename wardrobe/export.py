@@ -37,6 +37,12 @@ class Line:
     cand: Cand | None = None
     cautions: list[str] = field(default_factory=list)
     view: SlotView | None = None    # the piece itself: for a sold-out line, what is offered in its place
+    spares: int = 0             # how many of `qty` are spares he added on the piece's card: said beside the count
+
+    @property
+    def spare_words(self) -> str:
+        """'one is a spare' or '2 are spares', or nothing."""
+        return "" if not self.spares else "one is a spare" if self.spares == 1 else f"{self.spares} are spares"
 
     @property
     def total(self) -> float:
@@ -126,7 +132,8 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
             slot=s.slot["name"], product=c.data.get("name", ""), colour=c.data.get("colour", ""),
             size=c.size_to_order, qty=s.qty if only is None else 1, unit_price=c.price,
             url=c.data.get("url", ""), notes=notes,
-            image_url=c.data.get("image_url") or "", hex=c.colour_hex, cand=c, cautions=cautions))
+            image_url=c.data.get("image_url") or "", hex=c.colour_hex, cand=c, cautions=cautions,
+            spares=s.qty - 1 if only is None else 0))
     order = list(programmes.offered())       # the stores in the order config/stores.toml lists them
     ordered = sorted(groups.values(), key=lambda g: order.index(g.key) if g.key in order else 99)
     total = w.total if only is None else round(sum(g.subtotal for g in ordered), 2)
@@ -154,7 +161,8 @@ def to_markdown(sl: ShoppingList) -> str:
         for line in g.lines:
             qty = f"{line.qty} × " if line.qty > 1 else ""
             colour = f", {line.colour}" if line.colour else ""
-            out.append(f"- [ ] **{line.slot}** — {qty}{line.product}{colour} — size {line.size} — {_eur(line.total)}")
+            spare = f" ({line.spare_words})" if line.spares else ""
+            out.append(f"- [ ] **{line.slot}** — {qty}{line.product}{colour}{spare} — size {line.size} — {_eur(line.total)}")
             out.append(f"  <{line.url}>")
             out += [f"  - {note}" for note in line.notes]
         out.append("")

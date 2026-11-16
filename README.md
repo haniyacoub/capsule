@@ -164,18 +164,23 @@ the page is Stilsmith's own error page and the file and line are in the log).
 ## Price levels
 
 Two controls on the Wardrobe page decide what fills each slot. Neither is a
-config value. Under each choice is what the whole wardrobe would cost with it.
+config value. Under each choice is what your wardrobe would cost with it. (Your
+wardrobe is the pieces of the outfits you said yes to: see "Outfits and the
+shopping list". The plan, the 15 to 20 slots, is what outfits are made from.)
 
 - **Price level**: Cheapest, Cheap, Medium, Expensive, Top. For each slot the
   candidates in stock are lined up by price and the level says where on that
   line to pick: the lowest price, a quarter of the way up, the middle, three
   quarters, the highest.
 - **Best for budget** is the sixth choice, and not a level: it looks at the
-  whole wardrobe. Every slot starts on its cheapest option, and what is left of
-  your budget pays for upgrades, first where a euro buys the most quality on
+  whole plan, every slot your outfits are made from, not only the ones in your
+  wardrobe so far. Every slot starts on its cheapest option, and what is left
+  of your budget pays for upgrades, first where a euro buys the most quality on
   the pieces you would wear in the most outfits (shoes and trousers are in
-  many, one of eight tops in few). It never goes over the budget; if even the
-  cheapest options do, it says so. Locked and owned pieces count as money
+  many, one of eight tops in few). So a slot's product never depends on which
+  outfits you said yes to: a yes adds the products the outfit showed, at the
+  prices it showed. The plan as a whole never goes over the budget; if even
+  the cheapest options do, it says so. Locked and owned pieces count as money
   already spent. The rule is `fit_budget` in `wardrobe/selection.py`.
 - **Minimum quality**: only candidates scoring at least this are lined up at
   all. 0 means anything goes.
@@ -201,8 +206,21 @@ product page before relying on a "between sizes" note.
 
 - **Outfits** shows one outfit at a time: swipe, or use the arrows. Tap a piece
   to see the product and its price, swap it for another candidate, wear a
-  different piece in its place, or leave it off. The heart saves an outfit;
-  saved outfits keep their pieces even after the wardrobe or the store data
+  different piece in its place, or leave it off.
+- **Your wardrobe is the outfits you say yes to** (`wardrobe/yes.py`). "Add to
+  my wardrobe" on an outfit puts its pieces into your wardrobe; "Not for me"
+  means that outfit is not offered again (both have Undo). The Wardrobe page,
+  the shopping list and the budget bar count only those pieces. Each outfit on
+  offer says what it would add ("2 new pieces 208.99 €, 3 already in your
+  wardrobe"), outfits that reuse your pieces come first, and one that would
+  take you over your budget says by how much. A yes adds exactly what the
+  outfit shows: one of each piece it wears, for the outfit's own price. Where
+  the plan has a piece twice (two white tees), the second is a spare: the
+  piece's card in the Wardrobe offers "Add a spare" and "Take the spare out".
+  After a yes or a no you go on from where you were: the next outfit in line,
+  the ones you passed still in front. Taking an outfit out again
+  ("My outfits") removes only the pieces no other outfit of yours wears. The
+  outfits you added keep their pieces as they were, even after the store data
   changes.
 - **Buy this outfit** lists the outfit's pieces store by store with the size to
   order. "Open all" brings up every product page of one store at once. Each

@@ -20,6 +20,7 @@ from wardrobe import catalog, db, paths, programmes, selection, shared
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app
 
+from . import having
 from .test_production import ProductionCase, words
 from .test_programmes import PASTE_ONLY, PUBLISHED, STORES, shaped
 
@@ -141,6 +142,8 @@ class TheStorePicker(ProductionCase):
         })
         self.assertEqual(rows(self.ada.get("/profile").get_data(as_text=True)),
                          [("cos", True, "COS · Rakuten partner"), ("weekday", False, "Weekday · Rakuten partner")])
+        with self.as_ada():
+            having.the_whole_plan()     # every piece is in his wardrobe, so the Wardrobe and the list show them all
         # Outfits, its pop-ups and Buy pages, Wardrobe, the pieces' pages and the shopping list: no Weekday anywhere.
         outfits_page = self.ada.get("/outfits").get_data(as_text=True)
         found = [html.unescape(url) for url in re.findall(r'(?:hx-get|href)="(/outfits/(?:piece|buy)\?[^"]+)"', outfits_page)]

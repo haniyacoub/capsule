@@ -28,21 +28,27 @@ class TheRowByKeyboard(AppCase):
         self.assertLess(page.index('class="reel-nav next"'), page.index('id="reel"'))
         self.assertNotIn("tabindex", opening_tag(page, '<div class="reel"'))
 
-    def test_the_heart_keeps_its_id_and_its_name_whether_saved_or_not(self):
-        # Pressing the heart swaps it for its other state: with the same id, focus stays on it (HTMX), and a screen
-        # reader hears the same name both times, with pressed or not pressed for the state.
+    def test_the_yes_button_keeps_its_id_and_says_what_a_tap_does(self):
+        # The yes under an outfit is a button with words: "Add to my wardrobe", and on an outfit that is in his
+        # wardrobe "Take out of my wardrobe". It keeps its id in both states, and its words are its name (no label
+        # that says something else to a screen reader).
         key = outfits.generate(selection.build(), limit=4)[0][0].key
         page = self.client.get("/outfits").data.decode()
-        for pressed, html in (("false", page),
-                              ("true", self.post("/outfits/save", key=key).data.decode()),
-                              ("false", self.post("/outfits/save", key=key).data.decode())):
-            button = re.search(rf'<button class="heart[^"]*" id="save-{key}"[^>]*>(.*?)</button>', html, re.S)
-            self.assertIsNotNone(button, f"no heart with the id save-{key}")
-            self.assertIn(f'aria-pressed="{pressed}"', button.group(0))
+        for words, html in (("Add to my wardrobe", page),
+                            ("Take out of my wardrobe", self.post("/outfits/save", key=key).data.decode()),
+                            ("Add to my wardrobe", self.post("/outfits/save", key=key).data.decode())):
+            button = re.search(rf'<button class="btn yes[^"]*" id="save-{key}"[^>]*>(.*?)</button>', html, re.S)
+            self.assertIsNotNone(button, f"no button with the id save-{key}")
             self.assertNotIn("aria-label", button.group(0))
-            self.assertEqual(said(button.group(1)), "Save outfit")
-        self.assertEqual(len(set(re.findall(r'id="(save-[0-9a-f]+)"', page))), page.count('class="heart'),
-                         "two hearts on the page with the same id")
+            # (On the page the button also says what the yes adds to his total: "+ 536.97 €".)
+            self.assertEqual(said(button.group(1)).split(" + ")[0], words)
+        self.assertRegex(said(re.search(rf'<button class="btn yes" id="save-{key}">(.*?)</button>', page, re.S).group(1)),
+                         r"^Add to my wardrobe \+ [\d.,]+\s€$")
+        self.assertEqual(len(set(re.findall(r'id="(save-[0-9a-f]+)"', page))), page.count('class="btn yes'),
+                         "two yes buttons on the page with the same id")
+        # Beside it, the quiet no, on every outfit he has not answered.
+        self.assertEqual(len(re.findall(r'<button class="quiet" id="no-[0-9a-f]+">Not for me</button>', page)),
+                         page.count('class="btn yes'))
 
     def test_one_quiet_live_region_on_every_page(self):
         # One place, there from the start, where app.js writes what changed ("Outfit 2 of 12, …", "Picture ready"):

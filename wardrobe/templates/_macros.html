@@ -28,11 +28,13 @@
 </svg>
 {%- endmacro %}
 
-{# The Saved chip over the outfits, with how many outfits are saved ("Saved 2"; just "Saved" for none). `swap`: sent
-   back with the heart after a tap, to take the place of the chip on the page (HTMX finds that one by where its link
-   leads), so the number is right at once. #}
+{# The "My outfits" chip over the outfits: the outfits he said yes to, with how many ("My outfits 2"; just "My
+   outfits" for none; words only, so that the row of chips fits a 390px phone). It was the Saved chip, and its
+   address still says so. `swap`: sent back with the button after a
+   tap on a page that posts it with HTMX, to take the place of the chip on the page (HTMX finds that one by where its
+   link leads), so the number is right at once. #}
 {% macro saved_chip(n, on=false, swap=false) -%}
-<a class="chip-link{% if on %} on{% endif %}" href="{{ url_for('outfits_page', occasion='saved') }}"{% if on %} aria-current="page"{% endif %}{% if swap %} hx-swap-oob="outerHTML:.chips a[href$='occasion=saved']"{% endif %}>{{ icon('heart') }} Saved{% if n %} {{ n }}{% endif %}</a>
+<a class="chip-link{% if on %} on{% endif %}" href="{{ url_for('outfits_page', occasion='saved') }}"{% if on %} aria-current="page"{% endif %}{% if swap %} hx-swap-oob="outerHTML:.chips a[href$='occasion=saved']"{% endif %}>My outfits{% if n %} {{ n }}{% endif %}</a>
 {%- endmacro %}
 
 {# A picture with the colour swatch underneath it. If there is no image, or it

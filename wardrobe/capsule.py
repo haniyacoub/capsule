@@ -246,6 +246,7 @@ class Rebuilt:
     picked: list[dict] = field(default_factory=list)     # slots that kept the product picked by hand
     owned: list[str] = field(default_factory=list)       # pieces marked as owned by hand: still owned
     lost: list[tuple[str, str]] = field(default_factory=list)   # (piece, why) for picks that could not be kept
+    stayed: list[dict] = field(default_factory=list)     # pieces of his wardrobe the new plan had no place for: kept as they were (app.py)
 
 
 def rebuild(profile: dict, old: list[dict], old_owned_text: str = "") -> Rebuilt:

@@ -174,7 +174,13 @@ VERSION_7_ADDS = [("index", "sqlite_autoindex_videos_1"), ("index", "video_reque
                   ("table", "pro"), ("table", "video_requests"), ("table", "videos"),
                   # … and version 8: which front picture an outfit's further pictures were made from (db.SCHEMA_PHOTOS).
                   ("index", "looks_made_from_front"), ("index", "sqlite_autoindex_looks_made_from_1"),
-                  ("table", "looks_made_from")]
+                  ("table", "looks_made_from"),
+                  # … and version 9: the outfits a customer said no to (db.SCHEMA_YES, test_yes.py).
+                  ("index", "sqlite_autoindex_outfits_declined_1"), ("table", "outfits_declined")]
+
+# Version 9 also changes one table on purpose: saved_outfits gains the column `sig` (a saved outfit is an outfit he
+# said yes to), and every customer with a plan gains three settings (test_yes.py tests what they hold).
+VERSION_9_CHANGES = {"saved_outfits", "settings"}
 
 
 class Schema(FeedCase):
@@ -218,14 +224,24 @@ class Schema(FeedCase):
         db.init()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             after = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
-            self.assertEqual(before - after, set(), "no table or index of version 4 was changed or removed")
+            self.assertEqual({name for _, name, _, _ in before - after}, {"saved_outfits"},
+                             "no table or index of version 4 was changed or removed, but for the new column")
             self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
                              sorted([("index", "products_by_group"), ("index", "sqlite_autoindex_products_1"),
                                      ("index", "sqlite_autoindex_stores_1"), ("table", "owners"), ("table", "products"),
-                                     ("table", "stores")] + VERSION_7_ADDS))
-            self.assertEqual({t: sorted(con.execute(f"SELECT * FROM {t}").fetchall()) for t in old_tables},  # nosec
-                             rows_before, "every row is as it was")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
+                                     ("table", "stores"), ("table", "saved_outfits")] + VERSION_7_ADDS))
+            self.assertEqual({t: sorted(con.execute(f"SELECT * FROM {t}").fetchall())  # nosec
+                              for t in old_tables - VERSION_9_CHANGES},
+                             {t: rows for t, rows in rows_before.items() if t not in VERSION_9_CHANGES},
+                             "every row is as it was")
+            # The two tables version 9 touches keep what they held: the saved outfit with its new column (empty: it
+            # was saved without pieces), and the customer's setting beside the three new ones.
+            self.assertEqual(con.execute("SELECT * FROM saved_outfits").fetchall(),
+                             [row + ("",) for row in rows_before["saved_outfits"]])
+            self.assertEqual(sorted(con.execute("SELECT * FROM settings").fetchall()),
+                             sorted(rows_before["settings"] + [(2, "kept_pieces", "[]"), (2, "spares", "[]"),
+                                                               (2, "wardrobe_news", "true")]))
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master")), after)
@@ -254,11 +270,12 @@ class Schema(FeedCase):
         db.init()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             after = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
-            self.assertEqual(before - after, set(), "no table or index of version 5 was changed or removed")
+            self.assertEqual({name for _, name, _, _ in before - after}, {"saved_outfits"},
+                             "no table or index of version 5 was changed or removed, but for version 9's new column")
             self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
-                             sorted([("table", "owners")] + VERSION_7_ADDS))
+                             sorted([("table", "owners"), ("table", "saved_outfits")] + VERSION_7_ADDS))
             self.assertEqual({t: con.execute(f"SELECT * FROM {t}").fetchall() for t in rows_before}, rows_before)  # nosec
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM owners").fetchone()[0], 0, "nobody is an owner by itself")
 
 

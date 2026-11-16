@@ -26,6 +26,7 @@ from wardrobe import catalog, db, english, export, outfits, programmes, selectio
 from wardrobe import profile as profile_mod
 from wardrobe.app import eur
 
+from . import having
 from .test_app import HX, AppCase
 from .test_looks import as_read, flashes, status_line
 from .test_size_picks import cos, option, weekday
@@ -79,6 +80,7 @@ class SoldOutCase(AppCase):
     def setUp(self):
         super().setUp()
         db.set_setting("sizes_confirmed", True)         # "These are my sizes" (the example's are told apart below)
+        having.the_whole_plan()     # every piece is in his wardrobe: on the Wardrobe page, the list and in the total
 
     def unchecked(self, sid: str, keep: str, n: int, store: str = "cos") -> None:
         """`n` of the piece's other products become products of a store that gave no sizes (as every COS product)."""

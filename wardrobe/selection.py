@@ -10,9 +10,13 @@ Rules, in order:
                          them: the cheapest, a cheap one, the middle one, an
                          expensive one, or the most expensive
      or, instead of a price level:
-       best for budget   the wardrobe as a whole: every slot starts on its
-                         cheapest option and the rest of the budget goes to
-                         upgrades, best value first (see fit_budget below)
+       best for budget   the plan as a whole (every piece outfits are made from,
+                         not only the ones in his wardrobe so far): every slot
+                         starts on its cheapest option and the rest of the budget
+                         goes to upgrades, best value first (see fit_budget below).
+                         A piece's product therefore does not depend on which
+                         outfits he said yes to: a yes adds exactly the products
+                         the outfit showed, at the prices it showed
      "In stock in your size" first: a candidate whose store gave no sizes (COS)
      is considered only when none known to be in your size reaches the minimum
      quality. One known to be sold out in your size, or not made in it, is never
@@ -23,10 +27,15 @@ Rules, in order:
      next best product that is in stock in your size is offered in its place (next_best).
      "Nothing else is in stock in your size" is said only when that is known: other products
      whose sizes were never checked (COS) are counted and pointed to instead (SlotView.no_swap).
+
+The pieces are the plan: what outfits are made from. The customer's wardrobe is the part of it he said yes to
+(SlotView.mine, Wardrobe.mine): the pieces of the outfits he added, what he owns, and what he had chosen by hand
+before the wardrobe worked this way. Only that part is counted in a total.
 """
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
@@ -45,8 +54,9 @@ MODES = {"cheapest": "Cheapest", "cheap": "Cheap", "medium": "Medium", "expensiv
 # ("budget" is not a place on that line: it looks at the whole wardrobe.)
 POSITION = {"cheapest": 0.0, "cheap": 0.25, "medium": 0.5, "expensive": 0.75, "top": 1.0}
 HINTS = {
-    "budget": "The most quality your budget buys: every piece starts on its cheapest option, and what is left "
-              "pays for upgrades, first where a euro improves most the pieces you would wear most",
+    "budget": "The most quality your budget buys for all the pieces your outfits are made from, taken together: "
+              "every piece starts on its cheapest option, and what is left pays for upgrades, first where a euro "
+              "improves most the pieces you would wear most",
     "cheapest": "The lowest-priced option for each piece",
     "cheap": "A low-priced option: about a quarter of the way up each piece's price range",
     "medium": "The middle-priced option for each piece",
@@ -142,14 +152,51 @@ class SlotView:
     # offered in one tap wherever the piece shows (_sold_out.html). None when no other is in stock in his size.
     swap: Cand | None = None
     example_size: bool = False      # the sizes are still the example's (profile.sizes_unconfirmed): said with the size
+    outfits_in: int = 0             # how many of the outfits he said yes to wear this piece ("In 4 of your outfits")
+    kept: bool = False              # in his wardrobe on its own account: chosen by hand before version 9 (db.py)
+    spare: bool = False             # he added the plan's further ones of this piece to his wardrobe ("Add a spare")
+
+    @property
+    def mine(self) -> bool:
+        """Whether the piece is in his wardrobe: an outfit he said yes to wears it, he owns it, or he kept it."""
+        return self.outfits_in > 0 or self.state == "owned" or self.kept
+
+    @property
+    def in_outfits_words(self) -> str:
+        """'In 4 of your outfits', 'In 1 of your outfits', or 'In none of your outfits yet'."""
+        return f"In {self.outfits_in} of your outfits" if self.outfits_in else "In none of your outfits yet"
 
     @property
     def your_size(self) -> str:
         return "the example size" if self.example_size else "your size"
 
     @property
-    def qty(self) -> int:
+    def planned(self) -> int:
+        """How many of this piece the plan has: two white tees. What the plan page counts."""
         return int(self.slot.get("qty") or 1)
+
+    @property
+    def qty(self) -> int:
+        """How many of this piece count in his wardrobe, his total and his shopping list. One: an outfit wears one,
+        and a yes adds exactly what the outfit shows. All the plan has once he added the spare to a piece of his
+        wardrobe ("Add a spare" on its card), and for a piece he owns (he said how many he has)."""
+        return self.planned if self.state == "owned" or (self.spare and self.mine) else 1
+
+    @property
+    def n_spare(self) -> int:
+        """How many more of this piece the plan has than an outfit wears: what "Add a spare" adds. None for a piece
+        he owns."""
+        return 0 if self.state == "owned" else self.planned - 1
+
+    @property
+    def spare_words(self) -> tuple[str, str, str]:
+        """What the piece's card says of its spare, and the two buttons: ('One of the 2 is a spare', 'Add a spare',
+        'Take the spare out'); with three in the plan ('2 of the 3 are spares', 'Add 2 spares', 'Take the spares
+        out')."""
+        n = self.n_spare
+        if n == 1:
+            return f"One of the {self.planned} is a spare", "Add a spare", "Take the spare out"
+        return f"{n} of the {self.planned} are spares", f"Add {n} spares", "Take the spares out"
 
     @property
     def sold_out(self) -> bool:
@@ -242,6 +289,21 @@ class Wardrobe:
     stores: dict = field(default_factory=dict)   # per store: how the last refresh went
     note: str = ""               # something to say about the whole wardrobe (the budget cannot be met)
     example_sizes: bool = False  # the sizes are still the example's: "in the example size", not "in your size"
+    n_outfits: int = 0           # how many outfits he said yes to
+    budget_known: bool = True    # False until he gave a budget (profile.budget_known): then nothing is "left" or "over"
+    # Whether "Best for budget" has a budget to fit to: one he gave, or, for someone who was on that level before the
+    # wardrobe became the outfits he said yes to, the budget his account started with, as it was fitted then (build).
+    budget_to_fit: bool = True
+    only_mine: bool = False      # this is `mine` already: the pieces of his wardrobe and nothing else
+    plan: "Wardrobe | None" = None      # for `mine`: the whole plan it is the part of (what "Best for budget" fits)
+
+    @cached_property
+    def mine(self) -> "Wardrobe":
+        """His wardrobe: the same thing with only the pieces that are in it (SlotView.mine). Every total, count and
+        list of things to buy is asked of this; the outfits are made from all the pieces."""
+        if self.only_mine:
+            return self
+        return replace(self, slots=[view for view in self.slots if view.mine], only_mine=True, plan=self)
 
     @cached_property
     def levels(self) -> dict[str, float]:
@@ -257,7 +319,15 @@ class Wardrobe:
                 else:
                     cost += view.cost
             ladder[level] = round(cost, 2)
-        ladder["budget"] = self.total if self.mode == "budget" else _fit(self)[2]
+        if not self.budget_to_fit:      # no budget to fit to yet: that level picks the cheapest options meanwhile
+            ladder["budget"] = ladder["cheapest"]
+        elif self.mode == "budget":
+            ladder["budget"] = self.total
+        else:
+            # "Best for budget" is fitted for the whole plan (build, below); these pieces at the products it gives them.
+            picks = _fit(self.plan or self)[0]
+            ladder["budget"] = round(sum(picks[view.slot["id"]].price * view.qty if view.slot["id"] in picks
+                                         else view.cost for view in self.slots), 2)
         return ladder
 
     @property
@@ -524,6 +594,10 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
     charts = sizes.load_charts()
     grouped = catalog_mod.by_slot(cat)
     example = profile_mod.sizes_unconfirmed(profile)     # said with every size until he says the sizes are his
+    yes = db.yes_sigs()                                   # the outfits he said yes to, as the pieces each combines
+    worn = Counter(slot_id for sig in yes for slot_id in set(sig.split("~")))
+    kept = set(db.get_setting("kept_pieces") or [])
+    spares = set(db.get_setting("spares") or [])       # pieces whose spare he added to his wardrobe (yes.spare)
 
     views: list[SlotView] = []
     for slot in db.list_slots():
@@ -533,7 +607,8 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         # In your size first, then sizes not checked, then sold out or not made in your size; each by price.
         cands.sort(key=lambda c: (c.size.rank, c.price, -c.score.total))
         view = SlotView(slot=slot, garment=GARMENTS[slot["category"]],
-                        colour=colours.get(slot["colour"]), cands=cands, example_size=example)
+                        colour=colours.get(slot["colour"]), cands=cands, example_size=example,
+                        outfits_in=worn.get(slot["id"], 0), kept=slot["id"] in kept, spare=slot["id"] in spares)
 
         if slot["owned"]:
             view.state = "owned"
@@ -561,16 +636,35 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         source=cat.get("source", "empty"),
         collected=catalog_mod.collected_label(cat),
         stores=cat.get("stores", {}), example_sizes=example,
+        n_outfits=db.count_saved(), budget_known=profile_mod.budget_known(profile),
     )
-    if mode == "budget":
+    # Someone who was on "Best for budget" before the wardrobe became the outfits he said yes to, with the budget his
+    # account started with (he never gave one): the level goes on fitting to that budget, so that none of his
+    # products changes with the upgrade (db.py notes it, "budget_as_before"), and the page says which budget it is.
+    wardrobe.budget_to_fit = wardrobe.budget_known or bool(db.get_setting("budget_as_before"))
+    if mode == "budget" and not wardrobe.budget_to_fit:
+        # No budget to fit anything to yet: every piece shows its cheapest option that reaches the minimum quality.
+        wardrobe.note = ("“Best for budget” needs your budget: set one on the Profile page. Until then these are "
+                         "the cheapest options that reach your minimum quality.")
+    elif mode == "budget":
+        # Fitted for the whole plan together, the pieces that are not in his wardrobe yet included, each as often as
+        # the plan has it (_fit). So a piece's product does not depend on which outfits he said yes to, or on a
+        # spare: a yes adds the products the outfit showed, at the prices it showed, and nothing he already has
+        # changes under him. His wardrobe is a part of the plan, so whatever he adds stays within his budget
+        # whenever the plan as a whole does. (It is also what this level did before the wardrobe was the outfits he
+        # said yes to: nobody's products change with that upgrade.)
         picks, fits, _ = _fit(wardrobe)
         for view in views:
             if view.slot["id"] in picks:
                 view.chosen = picks[view.slot["id"]]
         if not fits:
-            wardrobe.note = ("Even the cheapest options that reach your minimum quality come to more than your "
-                             "budget, so these are the cheapest. Lower the minimum quality, mark what you own, "
-                             "or raise the budget on the Profile page.")
+            wardrobe.note = (
+                "Even on their cheapest options that reach your minimum quality, the pieces your outfits are made "
+                "from come to more than your budget together, so every piece is on its cheapest option. Lower the "
+                "minimum quality, mark what you own, or raise the budget on the Profile page.")
+        if not wardrobe.budget_known:
+            wardrobe.note = (f"“Best for budget” is still fitted to {wardrobe.budget:,.0f} €, the budget your account "
+                             "started with, as before. Set your own budget on the Profile page. " + wardrobe.note).strip()
     return wardrobe
 
 
@@ -632,23 +726,29 @@ def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
     best-available fallback) is money already spent. A locked product that is sold out in his size counts nothing
     in the total, but its price is kept aside here: the swap offered for it costs about as much, and the money
     must not be spent on upgrades that the swap would then take back.
+
+    Every piece counts as often as the plan has it (two white tees), whether or not his wardrobe holds the spare:
+    what is picked must not depend on what he has said yes to so far (build).
     """
+    def planned(view: SlotView) -> float:       # the piece's product, as often as the plan has the piece
+        return 0.0 if view.state == "owned" or view.chosen is None else view.chosen.price * view.planned
+
     free = [(view, [c for c in view.cands if c.available and c.price > 0 and c.score.total >= wardrobe.threshold])
             for view in wardrobe.slots if view.state == "auto"]
     free = [(view, in_your_size_first(pool)) for view, pool in free if pool]
     moving = {view.slot["id"]: min(pool, key=lambda c: (c.price, -c.score.total)) for view, pool in free}
     fixed = [view for view in wardrobe.slots if view.slot["id"] not in moving]
-    spent = sum(view.cost for view in fixed)
-    aside = sum(view.price for view in fixed if view.sold_out)
+    spent = sum(planned(view) for view in fixed if not view.sold_out)
+    aside = sum(planned(view) for view in fixed if view.sold_out)
     # How much each slot is worn is judged with every free slot on its cheapest candidate, whatever
     # is selected right now: the answer must not depend on the level the page happens to be on.
     basis = replace(wardrobe, slots=[replace(view, chosen=moving[view.slot["id"]]) if view.slot["id"] in moving
                                      else view for view in wardrobe.slots])
-    slots, wear = [(view.slot["id"], view.qty, pool) for view, pool in free], _wear(basis)
+    slots, wear = [(view.slot["id"], view.planned, pool) for view, pool in free], _wear(basis)
     picks, fits = fit_budget(slots, wardrobe.budget - spent - aside, wear)
     if not fits and aside:      # only the money kept aside is in the way: what can be bought does fit
         picks, fits = fit_budget(slots, wardrobe.budget - spent, wear)
-    total = spent + sum(picks[view.slot["id"]].price * view.qty for view, _ in free)
+    total = spent + sum(picks[view.slot["id"]].price * view.planned for view, _ in free)
     return picks, fits, round(total, 2)
 
 

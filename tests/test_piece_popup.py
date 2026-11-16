@@ -54,7 +54,9 @@ class PiecePopUp(AppCase):
         self.assertIn("Choosing one uses it in all your outfits and keeps it when you change the price level or the "
                       "minimum quality.", said)
         self.assertNotIn("locks it", said)
-        self.assertRegex(said, r"In \d+ of the \d+ outfits your pieces make")
+        # Whether it is in his wardrobe (none of his outfits wears it yet), and how many outfits it could be worn in.
+        self.assertRegex(said, r"Not in your wardrobe yet: it joins with the first outfit you add that wears it\. "
+                               r"It could be worn in \d+ of the \d+ outfits your plan makes\.")
         # Each option's name is in English too where every word is known, the store's own words under it.
         others = [c for c in coat.view.cands if c.id != chosen.id][:6]
         rest = page.split("Swap it for", 1)[1]

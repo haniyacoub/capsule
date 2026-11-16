@@ -478,16 +478,6 @@ document.body.addEventListener('htmx:responseError', (e) => {
   if (e.detail.xhr.status === 409) window.location.reload();
 });
 
-// 12. The starter banner on Outfits (a new customer's, until he saves his profile) stands where the budget bar would.
-//     The picture on a phone is sized from that bar's height (--bar-h, see app.css), so here it is the banner's
-//     real height, whatever its words wrap to on this screen.
-const starter = document.querySelector('.starter');
-if (starter && 'ResizeObserver' in window) {
-  new ResizeObserver(() => {
-    document.documentElement.style.setProperty('--bar-h', `${starter.getBoundingClientRect().height}px`);
-  }).observe(starter);
-}
-
 // 12a. The line over the outfits that says what a change made from an outfit did (Choose, Undo, leaving a piece off)
 //      is one to four lines on a phone, by the length of the product's name. The picture gives up room for it (--told,
 //      see app.css): the longest line's until this runs. Here it is the room the line really takes, its height and
@@ -1116,6 +1106,124 @@ if (swatchGrid) {
     else if (box.closest('[data-slide]')) box.closest('[data-slide]').focus({ preventScroll: true });
   });
 }
+
+// 17. The wardrobe is the outfits he said yes to (yes.py): the two answers under an outfit, "Add to my wardrobe" and
+//     "Not for me". Each is a plain form, and the whole page comes back after it (the total, what every other outfit
+//     would add and their order change with a yes).
+// 17a. On a phone the answers are not under the outfit, where a short screen hides them below the tab bar: what a yes
+//      adds, the warning if it would take him over his budget, and the two answers stand in a bar that stays above
+//      the tab bar (#dock, app.css), for the outfit that is showing. The outfit's own box (.yes-box, outfits.html)
+//      is moved in there, and back to its outfit when another one shows or the window becomes a computer's: the same
+//      forms and buttons, in one place at a time. The page is told the bar's height (--dock-h), so its foot and the
+//      picture leave room for it. Without JavaScript the box simply stays under its outfit.
+const dock = document.getElementById('dock');
+const answerOnScreen = () => {     // the box with the answers of the outfit on screen, wherever it stands now
+  const row = document.getElementById('reel');
+  if (!row) return null;
+  const slide = row.querySelectorAll('[data-slide]')[Math.round(row.scrollLeft / row.clientWidth)];
+  return (dock && dock.querySelector('[data-answer]')) || (slide && slide.querySelector('[data-answer]')) || null;
+};
+if (dock && document.getElementById('reel')) {
+  const row = document.getElementById('reel');
+  const phone = window.matchMedia('(max-width: 759.98px)');
+  const all = [...row.querySelectorAll('[data-slide]')];
+  // Each outfit's box, and a mark that keeps its place in the outfit while it is in the bar.
+  const boxes = new Map();
+  all.forEach((slide) => {
+    const box = slide.querySelector('[data-answer]');
+    if (box) boxes.set(slide, { box, home: document.createComment('its answers are in the bar above the tabs') });
+  });
+  let inDock = null;
+  const measure = () => document.documentElement.style.setProperty('--dock-h', `${dock.hidden ? 0 : dock.offsetHeight}px`);
+  const sync = () => {
+    const want = (phone.matches && boxes.get(all[Math.round(row.scrollLeft / row.clientWidth)])) || null;
+    if (want === inDock) return;
+    const held = inDock && inDock.box.contains(document.activeElement) ? document.activeElement : null;
+    if (inDock) inDock.home.replaceWith(inDock.box);
+    inDock = want;
+    if (want) {
+      want.box.replaceWith(want.home);
+      dock.append(want.box);
+      // The buttons of an outfit that was not on screen were out of the Tab order (6a): these are the ones to press now.
+      want.box.querySelectorAll('[data-tab]').forEach((el) => {
+        if (el.dataset.tab) el.setAttribute('tabindex', el.dataset.tab);
+        else el.removeAttribute('tabindex');
+        delete el.dataset.tab;
+      });
+      // Keyboard focus that was on an answer stays on the same answer, now of the outfit that shows.
+      const twin = held && want.box.querySelector(held.matches('.quiet') ? '.quiet' : '.btn.yes');
+      if (held) (twin || want.box.querySelector('button')).focus({ preventScroll: true });
+    }
+    dock.hidden = !want;
+    measure();
+  };
+  row.addEventListener('scroll', sync, { passive: true });
+  phone.addEventListener('change', sync);
+  if ('ResizeObserver' in window) new ResizeObserver(measure).observe(dock);
+  sync();
+}
+
+// 17b. After an answer the page has come back (on the next outfit in line: its address names it, app.py). It is
+//      scrolled to where it was when he answered, so he goes on from there and need not scroll down again for every
+//      outfit. If the line that says what was done ("Added the outfit with … Undo") is then above the screen, it
+//      stays in sight at the screen's top while he is scrolled down (app.css, .said.in-sight).
+//      After an answer given with the keyboard, the keyboard would be at the page's top, some twenty presses of Tab
+//      from the next answer. So it is put where the answering goes on: on "Add to my wardrobe" of the outfit now
+//      showing. Under My outfits, where the next button would take another outfit out, it goes to Undo in the line
+//      that says what was done. That line is read out to a screen reader, as it was there before the page finished
+//      loading. Only after the keyboard gave the answer: after a tap or a click the keyboard is given nothing (a
+//      button that had it would say yes at the next press of the space bar, meant to scroll).
+//      Both are noted while the form is sent, kept for this tab only and forgotten at once.
+document.addEventListener('submit', (e) => {
+  const form = e.target instanceof HTMLFormElement ? e.target : null;
+  if (!form || !form.matches('form.save, form.no, [data-answered] form')) return;
+  const by = e.submitter || document.activeElement;
+  try {
+    if (document.getElementById('reel')) window.sessionStorage.setItem('answered-at', String(Math.round(window.scrollY)));
+    if (by instanceof Element && by.matches(':focus-visible')) window.sessionStorage.setItem('answered-by-keyboard', '1');
+  } catch (err) { /* no storage (private mode): the page comes back at its top, the keyboard with it, as without this */ }
+});
+(() => {
+  let byKeyboard = false;
+  let scrolledTo = null;
+  try {
+    byKeyboard = window.sessionStorage.getItem('answered-by-keyboard') === '1';
+    scrolledTo = window.sessionStorage.getItem('answered-at');
+    window.sessionStorage.removeItem('answered-by-keyboard');
+    window.sessionStorage.removeItem('answered-at');
+  } catch (err) { /* as above */ }
+  const said = document.querySelector('[data-answered]');
+  if (!said && !(byKeyboard && document.getElementById('reel'))) return;
+  const put = () => {
+    if (said && scrolledTo !== null && document.getElementById('reel')) {
+      const top = Math.max(0, Math.min(parseInt(scrolledTo, 10) || 0, document.documentElement.scrollHeight - window.innerHeight));
+      window.scrollTo({ top, behavior: 'instant' });
+      if (said.getBoundingClientRect().bottom < 8) said.classList.add('in-sight');
+    }
+    if (!byKeyboard) {
+      // After a tap or a click: the address the page came back to names the outfit to show ("#outfit-…"), and the
+      // browser gives that outfit the keyboard, with a ring around all of it. Nobody is using the keyboard: no ring.
+      const here = document.activeElement;
+      if (here instanceof HTMLElement && here.matches('[data-slide]')) here.blur();
+      return;
+    }
+    const undo = said && said.querySelector('button');
+    const box = answerOnScreen();
+    const next = (document.querySelector('.looks.saved') || !box) ? undo : (box.querySelector('.btn.yes') || undo);
+    if (next) next.focus({ preventScroll: true });
+    const announce = document.getElementById('announce');
+    if (said && announce) {
+      const words = [...said.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent).join(' ');
+      // A moment later: a screen reader reads a live region only when it changes after the page has been read in.
+      setTimeout(() => {
+        announce.textContent = `${words.replace(/\s+/g, ' ').trim()}${undo && next !== undo ? ' Undo is at the top of the page.' : ''}`;
+      }, 300);
+    }
+  };
+  // Once the page has loaded and the browser has gone to the outfit its address names: that step moves the keyboard too.
+  if (document.readyState === 'complete') setTimeout(put, 0);
+  else window.addEventListener('load', () => setTimeout(put, 0));
+})();
 
 // 16. Motion (app.css "Motion" says how things move, and that nothing does for people who ask their device for less
 //     motion). Here: which way a page slides in, and a tap while it does (16a), the AI picture that develops in once

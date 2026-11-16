@@ -9,6 +9,14 @@
 <h1 class="page-title">Buy this outfit</h1>
 {# After the swap for a product sold out in his size: what changed, with Undo (_changed.html). #}
 {% if said %}<div class="flash said" role="status">{% include "_changed.html" %}</div>{% endif %}
+{# Whether the outfit is in his wardrobe yet. Until it is, the page says so, with what it would add and the yes
+   (_save_button.html), which leads back here. #}
+{% if not adds.in_wardrobe %}
+<div class="not-yet">
+  <p>This outfit is not in your wardrobe yet, so it is not on your shopping list or in your total. {{ adds.words }}.{% if adds.over_words %} {{ adds.over_words }}{% endif %}</p>
+  {% with key = outfit.key, saved = false, yes_sig = outfit.sig, on = 'buy' %}{% include "_save_button.html" %}{% endwith %}
+</div>
+{% endif %}
 {% if sl.groups %}
 <p class="buy-head"><b>{{ sl.total|eur }}</b>
   <span>{{ outfit.label }} · {{ sl.pieces }} {{ 'piece' if sl.pieces == 1 else 'pieces' }}{% if sl.owned or sl.sold_out %} to buy{% endif %}{% if sl.sold_out %} · {{ sl.pieces_sold_out }} {{ sl.gone_words }}, not counted{% endif %} · prices and stock as of {{ sl.collected }}</span></p>
@@ -27,5 +35,5 @@
   <ul class="plain">{% for name in sl.owned %}<li>{{ name }}</li>{% endfor %}</ul>
 </section>
 {% endif %}
-<p class="foot">For everything your wardrobe selects, not just this outfit, see the <a href="{{ url_for('list_page') }}">Shopping list</a>.</p>
+<p class="foot">For every piece in your wardrobe, not just this outfit, see the <a href="{{ url_for('list_page') }}">Shopping list</a>.</p>
 {% endblock %}

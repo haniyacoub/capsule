@@ -35,6 +35,7 @@ PENALTY_OUTER_MATCHES_BOTTOM = 5
 PENALTY_BROWN_SHOES_BLACK_TROUSERS = 30
 PENALTY_BLACK_SHOES_LIGHT_TROUSERS = 10
 BONUS_LIGHT_UNDER_DARK = 5        # a light top under a dark layer
+BONUS_REUSE = 10                  # per piece the customer already has in his wardrobe (generate)
 
 
 @dataclass
@@ -261,10 +262,25 @@ def all_outfits(w: Wardrobe) -> list[Outfit]:
     return found
 
 
-def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0) -> tuple[list[Outfit], int]:
-    """A varied selection of outfits, and how many valid combinations exist in total."""
-    pool = [o for o in all_outfits(w) if o.suits(occasion)]
-    total = len(pool)
+def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0,
+             skip: frozenset[str] | set[str] = frozenset(),
+             have: frozenset[str] | set[str] = frozenset(),
+             passed: frozenset[str] | set[str] = frozenset(),
+             front: tuple[str, ...] | list[str] = ()) -> tuple[list[Outfit], int]:
+    """A varied selection of outfits, and how many valid combinations exist in total.
+
+    `skip`: combinations (sigs) that are not offered: the ones he said yes to (yes.py); they are not counted.
+    `have`: the pieces (slot ids) already in his wardrobe. An outfit that wears some of them is likelier to be
+    among the selection, and the selection is put in order of how many it wears, most first: the outfits that cost
+    him least come first.
+    `passed`: combinations he said no to. They are not offered and not counted either, but each still takes its
+    turn while the selection is made. So a no takes that one outfit out of the row and leaves every other where it
+    was, in the same order (one more joins at the end): he goes on from where he was.
+    `front`: the outfits (keys) that stood in front of the one he said yes to. They keep their places at the head
+    of the row, and the rest of the selection follows in its order, most of his pieces first. So after a yes he
+    goes on from where he was too, and the next outfit in line is the one that reuses most of what he now has."""
+    pool = [o for o in all_outfits(w) if o.suits(occasion) and o.sig not in skip]
+    total = sum(1 for o in pool if o.sig not in passed)
     rng = random.Random(seed)
     nudge = {o.key: rng.uniform(0, 8) for o in pool}   # "Shuffle" changes which near-ties win
 
@@ -283,13 +299,26 @@ def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0)
         value += 6 * sum(1 for p in o.pieces if not used[p.key])   # give every piece an outing
         if core(o) in pairs:
             value -= 25                                            # same top + trousers again
-        return value
+        return value + BONUS_REUSE * reused(o)
 
-    while pool and len(chosen) < limit:
-        best = max(pool, key=appeal)
+    def reused(o: Outfit) -> int:
+        return sum(1 for slot_id in o.slots if slot_id in have)
+
+    def take(best: Outfit) -> None:
         pool.remove(best)
-        chosen.append(best)
+        if best.sig not in passed:
+            chosen.append(best)
         pairs.add(core(best))
         for p in best.pieces:
             used[p.key] += 1
+
+    by_key = {o.key: o for o in pool}
+    for key in dict.fromkeys(front):            # those of them that are still outfits he could be offered
+        if key in by_key and len(chosen) < limit:
+            take(by_key[key])
+    held = len(chosen)
+    while pool and len(chosen) < limit:
+        take(max(pool, key=appeal))
+    if have:
+        chosen[held:] = sorted(chosen[held:], key=lambda o: -reused(o))    # (a stable sort: equals keep the varied order)
     return chosen, total

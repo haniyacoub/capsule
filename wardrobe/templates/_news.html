@@ -1,0 +1,14 @@
+{# Said once to someone who was a customer before the wardrobe became the outfits he said yes to (app.py,
+   wardrobe_news): what his wardrobe starts with, counted from what it holds, and that nothing was deleted. #}
+{% set had = [] %}
+{% if news.outfits %}{% set _ = had.append('the ' ~ news.outfits ~ (' outfit' if news.outfits == 1 else ' outfits') ~ ' you had saved') %}{% endif %}
+{% if news.kept %}{% set _ = had.append('the ' ~ news.kept ~ (' piece' if news.kept == 1 else ' pieces') ~ ' you chose yourself') %}{% endif %}
+{% if news.owned %}{% set _ = had.append('the ' ~ news.owned ~ ' you own') %}{% endif %}
+<p class="flash news" role="status">
+  <b>Your wardrobe is now the outfits you say yes to.</b>
+  {% if had %}It starts with {{ had[:-1]|join(', ') }}{{ ' and ' if had|length > 1 }}{{ had[-1] }}: {{ news.pieces }} {{ 'piece' if news.pieces == 1 else 'pieces' }} in all.
+  {% else %}It starts empty: add the outfits you like.
+  {% endif %}
+  {% if news.rest %}The other {{ news.rest }} {{ 'piece' if news.rest == 1 else 'pieces' }} of your plan {{ 'was' if news.rest == 1 else 'were' }} not deleted: outfits are still made from them, with the same products, and each joins your wardrobe with the first outfit you add that wears it.{% endif %}
+  Only your wardrobe counts in the total now.
+</p>
