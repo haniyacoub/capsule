@@ -22,7 +22,7 @@ import secrets
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from flask import Flask, Response, abort, flash, g, redirect, render_template, request, send_file, url_for
+from flask import Flask, Response, abort, flash, g, redirect, render_template, request, send_file, session, url_for
 from markupsafe import Markup
 from werkzeug.exceptions import HTTPException, NotFound
 
@@ -56,9 +56,11 @@ PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_ima
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
 # The date of the words a customer agrees to when he uploads his photo (the box on Profile, profile.html). It is
 # stored with the photo, so it is known which words he agreed to. Give it a new date whenever those words change.
-# While videos are on, the box's words also say that pictures of him go to Google for videos: those words are
-# dated videos.CONSENT, and that date is stored instead.
-PHOTO_CONSENT = "2026-11-12"
+# 2026-11-15: the words say that an outfit's further photos ("More photos") are made from the AI picture of him,
+# which goes to the image service again. (2026-11-12: his photo goes to the service for each picture of him.)
+# While videos are on, the box's words also say that pictures of him go to Google for videos: those words have
+# their own date, videos.CONSENT, which is stored beside this one (videos.agreed_with_the_photo).
+PHOTO_CONSENT = "2026-11-15"
 
 
 def bootstrap() -> None:
@@ -299,6 +301,8 @@ def create_app() -> Flask:
         my_stores=profile_mod.stores,
         # What a customer added to a piece from a store that is no longer offered, listed on its page (_set_aside.html).
         set_aside_for=catalog.set_aside,
+        # Beside "More photos": what it costs, or how many pictures are really left today (_shots.html).
+        more_words=looks.more_words,
     )
     bootstrap()
 
@@ -513,11 +517,16 @@ def create_app() -> Flask:
 
     def back_to(where: str | None, outfit: str, occasion: str | None, **said) -> str:
         """The page a change to a piece was made from, to go back to it: the outfit it was made in (the pop-up, or
-        the outfit's own list of pieces), the Saved outfits, the Wardrobe, the Shopping list, or Buy this outfit.
+        the outfit's own list of pieces), the Saved outfits, the Wardrobe, the Shopping list, Buy this outfit, or
+        the piece's own page ("slot").
         Those are the places that offer a swap for a product sold out in his size (_sold_out.html); the form says
         which in `back`. `said`: what the change did, for the line there with Undo (change_said). Buy this outfit
         needs its outfit to exist still; if the change broke it, the outfits page says so instead."""
         outfit = outfit[:400]
+        if where == "slot" and request.view_args and request.view_args.get("slot_id"):
+            # The piece's own page (the change was posted to /slot/<id>/...), with its way back to an outfit kept.
+            keep: dict = {**({"sort": "score"} if request.args.get("sort") == "score" else {}), **way_back(), **said}
+            return url_for("slot_page", slot_id=request.view_args["slot_id"], **keep)
         if where == "wardrobe":
             return url_for("wardrobe", **said)
         if where == "list":
@@ -633,7 +642,10 @@ def create_app() -> Flask:
         # the Wardrobe.
         way = way_back()
         back = url_for("outfits_page", at=way["at"], occasion=way.get("occasion")) if way else ""
-        return page("slot.html", w=w, tab="outfits" if back else "wardrobe", back=back, **slot_context(w, slot_id))
+        # After the swap for a product sold out in his size, made here: what changed, with Undo (change_said).
+        return page("slot.html", w=w, tab="outfits" if back else "wardrobe", back=back,
+                    said=change_said(w, None, "slot") if request.args.get("changed") == slot_id else None,
+                    **slot_context(w, slot_id))
 
     @app.post("/slot/<slot_id>/pick")
     def slot_pick(slot_id: str):
@@ -650,7 +662,7 @@ def create_app() -> Flask:
         if conf.PRODUCTION and before and before.id != cand_id and shared.kept_for_its_lock(view.slot, before.data):
             sync_catalog()      # the product it was locked to, in a colour he refused since, was kept only for that
         where = request.form.get("back")
-        if request.form.get("outfit") or where in ("wardrobe", "list", "saved"):
+        if request.form.get("outfit") or where in ("wardrobe", "list", "saved", "slot"):
             # Swapped from inside an outfit: back to it, now with the new piece. Or the swap for a product sold out
             # in his size, from the page that offered it (back_to). Either way the address carries
             # what was there before, so that the page says what changed and can undo it (change_said). The
@@ -1010,6 +1022,21 @@ def create_app() -> Flask:
                                clip=videos.clip_of(large.name),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
 
+    def photos_said(outfit_key: str, said: str | None = None) -> str:
+        """Why "More photos" did not draw every picture of an outfit (the day's pictures ran out part-way, the
+        service is being left alone): kept with the customer's session, so that the row of small pictures goes on
+        saying it, through its own questions "are they done?" and a reload, until he taps OK (or taps "More photos"
+        again and all are drawn). `said`: the reason to keep now; "" forgets it. Returns what is kept."""
+        kept = dict(session.get("photos_said") or {})
+        if said is not None:
+            kept.pop(outfit_key, None)
+            if said:
+                kept = {**dict(list(kept.items())[-4:]), outfit_key: said[:300]}      # a handful at most
+            session["photos_said"] = kept
+        return kept.get(outfit_key, "")
+
+    app.jinja_env.globals["photos_said"] = photos_said
+
     def shots_fragment(outfit_key: str, photos: list[looks.Photo], shot: str, said: str = "") -> str:
         """Only the row of small pictures (it is swapped on its own while pictures arrive, so the large picture
         stays as it is). `said`: why "More photos" did not start all of them."""
@@ -1030,13 +1057,18 @@ def create_app() -> Flask:
             # The picture shown large stays; only the row of small pictures is answered.
             if looks.service() is None:
                 abort(404)
-            said = looks.request_more(pieces)
+            said = photos_said(key, looks.request_more(pieces))     # kept, and said under the row until he taps OK
             staying = looks.shot_named(request.form.get("shown"))
             if not request.headers.get("HX-Request"):
-                if said:
-                    flash(said)
                 return redirect(shot_shown(key, staying))
             return shots_fragment(key, looks.gallery(pieces) or [], staying, said)
+        if request.form.get("read") == "1":
+            # "OK" beside why "More photos" did not draw every picture: the reason is read, and goes.
+            photos_said(key, "")
+            staying = looks.shot_named(request.form.get("shown"))
+            if not request.headers.get("HX-Request"):
+                return redirect(shot_shown(key, staying))
+            return shots_fragment(key, looks.gallery(pieces) or [], staying)
         shot = looks.shot_named(request.form.get("shot"))      # a small picture tapped; else the front picture
         front = (looks.gallery(pieces) or [looks.Photo(looks.FRONT, looks.FRONT_LABEL)])[0].look
         if not (front and front.status == "ready"):
@@ -1389,10 +1421,13 @@ def create_app() -> Flask:
 
     def store_rows(profile: dict) -> list[dict]:
         """The Stores tab: every store customers are offered (programmes.offered), with the network that runs its
-        partner programme ("Rakuten") and whether he ticked it (profile.stores)."""
+        partner programme ("Rakuten") and whether he ticked it (profile.stores). `accepted`: the store's programme
+        has accepted Stilsmith ("approved" in the owner's registry, the stores table); only then is the store called
+        a partner on the page."""
         mine = profile_mod.stores(profile)
         stocked = shared.stocked()
-        rows = [{"key": key, "label": label, "on": key in mine, "empty": key not in stocked,
+        approved = {store["key"] for store in db.list_stores() if store["status"] == "approved"}
+        rows = [{"key": key, "label": label, "on": key in mine, "empty": key not in stocked, "accepted": key in approved,
                  "network": owner.NETWORKS.get(programmes.network(key), programmes.network(key).title())}
                 for key, label in programmes.offered().items()]
         # The stores with products first; those with none yet are shown apart, under their own line (profile.html).
@@ -1475,9 +1510,10 @@ def create_app() -> Flask:
         else:
             problem = person.save_photo(data)
             if problem is None:
-                # Beside photo_added: which words he agreed to (with the videos' words while videos are on).
+                # Beside photo_added: which words he agreed to, and whether the videos' words were among them.
                 videos_shown = looks.service() is not None and videos.service() is not None    # as profile_page
-                db.set_setting("photo_consent", videos.CONSENT if videos_shown else PHOTO_CONSENT)
+                db.set_setting("photo_consent", PHOTO_CONSENT)
+                videos.agreed_with_the_photo(videos_shown)
                 looks.forget_pictures_of(db.uid())      # those showed the previous photo
             flash(f"Not saved. {problem}" if problem
                   else "Photo saved. Pictures drawn from now on show you.", "photo")

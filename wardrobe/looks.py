@@ -456,6 +456,27 @@ def allowance_words() -> str:
     return f"of the day's {limits['per_day']}"
 
 
+def left() -> int:
+    """How many pictures the signed-in customer can still have drawn today: of his own allowance, and of the site's."""
+    limits, since = load_rules()["pictures"], time.time() - 24 * 3600
+    room = limits["per_day"] - db.look_requests(since)
+    if settings.PRODUCTION:
+        room = min(room, limits["per_customer_per_day"] - db.look_requests(since, mine=True))
+    return max(0, room)
+
+
+def more_words(wanted: int) -> str:
+    """What "More photos" will cost, said beside it before it is tapped: "5 pictures of your 30 a day". With fewer
+    left today than it would draw, how many it really draws: "Only 3 of the 5: 3 pictures left today";
+    with none, "No pictures left today: more tomorrow" (and no button: app.css, _shots.html)."""
+    can = left()
+    if can >= wanted:
+        return f"{wanted} {'picture' if wanted == 1 else 'pictures'} {allowance_words()}"
+    if can == 0:
+        return NONE_LEFT
+    return f"Only {can} of the {wanted}: {can} {'picture' if can == 1 else 'pictures'} left today"
+
+
 _NAME = re.compile(r"([0-9a-f]{24})-\d{1,12}\.(?:jpg|png|webp)")
 
 
@@ -497,6 +518,7 @@ def attach(boards: list[dict]) -> bool:
 
 # ── asking for a picture ──────────────────────────────────────────────────────
 
+NONE_LEFT = "No pictures left today: more tomorrow"
 USED_UP = {
     "mine": "That's your {pictures} for today. More tomorrow.",     # "30 pictures": per_customer_per_day in config/looks.toml
     "all": "Today's pictures are used up.",

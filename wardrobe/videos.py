@@ -79,10 +79,14 @@ NONE_LEFT = "No videos left today: more tomorrow"
 TICK_FIRST = "Not made. This picture is drawn from your photo: tick the box to agree to it going to Google first."
 
 # The date of the words about videos that a customer agrees to before a picture drawn from his photo goes to Google
-# for a video: in the photo's box on Profile (profile.html; app.py stores the date as photo_consent with the photo)
-# or, for a photo added before those words, in the box of the video's offer (_video.html; stored as video_consent,
-# with the photo it is about). Give it a new date whenever those words change.
+# for a video: in the photo's box on Profile (profile.html) or, for a photo added before those words or while videos
+# were off, in the box of the video's offer (_video.html). Either way it is stored as video_consent, with the photo
+# it is about (agreed_with_the_photo, request). Give it a new date whenever those words change.
+# The photo box's other words have their own date (app.PHOTO_CONSENT, stored as photo_consent): the two are never
+# compared. Until 15 Nov 2026 one setting held both: a photo added with the videos' words has photo_consent
+# "2026-11-13" (WITH_THE_PHOTO_THEN) and no video_consent, and still counts as agreed.
 CONSENT = "2026-11-13"
+WITH_THE_PHOTO_THEN = "2026-11-13"
 
 
 # ── settings ──────────────────────────────────────────────────────────────────
@@ -282,11 +286,22 @@ def told(message: str, left: int | None) -> str:
 def consented() -> bool:
     """Whether the signed-in customer agreed that pictures drawn from his photo may go to Google for videos: when
     he added the photo (the words of CONSENT's date, or later ones), or since then, in the video's offer."""
-    if str(db.get_setting("photo_consent") or "") >= CONSENT:
-        return True
+    if db.get_setting("photo_consent") == WITH_THE_PHOTO_THEN and CONSENT == WITH_THE_PHOTO_THEN:
+        return True                     # a photo added before 15 Nov 2026, with the videos' words as they still are
     later = db.get_setting("video_consent")
     return (isinstance(later, dict) and str(later.get("words", "")) >= CONSENT
             and later.get("photo_added") == db.get_setting("photo_added"))    # for this photo, not an earlier one
+
+
+def agreed_with_the_photo(videos_said: bool) -> None:
+    """A photo was just added on Profile (app.profile_photo). `videos_said`: the box he ticked also said that
+    pictures of him go to Google for videos: kept as video_consent, for this photo. Otherwise an earlier agreement
+    is dropped: it was for the photo before this one."""
+    if videos_said:
+        db.set_setting("video_consent", {"words": CONSENT, "photo_added": db.get_setting("photo_added"),
+                                         "at": db.now_iso()})
+    elif db.get_setting("video_consent") is not None:
+        db.set_setting("video_consent", None)
 
 
 def needs_consent(look: looks.Look) -> bool:

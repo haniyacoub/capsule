@@ -220,7 +220,8 @@ def run(base: str) -> None:
         browser = p.chromium.launch()
         page = browser.new_context(viewport={"width": 1280, "height": 860}).new_page()
         page.set_default_timeout(15000)
-        page.on("dialog", lambda d: d.accept())
+        confirmed: list[str] = []     # what the browser asked before going on ("Draw again" on a front picture), each said yes to
+        page.on("dialog", lambda d: (confirmed.append(d.message), d.accept()))
         # (The demo catalogue has one picture that is missing on purpose, to show the fallback.)
         page.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
                 if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
@@ -748,8 +749,10 @@ def run(base: str) -> None:
             # focus goes to the picture shown. Tapping a small picture shows it large, without dots (they are placed for
             # the front picture's pose), and costs nothing; back on the front picture the dots are there again. On a
             # phone and a computer, light and dark, the row lies under the line under the picture, whole on the screen,
-            # its cells big enough for a finger, the one shown framed so that it can be told (3:1); on a phone the
-            # outfit's title, price and heart still end above the tab bar.
+            # each picture 48 by 64px (large enough to tell the six apart) with its name under it (Front, Walking,
+            # Turned, Street, Café, Library), the one shown framed so that it can be told (3:1); on a phone the
+            # outfit's title, price and heart still end above the tab bar. On a narrow phone (320px) the six are still
+            # one row, which scrolls sideways to the last one, and the page is no wider than the screen.
             row = f"{first} .shots"
             cells = ("s => [...document.querySelectorAll(s + ' .shots-row button[aria-pressed]')].map(b => ({"
                      "name: b.id.split('-').pop(), pressed: b.getAttribute('aria-pressed'), label: b.getAttribute('aria-label'),"
@@ -758,6 +761,26 @@ def run(base: str) -> None:
             changes = {name: shot["change"] for group in ("poses", "scenes") for name, shot in rules[group].items()}
             order = ["front", *changes]
             assert order == ["front", "walking", "turned", "street", "cafe", "library"], f"an outfit's pictures are {order}"
+            names = dict(zip(order, ("Front", "Walking", "Turned", "Street", "Café", "Library")))
+
+            def narrow_phone() -> None:
+                context, other = logged_in_on(browser, viewport={"width": 320, "height": 568}, is_mobile=True, has_touch=True)
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.wait_for_selector(f"{first} .look-pic img")
+                seen = other.evaluate("""s => {
+                    const row = document.querySelector(s + ' .shots-row'), box = el => el.getBoundingClientRect();
+                    const pics = [...row.querySelectorAll('.shot-pic')], last = pics[pics.length - 1];
+                    const tops = new Set(pics.map(p => Math.round(box(p).top))).size, before = box(last).right > box(row).right;
+                    row.scrollLeft = row.scrollWidth;
+                    const r = box(row), l = box(last);
+                    return {count: pics.length, rows: tops, scrolls: before, sizes: pics.map(p => [box(p).width, box(p).height]),
+                            reached: l.left >= r.left - 0.5 && l.right <= r.right + 0.5 && r.left >= 0 && r.right <= innerWidth,
+                            page: document.documentElement.scrollWidth}; }""", first)
+                context.close()
+                assert seen["count"] == 6 and seen["rows"] == 1 and all(size == [48, 64] for size in seen["sizes"]), \
+                    f"at 320px the six small pictures are not one row of 48 by 64px pictures: {seen}"
+                assert seen["scrolls"] and seen["reached"] and seen["page"] <= 320, \
+                    f"at 320px the row does not scroll sideways to its last picture, or the page is wider than the screen: {seen}"
 
             def layout(state: str) -> None:
                 for width, height, touch in ((390, 844, True), (1280, 860, False)):
@@ -776,15 +799,20 @@ def run(base: str) -> None:
                             const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
                             const inside = el => { const b = box(el); return b.width > 0 && b.left >= r.left - 0.5 && b.right <= r.right + 0.5
                                                    && b.top >= r.top - 0.5 && b.bottom <= r.bottom + 0.5; };
-                            const cells = [...row.querySelectorAll('.shots-row button[aria-pressed]')].map(b => ({
-                                name: b.id.split('-').pop(), width: box(b).width, height: box(b).height, inside: inside(b),
-                                loaded: !b.querySelector('img') || (b.querySelector('img').complete && b.querySelector('img').naturalWidth > 0)}));
-                            const shown = row.querySelector('[aria-pressed="true"]');
+                            const cells = [...row.querySelectorAll('.shots-row button[aria-pressed]')].map(b => {
+                                const pic = box(b.querySelector('.shot-pic')), name = b.querySelector('.shot-name'), n = box(name);
+                                return {name: b.id.split('-').pop(), width: box(b).width, height: box(b).height, inside: inside(b),
+                                        picture: [pic.width, pic.height], words: name.textContent.trim(), top: Math.round(pic.top),
+                                        named: n.top >= pic.bottom - 0.5 && n.left >= pic.left - 0.5 && n.right <= pic.right + 0.5
+                                               && parseFloat(getComputedStyle(name).fontSize) >= 11,
+                                        loaded: !b.querySelector('img') || (b.querySelector('img').complete && b.querySelector('img').naturalWidth > 0)}; });
+                            const shown = row.querySelector('[aria-pressed="true"] .shot-pic');
                             const frame = shown ? getComputedStyle(shown, '::after') : null;
                             const more = row.querySelector('.btn'), note = row.querySelector('.shots-note');
                             const meta = [...slide.querySelectorAll('.about-head h2, .count, .board-cost, .heart')].map(el => box(el).bottom);
                             return {cells, height: r.height, left: r.left, right: r.right, under: Math.abs(r.top - line.bottom) < 1,
-                                    same_width: Math.abs(r.width - line.width) < 1, screen: innerWidth,
+                                    same_width: r.width >= line.width - 1 && Math.abs((r.left + r.right) - (line.left + line.right)) < 2,
+                                    screen: innerWidth,
                                     frame: frame && parseFloat(frame.borderTopWidth) >= 2
                                            ? Math.round(ratio(frame.borderTopColor, getComputedStyle(document.body).backgroundColor) * 100) / 100 : 0,
                                     more: more && {words: more.textContent.trim(), height: box(more).height, inside: inside(more)},
@@ -794,14 +822,17 @@ def run(base: str) -> None:
                                     page: document.documentElement.scrollWidth};
                         }""", first)
                         where = f"{width} x {height}, {scheme}, {state}"
-                        assert seen["under"] and seen["same_width"] and seen["height"] == 40 and 0 <= seen["left"] \
+                        assert seen["under"] and seen["same_width"] and seen["height"] == 84 and 0 <= seen["left"] \
                             and seen["right"] <= seen["screen"], \
-                            f"{where}: the small pictures are not one 40px row right under the line under the picture, whole on the screen: {seen}"
+                            f"{where}: the small pictures are not one 84px row right under the line under the picture, whole on the screen: {seen}"
+                        assert len({cell["top"] for cell in seen["cells"]}) == 1, f"{where}: the small pictures are not one row: {seen['cells']}"
                         assert seen["page"] <= width, f"{where}: the page is {seen['page']}px wide"
                         assert [cell["name"] for cell in seen["cells"]] == (order if state == "six" else ["front"]), f"{where}: {seen['cells']}"
                         for cell in seen["cells"]:
-                            assert cell["width"] >= 24 and cell["height"] >= 40 and cell["inside"] and cell["loaded"], \
-                                f"{where}: the small picture {cell['name']!r} is too small for a finger, outside its row, or did not load: {cell}"
+                            assert cell["picture"] == [48, 64] and cell["inside"] and cell["loaded"], \
+                                f"{where}: the small picture {cell['name']!r} is not 48 by 64px, is outside its row, or did not load: {cell}"
+                            assert cell["words"] == names[cell["name"]] and cell["named"], \
+                                f"{where}: the small picture {cell['name']!r} does not have its name {names[cell['name']]!r} under it: {cell}"
                         assert seen["frame"] >= 3, f"{where}: the picture shown is not framed so that it can be told ({seen['frame']}:1)"
                         if state == "six":
                             assert not seen["more"], f"{where}: 'More photos' is still offered: {seen}"
@@ -877,6 +908,7 @@ def run(base: str) -> None:
                 page.wait_for_timeout(100)
             assert not page.locator(f"{row}[hx-get]").count(), "all six are there, and the row still asks for news"
             layout("six")
+            narrow_phone()
 
             dots = "s => getComputedStyle(document.querySelector(s + ' .spots')).display"
             assert page.evaluate(dots, first) != "none", "the front picture has no dots"
@@ -1583,7 +1615,12 @@ def run(base: str) -> None:
                     if (!window.again.stop) requestAnimationFrame(look);
                 };
                 requestAnimationFrame(look); }""", first)
+            # The other five photos are made from the front picture, so they go with it: that is said first.
+            asked_first = len(confirmed)
             page.click(f"{first} .look-line button:has-text('Draw again')")
+            assert confirmed[asked_first:] == ["Draw the front picture again? The other 5 photos of this outfit are made from it, so "
+                                               "they will be removed. “More photos” draws them again."], \
+                f"'Draw again' on the front picture did not say first that the other five go: {confirmed[asked_first:]}"
             page.wait_for_selector(f"{first} .look-bar.wait")
             kept = page.evaluate("s => { const i = document.querySelector(s + ' .look-pic img'); return i && i.getAttribute('src'); }", first)
             assert kept == earlier, "while 'Draw again' draws, the picture that was there is gone: the pieces' photos show under the band"
@@ -1632,8 +1669,9 @@ def run(base: str) -> None:
             # over the outfit: the piece, the new product and its price, the old price, and Undo. The picture of the
             # outfit before the change is never shown over it. Undo brings back the product it had and its lock state
             # (an automatic piece is automatic again, as its Wardrobe card shows). Then it is chosen again, for the
-            # steps after this one. On a short phone the line is whole on the first screen, with the outfit's picture
-            # box still above the tab bar, under the starter banner too.
+            # steps after this one. On a short phone the line is whole on the first screen, with the outfit's whole
+            # picture and the line under it still above the tab bar, under the starter banner too, and the row of
+            # small pictures beginning above it (the row is 84px tall now: its names are a short scroll down).
             choose = page.locator("#piece-body .swap li:not(.out) button", has_text="Choose")
             assert choose.count() > 0, "nothing to swap for"
             # The store's own name for the option (lang=de: under its English name where there is one), which is
@@ -1678,12 +1716,16 @@ def run(base: str) -> None:
             seen = other.evaluate("""() => { const box = el => el.getBoundingClientRect();
                 const line = box(document.querySelector('main > .said')), undo = document.querySelector('main > .said button');
                 return {top: line.top, bottom: line.bottom, starter: !!document.querySelector('.starter'),
-                        stage: box(document.querySelector('#reel .slide:first-child .stage')).bottom,
+                        picture: box(document.querySelector('#reel .slide:first-child .look-pic')).bottom,
+                        under: box(document.querySelector('#reel .slide:first-child .look-line')).bottom,
+                        row: box(document.querySelector('#reel .slide:first-child .shots')).top,
                         tabs: box(document.querySelector('nav.tabs')).top,
-                        target: parseFloat(getComputedStyle(undo, '::after').height)}; }""")
+                        height: box(undo).height, target: parseFloat(getComputedStyle(undo, '::after').height)}; }""")
             context.close()
-            assert 0 <= seen["top"] and seen["bottom"] <= seen["tabs"] and seen["stage"] <= seen["tabs"] + 0.5, \
-                f"at 390 x 664 the line after Choose is not whole on the first screen, or the picture runs under the tab bar: {seen}"
+            assert 0 <= seen["top"] and seen["bottom"] <= seen["tabs"] and seen["picture"] <= seen["under"] <= seen["tabs"] + 0.5 \
+                and seen["row"] < seen["tabs"], \
+                f"at 390 x 664 the line after Choose is not whole on the first screen, or the picture or the line under it runs under the tab bar: {seen}"
+            assert seen["height"] >= 24, f"Undo is {seen['height']}px high: under 24px"
             assert seen["target"] >= 44, f"Undo is a {seen['target']}px tall target"
 
             with page.expect_navigation(url="**/outfits?at=**"):     # (the address it leaves matches that too)
@@ -3209,8 +3251,11 @@ def run(base: str) -> None:
                 assert "Weekday" in phone.locator("main").inner_text(), "the starter shopping list has nothing from Weekday"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
-                assert phone.evaluate(stores_of) == [["cos", True, "COS · Rakuten partner"],
-                                                     ["weekday", True, "Weekday · Rakuten partner"]], phone.evaluate(stores_of)
+                assert phone.evaluate(stores_of) == [["cos", True, "COS"], ["weekday", True, "Weekday"]], phone.evaluate(stores_of)
+                # No programme has accepted Stilsmith yet: nothing on the tab calls a store a partner, as the page's
+                # foot says ("Not affiliated with any retailer").
+                assert "partner" not in phone.locator("#panel-stores").inner_text().lower(), \
+                    "the Stores tab calls a store a partner before any programme has accepted Stilsmith"
                 rows = phone.locator(".store-row").evaluate_all("rs => rs.map(r => r.getBoundingClientRect().height)")
                 assert all(h >= 48 for h in rows), f"a store's row is under 48px to tap: {rows}"
                 # The six stores with no products yet: apart, under a line that says what they are for, below the
@@ -3226,18 +3271,18 @@ def run(base: str) -> None:
                 expect(phone.get_by_role("checkbox", name="Hirmer")).not_to_be_checked()
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
                 phone.get_by_role("checkbox", name="Hirmer").tap()
-                phone.get_by_role("checkbox", name="Weekday · Rakuten partner").tap()
+                phone.get_by_role("checkbox", name="Weekday", exact=True).tap()
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
                 # The last store with products cannot be unticked, however many of the six are ticked.
-                phone.get_by_role("checkbox", name="COS · Rakuten partner").tap()
-                expect(phone.get_by_role("checkbox", name="COS · Rakuten partner")).to_be_checked()
+                phone.get_by_role("checkbox", name="COS", exact=True).tap()
+                expect(phone.get_by_role("checkbox", name="COS", exact=True)).to_be_checked()
                 said = "At least one store with products must stay ticked: your pieces need a store to come from."
                 expect(phone.locator("[data-store-said]")).to_have_text(said)
                 expect(phone.locator("[data-store-said]")).to_be_in_viewport()
                 assert phone.locator("#announce").text_content() == said, "a screen reader is not told"
                 phone.focus("input[name=stores][value=cos]")
                 phone.keyboard.press("Space")
-                expect(phone.get_by_role("checkbox", name="COS · Rakuten partner"), "by keyboard too").to_be_checked()
+                expect(phone.get_by_role("checkbox", name="COS", exact=True), "by keyboard too").to_be_checked()
                 # The line goes away again with the next tick or untick of any other store.
                 expect(phone.locator("[data-store-said]")).to_be_visible()
                 phone.get_by_role("checkbox", name="Hirmer").tap()
@@ -3254,7 +3299,7 @@ def run(base: str) -> None:
                     assert not phone.locator("main a[href*='weekday']").count(), f"{path} still links to Weekday"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
                 assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False], "the unticked store is not kept"
-                phone.get_by_role("checkbox", name="Weekday · Rakuten partner").tap()
+                phone.get_by_role("checkbox", name="Weekday", exact=True).tap()
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/profile#stores")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")

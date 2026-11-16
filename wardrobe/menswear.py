@@ -3,9 +3,10 @@
 Every way a product comes in asks here:
 
     a store's product feed    (feeds/rows.py)       its gender field, its age group and its category
-    a pasted product link     (collect/manual.py)   the words of the link itself ("/damen/", "/kinder/"), and,
-                                                    when the customer also gives the page as he saved it, the
-                                                    page's breadcrumbs and what it says the product is for
+    a pasted product link     (collect/manual.py)   the words of the link itself ("/damen/", "/kinder/",
+                                                    "jungen-mantel": see link_not_for_men), and, when the customer
+                                                    also gives the page as he saved it, the page's breadcrumbs and
+                                                    what it says the product is for
 
 A product is refused only when those words say it is for women or for children. One that says it is for men,
 for everyone ("unisex"), or says nothing at all is kept: Hirmer sells to men only and need not say so on every
@@ -39,6 +40,60 @@ _BABY = {"baby", "babys", "babies"}       # not read from a link: "baby-blue" is
 _LETTERS = {"m": "men", "h": "men", "w": "women", "f": "women", "d": "women"}
 
 WORDS = {"women": "a women's product", "children": "a children's product"}     # as a sentence names them
+
+# A link's words are rougher than a feed's: a product's or a brand's name is in them too ("frau-holle-shirt",
+# "lady-like", "womensecret", "billionaire-boys-club-hoodie", the skate brand "Girl"). So in a link (_link_says):
+#   a folder that holds nothing but such words counts, as before: "/damen/", "/lady/", "/kids-boys/", "/Women-0002/"
+#   a plain word for the group counts anywhere, inside a product's name too: "damen-slim-fit-jeans", "ladies"
+#     (_LINK_WOMEN, _LINK_CHILDREN_ANYWHERE: plural or German words no brand in the lists is called by)
+#   a word that is also in brands' and products' names counts only right before a word for clothes:
+#     "jungen-mantel", "Girls+Jacket", "kids-hoodie", "boys-t-shirt" (_LINK_CHILDREN_BEFORE_CLOTHES);
+#     "boys-club", "kids-see-ghosts", "teen-spirit" say nothing
+#   one word made of the group and the clothes counts: "damenjacke", "womenswear", "kindermode", "kidswear"
+#     (_LINK_JOINED); "womensecret", "frauholle", "boyfriend" say nothing
+# "frau", "lady", "woman", "girl", "boy", "kid", "teen" alone, inside a name, never count.
+_LINK_WOMEN = {"damen", "dames", "women", "womens", "frauen", "ladies", "female", "femme", "femmes", "vrouwen",
+               "weiblich"}
+_LINK_CHILDREN_ANYWHERE = {"kinder", "mädchen", "maedchen", "children", "childrens", "toddler", "toddlers",
+                           "enfant", "enfants"}
+_LINK_CHILDREN_BEFORE_CLOTHES = {"kids", "boys", "girls", "jungen", "jungs", "junior", "juniors", "teens"}
+_LINK_JOINED = {"women": ("damen", "womens", "women", "frauen", "ladies"),
+                "children": ("kinder", "mädchen", "maedchen", "jungen", "kids", "boys", "girls")}
+# The beginnings of words for clothes, shoes and what a store calls them all ("mode", "wear"), German and English.
+_CLOTHES = ("jacke", "jacket", "mantel", "coat", "parka", "anorak", "weste", "vest", "blazer", "sakko", "anzug", "suit",
+            "hemd", "shirt", "tshirt", "bluse", "blouse", "polo", "pullover", "pulli", "sweat", "hoodie", "hoody",
+            "strick", "knit", "cardigan", "jumper", "kleid", "dress", "skirt", "hose", "jeans", "chino", "trouser",
+            "pants", "shorts", "legging", "jogg", "schuh", "shoe", "sneaker", "stiefel", "boots", "sandal", "trainer",
+            "socke", "socks", "mütze", "muetze", "beanie", "schal", "scarf", "gürtel", "guertel", "handschuh",
+            "glove", "wäsche", "waesche", "unterhose", "pyjama", "schlafanzug", "bademode", "badehose", "swim",
+            "regen", "winter", "sommer", "daunen", "fleece", "overall", "mode", "wear", "fashion", "bekleidung",
+            "kleidung", "clothing", "outfit")
+
+
+def _is_clothes(word: str) -> bool:
+    return word.startswith(_CLOTHES)
+
+
+def _joined(word: str, group: str) -> bool:
+    """One word made of a group and clothes: "damenjacke", "womenswear", "kinderschuhe"."""
+    return any(word.startswith(begin) and _is_clothes(word[len(begin):]) for begin in _LINK_JOINED[group])
+
+
+def _link_says(folders: list[list[str]], group: str) -> bool:
+    """Whether a link's own words say the product is for `group`, "women" or "children" (the rule is above)."""
+    if group == "women":
+        alone, anywhere, before = _WOMEN | _LINK_WOMEN | {"woman", "frau", "dame"}, _LINK_WOMEN, set()
+    else:
+        alone, anywhere, before = _CHILDREN, _LINK_CHILDREN_ANYWHERE, _LINK_CHILDREN_BEFORE_CLOTHES
+    for words in folders:
+        if all(word in alone for word in words):
+            return True
+        # ("boys-t-shirt": the "t" of a T-shirt is no word of its own)
+        names = [word for word in words if len(word) > 1]
+        for word, after in zip(names, names[1:] + [""]):
+            if word in anywhere or _joined(word, group) or (word in before and _is_clothes(after)):
+                return True
+    return False
 
 
 def _words(text: Any) -> list[str]:
@@ -93,6 +148,10 @@ def not_for_men(gender: Any = None, age_group: Any = None, *paths: Any, link: bo
     filed_men = _says(filed, _MEN, _MEN_BEGIN)
     if _says(own + age, _CHILDREN | _BABY, _CHILDREN_BEGIN):
         return "children"
+    if link:        # only a link's words are known: read by the rule for links (_link_says)
+        if filed_men:
+            return None
+        return next((group for group in ("children", "women") if _link_says(folders, group)), None)
     if _filed_for_children(folders, link) and not filed_men and not (own_men and "adult" in age):
         return "children"
     if own_men:
@@ -105,7 +164,10 @@ def not_for_men(gender: Any = None, age_group: Any = None, *paths: Any, link: bo
 
 
 def link_not_for_men(url: str) -> str | None:
-    """What a product link's own words say: "women" for ".../damen/jacken/...", "children" for ".../kinder/...".
+    """What a product link's own words say: "women" for ".../damen/jacken/...", "children" for ".../kinder/...",
+    and for a product whose own name says so: ".../jungen-mantel-123", ".../Girls+Jacket-123", ".../damen-jeans-123".
+    A brand's or a product's name with such a word in it is kept: "frau-holle-shirt", "lady-like-hemd",
+    "womensecret-pyjama", "billionaire-boys-club-hoodie" (the rule is above, at _LINK_WOMEN).
     Only the path is read, never the store's name ("ladies-and-gentlemen.example") or what follows a "?".
     A men's word anywhere in the link wins: ".../herren/billionaire-boys-club-hoodie/..." is kept."""
     return not_for_men(None, None, unquote(urlsplit(url).path), link=True)

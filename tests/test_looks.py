@@ -1477,6 +1477,77 @@ class Photos(WithPictures, AppCase):
         self.assertEqual(len(self.drawn), 1, "nothing more is drawn until it is tapped")
         self.assertEqual(self.client.get("/outfits").data.decode().count("More photos"), 1, "only under a front picture that is there")
 
+    def test_more_photos_says_how_many_pictures_are_really_left_today(self):
+        self.with_rules(per_day=4)
+        outfit = some_outfits(1)[0]
+        front = self.ask(outfit)                                    # one of the day's four: three are left
+        note = html_mod.unescape(re.search(r'<span class="shots-note" id="more-said-\w+">([^<]+)</span>', front).group(1))
+        self.assertEqual(note, "Only 3 of the 5: 3 pictures left today")
+        self.assertNotIn("5 pictures", note)
+        self.assertIn(">More photos</button>", front)
+        self.assertEqual(looks.left(), 3)
+        row = self.more(outfit)
+        self.assertEqual([shows for _, _, shows in self.cells(row)], ["picture"] * 4 + ["plus"] * 2, "three were drawn")
+        self.assertEqual((len(self.drawn), looks.left()), (4, 0))
+
+    def test_with_no_pictures_left_today_more_photos_says_so_and_has_no_button(self):
+        self.with_rules(per_day=1)
+        outfit = some_outfits(1)[0]
+        front = self.ask(outfit)
+        self.assertIn('<span class="shots-note" id="more-said-%s">No pictures left today: more tomorrow</span>' % outfit.key, front)
+        self.assertNotIn(">More photos</button>", front, "a button that could draw nothing")
+        self.assertEqual(self.cells(front), [("front", "true", "picture")])
+
+    def test_why_more_photos_stopped_part_way_stays_until_ok_is_tapped(self):
+        self.with_rules(per_day=3)
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        why = "Today's pictures are used up."
+        row = html_mod.unescape(self.more(outfit))
+        self.assertIn(why, row)
+        self.assertEqual([shows for _, _, shows in self.cells(row)], ["picture"] * 3 + ["plus"] * 3)
+        # The row asks again by itself while pictures arrive, the box is replaced when a small picture is tapped,
+        # and the page may be reloaded: the reason is still there each time.
+        asked_again = html_mod.unescape(self.client.get(f"/outfits/photos?outfit={outfit.key}").data.decode())
+        tapped = html_mod.unescape(self.ask(outfit, shot="walking"))
+        page = html_mod.unescape(self.client.get("/outfits").data.decode())
+        for where, shown in (("the row asking again", asked_again), ("a small picture tapped", tapped), ("the page reloaded", page)):
+            self.assertEqual(shown.count(why), 1, where)
+        ok = re.search(r'<form class="shots-said" method="post" action="/outfits/look"[^>]*hx-target="closest .shots"[^>]*>(.*?)</form>',
+                       asked_again, re.S)
+        self.assertIsNotNone(ok, "no way to put the reason away")
+        self.assertIn('aria-label="OK: hide this message">OK</button>', ok.group(1))
+        sent = dict(re.findall(r'name="(\w+)" value="([^"]*)"', ok.group(1)))
+        self.assertEqual((sent["key"], sent["read"]), (outfit.key, "1"))
+        gone = html_mod.unescape(self.post("/outfits/look", **sent).data.decode())
+        self.assertNotIn(why, gone)
+        self.assertEqual([shows for _, _, shows in self.cells(gone)], ["picture"] * 3 + ["plus"] * 3, "the row is as it was")
+        self.assertNotIn(why, html_mod.unescape(self.client.get("/outfits").data.decode()), "and it stays away")
+        self.assertEqual(len(self.drawn), 3, "OK draws nothing")
+        # Without JavaScript the same: the reason is on the page it comes back to, once, under the row.
+        other = some_outfits(2)[1]
+        self.with_rules(per_day=5)
+        self.ask(other)
+        self.client.post("/outfits/look", data={"key": other.key, "more": "1", "shown": "front"})
+        page = html_mod.unescape(self.client.get("/outfits").data.decode())
+        self.assertEqual(page.count(why), 1)
+        self.assertLess(page.index(f'id="shots-{other.key}"'), page.index(why))
+
+    def test_draw_again_on_the_front_picture_says_first_that_the_other_photos_go(self):
+        outfit = some_outfits(1)[0]
+        line = lambda html: re.search(r'<form class="look-bar look-line"[^>]*>', html, re.S).group(0)   # noqa: E731
+        self.assertNotIn("hx-confirm", line(self.ask(outfit)), "the front picture alone: nothing else goes")
+        self.more(outfit)
+        asks = html_mod.unescape(line(self.ask(outfit)))
+        self.assertIn('hx-confirm="Draw the front picture again? The other 5 photos of this outfit are made from it, so '
+                      'they will be removed. “More photos” draws them again."', asks)
+        self.assertNotIn("hx-confirm", line(self.ask(outfit, shot="street")), "another picture drawn again takes nothing with it")
+        # What it says is what happens: the new front picture takes the five made from the old one with it.
+        self.time_passes()
+        with mock.patch.object(looks.time, "time", lambda: 2_000_000_000.0):   # a later second: a new file name
+            self.ask(outfit, again="1")
+        self.assertEqual(self.cells(self.ask(outfit)), [("front", "true", "picture")])
+
     def test_more_photos_makes_five_pictures_from_the_front_picture(self):
         outfit = some_outfits(1)[0]
         self.ask(outfit)
@@ -1903,7 +1974,11 @@ class TheModel(WithPictures, AppCase):
         self.upload(agree="on")
         self.assertEqual(db.get_setting("photo_consent"), PHOTO_CONSENT)
         self.assertIsNone(videos.service(), "videos are off here: the box's words say nothing of them")
-        self.assertEqual(PHOTO_CONSENT, "2026-11-12", "the date of the box's words on Profile (with videos: test_videos)")
+        # The words changed on 15 Nov 2026 (the AI picture of him goes to the service again for "More photos"), so
+        # their date did: a photo added from then on is known to have been added under the new words.
+        self.assertEqual(PHOTO_CONSENT, "2026-11-15", "the date of the box's words on Profile (the videos' words: test_videos)")
+        self.assertGreater(PHOTO_CONSENT, "2026-11-12", "the date the words had before “More photos” was in them")
+        self.assertIn("(“More photos”) are made from that picture of you", self.parts()[2], "the words the date is of")
         self.assertIsNotNone(db.get_setting("photo_added"), "beside when the photo was added")
         self.assertEqual(db.export_user()["settings"]["photo_consent"], PHOTO_CONSENT, "in his copy of his data too")
 
@@ -2405,7 +2480,8 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         key = self.outfit_keys(ada)[0]
         front = self.ask(ada, key).data.decode()
         self.assertIn("look-pic", front)
-        self.assertIn("5 pictures of your 3 a day", front, "the limit is said beside More photos, before the tap")
+        self.assertNotIn("5 pictures of your 3 a day", front, "five were promised of three")
+        self.assertIn("Only 2 of the 5: 2 pictures left today", front, "what is really left is said beside More photos, before the tap")
         row = self.ask(ada, key, more="1", shown="front").data.decode()
         self.assertIn("That&#39;s your 3 pictures for today. More tomorrow.", row)
         self.assertNotIn("config/", row)

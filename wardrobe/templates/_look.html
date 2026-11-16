@@ -60,7 +60,11 @@
   {%- with video = video if video and video.status in ('ready', 'working') else none, asking = false, play = false, left = none %}{% include "_video.html" %}{% endwith -%}
 </div>
 {% endif %}
-<form class="look-bar look-line" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:abort">{{ csrf_field() }}
+{# "Draw again" on the front picture says first what goes with it: the other photos are made from it, and are
+   removed once the new one is there (looks.forget_made_from). `others`: how many of them there are or are being drawn. #}
+{% set others = (photos or [])[1:]|selectattr('look')|list|length if shot == 'front' else 0 %}
+<form class="look-bar look-line" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:abort"
+      {%- if others %} hx-confirm="Draw the front picture again? {{ 'The other photo of this outfit is made from it, so it' if others == 1 else 'The other ' ~ others ~ ' photos of this outfit are made from it, so they' }} will be removed. “More photos” draws {{ 'it' if others == 1 else 'them' }} again."{% endif %}>{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
   <input type="hidden" name="again" value="1">
   {% if shot != 'front' %}<input type="hidden" name="shot" value="{{ shot }}">{% endif %}

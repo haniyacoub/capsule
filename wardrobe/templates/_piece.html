@@ -116,7 +116,8 @@
 </ul>
 <p class="muted small">Choosing one uses it in all your outfits and keeps it when you change the price level or the minimum quality.</p>
 <p class="sheet-more"><a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id, **back) }}">Compare all {{ s.cands|length }} options</a></p>
-{% elif s.state != 'owned' %}
+{% elif s.state != 'owned' and not (s.sold_out and not s.swap and not s.no_swap[2]) %}
+{# (Not where the lines about a product sold out in his size, above, end with this same link: _sold_out.html.) #}
 <p class="muted small sheet-more">No other option for this piece yet. <a class="link" href="{{ url_for('slot_page', slot_id=s.slot.id, **back) }}#add">Add one you found yourself</a></p>
 {% endif %}
 

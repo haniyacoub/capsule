@@ -100,6 +100,44 @@ class WhoAProductIsFor(unittest.TestCase):
                 ("https://www.otto.de/p/beispielmarke-maedchen-kleid-C1689044823/", "children")):
             self.assertEqual(says(link), verdict, link)
 
+    def test_a_products_own_name_in_a_link_says_whom_it_is_for(self):
+        """Not only a folder ("/kinder/"): the product's name in the link says it too. A word for children or women
+        right before a word for clothes, or joined to one, or a word no brand is called by, is refused."""
+        says = menswear.link_not_for_men
+        for link, verdict in (
+                ("https://www.otto.de/p/beispielmarke-jungen-mantel-C9000041/", "children"),
+                ("https://www.blue-tomato.com/de-DE/product/Beispielmarke-Girls+Jacket-9000042/", "children"),
+                ("https://www.bergfreunde.de/beispielmarke-kids-hoodie-9000043/", "children"),
+                ("https://www.otto.de/p/beispielmarke-boys-t-shirt-C9000044/", "children"),
+                ("https://www.otto.de/p/beispielmarke-kinder-regenjacke-C9000045/", "children"),
+                ("https://www.otto.de/p/beispielmarke-jungenmantel-C9000046/", "children"),
+                ("https://www.bergfreunde.de/beispielmarke-kidswear-set-9000047/", "children"),
+                ("https://www.otto.de/p/beispielmarke-damen-mantel-C9000048/", "women"),
+                ("https://www.otto.de/p/beispielmarke-damen-slim-fit-jeans-C9000049/", "women"),
+                ("https://www.blue-tomato.com/de-DE/product/Beispielmarke-Womens+Jacket-9000050/", "women"),
+                ("https://www.tom-tailor.de/ladies-blazer-1049051_10668", "women"),
+                ("https://www.otto.de/p/beispielmarke-frauen-pullover-C9000052/", "women"),
+                ("https://www.otto.de/p/beispielmarke-damenmantel-C9000053/", "women")):
+            self.assertEqual(says(link), verdict, link)
+
+    def test_a_brand_or_an_ordinary_word_in_a_links_name_is_not_refused_by_mistake(self):
+        says = menswear.link_not_for_men
+        for link in ("https://www.otto.de/p/frau-holle-t-shirt-C9000061/",              # a brand, a fairy tale
+                     "https://www.otto.de/p/beispielmarke-lady-like-hemd-C9000062/",
+                     "https://www.otto.de/p/womensecret-pyjama-C9000063/",                # one word, a brand
+                     "https://www.breuninger.com/de/marken/womensecret/pyjama/p/9000064",
+                     "https://www.blue-tomato.com/de-DE/product/Girl-Shirt-9000065/",    # the skate brand "Girl"
+                     "https://www.breuninger.com/de/billionaire-boys-club-hoodie/9000066/p/",
+                     "https://www.hirmer.de/kids-see-ghosts-hoodie/p/9000067",
+                     "https://www.otto.de/p/teen-spirit-jeans-C9000068/",
+                     "https://www.otto.de/p/boyfriend-jeans-C9000069/",
+                     "https://www.otto.de/p/beispielmarke-jacke-fuer-jungen-und-junggebliebene-C9000070/",
+                     "https://www.otto.de/p/beispielmarke-damenhaft-eleganter-schal-C9000071/",
+                     # a men's word anywhere in the link still wins
+                     "https://www.otto.de/p/herren-jacke-im-boys-look-C9000072/",
+                     "https://www.breuninger.com/de/herren/beispielmarke-girls-jacket/9000073/p/"):
+            self.assertIsNone(says(link), link)
+
 
 class FeedsKeepOnlyMenswear(unittest.TestCase):
     """Every feed format goes through rows.product, so the rule is the same for Awin, Tradedoubler and the rest."""
@@ -294,11 +332,24 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
                         said)
         # Nothing is said when the name says the piece's own kind, a kind worn in the same place, a word that
         # only holds another kind ("Jeansjacke" on a coat or jacket), or no kind at all.
+        # Denim is a cloth: a denim jacket on the coat is a jacket, however its name is written, never "Jeans".
         for link in ("https://www.tom-tailor.de/herren/jacken/wollmantel-1041111_10668",
                      "https://www.tom-tailor.de/herren/jacken/parka-1042222_10668",
                      "https://www.bergfreunde.de/beispielmarke-jeans-jacke-9000031/",
+                     "https://www.bergfreunde.de/beispielmarke-jeansjacke-9000033/",
+                     "https://www.bergfreunde.de/beispielmarke-denimjacke-9000034/",
+                     "https://www.bergfreunde.de/beispielmarke-denim-jacket-9000035/",
+                     "https://www.bergfreunde.de/beispielmarke-denim-trucker-9000036/",
                      "https://www.hirmer.de/herren/beispielmarke-modell-nord/p/9000032"):
-            self.assertNotIn("Check the kind", self.add(link)[0], link)
+            said = self.add(link)[0]
+            self.assertRegex(said, "^Added “", link)
+            self.assertNotIn("Check the kind", said, link)
+            self.assertNotIn("Jeans”", said, link)
+        # A denim shirt on the coat is still a shirt on a coat, and jeans are still jeans.
+        self.assertIn("its name says “Shirt”, and this piece is “Coat”",
+                      self.add("https://www.bergfreunde.de/beispielmarke-jeanshemd-9000037/")[0])
+        self.assertIn("its name says “Jeans”, and this piece is “Coat”",
+                      self.add("https://www.bergfreunde.de/beispielmarke-slim-jeans-9000038/")[0])
 
     def test_pasting_a_link_again_keeps_what_was_known_about_it(self):
         link = self.LINKS["hirmer"][0]

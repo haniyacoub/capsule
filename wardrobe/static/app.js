@@ -126,15 +126,17 @@ if (reel) {
   //     into the outfit being moved to. So Tab from Next leads into the outfit you moved to, and Shift+Tab from
   //     below the row back into it, never into outfit 1, which the browser would scroll back to. The other outfits
   //     are not made inert: swiping, and a screen reader reading the whole row, work as before. What HTMX puts in
-  //     (a picture, the heart) is sorted the same way once it is in.
-  const pressable = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [tabindex]';
+  //     (a picture, the heart) is sorted the same way once it is in. The row of small pictures (.shots-row) is
+  //     sorted with them: where it scrolls sideways, a browser lets Tab stop on the row itself once its buttons
+  //     are out of the Tab order.
+  const pressable = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [tabindex], .shots-row';
   const tabInto = (current) => slides.forEach((slide) => slide.querySelectorAll(pressable).forEach((el) => {
     if (slide === current) {
       if (!('tab' in el.dataset)) return;
       if (el.dataset.tab) el.setAttribute('tabindex', el.dataset.tab);
       else el.removeAttribute('tabindex');
       delete el.dataset.tab;
-    } else if (el.tabIndex >= 0) {
+    } else if (el.tabIndex >= 0 || (el.matches('.shots-row') && !('tab' in el.dataset))) {
       el.dataset.tab = el.getAttribute('tabindex') || '';
       el.tabIndex = -1;
     }

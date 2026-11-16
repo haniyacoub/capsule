@@ -175,10 +175,18 @@ def _another_kind(cand: dict, slot: dict) -> str:
     """A sentence to add when the product's name says another kind of garment than the piece it was pasted on:
     an "Oxford-Hemd" on the coat. Said, never refused: names from links are rough. Only when the name says a kind
     worn elsewhere on the body (a shirt on a coat, jeans on a jumper), and holds no word for the piece's own kind
-    ("Jeansjacke" on a jacket says nothing)."""
+    ("Jeansjacke" on a jacket says nothing). "Jeans" and "denim" at the start of a longer word are the cloth, not
+    the kind: a "Jeansjacke" is a jacket (nothing to say on the coat), a "Jeanshemd" a shirt. And "denim" alone
+    is only the cloth ("Denim Trucker"): nothing is said for it, the name must say "jeans" to be called jeans."""
     mine = GARMENTS.get(slot.get("category", ""))
     text = f"{cand.get('name', '')} {cand.get('slug', '')}"
     said = GARMENTS.get(capsule.detect_garment(text) or "")
+    if said is not None and said.key == "jeans":
+        letter = "a-zäöüß"
+        rest = re.sub(rf"(?i)(?<![{letter}])(?:jeans|denim)(?=[{letter}])", "", text)
+        said = GARMENTS.get(capsule.detect_garment(rest) or "") or said
+        if said.key == "jeans" and not re.search(rf"(?i)(?<![{letter}])jeans(?![{letter}])", text):
+            return ""
     if mine is None or said is None or said.layer == mine.layer:
         return ""
     low = re.sub(r"[-_+]", " ", text.lower())

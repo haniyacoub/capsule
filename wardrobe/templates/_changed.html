@@ -1,12 +1,14 @@
 {# The line that says what choosing another product for a piece did, with Undo (app.py, change_said; a form: it
    changes the piece again): the piece, its new product and price, the old price, and that the price level no longer
    changes it. Over the outfits after Choose in the pop-up, and on every page that offers the swap for a product sold
-   out in his size (_sold_out.html): the outfits, Saved, the Wardrobe, the Shopping list and Buy this outfit.
+   out in his size (_sold_out.html): the outfits, Saved, the Wardrobe, the Shopping list, Buy this outfit and the
+   piece's own page.
    `said.back` is which of those, so that Undo comes back to the same page (app.back_to). #}
 {% set v = said.view %}
 {{ v.slot.name }} changed in all your outfits: <span lang="de">{{ v.chosen.data.name }}</span>, {{ v.chosen.price|eur }}{% if said.was_price %} (was {{ said.was_price|eur }}){% endif %}. It stays when you change the price level.
 {% if said.undo %}
-<form method="post" action="{{ url_for('slot_restore', slot_id=v.slot.id) }}">{{ csrf_field() }}
+{# From the piece's own page, Undo keeps the page's way back to an outfit (`way`, app.way_back). #}
+<form method="post" action="{{ url_for('slot_restore', slot_id=v.slot.id, **(way if said.back == 'slot' and way is defined else {})) }}">{{ csrf_field() }}
   <input type="hidden" name="was" value="{{ said.was }}">
   <input type="hidden" name="was_locked" value="{{ said.was_locked }}">
   <input type="hidden" name="outfit" value="{{ said.at }}">

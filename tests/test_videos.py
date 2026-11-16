@@ -20,6 +20,7 @@ from unittest import mock
 
 from wardrobe import config, db, imagegen, looks, paths, person, settings, videogen, videos
 from wardrobe.__main__ import main
+from wardrobe.app import PHOTO_CONSENT
 
 from .test_app import HX, AppCase
 from .test_looks import PHOTO, PICTURE, WithPictures, look_key, some_outfits
@@ -733,13 +734,41 @@ class VideosForCustomers(WithVideos, ProductionCase):
         ada = self.member("ada@example.com")
         self.assertIn("to make videos of them when I ask", said(ada.get("/profile").data.decode()))
         self.upload(ada)
-        self.assertEqual(json.loads(ada.get("/account/export").data)["settings"]["photo_consent"], videos.CONSENT)
+        # Two dates, one for each part of the box's words: the photo's (app.PHOTO_CONSENT) and the videos'.
+        kept = json.loads(ada.get("/account/export").data)["settings"]
+        self.assertEqual((kept["photo_consent"], kept["video_consent"]["words"]), (PHOTO_CONSENT, videos.CONSENT))
+        self.assertEqual(kept["video_consent"]["photo_added"], kept["photo_added"], "for this photo")
         bob = self.member("bob@example.com")
         with mock.patch.object(videos, "service", lambda: None):        # videos off: the words say nothing of them
             self.assertNotIn("videos", said(bob.get("/profile").data.decode()))
             self.upload(bob)
-        self.assertEqual(json.loads(bob.get("/account/export").data)["settings"]["photo_consent"], "2026-11-12")
-        self.assertEqual(videos.CONSENT, "2026-11-13")
+        kept = json.loads(bob.get("/account/export").data)["settings"]
+        self.assertEqual(kept["photo_consent"], PHOTO_CONSENT)
+        self.assertNotIn("video_consent", kept, "he agreed to nothing about videos")
+        self.assertEqual((PHOTO_CONSENT, videos.CONSENT), ("2026-11-15", "2026-11-13"))
+
+    def test_the_photos_newer_date_is_never_taken_for_agreeing_to_videos(self):
+        # The photo's words are dated later (15 Nov) than the videos' (13 Nov). A photo added while videos were off
+        # carries the later date and still needs the tick before a picture of him goes to Google for a video.
+        ada = self.member("ada@example.com")
+        with mock.patch.object(videos, "service", lambda: None):
+            self.upload(ada)
+        key, look = self.picture_of(ada)
+        self.assertGreater(PHOTO_CONSENT, videos.CONSENT)
+        self.assertIn("I agree to Stilsmith sending this picture of me", self.offer(ada, key, look))
+        self.assertIn("tick the box to agree to it going to Google first", said(self.make(ada, key, look)))
+        self.assertEqual(self.made, [], "nothing was sent")
+
+    def test_a_photo_added_with_the_videos_words_before_the_dates_were_split_still_counts(self):
+        # Until 15 Nov one setting held both: "2026-11-13" meant the box he ticked had the videos' words in it.
+        ada = self.member("ada@example.com")
+        self.upload(ada)
+        with db.as_user(self.user_id("ada@example.com")):
+            db.set_setting("photo_consent", "2026-11-13")
+            db.set_setting("video_consent", None)
+            self.assertTrue(videos.consented())
+            db.set_setting("photo_consent", "2026-11-12")               # added before the videos' words
+            self.assertFalse(videos.consented())
 
     def test_a_photo_added_before_the_words_about_videos_needs_a_tick_first(self):
         ada = self.member("ada@example.com")
@@ -759,7 +788,7 @@ class VideosForCustomers(WithVideos, ProductionCase):
         self.assertIn("data-play", ticked)
         self.assertEqual(len(self.made), 1)
         kept = json.loads(ada.get("/account/export").data)["settings"]
-        self.assertEqual((kept["photo_consent"], kept["video_consent"]["words"]), ("2026-11-12", videos.CONSENT),
+        self.assertEqual((kept["photo_consent"], kept["video_consent"]["words"]), (PHOTO_CONSENT, videos.CONSENT),
                          "what she agreed to, and when, in her copy of her data")
         with mock.patch.object(videos, "allowance", lambda: 5):
             other, second = self.picture_of(ada, 1)

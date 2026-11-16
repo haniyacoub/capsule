@@ -320,10 +320,57 @@ class SaidWithTheSwap(SoldOutCase):
         self.assertTrue(as_read(block[0]).startswith("Sold out in M at "))
         form = self.swap_form(block[0])
         self.assertEqual((form["candidate"], form["back"]), (view.swap.id, "slot"))
-        self.assertEqual(self.press(form).split("?")[0], f"/slot/{sid}")
+        where = self.press(form)
+        self.assertEqual(where.split("?")[0], f"/slot/{sid}")
         now = selection.build().get(sid)
         self.assertEqual((now.chosen.id, now.sold_out), (view.swap.id, False))
         self.assertEqual(self.blocks(self.page(f"/slot/{sid}")), [])
+        # It says what changed, with Undo, like every other page that offers the swap.
+        name = view.slot["name"]
+        page = self.page(where)
+        self.assertEqual(status_line(page), f"{name} changed in all your outfits: {view.swap.data['name']}, "
+                         f"{eur(view.swap.price)} (was {eur(view.chosen.price)}). It stays when you change the "
+                         "price level. Undo")
+        self.assertNotIn("changed in all your outfits", self.page(f"/slot/{sid}"), "said once, not at every later visit")
+        again = self.undo(page)
+        self.assertEqual(again, f"/slot/{sid}", "Undo comes back to the piece's own page")
+        after = selection.build().get(sid)
+        self.assertEqual((after.chosen.id, after.state, after.sold_out), (view.chosen.id, "locked", True))
+        page = self.page(again)
+        self.assertTrue(any(f"{name}: back to {view.chosen.data['name']}" in said for said in flashes(page)), flashes(page))
+        self.assertEqual(len(self.blocks(page)), 1, "the swap is offered again")
+
+    def test_the_pieces_own_page_opened_from_an_outfit_keeps_its_way_back_through_swap_and_undo(self):
+        outfit, view = self.sell_out()
+        sid = view.slot["id"]
+        way = f"from=outfit&at={outfit.sig}"
+        form = self.swap_form(self.blocks(self.page(f"/slot/{sid}?{way}"))[0])
+        where = self.press(form)
+        self.assertTrue(where.startswith(f"/slot/{sid}?"), where)
+        page = self.page(where)
+        self.assertIn("Back to the outfit", page)
+        undo = re.search(r'<form method="post" action="(/slot/[^"]+/restore\?[^"]+)">(.*?)</form>', page, re.S)
+        self.assertIsNotNone(undo, "no Undo that keeps the way back")
+        r = self.client.post(undo.group(1).replace("&amp;", "&"), data=dict(re.findall(r'name="(\w+)" value="([^"]*)"', undo.group(2))))
+        self.assertTrue(r.headers["Location"].startswith(f"/slot/{sid}?from=outfit"), r.headers["Location"])
+        self.assertIn("Back to the outfit", self.page(r.headers["Location"]))
+        self.assertTrue(selection.build().get(sid).sold_out)
+
+    def test_the_popup_says_add_one_you_found_yourself_once(self):
+        # A piece with one product only, sold out in his size: the lines about that end with the link, and the
+        # pop-up's own last line ("No other option for this piece yet") would say it a second time.
+        outfit, view = self.sell_out(leave=0)
+        sid = view.slot["id"]
+
+        def only_the_chosen(cat):
+            cat["candidates"][:] = [c for c in cat["candidates"] if c.get("slot_id") != sid or c.get("id") == view.chosen.id]
+
+        catalog.update(only_the_chosen)
+        self.assertEqual(len(selection.build().get(sid).cands), 1)
+        popup = self.client.get("/outfits/piece", query_string={"at": outfit.sig, "slot": sid}, headers=HX).data.decode()
+        self.assertEqual(popup.count("Add one you found yourself"), 1, as_read(popup))
+        self.assertNotIn("No other option for this piece yet", as_read(popup))
+        self.assertIn("Nothing else for this piece is in stock in your size. Add one you found yourself", as_read(popup))
 
     def test_the_outfit_has_one_price_the_one_buy_this_outfit_shows(self):
         outfit, view = self.sell_out()
