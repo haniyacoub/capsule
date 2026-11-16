@@ -36,6 +36,11 @@
     </div>
     {% endif %}
     <p class="cc-words" data-figure-words>{{ fig.words }}</p>
+    {% if model_menu %}
+    {# The figure is a line drawing made by this site, not an AI picture: said here, with what ties the two together
+       (person.describe: the same height, build, skin and hair are what the AI pictures are asked for). #}
+    <p class="cc-sketch" data-figure-note>This is a sketch. The AI pictures on <a href="{{ url_for('outfits_page') }}">Outfits</a> follow the same body.</p>
+    {% endif %}
   </div>
   <script type="application/json" id="figure-data">{{ figure_data|tojson }}</script>
 
@@ -89,8 +94,11 @@
           {# person.describe: with every group on "Any" the pictures show the standard model (looks.toml, text.model); a
              group left on "Any" beside chosen ones is not described at all, so there the AI decides. The choices come
              first, so that on a phone they are under the figure they change. #}
-          <p class="muted">Choose who wears your outfits in the AI pictures. With everything on “Any”, it is our standard model: a man of average build. Once you choose something, whatever is still on “Any” is up to the AI.</p>
+          <p class="muted">Choose who wears your outfits in the AI pictures. His height and build follow your own height, weight, chest and waist (<a href="#sizes">Sizes</a>) unless you choose them here. {% if own_body %}Whatever else is still on “Any” is up to the AI.{% else %}Until you enter those, and with everything on “Any”, it is our standard model: a man of average build. Once you choose something, whatever is still on “Any” is up to the AI.{% endif %}</p>
           <p class="muted small">Described to the AI as: “{{ model_words }}”. Each picture is drawn afresh, so the face differs a little from one outfit to the next; with your own photo it stays you. With height on “Any”, the figure in the middle is as tall as you (Sizes).</p>
+          {# What leaves this site, said where the body is set (looks.py, person.body_words). `drawn_by` is the service
+             in use: Google, or OpenAI. #}
+          <p class="muted small" data-body-sent>These words go to {{ drawn_by }} with each picture, together with the outfit's pieces. Your height, weight, chest and waist are sent only as words like these about your body, never as numbers; your name, email address and clothing sizes are not sent. <a href="{{ url_for('legal_page', name='privacy') }}">Privacy policy</a></p>
         </div>
       </section>
       {% endif %}
@@ -124,6 +132,9 @@
             <input type="text" name="waist_cm" inputmode="decimal" placeholder="e.g. 84" value="{{ '%g'|format(profile.waist_cm) if profile.waist_cm else '' }}"></label>
         </div>
         <p class="muted small">We use these to warn you when a cut runs slim or large, or a size may not fit. Add your chest and body waist to compare yourself with each store's size chart.</p>
+        {% if model_menu %}
+        <p class="muted small" data-body-sent>Your height, weight, chest and body waist also shape the model in your AI pictures. They go to {{ drawn_by }} with each picture as a few words about your body (such as “a little shorter than average, lean build”), never as numbers.{% if looks_on %} Described to the AI now as: “{{ model_words }}”.{% endif %}</p>
+        {% endif %}
       </section>
 
       <section class="cc-panel" id="panel-colours" data-tab="colours" aria-labelledby="tab-colours">
@@ -223,7 +234,7 @@
          it back. The consent's words are dated: app.py stores PHOTO_CONSENT with the photo; change the two together.
          `videos_on`: the pictures of him can also be made into videos ("See it move", videos.py), by Google. #}
       <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
-        <p class="photo-facts" id="photo-facts">Your photo goes to {{ drawn_by }} each time a picture of you is drawn, so the model looks like you.
+        <p class="photo-facts" id="photo-facts">Your photo goes to {{ drawn_by }} each time a picture of you is drawn, so the model looks like you. An outfit's further photos (“More photos”) are made from that picture of you, which goes to {{ drawn_by }} again.
           {%- if videos_on %} When you ask for a video of a picture of you (“See it move”), that picture goes to Google, which makes the video from it.{% endif %}
           {{ site_name }} keeps it{{ ' in data/people on this computer' if not production }}, without where and when it was taken, until you delete it; you can delete it here at any time, and the pictures made from it go with it{{ ', with their videos' if videos_on }}.
           How {{ site_name }} handles your data: <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>.</p>

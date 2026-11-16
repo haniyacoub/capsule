@@ -197,10 +197,33 @@ if (reel) {
   //     is lost once the picture covers the photos. Then focus goes to the outfit's first dot, or to the outfit
   //     itself until the picture, and its dots, are there. And the outfit on screen says when its picture is ready
   //     (or why a new one was not drawn).
+  //     The row of the outfit's small pictures (_shots.html) is also replaced on its own: when 'More photos' is
+  //     tapped, and as each picture arrives. Focus that was on 'More photos', which is gone then, goes to the
+  //     picture shown, in the row; and the outfit on screen says that the photos are being drawn, and when all are there.
   const isBox = (el) => el instanceof Element && el.matches('.look');
+  const isRow = (el) => el instanceof Element && el.matches('.shots');
+  let rowFocus = false;
   document.body.addEventListener('htmx:beforeSwap', (e) => {
     const box = e.detail.target;
     if (isBox(box) && box.closest('.stage').contains(document.activeElement)) box.dataset.focus = 'in';
+    if (isRow(box)) rowFocus = box.contains(document.activeElement);
+  });
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    const was = e.detail.target;
+    if (!isRow(was)) return;
+    const row = document.getElementById(was.id);
+    if (!row) return;
+    const drawing = !!row.querySelector('.spin');
+    if (row.closest('[data-slide]') === onScreen() && !row.querySelector('.look-msg')) {
+      if (drawing && !was.querySelector('.spin')) say('Drawing more photos');
+      if (!drawing && was.querySelector('.spin')) say('More photos ready');
+    }
+    const here = document.activeElement;
+    if (rowFocus && (!here || here === document.body)) {
+      const shown = row.querySelector('[aria-pressed="true"]');
+      if (shown) shown.focus({ preventScroll: true });
+    }
+    rowFocus = false;
   });
   document.body.addEventListener('htmx:afterSwap', (e) => {
     const box = e.detail.target;
@@ -638,7 +661,7 @@ if (profileCreator) {
       if (button) show(button.dataset.show);
     });
     profileCreator.addEventListener('change', (e) => {
-      if (e.target.closest('#panel-body') || e.target.name === 'height_cm') show('figure');
+      if (e.target.closest('#panel-body') || ['height_cm', 'weight_kg', 'chest_cm', 'waist_cm'].includes(e.target.name)) show('figure');
     });
     show('figure');
     switcher.hidden = false;
@@ -666,7 +689,8 @@ if (profileCreator) {
 }
 
 // 13b. Profile: the drawn figure in the middle takes the choices as they are made: the model's height (on "Any", the
-//      height in cm under Sizes), build, skin, hair colour, haircut and beard, and says them in words under it. The
+//      height in cm under Sizes), build (on "Any", the one his own height and weight under Sizes give), skin, hair
+//      colour, haircut and beard, and says them in words under it. The
 //      outlines of every build and haircut come with the page (#figure-data, from figure.py). A new build or height is
 //      reached in a short eased change (200 ms); skin and hair fade (app.css); nothing moves for people who ask their
 //      device for less motion.
@@ -687,6 +711,29 @@ if (profileCreator) {
     const typed = Math.round(Number(field.value));
     const cm = Number.isFinite(typed) && field.value !== '' ? typed : Number(field.defaultValue);
     return Math.max(data.lowest, Math.min(data.highest, cm));
+  };
+  // The customer's own build, for a build left on "Any": worked out from the height and weight under Sizes as
+  // person.py does (weight / height², data.ownBuilds), once any of height, weight, chest or waist is no longer the
+  // example's (data.example). Until then, and with a build chosen, there is none. What the form would refuse or
+  // correct on saving (profile.py) is read here the same way.
+  const typedNumber = (name, low, high, whole) => {
+    const field = form.elements[name];
+    const text = field.value.replace(',', '.').trim();
+    const number = Number(text);
+    if (text === '' || !Number.isFinite(number)) return whole ? Number(field.defaultValue) : null;
+    if (whole) return Math.max(low, Math.min(high, Math.trunc(number)));
+    return number >= low && number <= high ? Math.round(number * 10) / 10 : null;
+  };
+  const ownBuild = () => {
+    if (choice('build')) return null;
+    const body = {
+      height_cm: typedNumber('height_cm', data.lowest, data.highest, true), weight_kg: typedNumber('weight_kg', 40, 200, true),
+      chest_cm: typedNumber('chest_cm', 70, 150, false), waist_cm: typedNumber('waist_cm', 55, 150, false),
+    };
+    if (Object.keys(body).every((key) => body[key] === data.example[key])) return null;
+    const ratio = body.weight_kg / ((body.height_cm / 100) ** 2);
+    const found = data.ownBuilds.find(([below]) => below === null || ratio < below);
+    return found ? { label: found[1], figure: found[2] } : null;
   };
   const NUMBER = /-?\d+(?:\.\d+)?/g;
   // An outline part of the way from one shape to another of the same build of numbers (figure.py keeps them so).
@@ -720,7 +767,8 @@ if (profileCreator) {
     if (cut === 'shaved') hair = 'shaved head';
     else if (cut || colour) hair = `${[cut && data.cut[cut], colour && data.hairColour[colour].label].filter(Boolean).join(' ')} hair`;
     const beard = { none: 'clean-shaven', stubble: 'stubble', short: 'short beard', full: 'full beard' }[choice('beard')];
-    const all = [height, build ? `${data.build[build]} build` : 'any build', skin ? `${data.skin[skin].label} skin` : 'any skin tone', hair];
+    const own = ownBuild();
+    const all = [height, build ? `${data.build[build]} build` : own ? `${own.label} build` : 'any build', skin ? `${data.skin[skin].label} skin` : 'any skin tone', hair];
     if (beard) all.push(beard);
     const text = all.join(', ');
     return text.charAt(0).toUpperCase() + text.slice(1);
@@ -744,7 +792,7 @@ if (profileCreator) {
     // The body and the height move, from wherever they are now.
     const target = {
       scale: (data.heights[choice('height')] || centimetres()) / data.reference,
-      paths: data.builds[choice('build') || 'average'],
+      paths: data.builds[choice('build') || (ownBuild() || { figure: 'average' }).figure],
     };
     const from = shown;
     const same = from.scale === target.scale && parts.every((part) => from.paths[part] === target.paths[part]);
@@ -769,7 +817,7 @@ if (profileCreator) {
     if (still.matches) step(start);
     else requestAnimationFrame(step);
   };
-  const FIGURE = new Set(['height', 'build', 'skin', 'hair', 'cut', 'beard', 'height_cm']);
+  const FIGURE = new Set(['height', 'build', 'skin', 'hair', 'cut', 'beard', 'height_cm', 'weight_kg', 'chest_cm', 'waist_cm']);
   form.addEventListener('input', (e) => { if (FIGURE.has(e.target.name)) redraw(); });
   form.addEventListener('change', (e) => { if (FIGURE.has(e.target.name)) redraw(); });
   redraw();          // the choices as the browser kept them (Back, a reload), which may not be the ones saved
@@ -863,8 +911,9 @@ if (swatchGrid) {
 // 15. "See it move": an outfit's AI video (videos.py, _video.html). The part of the picture box about the video
 //     (.look-vid) is filled by HTMX on its own. A video that is ready lies over the picture (.vid.on): it plays once,
 //     muted (with "reduce motion" asked for in the device's settings it does not play by itself, and shows its last
-//     frame), rests on its last frame, and is then turned by dragging sideways across it or with the arrow keys: a
-//     slider, its value in degrees (a drag across the whole picture is one full turn). "Play again" plays it from
+//     frame) and rests on its last frame. The front picture's video (data-turns) is then turned by dragging sideways
+//     across it or with the arrow keys: a slider, its value in degrees (a drag across the whole picture is one full
+//     turn). The video of another of the outfit's pictures (walking, the café …) only plays. "Play again" plays it from
 //     the start; "Show picture" goes back to the picture and its dots. Dragging uses the turn kept with every frame
 //     a keyframe (.vid-drag) where there is one, else the clip itself (its first data-turn-seconds).
 {
@@ -954,7 +1003,7 @@ if (swatchGrid) {
   // Dragging sideways across the video turns the model (a drag across its whole width is one full turn).
   let held = null;
   document.addEventListener('pointerdown', (e) => {
-    const turn = e.target.closest('.vid-turn');
+    const turn = e.target.closest('[data-turns] .vid-turn');
     if (!turn || e.button !== 0) return;
     const vid = turn.closest('[data-vid]');
     held = { vid, turn, x: e.clientX, from: degreesOf(vid), width: turn.getBoundingClientRect().width };
@@ -975,7 +1024,7 @@ if (swatchGrid) {
   document.addEventListener('pointercancel', letGo);
   // The arrow keys on the video turn it, and only it: the outfit row does not move on (6), the page does not scroll.
   document.addEventListener('keydown', (e) => {
-    const turn = e.target.closest && e.target.closest('.vid-turn');
+    const turn = e.target.closest && e.target.closest('[data-turns] .vid-turn');
     if (!turn || e.altKey || e.ctrlKey || e.metaKey) return;
     const vid = turn.closest('[data-vid]');
     const now = degreesOf(vid);
@@ -1023,7 +1072,7 @@ if (swatchGrid) {
       rest = setTimeout(() => reel.querySelectorAll('.vid.on').forEach((vid) => { if (!inRow(vid)) shut(vid); }), 200);
     }, { passive: true });
   }
-  // The offer stands under the picture, in place of its line and the scenes (app.css, .vid-bar.ask). On a short phone
+  // The offer stands under the picture, in place of its line and the small pictures (app.css, .vid-bar.ask). On a short phone
   // that is below the tab bar, out of sight: a tap on "See it move" would seem to do nothing, and keyboard focus would
   // go to a button nobody can see. So the page goes up just far enough for the whole offer to show above the tab bar
   // (the room html's scroll-padding-bottom keeps for it), never so far that its top leaves the screen; only the
@@ -1127,7 +1176,7 @@ if (swatchGrid) {
     else meant.click();
   }, true);
 
-  // 16b. The AI picture develops in. When HTMX puts a finished picture in (drawn at last, or another scene tapped), it
+  // 16b. The AI picture develops in. When HTMX puts a finished picture in (drawn at last, or a small picture tapped), it
   //      stays hidden until its file has arrived, over the pieces' photos, or over the picture it replaces (kept for
   //      that moment, .look-was), and then comes up over them (app.css). With less motion asked for it simply shows
   //      once it is whole. Pictures of the outfits off screen that are still loading when the page opens do the same.

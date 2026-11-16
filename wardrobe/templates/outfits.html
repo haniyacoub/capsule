@@ -116,7 +116,7 @@
         </div>
         {% if looks_on %}
         <div class="look" id="look-{{ o.key }}" hx-target="this" hx-swap="innerHTML">
-          {% with key = o.key, look = o.look, first = loop.first, video = o.video, scene = o.scene %}{% include "_look.html" %}{% endwith %}
+          {% with key = o.key, look = o.look, first = loop.first, video = o.video, clip = o.clip, shot = o.shot, photos = o.photos %}{% include "_look.html" %}{% endwith %}
         </div>
         {# A small dot on each piece of the AI picture (only once there is one). With a mouse the dots show while the
            pointer is over the picture or the list of pieces beside it, or the keyboard is in either; on a touch

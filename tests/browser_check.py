@@ -9,12 +9,14 @@ stand-ins for the image service and Google's video model (nothing is sent anywhe
 what a new customer would: signs up and lands on the starter outfits (a banner where the budget bar would be,
 the whole picture above the tab bar on three phones), changes the price level, watches an outfit's picture
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
-page on a phone jumping), taps Street while a picture is asked for or drawn (no late answer of the studio's undoes the
-tap, and none is asked for while the street is) and
-taps a scene with JavaScript off (the page comes back showing it), makes the outfit's AI video with "See it move" (told
+page on a phone jumping), taps "More photos" (told first what it costs; five more pictures made from the front
+picture, each showing as it arrives), looks at one large (no dots on it), taps a small picture while another answer is
+under way (no late answer undoes the tap) and
+does all of it with JavaScript off (the page comes back showing the picture tapped), makes the outfit's AI video with "See it move" (told
 first, under the picture and on five phones, that it is his one video today), watches it play under the caption 'Look
 and fit will differ', drags it round and turns it with the arrow keys, then finds the day's video used up on
-the next outfit, opens a piece from its dot, swaps it (said over the outfit, with Undo, which puts back the
+the next outfit, makes the video of the Café picture (the offer names that picture; the clip starts from it, with the
+café's own movement, 5 seconds, muted, not dragged round) and finds each picture's clip kept with its picture, opens a piece from its dot, swaps it (said over the outfit, with Undo, which puts back the
 product and its lock state), leaves a layer off (said, with 'Put it back'), opens a piece on a phone
 (named by its product, the quick changes on the first screen, the page behind it staying put, and back from
 comparing all options to the same outfit), opens a piece with JavaScript off (its page, and back to the same outfit)
@@ -95,7 +97,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, imagegen, looks, person, settings, videogen, videos  # noqa: E402
+from wardrobe import colours, db, imagegen, looks, person, settings, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 
@@ -116,10 +118,20 @@ asked: list[dict] = []      # what the "image service" was asked to draw
 slow: list[float] = []      # how many seconds the next drawing is to take instead (draw_again_keeps_the_picture)
 
 
-def stand_in(service, prompt, photo=None):
-    asked.append({"prompt": prompt, "photo": photo})
+finished: list[str] = []    # … and each picture it has sent back
+# One of an outfit's further pictures (made from its front picture, `references`) comes back in a colour of its own.
+TINTS = {"He walks towards the camera": (150, 150, 110), "He stands turned": (110, 150, 150),
+         "city street": (100, 130, 160), "café": (170, 130, 100), "library": (130, 110, 90)}
+
+
+def stand_in(service, prompt, photo=None, references=()):
+    asked.append({"prompt": prompt, "photo": photo, "references": list(references)})
     time.sleep(slow.pop() if slow else 1.5)         # long enough for the page to show that it is waiting
-    return picture(tint=(90, 120, 170) if photo else (120, 124, 130)), "png"
+    tint = (90, 120, 170) if photo else (120, 124, 130)
+    if references:
+        tint = next((colour for words, colour in TINTS.items() if words in prompt.split("\n")[0]), (60, 60, 60))
+    finished.append(prompt)
+    return picture(tint=tint), "png"
 
 
 imagegen.draw = stand_in
@@ -129,11 +141,15 @@ refuse: list[imagegen.DrawError] = []   # a problem the "video model" is to have
 CLIP = (ROOT / "tests" / "fixtures" / "test-pattern.mp4").read_bytes()     # 8 s of ffmpeg's test pattern, no person
 
 
-def video_stand_in(service, picture, prompt):
+made_from: list[tuple[bytes, int]] = []     # … and for each: the picture it starts from, and its length in seconds
+
+
+def video_stand_in(service, picture, prompt, seconds=8):
     if refuse:
         time.sleep(0.5)
         raise refuse.pop(0)
     made.append(prompt)
+    made_from.append((picture, seconds))
     time.sleep(1.5)         # long enough for the page to show that it is being made
     return CLIP
 
@@ -701,107 +717,179 @@ def run(base: str) -> None:
             assert all(img["lazy"] for img in fetched if not img["first"]), f"another outfit's picture is not fetched lazily: {fetched}"
             context.close()
 
-        def scenes_for_the_picture():
-            # Under each outfit's picture, the scenes: Studio, Street, Library, Café. The studio is the picture drawn by
-            # itself; another scene is drawn only when it is tapped: one more picture, asked for in that scene's words
-            # with the person and the pieces word for word as in the studio, shown in the same box (the drawing said
-            # inside it), with that scene pressed and keyboard focus kept on it. Back to the studio, its picture is
-            # there at once and nothing is drawn again. On a phone and a computer, light and dark, the row lies under
-            # the line under the picture, whole on the screen, four cells 40px tall with their words whole and readable
-            # (4.5:1) whether pressed or not, with the corners of a segmented control's cells (--r-ui) in a track with its
-            # own (--r-track); on a phone the outfit's title, price and heart still end above the tab bar.
-            row = f"{first} .scenes"
+        def more_photos_of_the_outfit():
+            # Under each outfit's picture, a row of its small pictures. At first the front picture alone (the one drawn
+            # by itself, on white, with the dots), and "More photos", with what it costs said beside it before the tap:
+            # "5 pictures of your 30 a day". Tapped (here by keyboard), it has five more pictures made FROM the front
+            # picture, which goes to the image service with the words: walking, turned, on a street, in a café, in a
+            # library. The large picture stays as it is meanwhile; each small picture shows as it arrives; keyboard
+            # focus goes to the picture shown. Tapping a small picture shows it large, without dots (they are placed for
+            # the front picture's pose), and costs nothing; back on the front picture the dots are there again. On a
+            # phone and a computer, light and dark, the row lies under the line under the picture, whole on the screen,
+            # its cells big enough for a finger, the one shown framed so that it can be told (3:1); on a phone the
+            # outfit's title, price and heart still end above the tab bar.
+            row = f"{first} .shots"
+            cells = ("s => [...document.querySelectorAll(s + ' .shots-row button[aria-pressed]')].map(b => ({"
+                     "name: b.id.split('-').pop(), pressed: b.getAttribute('aria-pressed'), label: b.getAttribute('aria-label'),"
+                     "picture: !!b.querySelector('img'), drawing: !!b.querySelector('.spin')}))")
+            rules = looks.load_rules()
+            changes = {name: shot["change"] for group in ("poses", "scenes") for name, shot in rules[group].items()}
+            order = ["front", *changes]
+            assert order == ["front", "walking", "turned", "street", "cafe", "library"], f"an outfit's pictures are {order}"
+
+            def layout(state: str) -> None:
+                for width, height, touch in ((390, 844, True), (1280, 860, False)):
+                    for scheme in ("light", "dark"):
+                        context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=touch,
+                                                      has_touch=touch, color_scheme=scheme)
+                        other.goto(base + "/outfits", wait_until="networkidle")
+                        other.wait_for_selector(f"{first} .look-pic img")
+                        other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                        seen = other.evaluate("""s => {
+                            const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
+                            const row = slide.querySelector('.shots'), r = box(row), line = box(slide.querySelector('.look-line'));
+                            const rgb = c => c.match(/[\\d.]+/g).slice(0, 3).map(Number);
+                            const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255;
+                                return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+                            const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+                            const inside = el => { const b = box(el); return b.width > 0 && b.left >= r.left - 0.5 && b.right <= r.right + 0.5
+                                                   && b.top >= r.top - 0.5 && b.bottom <= r.bottom + 0.5; };
+                            const cells = [...row.querySelectorAll('.shots-row button[aria-pressed]')].map(b => ({
+                                name: b.id.split('-').pop(), width: box(b).width, height: box(b).height, inside: inside(b),
+                                loaded: !b.querySelector('img') || (b.querySelector('img').complete && b.querySelector('img').naturalWidth > 0)}));
+                            const shown = row.querySelector('[aria-pressed="true"]');
+                            const frame = shown ? getComputedStyle(shown, '::after') : null;
+                            const more = row.querySelector('.btn'), note = row.querySelector('.shots-note');
+                            const meta = [...slide.querySelectorAll('.about-head h2, .count, .board-cost, .heart')].map(el => box(el).bottom);
+                            return {cells, height: r.height, left: r.left, right: r.right, under: Math.abs(r.top - line.bottom) < 1,
+                                    same_width: Math.abs(r.width - line.width) < 1, screen: innerWidth,
+                                    frame: frame && parseFloat(frame.borderTopWidth) >= 2
+                                           ? Math.round(ratio(frame.borderTopColor, getComputedStyle(document.body).backgroundColor) * 100) / 100 : 0,
+                                    more: more && {words: more.textContent.trim(), height: box(more).height, inside: inside(more)},
+                                    note: note && {words: note.textContent.trim(), inside: inside(note),
+                                                   contrast: Math.round(ratio(getComputedStyle(note).color, getComputedStyle(document.body).backgroundColor) * 100) / 100},
+                                    line_end: Math.max(...meta), tabs: box(document.querySelector('nav.tabs')).top,
+                                    page: document.documentElement.scrollWidth};
+                        }""", first)
+                        where = f"{width} x {height}, {scheme}, {state}"
+                        assert seen["under"] and seen["same_width"] and seen["height"] == 40 and 0 <= seen["left"] \
+                            and seen["right"] <= seen["screen"], \
+                            f"{where}: the small pictures are not one 40px row right under the line under the picture, whole on the screen: {seen}"
+                        assert seen["page"] <= width, f"{where}: the page is {seen['page']}px wide"
+                        assert [cell["name"] for cell in seen["cells"]] == (order if state == "six" else ["front"]), f"{where}: {seen['cells']}"
+                        for cell in seen["cells"]:
+                            assert cell["width"] >= 24 and cell["height"] >= 40 and cell["inside"] and cell["loaded"], \
+                                f"{where}: the small picture {cell['name']!r} is too small for a finger, outside its row, or did not load: {cell}"
+                        assert seen["frame"] >= 3, f"{where}: the picture shown is not framed so that it can be told ({seen['frame']}:1)"
+                        if state == "six":
+                            assert not seen["more"], f"{where}: 'More photos' is still offered: {seen}"
+                        else:
+                            assert seen["more"] and seen["more"]["words"] == "More photos" and seen["more"]["inside"] \
+                                and seen["more"]["height"] >= 40, f"{where}: 'More photos' is not a finger-sized button in the row: {seen}"
+                            assert seen["note"] and seen["note"]["inside"] and seen["note"]["contrast"] >= 4.5, \
+                                f"{where}: what 'More photos' costs is cut off or hard to read: {seen}"
+                        if touch:
+                            assert seen["line_end"] <= seen["tabs"], \
+                                f"{where}: with the small pictures, the outfit's title, price and heart end under the tab bar: {seen}"
+                        context.close()
+
             page.goto(base + "/outfits", wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
-            studio = page.get_attribute(f"{first} .look-pic img", "src")
-            labels = page.locator(f"{row} button").all_inner_texts()
-            assert labels == ["Studio", "Street", "Library", "Café"], f"the scenes under the picture are {labels}"
-            assert page.locator(f"{row} [aria-pressed=true]").all_inner_texts() == ["Studio"], "the studio is not the scene shown"
-            assert page.get_attribute(row, "role") == "group" and page.get_attribute(row, "aria-label") == "Scene", \
-                "the scenes are not one group named 'Scene' for screen readers"
-            elsewhere = [scene["setting"] for name, scene in looks.load_rules()["scenes"].items() if name != looks.STUDIO]
-            assert not any(words in sent["prompt"] for sent in asked for words in elsewhere), "a scene was drawn without being tapped"
-            before = len(asked)
-            page.focus(f"{row} button:has-text('Street')")              # by keyboard
+            front = page.get_attribute(f"{first} .look-pic img", "src")
+            group = f"{row} form[role=group]"
+            assert page.get_attribute(group, "aria-label") == "Photos of this outfit", \
+                "the small pictures are not one group named 'Photos of this outfit' for screen readers"
+            at_first = page.evaluate(cells, first)
+            assert [(cell["name"], cell["pressed"], cell["picture"]) for cell in at_first] == [("front", "true", True)], \
+                f"before 'More photos', the row is not the front picture alone, shown: {at_first}"
+            assert not any(sent["references"] for sent in asked), "a picture was made from a front picture without 'More photos'"
+            assert all("Seamless pure white studio background" in sent["prompt"] for sent in asked), \
+                "a front picture was not asked for on a white studio background"
+            cost = f"5 pictures of your {rules['pictures']['per_customer_per_day']} a day"
+            said = page.inner_text(f"{row} .shots-note")
+            assert said == cost, f"beside 'More photos' the cost reads {said!r}, not {cost!r}"
+            described = page.get_attribute(f"{row} .btn", "aria-describedby")
+            assert described and page.inner_text(f"#{described}") == cost, "a screen reader does not hear the cost with 'More photos'"
+            layout("front only")
+
+            before, done_before = len(asked), len(finished)
+            page.evaluate("s => { document.querySelector(s + ' .look-pic').dataset.kept = 'yes'; }", first)
+            page.focus(f"{row} .btn")                                   # by keyboard
             page.keyboard.press("Enter")
-            page.wait_for_selector(f"{first} .look-bar.wait")
-            status = drawing_status(page)
-            assert status["inside"] and status["words"].startswith("Drawing this outfit"), \
-                f"while the Street picture is drawn, the picture's box does not say so: {status}"
-            page.wait_for_function("([s, old]) => { const i = document.querySelector(s + ' .look-pic img');"
-                                   " return i && i.getAttribute('src') !== old && i.complete; }", arg=[first, studio])
+            page.wait_for_function(f"s => ({cells})(s).length === 6", arg=first)
+            started = page.evaluate(cells, first)
+            assert [cell["name"] for cell in started] == order and all(cell["drawing"] for cell in started[1:]), \
+                f"after 'More photos' the row does not show the five pictures being drawn: {started}"
+            assert all(cell["label"].endswith("being drawn") for cell in started[1:]), f"a screen reader is not told they are being drawn: {started}"
+            focused = page.evaluate("() => document.activeElement.id")
+            assert focused.startswith("shot-") and focused.endswith("-front"), \
+                f"'More photos' is gone, and keyboard focus went to {focused!r}, not to the picture shown"
+            arriving: set[int] = set()
+            for _ in range(150):                                        # each shows as it arrives
+                there = sum(1 for cell in page.evaluate(cells, first) if cell["picture"])
+                arriving.add(there)
+                if there == 6:
+                    break
+                page.wait_for_timeout(200)
+            assert 6 in arriving, f"the five pictures never all arrived: {sorted(arriving)}"
+            assert arriving & {2, 3, 4, 5}, f"the pictures did not show one by one as they arrived: {sorted(arriving)}"
+            assert not page.locator(f"{row} .btn").count(), "'More photos' is still offered once all six are there"
+            assert page.evaluate("s => document.querySelector(s + ' .look-pic').dataset.kept", first) == "yes" \
+                and page.get_attribute(f"{first} .look-pic img", "src") == front, \
+                "the large picture was sent again while the small ones arrived"
+            sent = asked[before:]
+            assert len(sent) == 5 and len(finished) == done_before + 5, f"'More photos' asked for {len(sent)} pictures"
+            anchor = {bytes(reference) for one in sent for reference in one["references"]}
+            assert all(len(one["references"]) == 1 for one in sent) and len(anchor) == 1, \
+                "each of the five was not made from the one front picture"
+            assert anchor == {picture()}, "what went to the image service is not the outfit's front picture"
+            # (Two are drawn at a time and the rest wait their turn, so they reach the service in no fixed order.)
+            assert all("Make a new photograph of the same man in the same outfit" in one["prompt"] for one in sent), \
+                "one of the five was not asked for as a new photograph of the same man"
+            for name in order[1:]:
+                assert sum("Change only this: " + changes[name] in one["prompt"] for one in sent) == 1, \
+                    f"the {name} picture was not asked for in its own words, once"
+            for _ in range(30):                                         # the row has stopped asking
+                if not page.locator(f"{row}[hx-get]").count():
+                    break
+                page.wait_for_timeout(100)
+            assert not page.locator(f"{row}[hx-get]").count(), "all six are there, and the row still asks for news"
+            layout("six")
+
+            dots = "s => getComputedStyle(document.querySelector(s + ' .spots')).display"
+            assert page.evaluate(dots, first) != "none", "the front picture has no dots"
+            before = len(asked)
+            page.focus(f"{row} button[id$='-street']")                  # by keyboard
+            page.keyboard.press("Enter")
+            page.wait_for_function("([s, old]) => { const i = document.querySelector(s + ' .look-pic.more img');"
+                                   " return i && i.getAttribute('src') !== old && i.complete; }", arg=[first, front])
             shows(f"{first} .look-pic img", "the Street picture")
             labelled(page, "1280 x 860, Street")
-            assert page.locator(f"{row} [aria-pressed=true]").all_inner_texts() == ["Street"], "Street is not shown as pressed"
+            alt = page.get_attribute(f"{first} .look-pic img", "alt")
+            assert alt.endswith("photo: Street"), f"the Street picture's words for a screen reader: {alt!r}"
+            assert [cell["name"] for cell in page.evaluate(cells, first) if cell["pressed"] == "true"] == ["street"], \
+                "Street is not shown as the picture pressed"
             focused = page.evaluate("() => document.activeElement.id")
-            assert focused.startswith("scene-") and focused.endswith("-street"), f"keyboard focus left Street for {focused!r}"
-            assert page.locator(f"{first} .spot").count() == page.locator(f"{first} .piece-row").count(), "a dot per piece"
-            assert len(asked) == before + 1, f"tapping Street asked for {len(asked) - before} pictures"
-            street = asked[-1]["prompt"]
-            assert looks.load_rules()["scenes"]["street"]["setting"] in street and "studio" not in street.lower(), \
-                "the Street picture was not asked for in the street"
-            assert any(sent["prompt"].split("\n", 1)[1] == street.split("\n", 1)[1] for sent in asked[:before]), \
-                "the Street picture's pieces and what to avoid are not word for word the studio picture's"
-            page.click(f"{row} button:has-text('Studio')")
+            assert focused.startswith("shot-") and focused.endswith("-street"), f"keyboard focus left Street for {focused!r}"
+            assert page.evaluate(dots, first) == "none", "the dots, placed for the front picture's pose, show on the Street picture"
+            page.click(f"{row} button[id$='-front']")
             page.wait_for_function("([s, src]) => { const i = document.querySelector(s + ' .look-pic img');"
-                                   " return i && i.getAttribute('src') === src; }", arg=[first, studio])
-            assert len(asked) == before + 1 and not page.locator(f"{first} .look-bar.wait").count(), \
-                "going back to the studio drew its picture again"
+                                   " return i && i.getAttribute('src') === src; }", arg=[first, front])
+            assert page.evaluate(dots, first) != "none", "back on the front picture the dots are gone"
+            assert page.locator(f"{first} .spot").count() == page.locator(f"{first} .piece-row").count(), "a dot per piece"
+            assert len(asked) == before and not page.locator(f"{first} .look-bar.wait").count(), \
+                "looking at pictures that are there drew one again"
 
-            for width, height, touch in ((390, 844, True), (1280, 860, False)):
-                for scheme in ("light", "dark"):
-                    context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=touch,
-                                                  has_touch=touch, color_scheme=scheme)
-                    other.goto(base + "/outfits", wait_until="networkidle")
-                    other.wait_for_selector(f"{first} .look-pic img")
-                    other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
-                    seen = other.evaluate("""s => {
-                        const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
-                        const row = slide.querySelector('.scenes'), r = box(row), line = box(slide.querySelector('.look-line'));
-                        const rgb = c => c.match(/[\\d.]+/g).slice(0, 4).map(Number);
-                        const lum = c => { const [r, g, b] = rgb(c).slice(0, 3).map(v => { v /= 255;
-                            return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-                        const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
-                        const ground = getComputedStyle(row).backgroundColor;
-                        const cells = [...row.querySelectorAll('button')].map(b => {
-                            const style = getComputedStyle(b), own = style.backgroundColor;
-                            const bg = rgb(own)[3] === 0 ? ground : own;
-                            return {words: b.textContent.trim(), height: box(b).height, whole: b.scrollWidth <= b.clientWidth,
-                                    contrast: Math.round(ratio(style.color, bg) * 100) / 100, corner: style.borderTopLeftRadius};
-                        });
-                        const token = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-                        const meta = [...slide.querySelectorAll('.about-head h2, .count, .board-cost, .heart')].map(el => box(el).bottom);
-                        return {cells, cell_corner: token('--r-ui'), track_corner: [getComputedStyle(row).borderTopLeftRadius, token('--r-track')],
-                                left: r.left, right: r.right, top: r.top, under: Math.abs(r.top - line.bottom) < 1,
-                                same_width: Math.abs(r.width - line.width) < 1, screen: innerWidth,
-                                line_end: Math.max(...meta), tabs: box(document.querySelector('nav.tabs')).top,
-                                page: document.documentElement.scrollWidth};
-                    }""", first)
-                    where = f"{width} x {height}, {scheme}"
-                    assert seen["under"] and seen["same_width"] and 0 <= seen["left"] and seen["right"] <= seen["screen"], \
-                        f"{where}: the scenes are not right under the line under the picture, whole on the screen: {seen}"
-                    assert seen["page"] <= width, f"{where}: the page is {seen['page']}px wide"
-                    for cell in seen["cells"]:
-                        assert cell["height"] >= 40 and cell["whole"] and cell["contrast"] >= 4.5, \
-                            f"{where}: the scene {cell['words']!r} is under 40px tall, cut off or hard to read: {cell}"
-                        assert cell["corner"] == seen["cell_corner"], \
-                            f"{where}: the scene {cell['words']!r} has {cell['corner']} corners, not a cell's {seen['cell_corner']}"
-                    assert seen["track_corner"][0] == seen["track_corner"][1], f"{where}: the scenes' track corners: {seen}"
-                    if touch:
-                        assert seen["line_end"] <= seen["tabs"], \
-                            f"{where}: with the scenes, the outfit's title, price and heart end under the tab bar: {seen}"
-                    context.close()
-
-        def a_scene_tap_is_kept():
-            # A scene tapped while the studio picture is drawn is never undone by the drawing's own question (asked
-            # every 3 s) coming back late: here that question is held until Street has been tapped and shown, then let
-            # go. The box stays on Street, and the street picture arrives in it. The same for the studio's own request
-            # for its picture ("See it worn", sent by itself or tapped), sent before the tap or while the street is
-            # asked for (then it is not sent at all), and for "Draw again". Without JavaScript a tap on a scene
-            # comes back to the outfits with that outfit showing that scene, and its picture once it is drawn. A
-            # customer of his own, so that these pictures leave the first customer's ten a day as they were.
-            who = "scenes-" + EMAIL
-            pressed = "s => { const b = document.querySelector(s + ' .scenes [aria-pressed=true]'); return b && b.textContent.trim(); }"
+        def a_tap_on_a_small_picture_is_kept():
+            # A small picture tapped is never undone by another answer coming back late. The row's own question (asked
+            # every 3 s while pictures are drawn) is held here until Street has been tapped and shown, then let go: the
+            # box stays on Street. The same for "Draw again" under the street picture, answered after the front picture
+            # was tapped: the front picture stays. Without JavaScript, "See it worn", "More photos" and a small picture
+            # each come back to the outfits with that outfit in view, and the picture tapped shown. A customer of his
+            # own, so that these pictures leave the first customer's day as it was.
+            who = "photos-" + EMAIL
+            pressed = ("s => { const b = document.querySelector(s + ' .shots-row [aria-pressed=true]');"
+                       " return b && b.id.split('-').pop(); }")
             context = browser.new_context(viewport={"width": 1280, "height": 860})
             try:
                 tapper = context.new_page()
@@ -813,43 +901,42 @@ def run(base: str) -> None:
                 tapper.fill("input[name=password]", PASSWORD)
                 tapper.click("button:has-text('Create account')")
                 tapper.wait_for_url(base + "/outfits")
-                for seed in range(141, 200):            # a shuffle whose first outfit has no picture yet
+                for seed in range(141, 200):            # a shuffle whose first outfit has only its front picture, or none
                     tapper.goto(base + f"/outfits?seed={seed}", wait_until="domcontentloaded")
-                    if not tapper.locator(f"{first} .look-pic").count():
+                    if tapper.locator(f"{first} .shots-row button[aria-pressed]").count() <= 1:
                         break
                 else:
-                    raise AssertionError("the first outfit of every shuffle tried already has its picture")
+                    raise AssertionError("the first outfit of every shuffle tried already has all its pictures")
+                tapper.wait_for_selector(f"{first} .shots .btn", timeout=30000)      # the front picture, drawn by itself
                 held: list = []
-                tapper.route("**/outfits/look/*", lambda route: route.continue_() if "scene=" in route.request.url
-                             else held.append(route))   # the studio's question waits; the street's goes through
-                tapper.wait_for_selector(f"{first} .look-bar.wait")                  # drawn by itself …
-                for _ in range(100):                                                  # … and its question asked
+                tapper.route("**/outfits/photos*", lambda route: held.append(route))  # the row's question waits
+                done_before = len(finished)
+                tapper.click(f"{first} .shots .btn")                                  # More photos
+                tapper.wait_for_selector(f"{first} .shots-row .spin")
+                for _ in range(100):                                                  # … and its question is asked
                     if held:
                         break
                     tapper.wait_for_timeout(100)
-                assert held, "the studio picture's box never asked how the drawing is going"
-                before = len(asked)
-                tapper.click(f"{first} .scenes button:has-text('Street')")
-                tapper.wait_for_function(f"s => ({pressed})(s) === 'Street'", arg=first)
-                for route in held:                                                    # the studio's answer, late
+                assert held, "the row of small pictures never asked how the drawing is going"
+                for _ in range(150):                                                  # all five drawn meanwhile
+                    if len(finished) >= done_before + 5:
+                        break
+                    tapper.wait_for_timeout(100)
+                tapper.click(f"{first} .shots-row button[id$='-street']")             # still a spinner in the row
+                tapper.wait_for_function("s => { const i = document.querySelector(s + ' .look-pic.more img');"
+                                         " return i && i.alt.endsWith('photo: Street') && i.complete; }", arg=first)
+                for route in held:                                                    # the row's answer, late
                     try:
                         route.continue_()
                     except Exception:  # noqa: BLE001 - the browser gave up on it already: that is the point
                         pass
                 tapper.wait_for_timeout(1500)
                 late = tapper.evaluate(pressed, first)
-                assert late == "Street", f"the studio's late answer put {late!r} back over the Street tapped"
-                tapper.wait_for_function("s => { const i = document.querySelector(s + ' .look-pic img');"
-                                         " return i && i.alt.includes('Street scene') && i.complete; }", arg=first)
-                assert tapper.evaluate(pressed, first) == "Street", "the street picture arrived under another scene"
-                assert any(looks.load_rules()["scenes"]["street"]["setting"] in sent["prompt"] for sent in asked[before:]), \
-                    "the Street picture was not asked for"
-                tapper.unroute("**/outfits/look/*")
+                assert late == "street", f"the row's late answer put {late!r} back over the Street tapped"
+                assert tapper.locator(f"{first} .look-pic.more").count() == 1 \
+                    and tapper.locator(f"{first} .shots-row img").count() == 6, "the Street picture, or the row under it, went"
+                tapper.unroute("**/outfits/photos*")
 
-                # The same for the studio's own request for its picture ("See it worn", sent by itself 1.2 s after an
-                # outfit without one comes into view, or tapped): whether it was sent before the tap or is sent while
-                # the street is being asked for, its answer never puts the studio back. Each order on an outfit of its
-                # own; the box's requests for it are held here and let go in the order the test says.
                 def until(sent: list, what: str) -> None:
                     for _ in range(60):
                         if sent:
@@ -857,68 +944,14 @@ def run(base: str) -> None:
                         tapper.wait_for_timeout(100)
                     raise AssertionError(what)
 
-                done: set = set()
-                for order in ("studio asked, then Street tapped", "Street tapped, then the studio asked"):
-                    for seed in range(201, 300):
-                        tapper.goto(base + f"/outfits?seed={seed}", wait_until="domcontentloaded")
-                        key = tapper.get_attribute(first, "id").removeprefix("outfit-")
-                        if key not in done and not tapper.locator(f"{first} .look-pic").count() \
-                                and tapper.locator(f"{first} [data-auto-look]").count():
-                            break
-                    else:
-                        raise AssertionError("the first outfit of every shuffle tried already has its picture")
-                    done.add(key)
-                    studio_asked: list = []
-                    street_asked: list = []
-
-                    def holding(key: str, studio_asked: list, street_asked: list):
-                        def hold(route):                            # this outfit's requests wait; others go through
-                            sent = route.request.post_data or ""
-                            if f"key={key}" not in sent:
-                                route.continue_()
-                            else:
-                                (street_asked if "scene=street" in sent else studio_asked).append(route)
-                        return hold
-                    tapper.route("**/outfits/look", holding(key, studio_asked, street_asked))
-                    if order.startswith("studio"):
-                        until(studio_asked, "the studio picture was never asked for by itself")   # once in view
-                        tapper.click(f"{first} .scenes button:has-text('Street')")
-                        until(street_asked, "tapping Street asked for nothing")
-                    else:
-                        tapper.click(f"{first} .scenes button:has-text('Street')")
-                        until(street_asked, "tapping Street asked for nothing")
-                        sent_before = len(studio_asked)
-                        # Meanwhile the studio is asked for: by the outfit itself (the event its timer sends) and by a
-                        # tap on "See it worn". Neither is sent: nothing is drawn that would only be thrown away.
-                        tapper.evaluate("s => htmx.trigger(document.querySelector(s + ' form.look-bar.ask'), 'draw')", first)
-                        tapper.click(f"{first} form.look-bar.ask button:has-text('See it worn')")
-                        tapper.wait_for_timeout(1500)               # longer than the outfit's own 1.2 s
-                        assert len(studio_asked) == sent_before, \
-                            f"{order}: the studio picture was asked for while the street's was under way"
-                    for route in street_asked:                      # the street's answer first …
-                        route.continue_()
-                    tapper.wait_for_function(f"s => ({pressed})(s) === 'Street'", arg=first)
-                    for route in studio_asked:                      # … then the studio's, late
-                        try:
-                            route.continue_()
-                        except Exception:  # noqa: BLE001 - the browser gave up on it already: that is the point
-                            pass
-                    tapper.wait_for_timeout(1500)
-                    late = tapper.evaluate(pressed, first)
-                    assert late == "Street", f"{order}: the studio's late answer put {late!r} back over the Street tapped"
-                    tapper.unroute("**/outfits/look")
-                    tapper.wait_for_function("s => { const i = document.querySelector(s + ' .look-pic img');"
-                                             " return i && i.alt.includes('Street scene') && i.complete; }", arg=first)
-                    assert tapper.evaluate(pressed, first) == "Street", f"{order}: the street picture arrived under another scene"
-
-                # And "Draw again" under the street picture, answered after Studio was tapped: Studio stays.
+                # "Draw again" under the street picture, answered after the front picture was tapped: the front stays.
                 again_asked: list = []
                 tapper.route("**/outfits/look", lambda route: again_asked.append(route)
                              if "again=1" in (route.request.post_data or "") else route.continue_())
                 tapper.click(f"{first} .look-line button:has-text('Draw again')")
                 until(again_asked, "Draw again asked for nothing")
-                tapper.click(f"{first} .scenes button:has-text('Studio')")
-                tapper.wait_for_function(f"s => ({pressed})(s) === 'Studio'", arg=first)
+                tapper.click(f"{first} .shots-row button[id$='-front']")
+                tapper.wait_for_function(f"s => ({pressed})(s) === 'front'", arg=first)
                 for route in again_asked:
                     try:
                         route.continue_()
@@ -926,10 +959,10 @@ def run(base: str) -> None:
                         pass
                 tapper.wait_for_timeout(1500)
                 late = tapper.evaluate(pressed, first)
-                assert late == "Studio", f"the late answer to Draw again in the street put {late!r} back over the Studio tapped"
+                assert late == "front", f"the late answer to Draw again on the street put {late!r} back over the front picture tapped"
                 tapper.unroute("**/outfits/look")
-                tapper.wait_for_function("s => { const i = document.querySelector(s + ' .look-pic img');"
-                                         " return i && !i.alt.includes(' scene') && i.complete; }", arg=first)
+                tapper.wait_for_function("s => { const i = document.querySelector(s + ' .look-pic:not(.more) img');"
+                                         " return i && !i.alt.includes('photo:') && i.complete; }", arg=first)
             finally:
                 context.close()
 
@@ -941,30 +974,46 @@ def run(base: str) -> None:
                 other.fill("input[name=password]", PASSWORD)
                 other.click("button:has-text('Log in')")
                 other.wait_for_load_state("networkidle")
-                other.goto(base + "/outfits", wait_until="networkidle")
-                key = other.get_attribute(first, "id").removeprefix("outfit-")
-                other.click(f"#look-{key} .scenes button:has-text('Library')")
+                other.goto(base + "/outfits?n=12", wait_until="networkidle")
+                keys = other.evaluate("() => [...document.querySelectorAll('[data-slide]')].filter(s => !s.querySelector('.look-pic')).map(s => s.id.slice(7))")
+                assert keys, "every outfit already has its picture"
+                key = keys[0]
+
+                def reload_until(what: str, there: str) -> None:
+                    for _ in range(40):                 # drawn meanwhile: the same address shows it
+                        if other.evaluate(there, f"#look-{key}"):
+                            return
+                        other.wait_for_timeout(500)
+                        other.reload(wait_until="networkidle")
+                    raise AssertionError(f"without JavaScript, {what}")
+
+                other.click(f"#look-{key} button:has-text('See it worn')")
+                other.wait_for_load_state("networkidle")
+                assert other.url.endswith(f"#outfit-{key}"), f"without JavaScript, 'See it worn' leads back to {other.url}"
+                reload_until("the front picture never showed", "s => !!document.querySelector(s + ' .shots .btn')")
+                before = len(asked)
+                other.click(f"#look-{key} .shots .btn")                              # More photos
+                other.wait_for_load_state("networkidle")
+                assert other.url.endswith(f"#outfit-{key}") and "shot=" not in other.url, \
+                    f"without JavaScript, 'More photos' leads back to {other.url}"
+                reload_until("the five more photos never showed", "s => document.querySelectorAll(s + ' .shots-row img').length === 6")
+                assert len(asked) == before + 5, f"without JavaScript, 'More photos' asked for {len(asked) - before} pictures"
+                other.click(f"#look-{key} .shots-row button[id$='-library']")
                 other.wait_for_load_state("networkidle")
                 address = other.url.replace(base, "")
-                assert "scene=library" in address and f"scene_of={key}" in address and address.endswith(f"#outfit-{key}"), \
+                assert "shot=library" in address and f"shot_of={key}" in address and address.endswith(f"#outfit-{key}"), \
                     f"without JavaScript, Library leads back to {address}"
                 shown = other.evaluate(pressed, f"#look-{key}")
-                assert shown == "Library", f"without JavaScript, the page came back showing {shown!r}, not Library"
-                for _ in range(20):                     # drawn meanwhile: the same address shows it
-                    other.wait_for_timeout(500)
-                    other.reload(wait_until="networkidle")
-                    if other.locator(f"#look-{key} .look-pic img").count():
-                        break
-                alt = other.get_attribute(f"#look-{key} .look-pic img", "alt")
-                assert "Library scene" in alt and other.evaluate(pressed, f"#look-{key}") == "Library", \
-                    f"without JavaScript, the library picture is not the one shown: {alt!r}"
+                alt = other.get_attribute(f"#look-{key} .look-pic.more img", "alt")
+                assert shown == "library" and alt.endswith("photo: Library"), \
+                    f"without JavaScript, the page came back showing {shown!r} ({alt!r}), not the library picture"
             finally:
                 context.close()
 
         def see_it_move():
             # Under a finished picture, "See it move": a button on the picture, at its top right, clear of every dot.
             # Tapped, it says under the picture what a video is and how many are left today ("1 video left today"), with
-            # the button that makes one beside "Not now", in place of the picture's line and the scenes: the picture
+            # the button that makes one beside "Not now", in place of the picture's line and the small pictures: the picture
             # stays whole. The button has keyboard focus; nothing is made until it is pressed. While the video is made the
             # picture's box says so (and "Making the video" is said once); then the video lies over the picture,
             # labelled 'AI video', plays once and rests on its last frame, with keyboard focus on it and "Video ready"
@@ -973,8 +1022,8 @@ def run(base: str) -> None:
             # value in degrees) without moving on to another outfit; "Play again" plays it from the start; "Show
             # picture" brings back the picture and its dots. Reloaded, playing it again is free. The customer's one
             # video a day is then used: another outfit says "No videos left today: more tomorrow", which a screen reader
-            # hears with its only button, Close. Nothing below the picture's line and scenes moves at any point. On a
-            # short phone, where the line and the scenes are below the tab bar, the page goes up as the offer opens,
+            # hears with its only button, Close. Nothing below the picture's line and small pictures moves at any point. On a
+            # short phone, where the line and the small pictures are below the tab bar, the page goes up as the offer opens,
             # so that the whole offer and the button with keyboard focus show above the tab bar: for a first offer, for
             # "No videos left today", and for a video that could not be made (said when the customer is still looking
             # at its picture; the page stays where it is when he has read on past it). Places are measured on the
@@ -992,7 +1041,7 @@ def run(base: str) -> None:
                         on_picture: !!pill && pill.left >= pic.left && pill.right <= pic.right && pill.top >= pic.top
                                     && pill.bottom <= pic.top + pic.height / 6 && pill.right > pic.left + pic.width * .8,
                         clear, words: slide.querySelector('.vid-pill') && slide.querySelector('.vid-pill').textContent.trim(),
-                        scenes: box(slide.querySelector('.scenes')).top, scenes_end: box(slide.querySelector('.scenes')).bottom,
+                        scenes: box(slide.querySelector('.shots')).top, scenes_end: box(slide.querySelector('.shots')).bottom,
                         title: box(slide.querySelector('.about-head')).top}; }"""
             offer_place = """s => { const slide = document.querySelector(s); """ + on_page + """
                 const tabs = document.querySelector('nav.tabs');
@@ -1006,7 +1055,7 @@ def run(base: str) -> None:
                         under: Math.abs(o.top - p.bottom) < 1, height: o.height, end: o.bottom, page: document.documentElement.scrollWidth,
                         side_by_side: buttons.length === 2 && Math.abs(buttons[0].top - buttons[1].top) < 1,
                         whole: words.scrollWidth <= words.clientWidth + 1 && o.left >= 0 && o.right <= innerWidth,
-                        instead: [...slide.querySelectorAll('.look > .look-line, .look > .scenes')].every(el => !el.getClientRects().length),
+                        instead: [...slide.querySelectorAll('.look > .look-line, .look > .shots')].every(el => !el.getClientRects().length),
                         title: box(slide.querySelector('.about-head')).top,
                         shows: shows(form) && [...form.querySelectorAll('button')].every(shows),
                         focus: form.contains(focused) ? focused.textContent.trim() : null, focus_shows: shows(focused),
@@ -1023,7 +1072,7 @@ def run(base: str) -> None:
             # the piece page's step): the walk-through waits for that, as a person always does.
             settled = "() => !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling')"
             # On phones from 320 to 390px, light and dark, the offer covers none of the picture: its words on two lines at
-            # most, whole, and its two buttons side by side, in the room of the picture's line and the scenes. All of it
+            # most, whole, and its two buttons side by side, in the room of the picture's line and the small pictures. All of it
             # shows above the tab bar once the page has come to rest (where less motion is asked for too: 375 x 667), the
             # button with keyboard focus too.
             for width, height, scheme in ((320, 568, "light"), (360, 740, "light"), (375, 667, "dark"), (390, 664, "light"),
@@ -1045,7 +1094,7 @@ def run(base: str) -> None:
                 assert placed["covers"] == 0 and placed["under"] and placed["side_by_side"] and placed["instead"] \
                     and placed["whole"] and placed["page"] <= width, f"{where}: the offer does not fit under the picture: {placed}"
                 assert placed["end"] <= shut["scenes_end"] + 0.5 and placed["title"] == shut["title"], \
-                    f"{where}: the offer took more room than the line and the scenes: {placed}, {shut}"
+                    f"{where}: the offer took more room than the line and the small pictures: {placed}, {shut}"
                 assert placed["shows"], f"{where}: after the tap the offer, or one of its buttons, is under the tab bar: {placed}"
                 assert placed["focus"] == "Make the video" and placed["focus_shows"], \
                     f"{where}: keyboard focus is not on 'Make the video' where it can be seen: {placed}"
@@ -1106,9 +1155,9 @@ def run(base: str) -> None:
             assert "1 video left today" in offer and "Make the video" in offer, f"the offer says {offer!r}"
             placed = page.evaluate(offer_place, first)
             assert placed["covers"] == 0 and placed["under"] and placed["side_by_side"] and placed["instead"], \
-                f"the offer is not under the picture, its two buttons side by side, in place of the line and the scenes: {placed}"
+                f"the offer is not under the picture, its two buttons side by side, in place of the line and the small pictures: {placed}"
             assert placed["end"] <= before["scenes_end"] + 0.5 and placed["title"] == before["title"], \
-                f"the offer took more room than the line and the scenes, and what is under them moved: {placed}, {before}"
+                f"the offer took more room than the line and the small pictures, and what is under them moved: {placed}, {before}"
             assert page.evaluate("() => document.activeElement.textContent.trim()") == "Make the video", \
                 "keyboard focus is not on 'Make the video'"
             assert made == [], "a video was made before 'Make the video' was pressed"
@@ -1143,7 +1192,8 @@ def run(base: str) -> None:
             assert seen["focus"] == "slider" and seen["heard"] == "Video ready", f"focus or what is heard: {seen}"
             assert abs(seen["line_end"] - before["scenes_end"]) < 1 and seen["title"] == before["title"], \
                 f"something under the picture moved: {before} -> {seen}"
-            assert len(made) == 1 and made[0] == looks.load_rules()["videos"]["text"], "the video was not asked for once, in the set words"
+            assert len(made) == 1 and made[0] == videos.clip_of("front").text and made_from[0][1] == 8, \
+                "the video was not asked for once, in the front picture's words (the 8-second turn)"
             page.wait_for_function("s => document.querySelector(s + ' .vid-clip').ended", arg=first, timeout=20000)
             rest = page.evaluate("s => { const v = document.querySelector(s + ' .vid-clip'); return v.duration - v.currentTime; }", first)
             assert rest < 0.2, f"it does not rest on its last frame ({rest:.2f} s before the end)"
@@ -1192,7 +1242,7 @@ def run(base: str) -> None:
                 f"with the day's video used, another outfit offers {used!r}"
             placed = page.evaluate(offer_place, second)
             assert placed["covers"] == 0 and placed["under"] and placed["instead"] and placed["whole"], \
-                f"'No videos left today' is not said under the picture, in place of the line and the scenes: {placed}"
+                f"'No videos left today' is not said under the picture, in place of the line and the small pictures: {placed}"
             heard = page.evaluate("""() => { const button = document.activeElement;
                 const words = (button.getAttribute('aria-describedby') || '').split(' ').map(id => document.getElementById(id));
                 return {button: button.textContent.trim(), described: words.map(w => w ? w.textContent : '').join(' ')}; }""")
@@ -1253,6 +1303,94 @@ def run(base: str) -> None:
                     if touch:
                         assert still["line_end"] <= still["tabs"], f"{where}: the outfit's line ends under the tab bar: {still}"
                     context.close()
+
+        def see_it_move_from_the_picture_showing():
+            # "See it move" starts from whichever of the outfit's pictures is showing. With the Café picture large, the
+            # offer names it ("AI video of the Café picture, 5 seconds: he moves naturally.") and says what is left today; the clip is
+            # made from exactly that stored picture, with the café's own movement, 5 seconds long; it plays muted over
+            # the café picture and is not a slider (only the front picture's turn is dragged round). Each picture
+            # keeps its own clip: back on Front, the turn made earlier plays again; on Café, the café's; nothing is
+            # made or counted again.
+            with db.connect() as con:                       # a new day: the customer's one video is his again
+                con.execute("DELETE FROM video_requests")
+            page.goto(base + "/outfits", wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            row = f"{first} .shots"
+            before = len(made)
+
+            def show(name):
+                page.click(f"{row} button[id$='-{name}']")
+                page.wait_for_function("([s, name]) => { const b = document.querySelector(s + ` button[id$='-${name}']`);"
+                                       " return b && b.getAttribute('aria-pressed') === 'true'"
+                                       " && !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling'); }",
+                                       arg=[row, name])
+                page.wait_for_function("s => { const i = document.querySelector(s + ' .look-pic img'); return i && i.complete; }",
+                                       arg=first)
+
+            show("cafe")
+            picture = page.get_attribute(f"{first} .look-pic.more img", "src")
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid-bar.ask")
+            offer = " ".join(page.inner_text(f"{first} .vid-bar.ask").split())
+            assert offer.startswith("AI video of the Café picture, 5 seconds: he moves naturally. 1 video left today."), \
+                f"on the Café picture the offer says {offer!r}"
+            assert len(made) == before, "opening the offer made a video"
+            page.locator(f"{first} .vid-bar.ask button.btn").press("Enter")           # Make the video
+            page.wait_for_selector(f"{first} .vid.on", timeout=20000)
+            assert len(made) == before + 1 and made[-1] == videos.clip_of("cafe").text and "lifts the cup" in made[-1], \
+                f"the Café picture's video was not asked for in the café's words: {made[before:]}"
+            sent, seconds = made_from[-1]
+            stored = looks.folder() / picture.rsplit("/", 1)[-1]
+            assert sent == stored.read_bytes() and seconds == 5, \
+                f"the clip was not made from the picture showing ({stored.name}), 5 seconds long: {len(sent)} bytes, {seconds} s"
+            page.wait_for_function("s => { const v = document.querySelector(s + ' .vid-clip'); return v.currentTime > 0.3; }",
+                                   arg=first, timeout=20000)
+            seen = page.evaluate("""s => { const slide = document.querySelector(s), v = slide.querySelector('.vid-clip'),
+                turn = slide.querySelector('.vid-turn');
+                return {muted: v.muted, poster: v.getAttribute('poster'), src: v.getAttribute('src'), role: turn.getAttribute('role'),
+                        label: turn.getAttribute('aria-label'), cursor: getComputedStyle(turn).cursor,
+                        ground: getComputedStyle(slide.querySelector('.vid-box')).backgroundColor,
+                        focus: document.activeElement === turn, drag: !!slide.querySelector('.vid-drag'),
+                        line: slide.querySelector('.vid-line').innerText.replace(/\\s+/g, ' ').trim()}; }""", first)
+            assert seen["muted"] and seen["poster"] == picture, f"the café's clip is not muted over the café picture: {seen}"
+            assert seen["role"] == "group" and not seen["drag"] and seen["cursor"] != "grab" and "Café picture, 5 seconds" in seen["label"], \
+                f"a clip that only plays is offered as something to drag round: {seen}"
+            assert seen["ground"] not in ("rgba(0, 0, 0, 0)", "transparent"), \
+                f"beside the café's clip the still picture shows through, a seam once he moves: {seen}"
+            assert re.fullmatch(r"Look and fit will differ( on the real pieces)?\. Café, moving Play again Show picture", seen["line"]), \
+                f"under the café's clip: {seen['line']!r}"
+            cafe_clip = seen["src"]
+            page.wait_for_function("s => document.querySelector(s + ' .vid-clip').ended", arg=first, timeout=20000)
+            turn = page.locator(f"{first} .vid-turn").bounding_box()
+            page.mouse.move(turn["x"] + 20, turn["y"] + turn["height"] / 2)
+            page.mouse.down()
+            page.mouse.move(turn["x"] + turn["width"] / 2, turn["y"] + turn["height"] / 2, steps=5)
+            page.mouse.up()
+            rest = page.evaluate("s => { const v = document.querySelector(s + ' .vid-clip'); return v.duration - v.currentTime; }", first)
+            assert rest < 0.2 and page.get_attribute(f"{first} .vid-turn", "aria-valuenow") is None, \
+                f"dragging across a clip that only plays moved it ({rest:.2f} s before its end)"
+            page.click(f"{first} [data-vid-close]")
+
+            show("front")                                   # the front picture has its own clip, made earlier: the turn
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid.on[data-turns] .vid-turn[role=slider]")
+            front_clip = page.get_attribute(f"{first} .vid-clip", "src")
+            assert front_clip != cafe_clip, "the front picture shows the café's clip"
+            page.click(f"{first} [data-vid-close]")
+            show("cafe")                                    # … and the café's is kept with the café picture
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid.on:not([data-turns])")
+            assert page.get_attribute(f"{first} .vid-clip", "src") == cafe_clip, "the café picture lost its clip"
+            page.click(f"{first} [data-vid-close]")
+            show("street")                                  # a picture without a clip: the day's video is used
+            page.click(f"{first} .vid-pill")
+            page.wait_for_selector(f"{first} .vid-bar.ask")
+            used = " ".join(page.inner_text(f"{first} .vid-bar.ask").split())
+            assert used.startswith("AI video of the Street picture, 5 seconds") and "No videos left today: more tomorrow" in used \
+                and "Make the video" not in used, f"with the day's video used, the Street picture offers {used!r}"
+            assert len(made) == before + 1, "looking at clips that are kept made another"
+            page.goto(base + "/outfits", wait_until="networkidle")     # the next steps start from the front picture
+            page.wait_for_selector(f"{first} .look-pic img")
 
         def the_dots_small_and_there_when_pointed_at():
             # The dots on the AI picture, one per piece. They are small (at most 18px across, ring and all), yet a tap
@@ -2434,6 +2572,101 @@ def run(base: str) -> None:
             page.wait_for_load_state("networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             assert len(asked) > before and "in his thirties" in asked[-1]["prompt"], "the new model was not drawn"
+
+        def the_body_reaches_the_pictures():
+            # The body on Profile (height, weight, chest, waist under Sizes) is what the AI pictures are asked for, in
+            # words and never as numbers; the drawn figure takes the same build as it is typed, and is called a sketch.
+            # A new body draws new pictures; back at the old body, the old pictures are there again without drawing.
+            # (The customer of a_pieces_words_tidy_at_320, who has only looked at his wardrobe and list: his Profile
+            # still holds the example's values, nobody else's Profile changes, and no sign-up is used up, of which
+            # one address gets ten an hour.)
+            context = browser.new_context(viewport={"width": 1280, "height": 860})
+            try:
+                other = context.new_page()
+                other.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                         if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
+                other.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                other.goto(base + "/login", wait_until="networkidle")
+                other.fill("input[name=email]", "words-" + EMAIL)
+                other.fill("input[name=password]", PASSWORD)
+                other.click("button:has-text('Log in')")
+                other.wait_for_url(base + "/outfits")
+                other.wait_for_selector(f"{first} .look-pic img")
+                old_picture = other.get_attribute(f"{first} .look-pic img", "src")
+
+                other.goto(base + "/profile", wait_until="networkidle")
+                figure_words = other.locator("[data-figure-words]")
+                expect(figure_words).to_have_text("180 cm, any build, any skin tone, any hair")
+                note = other.locator("[data-figure-note]")
+                expect(note).to_be_visible()
+                assert note.inner_text() == "This is a sketch. The AI pictures on Outfits follow the same body.", \
+                    f"under the figure: {note.inner_text()!r}"
+                box = other.evaluate("""() => { const n = document.querySelector('[data-figure-note]').getBoundingClientRect(),
+                    w = document.querySelector('[data-figure-words]').getBoundingClientRect(),
+                    s = document.querySelector('.cc-stage').getBoundingClientRect();
+                    return {under: n.top > w.top + 10 && n.bottom > w.bottom, inside: n.bottom <= s.bottom + 1}; }""")
+                assert box == {"under": True, "inside": True}, f"the sketch note's place: {box}"
+                open_tab(other, "body")
+                said = other.locator("#model").inner_text()
+                assert "These words go to OpenAI with each picture" in said and "never as numbers" in said, \
+                    "the Body tab does not say what goes to the image service"
+                average = other.evaluate("document.querySelector('[data-figure] [data-part=tee]').getAttribute('d')")
+
+                open_tab(other, "sizes")
+                assert "They go to OpenAI with each picture as a few words about your body" in other.locator("#panel-sizes").inner_text(), \
+                    "the measurements do not say that they reach the image service as words"
+                other.fill("input[name=height_cm]", "172")
+                other.fill("input[name=weight_kg]", "95")
+                expect(figure_words).to_have_text("172 cm, heavy build, any skin tone, any hair")
+                other.wait_for_function(STILL)
+                other.wait_for_timeout(300)
+                heavy = other.evaluate("document.querySelector('[data-figure] [data-part=tee]').getAttribute('d')")
+                assert heavy != average, "the drawn figure did not take the build of the new weight"
+                before = len(asked)
+                other.click("button:has-text('Save profile')")
+                other.wait_for_url(base + "/outfits")
+                other.wait_for_load_state("networkidle")
+                assert "Your model now follows your new measurements" in " ".join(other.locator("main > .flash").all_inner_texts()), \
+                    "the save does not say that the pictures follow the new body"
+                other.wait_for_selector(f"{first} .look-pic img")
+                new_picture = other.get_attribute(f"{first} .look-pic img", "src")
+                assert new_picture != old_picture, "the new body shows the old body's picture"
+                sent = [one["prompt"].split("\n")[0] for one in asked[before:]]
+                assert sent, "no picture was asked for with the new body"
+                for line in sent:
+                    assert "an adult man (a little shorter than average, heavy build with a full stomach)" in line, \
+                        f"the picture was asked for as: {line[:200]!r}"
+                    assert "172" not in line and "95" not in line, "a measurement was sent as a number"
+
+                # The page drew the figure from the same rule as the server: after the save it says and draws the same.
+                other.goto(base + "/profile", wait_until="networkidle")
+                expect(figure_words).to_have_text("172 cm, heavy build, any skin tone, any hair")
+                assert other.evaluate("document.querySelector('[data-figure] [data-part=tee]').getAttribute('d')") == heavy, \
+                    "the server and the page draw different figures for the same body"
+                open_tab(other, "body")
+                assert "Described to the AI as: “an adult man (a little shorter than average, heavy build with a full stomach)”" \
+                    in other.locator("#model").inner_text(), "the words that are sent are not shown"
+                # A build chosen in the menu wins over the one worked out, in the figure at once.
+                other.locator('.pick input[name="build"][value="slim"]').check(force=True)
+                expect(figure_words).to_have_text("172 cm, slim build, any skin tone, any hair")
+                other.locator('.pick input[name="build"][value=""]').check(force=True)
+                expect(figure_words).to_have_text("172 cm, heavy build, any skin tone, any hair")
+
+                # Back to the body he had: the picture he had, and nothing is drawn again.
+                open_tab(other, "sizes")
+                other.fill("input[name=height_cm]", "180")
+                other.fill("input[name=weight_kg]", "78")
+                expect(figure_words).to_have_text("180 cm, any build, any skin tone, any hair")
+                before = len(asked)
+                other.click("button:has-text('Save profile')")
+                other.wait_for_load_state("networkidle")
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.wait_for_selector(f"{first} .look-pic img")
+                assert other.get_attribute(f"{first} .look-pic img", "src") == old_picture, "the old body's picture is not back"
+                again = [one["prompt"] for one in asked[before:] if one in asked[:before]]
+                assert not again, "a picture he already had was drawn again"
+            finally:
+                context.close()
 
         def my_photo():
             chosen = "[data-photo-form] input[type=file]"
@@ -4496,9 +4729,10 @@ def run(base: str) -> None:
                  ("the picture of an outfit arrives by itself", picture_arrives),
                  ("the starter outfits fit three phones", starter_outfits_fit_a_phone),
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
-                 ("scenes: another drawn on a tap, the studio kept", scenes_for_the_picture),
-                 ("a scene tap: never undone, and without JavaScript", a_scene_tap_is_kept),
+                 ("more photos: five made from the front picture", more_photos_of_the_outfit),
+                 ("a small picture tapped: never undone, and without JavaScript", a_tap_on_a_small_picture_is_kept),
                  ("see it move: a video, played, dragged, limited", see_it_move),
+                 ("see it move from the picture showing: its own movement, one clip each", see_it_move_from_the_picture_showing),
                  ("the dots: small, there when pointed at", the_dots_small_and_there_when_pointed_at),
                  ("a touch on a computer shows the dots first", a_touch_on_a_computer_shows_the_dots_first),
                  ("Draw again keeps the picture until the new one", draw_again_keeps_the_picture),
@@ -4526,6 +4760,7 @@ def run(base: str) -> None:
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
                  ("the owner's store catalogues, owners only", owners_store_catalogues),
                  ("put a model together", my_model), ("upload a photo, then delete it", my_photo),
+                 ("the body on Profile reaches the pictures", the_body_reaches_the_pictures),
                  ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
                  ("Profile is a character screen", profile_is_a_character_screen),
                  ("the store picker: only the stores ticked", the_store_picker),
