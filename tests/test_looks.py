@@ -955,6 +955,65 @@ class Pictures(WithPictures, AppCase):
         self.assertEqual(len(self.drawn), 2)
         self.assertEqual(len(self.pictures_on_disk()), 1)
 
+    def test_while_draw_again_draws_the_picture_there_is_stays_under_the_band(self):
+        outfit = some_outfits(1)[0]
+        first = self.post("/outfits/look", key=outfit.key).data.decode()
+        earlier = re.search(r'src="(/looks/[^"]+)"', first).group(1)
+        drawing = self.being_drawn()
+        for shown in (self.post("/outfits/look", key=outfit.key, again="1").data.decode(),      # the answer to the tap
+                      self.client.get("/outfits").data.decode()):                               # and the page, reloaded
+            box = shown[shown.index(f'id="look-{outfit.key}"'):] if "<html" in shown else shown
+            box = box[:box.index("</form>")]                        # up to the end of the box's row of scenes
+            self.assertIn("Drawing this outfit on the model", box)
+            kept = re.search(r'<div class="look-pic kept">.*?</div>', box, re.S)
+            self.assertTrue(kept, "the picture there was is not under the band while the new one is drawn")
+            self.assertIn(f'src="{earlier}"', kept.group(0))
+            self.assertIn('<span class="ai-chip">AI picture</span>', kept.group(0))
+            self.assertNotIn("Draw again", box)                     # one drawing at a time
+        drawing.pop()()
+        done = self.client.get(f"/outfits/look/{look_key(outfit)}?outfit={outfit.key}&showing=drawing").data.decode()
+        self.assertNotIn("look-pic kept", done)
+        self.assertIn("Draw again", done)
+
+    def test_a_first_picture_being_drawn_has_no_picture_under_the_band(self):
+        self.being_drawn()
+        outfit = some_outfits(1)[0]
+        shown = self.post("/outfits/look", key=outfit.key).data.decode()
+        self.assertIn("Drawing this outfit on the model", shown)
+        self.assertNotIn("look-pic", shown)
+
+    def test_asked_how_the_drawing_is_going_nothing_is_sent_while_nothing_has_changed(self):
+        # The band asks every 3 seconds and says what it shows. While that is still true the answer is empty (204), so
+        # the page replaces nothing and nothing blinks; once it has changed, the answer is the box as it is now.
+        def asked(outfit, showing: str):
+            return self.client.get(f"/outfits/look/{look_key(outfit)}?outfit={outfit.key}&showing={showing}")
+
+        def band(html: str) -> str:
+            return re.search(r'<p class="look-bar band wait"[^>]*>', html).group(0)
+
+        first, second = some_outfits(2)
+        drawing = self.being_drawn()
+        shown = band(self.post("/outfits/look", key=first.key).data.decode())
+        self.assertIn('hx-trigger="every 3s"', shown)
+        self.assertIn("showing=drawing", shown)
+        self.assertEqual(asked(first, "drawing").status_code, 204)
+        self.assertEqual(asked(first, "drawing").data, b"")
+        self.assertEqual(asked(first, "line").status_code, 200)     # a page that still says "Waiting its turn"
+        # A page that does not say what it shows (an older one still open) gets the box, as before.
+        self.assertEqual(self.client.get(f"/outfits/look/{look_key(first)}?outfit={first.key}").status_code, 200)
+        drawing.pop()()                                             # drawn
+        done = asked(first, "drawing")
+        self.assertEqual(done.status_code, 200)
+        self.assertIn('<div class="look-pic">', done.data.decode())
+
+        waiting = self.in_line()                                    # both turns taken: the next one waits
+        self.assertIn("showing=line", band(self.post("/outfits/look", key=second.key).data.decode()))
+        self.assertEqual(asked(second, "line").status_code, 204)
+        self.assertEqual(asked(second, "drawing").status_code, 200)
+        self.assertIn("Waiting its turn", asked(second, "drawing").data.decode())
+        waiting.pop()()
+        self.assertIn('<div class="look-pic">', asked(second, "line").data.decode())
+
     def test_a_refusal_is_explained_and_can_be_tried_again(self):
         outfit = some_outfits(1)[0]
         self.refuse = imagegen.DrawError("busy", "OpenAI answered 503: overloaded")

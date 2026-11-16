@@ -206,7 +206,8 @@ if (reel) {
     const box = e.detail.target;
     if (!isBox(box)) return;
     const slide = box.closest('[data-slide]');
-    const ready = box.querySelector('.look-pic');
+    const shown = box.querySelector('.look-pic');
+    const ready = shown && !box.querySelector('.look-bar.wait');   // not the one kept while "Draw again" draws
     if (ready && slide === onScreen()) {
       const why = box.querySelector('.look-msg');
       say(why ? why.textContent.trim() : 'Picture ready');
@@ -218,7 +219,7 @@ if (reel) {
       delete box.dataset.focus;
       return;
     }
-    const dot = ready && [...slide.querySelectorAll('.spot')].find(visible);
+    const dot = shown && [...slide.querySelectorAll('.spot')].find(visible);
     if (dot) {
       dot.focus({ preventScroll: true });
       delete box.dataset.focus;
@@ -253,6 +254,36 @@ if (reel) {
       const other = twin(el);
       if (other) other.classList.toggle('lit', on);
     });
+  });
+
+  // 6e. A computer with a touch screen as well: the dots are out of sight until pointed at (app.css), and a finger
+  //     does not point. So a touch on the picture while its dots are out of sight only brings them out (.touched,
+  //     app.css), even when it lands on a dot nobody could see; the next touch on a dot opens the piece. They go
+  //     again with a touch or a click elsewhere, or once the mouse is moved over the outfits. On a phone the dots
+  //     are always there, and none of this happens.
+  let unseen = null;       // the dot under a touch that could not be seen: the click that follows opens nothing
+  document.addEventListener('pointerdown', (e) => {
+    unseen = null;
+    const stage = e.target instanceof Element && e.target.closest('#reel .stage');
+    const slide = stage && stage.closest('[data-slide]');
+    looks.querySelectorAll('.slide.touched').forEach((one) => {
+      if (one !== slide && !(e.target instanceof Element && one.contains(e.target.closest('.pieces')))) one.classList.remove('touched');
+    });
+    if (!slide || e.pointerType !== 'touch') return;
+    const dot = slide.querySelector('.spot');
+    if (!dot || !visible(dot) || Number(getComputedStyle(dot).opacity) >= 0.5) return;     // no dots, or in sight
+    slide.classList.add('touched');
+    unseen = e.target.closest('.spot');
+  }, true);
+  document.addEventListener('click', (e) => {
+    const dot = unseen;
+    unseen = null;
+    if (!dot || !(e.target instanceof Element) || e.target.closest('.spot') !== dot) return;
+    e.preventDefault();          // not the link to the piece's page …
+    e.stopPropagation();         // … nor the pop-up (HTMX listens on the dot itself)
+  }, true);
+  looks.addEventListener('pointerover', (e) => {
+    if (e.pointerType === 'mouse') looks.querySelectorAll('.slide.touched').forEach((one) => one.classList.remove('touched'));
   });
 
   // 7. AI pictures: an outfit that stays on screen for a moment has its picture drawn,
@@ -305,7 +336,8 @@ document.addEventListener('keydown', (e) => {
 //    ordinary link to the next product page not yet opened (_buy_groups.html): nothing can hold that back. Here
 //    each line whose page was opened, by the button or by its own link, is ticked; the button moves on to the next
 //    and says how many are open. The ticks are kept while this tab stays open (never sent anywhere), so they are
-//    still there after a look at another page. When every page was opened the button starts again at the first.
+//    still there after a look at another page. When every page was opened the button says "Start again": pressing
+//    it opens nothing and takes the ticks off, and the button offers the first page once more.
 const OPENED = 'stilsmith-opened-pages';
 let openedPages = new Set();
 try { openedPages = new Set(JSON.parse(sessionStorage.getItem(OPENED) || '[]')); } catch { /* private window: the ticks last until the page is left */ }
@@ -323,10 +355,14 @@ function showOpened() {
     const left = links.filter((link) => !openedPages.has(openedKey(link)));
     const done = links.length - left.length;
     const partly = done > 0 && left.length > 0;
+    const all = left.length === 0;
     button.href = (left[0] || links[0]).href;
-    button.querySelector('[data-open-label]').textContent = partly
-      ? `Open the next at ${button.dataset.store}` : `Open the first of ${links.length} at ${button.dataset.store}`;
-    const status = partly ? `${done} of ${links.length} opened. Each tap opens one more.` : done ? `All ${links.length} opened.` : '';
+    button.toggleAttribute('data-start-again', all);      // it opens nothing then (noteOpened): no arrow, no "(opens in a new tab)" (app.css)
+    if (all) button.setAttribute('role', 'button');
+    else button.removeAttribute('role');
+    button.querySelector('[data-open-label]').textContent = all ? 'Start again'
+      : partly ? `Open the next at ${button.dataset.store}` : `Open the first of ${links.length} at ${button.dataset.store}`;
+    const status = partly ? `${done} of ${links.length} opened. Each press opens one more.` : all ? `All ${links.length} opened.` : '';
     const says = section.querySelector('[data-open-status]');
     if (says.textContent !== status) says.textContent = status;      // said once by a screen reader, not on every look
   });
@@ -338,18 +374,24 @@ function noteOpened(e) {
   if (tapped.matches('[data-open-next]')) {       // the button stands for the first line not yet opened
     const links = storeLinks(tapped.closest('.store-list'));
     link = links.find((one) => !openedPages.has(openedKey(one)));
-    if (!link) {                                   // every page was opened: again from the first
+    if (!link) {                                   // every page was opened, and it says "Start again": the ticks
+      e.preventDefault();                          // go, and no page is opened by this press
       links.forEach((one) => openedPages.delete(openedKey(one)));
-      link = links[0];
     }
   }
-  openedPages.add(openedKey(link));
+  if (link) openedPages.add(openedKey(link));
   try { sessionStorage.setItem(OPENED, JSON.stringify([...openedPages])); } catch { /* as above */ }
   // Shown after the browser has followed the link: moving the button's address on now would send this tap to the next page.
   setTimeout(showOpened, 0);
 }
 document.addEventListener('click', noteOpened);
 document.addEventListener('auxclick', noteOpened);      // a middle click opens a tab too
+document.addEventListener('keydown', (e) => {           // "Start again" is a button: Space presses it, as Enter does
+  const again = e.key === ' ' && e.target instanceof Element && e.target.closest('a[data-start-again]');
+  if (!again || e.altKey || e.ctrlKey || e.metaKey) return;
+  e.preventDefault();
+  if (!e.repeat) again.click();
+});
 showOpened();
 document.body.addEventListener('htmx:afterSwap', showOpened);
 
@@ -1138,7 +1180,13 @@ if (swatchGrid) {
     delete box.lookWas;
     const pic = box.querySelector('.look-pic');
     const img = pic && pic.querySelector('img');
-    if (!img || (was && was.src === img.src)) return;
+    if (!img) return;
+    if (was && was.src === img.src) {
+      // The same picture again (kept under the band while "Draw again" draws, or a new version refused): the picture
+      // that was on screen goes straight back in, so that not one frame is without it.
+      img.replaceWith(was);
+      return;
+    }
     develop(pic, was);
   });
   const row = document.getElementById('reel');

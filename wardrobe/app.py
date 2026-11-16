@@ -1021,6 +1021,10 @@ def create_app() -> Flask:
         look = looks.get(look_key) if re.fullmatch(r"[0-9a-f]{24}", look_key) else None
         if look is None:
             abort(404)
+        # The band on the page says what it shows now ("drawing", or "line" while it waits its turn). While that
+        # is still so there is nothing new to show: no content, and the page leaves the box as it is (no blink).
+        if look.status == "working" and request.args.get("showing") == ("line" if look.message else "drawing"):
+            return "", 204
         outfit_key = request.args.get("outfit", "")
         return look_fragment(outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else "", look,
                              looks.scene_named(request.args.get("scene")))

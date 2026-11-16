@@ -557,6 +557,9 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
    the studio grey), in fixed colours because the picture is light in dark mode too. Only the dots go on it besides. */
 .look-pic { position: absolute; top: 0; left: 0; width: 100%; transition: opacity .2s ease-out; }
 .look-pic.htmx-added { opacity: 0; }
+/* The picture kept under the band while "Draw again" draws the new one (_look.html): it was there already, so it
+   does not fade in. */
+.look-pic.kept, .look-pic.kept.htmx-added { opacity: 1; transition: none; }
 .look-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .ai-chip {
   position: absolute; left: var(--s-2); bottom: var(--s-2); padding: var(--s-1) var(--s-2); border-radius: var(--r-pill);
@@ -717,7 +720,8 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
    round it to tap (::after).
    With a mouse (hover: hover) they are out of sight until the pointer is over the picture or over the list of
    pieces beside it, or the keyboard is on something in either; then all of the outfit's dots show. On a touch
-   screen there is no pointing, so they are always there, small.
+   screen there is no pointing, so they are always there, small. On a computer that has a touch screen too, a
+   touch on the picture brings them out (.touched, app.js 6e) before a touch on one opens its piece.
    A dot and its line in the list are one piece: pointing at one (or reaching it by keyboard) marks the other
    (.lit, app.js 6d): the dot gets a pale ring, the line the same ground as when it is pointed at. */
 .spots { display: none; position: absolute; top: 0; left: 0; width: 100%; aspect-ratio: 2 / 3; pointer-events: none; }
@@ -741,11 +745,13 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 @media (hover: hover) {
   .spot { opacity: 0; }
   .slide:has(.stage:hover, .pieces:hover, :is(.stage, .pieces) :focus-visible) .spot, .spot.lit { opacity: 1; }
+  .slide.touched .spot { opacity: 1; }
 }
 .spot .tip {
   display: none; position: absolute; left: 50%; bottom: calc(100% + 11px); transform: translateX(-50%);
   padding: 5px 9px; border-radius: var(--r-ui); background: #1b1b1a; color: #fff;
   font-size: var(--t-s); line-height: var(--lh-s); text-align: left; white-space: nowrap;
+  pointer-events: none;    /* a label may lie over the dot above it: the pointer goes through it to that dot */
 }
 .spot .tip b { display: block; font-weight: 500; }
 .spot:hover .tip, .spot:focus-visible .tip { display: block; }
@@ -1087,6 +1093,7 @@ details[open] > summary .edit { visibility: hidden; }
 .check input { flex: none; }
 .check span { flex: 1; min-width: 0; }
 .open-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
+.open-all [data-start-again] :is(.ic, .sr) { display: none; }   /* "Start again" opens no tab (app.js, 9) */
 .open-status { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .buy-opened { display: flex; align-items: center; gap: 4px; font-size: var(--t-s); line-height: var(--lh-s); color: var(--good); }
 .buy-opened[hidden] { display: none; }
@@ -1400,7 +1407,7 @@ details[open] > summary .edit { visibility: hidden; }
   /* While a picture or a video is made, a light sweeps over the pieces' photos (or the picture) under the band that
      says so: something is happening, without a word more. */
   .stage:has(.look-bar.wait) .collage { position: relative; }
-  .stage:has(.look-bar.wait) .collage::after, .look:has(.vid-bar.wait) .look-pic::after {
+  .stage:has(.look-bar.wait) .collage::after, .look:has(.vid-bar.wait, .look-bar.wait) .look-pic::after {
     content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
     background: linear-gradient(100deg, transparent 35%, var(--sheen) 50%, transparent 65%) 0 0 / 300% 100% no-repeat;
     animation: sheen var(--dur-loop) var(--ease-move) infinite;

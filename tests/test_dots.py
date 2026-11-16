@@ -45,6 +45,19 @@ class TheDots(unittest.TestCase):
         # Nowhere else are they hidden at rest: on a touch screen they are always there.
         self.assertEqual(CSS.count(".spot { opacity: 0; }"), 1)
 
+    def test_a_dots_label_lets_the_pointer_through_to_the_dot_under_it(self):
+        self.assertIn("pointer-events: none", rule(".spot .tip"))
+
+    def test_on_a_computer_with_a_touch_screen_a_touch_brings_the_dots_out_first(self):
+        start = CSS.index("@media (hover: hover) {\n  .spot { opacity: 0; }")
+        self.assertIn(".slide.touched .spot { opacity: 1; }", CSS[start:CSS.index("\n}", start)])
+        self.assertIn("slide.classList.add('touched')", JS)
+        self.assertIn("e.pointerType !== 'touch'", JS)
+
+    def test_a_picture_kept_while_a_new_one_is_drawn_does_not_fade_in_again(self):
+        self.assertIn("opacity: 1", rule(".look-pic.kept, .look-pic.kept.htmx-added"))
+        self.assertIn("img.replaceWith(was)", JS)
+
     def test_a_dot_and_its_line_in_the_list_mark_each_other(self):
         self.assertIn(".piece-row.lit", CSS)
         self.assertIn(".spot.lit", CSS)

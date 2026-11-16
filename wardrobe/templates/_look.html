@@ -40,7 +40,17 @@
 {% endset %}
 {% set scene_label = dict(scenes or []).get(scene, '') if scene != 'studio' else '' %}
 {% if look and look.status == 'working' %}
-<p class="look-bar band wait" hx-get="{{ url_for('outfits_look_state', look_key=look.key, outfit=key, scene=scene if scene != 'studio' else None) }}" hx-trigger="load delay:3s" hx-sync="closest .look:abort">
+{# "Draw again": the picture there is stays (and so do its dots) under the band until the new one has arrived.
+   `kept`: it does not fade in, it was there already. #}
+{% if look.file %}
+<div class="look-pic kept">
+  <img src="{{ url_for('look_image', name=look.file) }}" alt="AI-generated picture of a model wearing this outfit{{ ', in the ' ~ scene_label ~ ' scene' if scene_label }}" width="848" height="1264" decoding="sync">
+  <span class="ai-chip">AI picture</span>
+</div>
+{% endif %}
+{# The band asks every 3 seconds how the drawing is going, and says what it shows now (`showing`). While that is
+   still true the server answers with nothing (204), so nothing on the page is replaced and nothing blinks. #}
+<p class="look-bar band wait" hx-get="{{ url_for('outfits_look_state', look_key=look.key, outfit=key, scene=scene if scene != 'studio' else None, showing='line' if look.message else 'drawing') }}" hx-trigger="every 3s" hx-sync="closest .look:abort">
   <span class="spin" aria-hidden="true"></span>
   <span>{{ look.message or 'Drawing this outfit on the model · about 20 seconds' }}</span>
 </p>

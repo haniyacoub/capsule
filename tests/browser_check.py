@@ -113,11 +113,12 @@ def picture(width: int = 240, height: int = 360, tint: tuple[int, int, int] = (1
 
 
 asked: list[dict] = []      # what the "image service" was asked to draw
+slow: list[float] = []      # how many seconds the next drawing is to take instead (draw_again_keeps_the_picture)
 
 
 def stand_in(service, prompt, photo=None):
     asked.append({"prompt": prompt, "photo": photo})
-    time.sleep(1.5)         # long enough for the page to show that it is waiting
+    time.sleep(slow.pop() if slow else 1.5)         # long enough for the page to show that it is waiting
     return picture(tint=(90, 120, 170) if photo else (120, 124, 130)), "png"
 
 
@@ -1298,6 +1299,14 @@ def run(base: str) -> None:
             lit = page.evaluate("s => [...document.querySelectorAll(s + ' .piece-row')].map(r => r.classList.contains('lit'))", first)
             assert lit == [i == 0 for i in range(len(lit))], f"pointing at the first dot marks these lines of the list: {lit}"
             assert not any(d["lit"] for d in page.evaluate(dots, first)), "a dot stays marked after the pointer has left its line"
+            # The dot's label (the piece, its store and price) stands over the picture above the dot, where another
+            # dot may be: the pointer goes through the label to what is under it.
+            through = page.evaluate("""s => { const tip = document.querySelector(s + ' .spot:hover .tip');
+                if (!tip || !tip.getClientRects().length) return null;
+                const b = tip.getBoundingClientRect(), under = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+                return !(under && under.closest('.tip')); }""", first)
+            assert through is not None, "pointing at a dot shows no label"
+            assert through, "a dot's label takes the pointer itself: a dot the label lies over cannot be reached with the mouse"
             page.mouse.move(2, 2)
             page.focus(f"{first} .pieces li:nth-child(1) .piece-row")
             page.keyboard.press("Tab")                                   # by keyboard, onto the second piece
@@ -1331,6 +1340,117 @@ def run(base: str) -> None:
                 assert all(d["seen"] == 1 for d in found), f"on a phone, where nothing can be pointed at, the dots do not show: {found}"
             finally:
                 context.close()
+
+        def a_touch_on_a_computer_shows_the_dots_first():
+            # A computer with a mouse and a touch screen: the dots are out of sight until pointed at, and a finger does
+            # not point. A touch on a dot nobody can see must not open its piece: it brings the dots out, and the next
+            # touch on a dot opens the piece. A touch on the picture beside the dots brings them out too; a touch
+            # elsewhere on the page puts them away again. (The test browser with a touch screen switched on says it
+            # has no mouse at all, like a phone; so this is the computer's browser as it is, touched for real.)
+            context, other = logged_in_on(browser, viewport={"width": 1280, "height": 860})
+            finger = context.new_cdp_session(other)
+
+            def touch(x: float, y: float) -> None:
+                finger.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+                finger.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+
+            try:
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.wait_for_selector(f"{first} .look-pic img")
+                other.wait_for_function("s => document.querySelector(s).complete", arg=f"{first} .look-pic img")
+                motion_ended(other)
+                assert other.evaluate("() => matchMedia('(hover: hover)').matches"), \
+                    "this browser has no pointer to hover with: the step checks nothing"
+                seen = "s => [...document.querySelectorAll(s + ' .spot')].map(d => +getComputedStyle(d).opacity)"
+                popup = "() => document.querySelector('dialog#piece').open"
+                at = other.evaluate("s => { const b = document.querySelector(s + ' .spot').getBoundingClientRect();"
+                                    " return [b.x + b.width / 2, b.y + b.height / 2]; }", first)
+                beside = other.evaluate("s => { const b = document.querySelector(s + ' .look-pic').getBoundingClientRect();"
+                                        " return [b.x + 20, b.y + 80]; }", first)
+                away = other.evaluate("s => { const b = document.querySelector(s + ' .about-head h2').getBoundingClientRect();"
+                                      " return [b.x + 4, b.y + b.height / 2]; }", first)
+                assert not any(other.evaluate(seen, first)), "the dots show before anything was touched or pointed at"
+                for where, spot in (("on a dot that is out of sight", at), ("on the picture", beside)):
+                    touch(*spot)
+                    other.wait_for_timeout(500)
+                    assert not other.evaluate(popup), f"a first touch {where} opened a piece, on a dot nobody could see"
+                    motion_ended(other)
+                    shown = other.evaluate(seen, first)
+                    assert shown and all(one == 1 for one in shown), f"after a touch {where} the dots do not show: {shown}"
+                    touch(*at)                                       # now that it can be seen, a touch on a dot opens it
+                    other.wait_for_selector("dialog#piece[open]")
+                    motion_ended(other)
+                    touch(*other.evaluate("() => { const b = document.querySelector('dialog#piece [data-close]').getBoundingClientRect();"
+                                          " return [b.x + b.width / 2, b.y + b.height / 2]; }"))
+                    other.wait_for_function(f"() => !({popup})()")
+                    motion_ended(other)
+                    touch(*away)
+                    other.wait_for_function(f"s => !({seen})(s).some(Boolean)", arg=first, timeout=3000)
+            finally:
+                context.close()
+
+        def draw_again_keeps_the_picture():
+            # "Draw again" takes about 20 seconds (8 here). Until the new picture has arrived, the one that was there
+            # stays under the band "Drawing this outfit…", with its dots: not the pieces' photos again. The band asks
+            # every 3 seconds how it is going, and the picture must not be put in anew each time (a blink): it is one
+            # and the same picture, in every frame, until the new one comes up over it.
+            page.goto(base + "/outfits", wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            page.wait_for_function("s => document.querySelector(s).complete", arg=f"{first} .look-pic img")
+            motion_ended(page)
+            earlier = page.get_attribute(f"{first} .look-pic img", "src")
+            answers: list[int] = []
+
+            def note(response) -> None:
+                if "/outfits/look/" in response.url:
+                    answers.append(response.status)
+
+            page.on("response", note)
+            slow.append(8.0)
+            page.evaluate("""s => { const stage = document.querySelector(s + ' .stage'), pictures = new Set();
+                window.again = {frames: 0, gone: 0, drawing: 0, pictures: 0, dotless: 0, stop: false};
+                const look = () => {
+                    const pic = stage.querySelector('.look-pic'), img = pic && pic.querySelector('img');
+                    const whole = !!(img && img.complete && img.naturalWidth) && +getComputedStyle(pic).opacity > 0.98;
+                    window.again.frames += 1;
+                    if (!whole && !stage.querySelector('.look-was')) window.again.gone += 1;
+                    if (stage.querySelector('.look-bar.wait')) {
+                        window.again.drawing += 1;
+                        if (img) pictures.add(img);
+                        window.again.pictures = pictures.size;
+                        if (getComputedStyle(stage.querySelector('.spots')).display === 'none') window.again.dotless += 1;
+                    }
+                    if (!window.again.stop) requestAnimationFrame(look);
+                };
+                requestAnimationFrame(look); }""", first)
+            page.click(f"{first} .look-line button:has-text('Draw again')")
+            page.wait_for_selector(f"{first} .look-bar.wait")
+            kept = page.evaluate("s => { const i = document.querySelector(s + ' .look-pic img'); return i && i.getAttribute('src'); }", first)
+            assert kept == earlier, "while 'Draw again' draws, the picture that was there is gone: the pieces' photos show under the band"
+            page.hover(f"{first} .stage", position={"x": 20, "y": 200})
+            motion_ended(page)
+            dots_seen = page.evaluate("s => [...document.querySelectorAll(s + ' .spot')].map(d => d.getClientRects().length && +getComputedStyle(d).opacity)", first)
+            assert dots_seen and all(one == 1 for one in dots_seen), f"while 'Draw again' draws, the kept picture has no dots when pointed at: {dots_seen}"
+            page.mouse.move(2, 2)
+            page.wait_for_function("([s, old]) => { const i = document.querySelector(s + ' .look-pic img');"
+                                   " return i && i.getAttribute('src') !== old && i.complete && !document.querySelector(s + ' .look-bar.wait'); }",
+                                   arg=[first, earlier], timeout=25000)
+            motion_ended(page)
+            page.wait_for_timeout(100)
+            watched = page.evaluate("() => { window.again.stop = true; return window.again; }")
+            page.remove_listener("response", note)
+            assert watched["drawing"] > 100, f"the drawing was not watched for long enough to see a refresh: {watched}"
+            assert watched["gone"] == 0, f"during 'Draw again' the box was without a whole picture for {watched['gone']} of {watched['frames']} frames"
+            assert watched["dotless"] == 0, f"during 'Draw again' the dots were taken away for {watched['dotless']} frames"
+            assert answers.count(204) >= 2 and answers[-1] == 200, f"the band did not ask at least twice while drawing, then get the picture: {answers}"
+            assert watched["pictures"] == 1, \
+                f"while drawing, the kept picture was put into the page {watched['pictures']} times: it blinks each time the band asks how it is going"
+            assert set(answers[:-1]) == {204}, f"while nothing had changed the server sent the box again, to be replaced: {answers}"
+            assert page.locator(f"{first} .look-line button:has-text('Draw again')").count() == 1, "no 'Draw again' under the new picture"
+            # This step's drawing is not to count towards the customer's ten pictures a day: the steps after it need them.
+            from wardrobe import db
+            with db.connect() as con:
+                con.execute("DELETE FROM look_requests WHERE id = (SELECT MAX(id) FROM look_requests)")
 
         def dot_opens_the_piece():
             spot = page.locator(f"{first} .spot").nth(0)
@@ -2192,6 +2312,11 @@ def run(base: str) -> None:
                 second = other.evaluate("() => { const one = window.open('about:blank'); const two = window.open('about:blank');"
                                         " if (one) one.close(); return Boolean(two); }")
                 assert not second, "this browser lets a page open two tabs at once: the step proves nothing"
+                # Said first, so that a failure here names its cause rather than a button waited for in vain.
+                assert other.locator(".store-list [data-open-next]").count(), \
+                    "no store has a button that opens its pages one by one: the page still opens them all in one tap (" \
+                    + (other.locator(".open-all").first.inner_text().strip() if other.locator(".open-all").count() else "no button at all") \
+                    + "), which a browser's pop-up blocker cuts down to the first page"
                 store = other.locator(".store-list").filter(has=other.locator("[data-open-next]")).first
                 button = store.locator("[data-open-next]")
                 name = button.get_attribute("data-store")
@@ -2221,9 +2346,15 @@ def run(base: str) -> None:
                     said = store.locator("[data-open-status]").inner_text()
                     if number < total:
                         assert f"{number} of {total} opened" in said, f"after tap {number} it says '{said}'"
+                        # Said for a finger and for a mouse alike: neither "tap" nor "click".
+                        assert "Each press opens one more" in said and not re.search(r"\b(tap|click)", said, re.I), \
+                            f"after tap {number} it says '{said}': not 'Each press opens one more', which fits a finger and a mouse"
                         assert button.inner_text().strip().startswith(f"Open the next at {name}"), "the button does not offer the next"
                     else:
                         assert f"All {total} opened" in said, f"after the last tap it says '{said}'"
+                        # Nothing is left to open: the button says what it does now, and names no new tab.
+                        assert button.inner_text().strip() == "Start again", \
+                            f"after all {total} were opened the button says '{button.inner_text().strip()}', not 'Start again'"
                 # A product's own link ticks its line too, and the ticks are still there after a look at another page.
                 lone = other.locator(".store-list").filter(has_not=other.locator("[data-open-next]")).locator("a.buy-product").first
                 if lone.count():
@@ -2237,6 +2368,22 @@ def run(base: str) -> None:
                     .locator(".buy-opened:visible").count() >= total, "the ticks are gone after a look at another page"
                 wide, screen = other.evaluate("() => [document.documentElement.scrollWidth, innerWidth]")
                 assert wide <= screen, f"the list with its ticks is {wide}px wide on a {screen}px phone"
+                # "Start again" opens nothing: only then do that store's ticks go, and the button offers the first again.
+                store = other.locator(".store-list").filter(has=other.locator("[data-open-next]")).first
+                button = store.locator("[data-open-next]")
+                assert button.inner_text().strip() == "Start again", "back on the list, the button no longer says 'Start again'"
+                before = len(context.pages)
+                button.tap()
+                other.wait_for_function("() => !document.querySelector('.store-list [data-open-next]').closest('.store-list')"
+                                        ".querySelector('.buy-opened:not([hidden])')")
+                other.wait_for_timeout(400)
+                assert len(context.pages) == before, "'Start again' opened a store's page"
+                assert button.inner_text().strip().startswith(f"Open the first of {total} at {name}"), \
+                    f"after 'Start again' the button says '{button.inner_text().strip()}'"
+                assert store.locator("[data-open-status]").inner_text().strip() == "", "after 'Start again' it still says how many are open"
+                with context.expect_page() as opened:                 # and it works again from the first
+                    button.tap()
+                assert opened.value.url == pages[0], f"after 'Start again' the button opened {opened.value.url}, not the first page"
             finally:
                 context.close()
                 real.close()
@@ -4353,6 +4500,8 @@ def run(base: str) -> None:
                  ("a scene tap: never undone, and without JavaScript", a_scene_tap_is_kept),
                  ("see it move: a video, played, dragged, limited", see_it_move),
                  ("the dots: small, there when pointed at", the_dots_small_and_there_when_pointed_at),
+                 ("a touch on a computer shows the dots first", a_touch_on_a_computer_shows_the_dots_first),
+                 ("Draw again keeps the picture until the new one", draw_again_keeps_the_picture),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),
