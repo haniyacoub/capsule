@@ -1,31 +1,28 @@
 /* Stilsmith — one stylesheet, phone first. Wider screens are handled by the
    few @media blocks; colours are variables so dark mode is one block. */
 
-/* ── Typefaces ───────────────────────────────────────────────────────────────
-   Instrument Sans for all text (one variable file, weights 400 to 700) and
-   Instrument Serif for a few big titles. Both are served from static/fonts, with
-   their open licences (SIL OFL 1.1) next to them: nothing is loaded from another
-   site. The two "Fallback" faces are Arial and Georgia resized to the same
-   measurements, so the text does not jump when the real font arrives. */
-/* Browsers keep the font files for a year without asking again (app.py, static_files_kept). A changed
+/* ── Typeface ────────────────────────────────────────────────────────────────
+   Archivo for everything: one file that holds every weight (100 to 900) and every
+   width (62% to 125%). Text uses the normal width; titles and the wordmark use the
+   same letters 25% wider and semi-bold. There is no serif anywhere. The file is
+   served from static/fonts with its open licence (SIL OFL 1.1) next to it: nothing
+   is loaded from another site. The two "Fallback" faces are Arial and Arial Bold
+   resized to Archivo's measurements (normal width for text, wide for titles), so
+   the text does not jump when the real font arrives. */
+/* Browsers keep the font file for a year without asking again (app.py, static_files_kept). A changed
    font needs a new file name, here and in base.html's preload: under the old name, visitors keep the old one. */
 @font-face {
-  font-family: "Instrument Sans";
-  src: url("fonts/instrument-sans-latin-wght-normal.woff2") format("woff2");
-  font-weight: 400 700; font-style: normal; font-display: swap;
+  font-family: "Archivo";
+  src: url("fonts/archivo-latin-wdth-normal.woff2") format("woff2");
+  font-weight: 100 900; font-stretch: 62% 125%; font-style: normal; font-display: swap;
 }
 @font-face {
-  font-family: "Instrument Serif";
-  src: url("fonts/instrument-serif-latin-400-normal.woff2") format("woff2");
-  font-weight: 400; font-style: normal; font-display: swap;
+  font-family: "Archivo Fallback"; src: local("Arial");
+  size-adjust: 98.62%; ascent-override: 89.03%; descent-override: 21.29%; line-gap-override: 0%;
 }
 @font-face {
-  font-family: "Instrument Sans Fallback"; src: local("Arial");
-  size-adjust: 103.25%; ascent-override: 93.95%; descent-override: 24.21%; line-gap-override: 0%;
-}
-@font-face {
-  font-family: "Instrument Serif Fallback"; src: local("Georgia");
-  size-adjust: 76.92%; ascent-override: 128.71%; descent-override: 40.30%; line-gap-override: 0%;
+  font-family: "Archivo Wide Fallback"; src: local("Arial Bold"), local("Arial-BoldMT"), local("Arial");
+  size-adjust: 122.13%; ascent-override: 71.89%; descent-override: 17.19%; line-gap-override: 0%;
 }
 
 :root {
@@ -54,11 +51,11 @@
   --r-track: 8px;         /* the track around segmented cells: their 6px plus its 2px padding */
   --r-sheet: 14px;        /* the pop-up's top corners */
   --r-pill: 999px;        /* chips and the quality number */
-  /* The serif is used for four things only: the wordmark, the landing page's headline and step numbers, page
-     titles and each outfit's title. To switch it off, change the second line to
-     --display: var(--font); */
-  --font: "Instrument Sans", "Instrument Sans Fallback", ui-sans-serif, system-ui, sans-serif;
-  --display: "Instrument Serif", "Instrument Serif Fallback", Georgia, serif;
+  /* One family. --display is for the wordmark, the landing page's headline and step numbers, page titles
+     and each outfit's title: the same Archivo, set wide and semi-bold where it is used
+     ("font: 600 expanded ..."; "expanded" is CSS's word for 125% wide). */
+  --font: "Archivo", "Archivo Fallback", ui-sans-serif, system-ui, sans-serif;
+  --display: "Archivo", "Archivo Wide Fallback", ui-sans-serif, system-ui, sans-serif;
   /* Seven text sizes, each with its line height (phones; computers just below).
      Weights are 400, 500 and 600 only. Inputs stay at 16px so phones do not zoom in.
      Nothing is under 11px, and only UPPERCASE labels are under 13px. */
@@ -66,13 +63,13 @@
   --t-s: 13px;   --lh-s: 1.4;     /* secondary lines: product names, hints, notes, chips, tabs */
   --t-m: 15px;   --lh-m: 1.5;     /* body text, piece names, prices in lists, buttons */
   --t-l: 17px;   --lh-l: 1.4;     /* card titles, the outfit's price, the budget total */
-  --t-xl: 22px;  --lh-xl: 1.15;   /* serif: the wordmark, each outfit's title */
-  --t-2xl: 30px; --lh-2xl: 1.05;  /* serif: page titles */
-  --t-3xl: 44px; --lh-3xl: 1;     /* serif: the landing headline */
+  --t-xl: 19px;  --lh-xl: 1.15;   /* wide: each outfit's title (the wordmark is 17px) */
+  --t-2xl: 26px; --lh-2xl: 1.1;   /* wide: page titles */
+  --t-3xl: 27px; --lh-3xl: 1.1;   /* wide: the landing headline, three lines on a phone */
   color-scheme: light dark;
 }
 @media (min-width: 760px) {
-  :root { --t-xl: 24px; --t-2xl: 36px; --t-3xl: 72px;   /* computers: the three serif sizes grow */
+  :root { --t-xl: 21px; --t-2xl: 31px; --t-3xl: 52px;   /* computers: the three title sizes grow */
           --gutter: 24px; }
 }
 @media screen and (prefers-color-scheme: dark) {   /* screens only: paper is white, so print keeps the light colours */
@@ -97,6 +94,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font: 400 var(--t-m)/var(--lh-m) var(--font);
+  font-variant-numeric: tabular-nums;   /* every digit the same width, so prices line up wherever they are */
   -webkit-font-smoothing: antialiased;
   padding-bottom: calc(64px + env(safe-area-inset-bottom));   /* room for the bottom tab bar */
 }
@@ -122,7 +120,8 @@ main { max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--side-r) var(
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
   max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--side-r) var(--s-2) var(--side-l);
 }
-.brand { font: 400 var(--t-xl)/var(--lh-xl) var(--display); font-synthesis: none; text-decoration: none; }
+/* The wordmark: the site's name (the SITE_NAME setting) shown in capitals by the stylesheet, wide and bold. */
+.brand { font: 700 expanded 17px/var(--lh-xl) var(--display); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; font-synthesis: none; text-decoration: none; }
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
   display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
@@ -389,7 +388,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .crumb { margin: 0 0 10px; font-size: var(--t-s); }
 .crumb a { display: inline-flex; align-items: center; gap: 2px; min-height: 36px; color: var(--muted); text-decoration: none; }
 .slot-head { display: grid; gap: 8px; margin-bottom: 16px; }
-.slot-head h1 { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; }
+.slot-head h1 { font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; }
 .state { font-size: var(--t-m); color: var(--muted); }
 .state .note { display: block; font-size: var(--t-s); margin-top: 2px; }
 .slot-head .left-out { font-size: var(--t-m); line-height: var(--lh-m); }   /* as large as the line it explains */
@@ -775,11 +774,11 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .looks.hush .spot .tip { display: none; }   /* Escape hides them, until the next dot pointed at or focused (app.js, 6c) */
 /* Beside (or under) the stage: what the outfit is made of. */
 .about { width: min(100%, 460px); margin: 0 auto; }
-/* The outfit line: the title in the serif, then "1 / 12", the price and the heart, which go under the title together
+/* The outfit line: the title in the wide cut, then "1 / 12", the price and the heart, which go under the title together
    when they do not fit beside it ("Everyday, smart casual" on a 375px phone). Under 360px the title always has a
    line of its own. */
 .about-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) 10px; padding: 0 2px 8px; }
-.about-head h2 { flex: 0 1 auto; font: 400 var(--t-xl)/var(--lh-xl) var(--display); font-synthesis: none; }
+.about-head h2 { flex: 0 1 auto; font: 600 expanded var(--t-xl)/var(--lh-xl) var(--display); letter-spacing: -.01em; font-synthesis: none; }
 .about-meta { flex: 1 0 auto; display: flex; align-items: center; gap: 10px; }
 @media (max-width: 359.98px) {
   .about-head h2 { flex-basis: 100%; }
@@ -924,8 +923,8 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .sheet-foot { margin-top: var(--s-4); }
 
 /* ── Shopping list ───────────────────────────────────────────────────────── */
-/* A page's title outside a card: the same serif and size as .card h1. */
-.page-title { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin: 0 0 8px; }
+/* A page's title outside a card: the same wide cut and size as .card h1. */
+.page-title { font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin: 0 0 8px; }
 /* The list's lead line, then its download and print buttons: beside each other where they fit, the buttons on
    their own line on a phone, wrapping onto a second one if they must (never cut off at the screen's edge). */
 .list-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2) var(--s-4); margin: 0 0 var(--s-3); }
@@ -991,7 +990,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 
 /* ── Slots editor and profile form ───────────────────────────────────────── */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ui); padding: 14px; }
-.card h1 { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin-bottom: 8px; }
+.card h1 { font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin-bottom: 8px; }
 .card h2 { font-size: var(--t-l); margin-bottom: 10px; }
 .card.add { margin-top: 22px; }
 .card.add .flash { overflow-wrap: anywhere; }   /* what pasted links came to (a piece's page): a long link wraps, never widens the page */
@@ -1124,7 +1123,7 @@ details[open] > summary .edit { visibility: hidden; }
    at the bottom above the tab bar; on a computer (760px and up) the tabs are a column on the left, the middle is large
    in the centre and the controls are on the right with Save under them, kept in view. */
 .cc-head { margin-bottom: var(--s-4); }
-.cc-head h1 { font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin-bottom: var(--s-2); }
+.cc-head h1 { font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin-bottom: var(--s-2); }
 .cc-head .demo { margin: 0; }
 .cc-head p.muted { max-width: var(--form-w); }
 .cc { display: grid; gap: var(--s-4); }
@@ -1317,24 +1316,33 @@ details[open] > summary .edit { visibility: hidden; }
 .account-link { font-size: var(--t-s); font-weight: 500; color: var(--muted); text-decoration: none; padding: 8px 2px; }
 .account-link.on { color: var(--ink); }
 .public-nav { display: flex; gap: 8px; }
-/* On a 320px phone the wordmark, "Log in" and "Create account" fit on one line each only with a little less room
-   inside the two buttons (they are still 40px tall and wider than 44px). */
-@media (max-width: 359.98px) {
+.public-nav .btn { white-space: nowrap; }
+/* The wide wordmark, "Log in" and "Create account" fit on one line each on a phone narrower than 390px only with
+   a slightly smaller wordmark and a little less room inside and between the two buttons, and on a 320px phone
+   with the buttons' words one size down as well (they are still 40px tall and wider than 44px). */
+@media (max-width: 389.98px) {
+  :root { --t-2xl: 24px; }      /* page titles: "Reset your password" stays on one line on a 360px phone */
+  .top:has(.public-nav) .brand { font-size: 15px; }
+  .public-nav { gap: 6px; }
   .public-nav .btn.small { padding: 0 10px; }
+}
+@media (max-width: 359.98px) {
+  .top:has(.public-nav) .brand { font-size: 13px; letter-spacing: .04em; }
+  .public-nav .btn.small { padding: 0 var(--s-2); font-size: var(--t-s); }
 }
 /* The landing page: words only, until one approved AI picture joins them. */
 .hero { padding: var(--s-5) 0 0; text-align: center; }
-.hero h1 { font: 400 var(--t-3xl)/var(--lh-3xl) var(--display); font-synthesis: none; max-width: 16em; margin: 0 auto; text-wrap: balance; }
+.hero h1 { font: 600 expanded var(--t-3xl)/var(--lh-3xl) var(--display); letter-spacing: -.01em; font-synthesis: none; max-width: 16em; margin: 0 auto; text-wrap: balance; }
 .hero-lead { font-size: var(--t-l); line-height: var(--lh-l); max-width: 34em; margin: var(--s-5) auto 0; text-wrap: pretty; }
 .hero-lead span { white-space: nowrap; }            /* "best-value", "high-street": never split at the hyphen */
 .hero-cta { margin: var(--s-5) 0 0; }
 .hero-cta .btn { width: 100%; max-width: 440px; }   /* the page's one main action: full width on phones */
 .hero-note { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); max-width: 44em; margin: var(--s-3) auto 0; text-wrap: pretty; }
-/* How it works, in three steps: no boxes, a hairline above each and a large serif numeral. */
+/* How it works, in three steps: no boxes, a hairline above each and a large wide numeral. */
 .steps { list-style: none; margin: var(--s-7) 0 0; padding: 0; display: grid; gap: var(--s-5); }
 .steps li { border-top: 1px solid var(--line); padding-top: var(--s-4); }
 .steps h2 { font-size: var(--t-l); line-height: var(--lh-l); }
-.step-n { display: block; font: 400 var(--t-2xl)/var(--lh-2xl) var(--display); font-synthesis: none; margin-bottom: var(--s-2); }
+.step-n { display: block; font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin-bottom: var(--s-2); }
 .steps p { color: var(--muted); margin-top: var(--s-1); max-width: 34em; text-wrap: pretty; }
 .auth { max-width: 440px; margin: 24px auto 0; }
 .auth h1 { margin-bottom: 12px; }
@@ -1342,7 +1350,7 @@ details[open] > summary .edit { visibility: hidden; }
 .legal { max-width: 720px; margin: 16px auto 0; }
 /* An error page: a narrow card like log-in's, one line, and the way home as its one main button. */
 .oops { max-width: 440px; margin: var(--s-5) auto 0; }
-.oops h1 { text-wrap: balance; }
+.oops h1 { font-size: var(--t-xl); line-height: var(--lh-xl); text-wrap: balance; }   /* one size down: "We can't find that page" on one line */
 .oops p { overflow-wrap: anywhere; text-wrap: pretty; }   /* a long file name in a config error must not widen the page */
 .oops .btn { width: 100%; margin-top: var(--s-4); }
 .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
