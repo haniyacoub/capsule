@@ -844,7 +844,7 @@ class PicturesOff(AppCase):
                              [("index", "looks_made_from_front"), ("index", "sqlite_autoindex_looks_made_from_1"),
                               ("table", "looks_made_from")])
             self.assertEqual(con.execute("SELECT key, file FROM looks").fetchall(), [("k1", "k1.jpg")], "the pictures stay")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
 
     def test_a_database_from_before_the_pictures_gains_their_tables(self):
         with closing(sqlite3.connect(paths.DB_PATH)) as con:

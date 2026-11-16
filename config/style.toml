@@ -1,0 +1,137 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  Styles, the style brief, and the style chat
+#
+#  A customer can say how he wants to dress in two ways, both on Profile:
+#
+#    1. tick styles under "What do you dress for?" (no AI involved), and
+#    2. describe it in his own words to the style chat ("street style, Berlin
+#       vibe"). A text model turns his words into a small "style brief", he
+#       corrects it and presses "Use this brief".
+#
+#  Only a brief he confirmed changes anything. What it changes is plain Python
+#  (wardrobe/style.py), and this file holds the numbers and the words:
+#
+#    * stores: each store in config/stores.toml has a `styles` and a `price`
+#      line. A store that shares a style with the brief, or its price feeling,
+#      earns its products points.
+#    * products: a product earns points when its name, fabric, fit or colour
+#      holds one of a style's words below, when it is a garment the style is
+#      built on, when its fit or colour is one he favours; it loses points for
+#      a colour or a thing he does not want.
+#    * outfits: the ones whose pieces earn the most are offered first, and each
+#      says in one line why it fits.
+#
+#  Without a brief none of this runs: every pick is as it was before.
+#  Edits here apply on the next page load.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# The style chat: Google's Gemini text model, on the same key as the pictures
+# (GEMINI_API_KEY). Without that key the chat is not offered; the styles to
+# tick still work.
+[chat]
+# Google renames and retires models every few months; its price page lists the
+# current ones. Read on 16 Nov 2026: gemini-3.5-flash-lite costs $0.30 per
+# million tokens in and $2.50 per million out. One message is about 1,200
+# tokens in and 300 out, so about a tenth of a US cent. This has not been tried
+# against the paid service yet.
+model                = "gemini-3.5-flash-lite"
+per_day              = 500    # messages in 24 hours, everyone together: at most about 60 cents a day
+per_customer_per_day = 20     # … and each customer of a public service
+max_message_chars    = 300    # how long one message from a customer may be
+keep_turns           = 6      # how many earlier lines of the conversation are kept and sent along
+
+# What each thing is worth. A product with more than 0 points "fits the brief",
+# one below 0 is "against it". Among a piece's products the price level then
+# chooses among those that fit; those against it only when there is nothing else.
+[points]
+style_word   = 2    # the product's name, fabric or fit holds one of the style's words
+style_garment = 1   # it is a garment the style is built on (jeans for street)
+fit          = 2    # its fit is one he favours
+other_fit    = -1   # he named fits, and its fit is another
+colour       = 2    # its colour is one he favours
+colour_avoid = -3   # its colour is one he wants to avoid
+not_wanted   = -4   # its name or fabric holds something he does not want
+store_style  = 1    # its store has one of his styles (config/stores.toml), once per shared style, at most 2
+store_price  = 1    # its store's price level is his price feeling
+# Outfits: each point of its pieces moves an outfit this far up or down the order
+# (an outfit's own score runs from 60 to 105), within these bounds; and an outfit
+# at the formality he asked for gets `formality` more, one that is not gets as much less.
+outfit_per_point = 3
+outfit_most      = 45
+outfit_least     = -30
+formality        = 8
+
+# How formal he wants to look: the range of an outfit's level (1 very casual … 5 formal).
+[formality]
+casual = { label = "Casual", levels = [1.0, 2.5] }
+smart  = { label = "Smart casual", levels = [2.5, 3.5] }
+formal = { label = "Formal", levels = [3.5, 5.0] }
+
+# His price feeling, and the words of a store's `price` line that match it.
+[price]
+low  = { label = "Lower prices", stores = ["budget"] }
+mid  = { label = "Mid prices", stores = ["mid"] }
+high = { label = "Higher prices", stores = ["premium", "luxury"] }
+
+# The styles a customer can tick, in this order. Why these six: they are the
+# style words the 20 men's stores of research/round6/stores.md are described
+# with (casual and smart casual, tailoring and business, streetwear, workwear,
+# outdoor), plus "minimal" for COS, and each can be dressed from the garments
+# Stilsmith plans (no sportswear, no suits as a set: Stilsmith has neither).
+#   words:    looked for in a product's name, fabric and fit, in lower case; the
+#             stores write German, so both languages are listed
+#   garments: the garment types (wardrobe/garments.py) the style is built on
+[styles.smart-casual]
+label    = "Smart casual"
+words    = ["merino", "oxford", "polo", "chino", "strick", "knit", "loafer", "cardigan"]
+garments = ["shirt", "polo", "knit", "cardigan", "chinos", "blazer", "boots"]
+
+[styles.street]
+label    = "Street"
+words    = ["relaxed", "oversized", "baggy", "loose", "wide", "weit", "locker", "lässig", "boxy", "cargo",
+            "denim", "bomber", "hoodie", "workwear", "heavyweight", "schwer"]
+garments = ["jeans", "overshirt", "tee", "longsleeve", "sneakers", "jacket"]
+
+[styles.minimal]
+label    = "Minimal"
+words    = ["clean", "plain", "schlicht", "minimal", "basic", "standard", "merino", "poplin", "popeline", "jersey"]
+garments = ["tee", "knit", "trousers", "coat", "sneakers", "shirt"]
+
+[styles.tailored]
+label    = "Tailored"
+words    = ["tailored", "anzug", "bundfalte", "pleat", "sakko", "blazer", "wolle", "wool", "slim", "schmal",
+            "derby", "formell"]
+garments = ["blazer", "trousers", "shirt", "coat", "shoes"]
+
+[styles.workwear]
+label    = "Workwear"
+words    = ["workwear", "canvas", "twill", "cord", "corduroy", "flanell", "flannel", "heavy", "schwer",
+            "chore", "arbeits", "denim", "raw"]
+garments = ["overshirt", "jeans", "chinos", "boots", "jacket"]
+
+[styles.outdoor]
+label    = "Outdoor"
+words    = ["fleece", "parka", "wattiert", "gesteppt", "padded", "wasserabweisend", "water-repellent",
+            "windjacke", "windbreaker", "technical", "funktions", "kapuze", "hooded", "ripstop"]
+garments = ["jacket", "coat", "boots", "knit"]
+
+# Things a customer may not want, as he says them in English, and how the
+# stores write them. A word that is not listed is looked for as he wrote it.
+[not_wanted]
+logo     = ["logo", "schriftzug", "slogan", "print", "bedruckt", "grafik", "graphic", "stickerei", "embroider"]
+logos    = ["logo", "schriftzug", "slogan", "print", "bedruckt", "grafik", "graphic", "stickerei", "embroider"]
+print    = ["print", "bedruckt", "grafik", "graphic", "muster"]
+prints   = ["print", "bedruckt", "grafik", "graphic", "muster"]
+pattern  = ["muster", "gestreift", "streifen", "stripe", "kariert", "karo", "check", "jacquard"]
+patterns = ["muster", "gestreift", "streifen", "stripe", "kariert", "karo", "check", "jacquard"]
+stripes  = ["gestreift", "streifen", "stripe"]
+leather  = ["leder", "leather"]
+wool     = ["woll", "wool", "merino", "kaschmir", "cashmere"]
+polyester = ["polyester"]
+synthetic = ["polyester", "acryl", "nylon", "polyamid", "elasthan"]
+synthetics = ["polyester", "acryl", "nylon", "polyamid", "elasthan"]
+skinny   = ["skinny", "super slim"]
+slim     = ["slim", "schmal", "skinny"]
+oversized = ["oversized", "baggy"]
+hood     = ["kapuze", "hood"]
+hoods    = ["kapuze", "hood"]

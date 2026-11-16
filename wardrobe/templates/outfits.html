@@ -159,6 +159,8 @@
           </div>
         </header>
         {% if off.said %}<p class="about-less">Not counted: {{ off.said|join('; ') }}</p>{% endif %}
+        {# Why this outfit fits his style brief, in one line (style.why): only with a brief, and only when it does. #}
+        {% if o.why %}<p class="about-why" data-why>{{ o.why }}</p>{% endif %}
         <ul class="pieces">
           {% for p in o.pieces %}
           <li>

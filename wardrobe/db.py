@@ -30,7 +30,7 @@ from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 LOCAL_USER_ID = 1
 
 SCHEMA = """
@@ -215,6 +215,20 @@ CREATE TABLE IF NOT EXISTS pro (        -- `python -m wardrobe pro add | remove 
 """
 
 
+# Added in version 9: the style chat (stylechat.py). When a message was sent to the text model, for the daily
+# limits, as with the pictures: an entry outlives its account, with no name on it. A database from version 8 gains
+# this table and nothing else changes.
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_CHAT = """
+CREATE TABLE IF NOT EXISTS chat_requests (   -- when the style chat was asked: the daily limits
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_requests_at ON chat_requests (at);
+"""
+
+
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -300,6 +314,9 @@ def _migrate() -> None:
             if statement.strip():
                 con.execute(statement)
         for statement in SCHEMA_VIDEOS.split(";"):     # new in version 7, safe to repeat
+            if statement.strip():
+                con.execute(statement)
+        for statement in SCHEMA_CHAT.split(";"):       # new in version 9, safe to repeat
             if statement.strip():
                 con.execute(statement)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -459,6 +476,7 @@ def export_user() -> dict:
         owner = con.execute("SELECT added_at FROM owners WHERE user_id = ?", (user_id,)).fetchone()
         videos = con.execute("SELECT at FROM video_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
         pro = con.execute("SELECT added_at FROM pro WHERE user_id = ?", (user_id,)).fetchone()
+        chats = con.execute("SELECT at FROM chat_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
     account = dict(user) if user else {}
     if owner:       # only on the copy of someone who runs Stilsmith (owner.py)
         account["owner_since"] = owner["added_at"]
@@ -475,6 +493,8 @@ def export_user() -> dict:
                                      for r in asked],
         "ai_videos_asked_for_at": [datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="seconds")
                                    for r in videos],
+        "style_chat_asked_at": [datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="seconds")
+                                for r in chats],
     }
 
 
@@ -773,6 +793,10 @@ _TICKETS = {
                        "SELECT COUNT(*) FROM video_requests WHERE user_id = ? AND at > ?",
                        "SELECT COUNT(*) FROM video_requests WHERE at > ?",
                        "INSERT INTO video_requests (user_id, at) VALUES (?, ?)"),
+    "chat_requests": ("DELETE FROM chat_requests WHERE at < ?",
+                      "SELECT COUNT(*) FROM chat_requests WHERE user_id = ? AND at > ?",
+                      "SELECT COUNT(*) FROM chat_requests WHERE at > ?",
+                      "INSERT INTO chat_requests (user_id, at) VALUES (?, ?)"),
 }
 
 
@@ -804,6 +828,28 @@ def look_requests(since: float, mine: bool = False) -> int:
             return con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ? AND at > ?",
                                (uid(), since)).fetchone()[0]
         return con.execute("SELECT COUNT(*) FROM look_requests WHERE at > ?", (since,)).fetchone()[0]
+
+
+# ── the style chat (stylechat.py) ─────────────────────────────────────────────
+
+def take_chat_ticket(since: float, per_day: int, per_user: int | None) -> tuple[int, str]:
+    """Count one message to the style chat for the current user, if the limits leave room (see take_look_ticket)."""
+    return _take_ticket("chat_requests", since, per_day, per_user)
+
+
+def drop_chat_request(ticket: int) -> None:
+    """Give a ticket back: a message that certainly cost nothing does not count towards the day's limits."""
+    with connect() as con:
+        con.execute("DELETE FROM chat_requests WHERE id = ?", (ticket,))
+
+
+def chat_requests(since: float, mine: bool = False) -> int:
+    """How many messages to the style chat were counted since then: the current user's, or everyone's."""
+    with connect() as con:
+        if mine:
+            return con.execute("SELECT COUNT(*) FROM chat_requests WHERE user_id = ? AND at > ?",
+                               (uid(), since)).fetchone()[0]
+        return con.execute("SELECT COUNT(*) FROM chat_requests WHERE at > ?", (since,)).fetchone()[0]
 
 
 # ── AI videos of outfits (videos.py) ──────────────────────────────────────────

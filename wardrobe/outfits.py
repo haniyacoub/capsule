@@ -15,7 +15,7 @@ import random
 from collections import Counter
 from dataclasses import dataclass
 
-from . import colours
+from . import colours, style
 from .garments import LAYER_OVER
 from .selection import SlotView, Wardrobe
 
@@ -262,11 +262,14 @@ def all_outfits(w: Wardrobe) -> list[Outfit]:
 
 
 def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0) -> tuple[list[Outfit], int]:
-    """A varied selection of outfits, and how many valid combinations exist in total."""
+    """A varied selection of outfits, and how many valid combinations exist in total. With a style brief
+    (w.brief, style.py) the outfits that fit it are offered first; without one the order is as it always was."""
     pool = [o for o in all_outfits(w) if o.suits(occasion)]
     total = len(pool)
     rng = random.Random(seed)
     nudge = {o.key: rng.uniform(0, 8) for o in pool}   # "Shuffle" changes which near-ties win
+    brief = getattr(w, "brief", None)
+    fits = {o.key: style.outfit_bonus(snapshot(o), o.level, brief) for o in pool} if brief else {}
 
     used: Counter[str] = Counter()
     pairs: set[tuple[str, str]] = set()
@@ -278,7 +281,7 @@ def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0)
         return top.key, bottom.key
 
     def appeal(o: Outfit) -> float:
-        value = o.score + nudge[o.key]
+        value = o.score + nudge[o.key] + fits.get(o.key, 0.0)
         value -= 7 * sum(used[p.key] for p in o.pieces)            # don't repeat the same pieces
         value += 6 * sum(1 for p in o.pieces if not used[p.key])   # give every piece an outing
         if core(o) in pairs:

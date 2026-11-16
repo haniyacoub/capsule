@@ -174,7 +174,9 @@ VERSION_7_ADDS = [("index", "sqlite_autoindex_videos_1"), ("index", "video_reque
                   ("table", "pro"), ("table", "video_requests"), ("table", "videos"),
                   # … and version 8: which front picture an outfit's further pictures were made from (db.SCHEMA_PHOTOS).
                   ("index", "looks_made_from_front"), ("index", "sqlite_autoindex_looks_made_from_1"),
-                  ("table", "looks_made_from")]
+                  ("table", "looks_made_from"),
+                  # … and version 9: when the style chat was asked, for its daily limits (db.SCHEMA_CHAT).
+                  ("index", "chat_requests_at"), ("table", "chat_requests")]
 
 
 class Schema(FeedCase):
@@ -225,7 +227,7 @@ class Schema(FeedCase):
                                      ("table", "stores")] + VERSION_7_ADDS))
             self.assertEqual({t: sorted(con.execute(f"SELECT * FROM {t}").fetchall()) for t in old_tables},  # nosec
                              rows_before, "every row is as it was")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 9)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master")), after)
@@ -258,7 +260,7 @@ class Schema(FeedCase):
             self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
                              sorted([("table", "owners")] + VERSION_7_ADDS))
             self.assertEqual({t: con.execute(f"SELECT * FROM {t}").fetchall() for t in rows_before}, rows_before)  # nosec
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 9)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM owners").fetchone()[0], 0, "nobody is an owner by itself")
 
 

@@ -32,7 +32,7 @@ from functools import cached_property
 
 from . import capsule
 from . import catalog as catalog_mod
-from . import colours, db, programmes, scoring, shared, sizecheck, sizes
+from . import colours, db, programmes, scoring, shared, sizecheck, sizes, style
 from . import profile as profile_mod
 from .garments import GARMENTS, SECTIONS, Garment
 from . import settings
@@ -242,6 +242,7 @@ class Wardrobe:
     stores: dict = field(default_factory=dict)   # per store: how the last refresh went
     note: str = ""               # something to say about the whole wardrobe (the budget cannot be met)
     example_sizes: bool = False  # the sizes are still the example's: "in the example size", not "in your size"
+    brief: dict | None = None    # the style brief he confirmed (style.py), or None: then every pick is as before
 
     @cached_property
     def levels(self) -> dict[str, float]:
@@ -252,7 +253,8 @@ class Wardrobe:
             cost = 0.0
             for view in self.slots:
                 if view.state == "auto":
-                    pick = choose(view.cands, level, self.threshold)[0]
+                    pick = choose(view.cands, level, self.threshold, brief=self.brief,
+                                  category=view.slot["category"])[0]
                     cost += pick.price * view.qty if pick else 0.0
                 else:
                     cost += view.cost
@@ -381,9 +383,12 @@ def in_your_size_first(pool: list[Cand]) -> list[Cand]:
     return [c for c in pool if c.size.rank == sizes.IN_YOUR_SIZE] or pool
 
 
-def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tuple[Cand | None, str | None, bool]:
+def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "", brief: dict | None = None,
+           category: str = "") -> tuple[Cand | None, str | None, bool]:
     """The automatic pick for a slot: (candidate, note, is_warning). `colour` is the piece's colour, in
-    words ('black'), for the note on a piece the product list has nothing for."""
+    words ('black'), for the note on a piece the product list has nothing for. `brief`: his style brief, if he
+    confirmed one, for a piece of garment type `category`: the price level then chooses among the products that
+    fit it (style.narrow). Without one, among all of them, as before."""
     if not cands:
         return None, (f"Not in {settings.SITE_NAME}'s product list in {colour} yet" if colour
                       else f"Not in {settings.SITE_NAME}'s product list yet"), True
@@ -401,7 +406,7 @@ def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "") -> tu
         if len(pool) < len(available):      # options whose sizes were not checked were passed over
             return best, f"Nothing reaches {threshold} — this is the best in your size", True
         return best, f"Nothing reaches {threshold} — this is the best available", True
-    return at_level(in_your_size_first(good), mode), None, False
+    return at_level(style.narrow(in_your_size_first(good), category, brief), mode), None, False
 
 
 def next_best(cands: list[Cand], sold_out: Cand, threshold: int) -> Cand | None:
@@ -524,6 +529,7 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
     charts = sizes.load_charts()
     grouped = catalog_mod.by_slot(cat)
     example = profile_mod.sizes_unconfirmed(profile)     # said with every size until he says the sizes are his
+    brief = style.current()                               # None unless he confirmed a style brief
 
     views: list[SlotView] = []
     for slot in db.list_slots():
@@ -547,7 +553,8 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
                     view.note, view.warn = view.sold_words, True
                     view.swap = next_best(cands, picked, threshold)
             else:
-                view.chosen, view.note, view.warn = choose(cands, mode, threshold, view.colour.label.lower())
+                view.chosen, view.note, view.warn = choose(cands, mode, threshold, view.colour.label.lower(),
+                                                           brief, slot["category"])
                 if slot["locked"] and slot["pick"] and cands:     # (with nothing on offer, choose said so)
                     view.note = "Your locked choice is no longer in the catalogue — showing the automatic pick"
                     view.warn = True
@@ -560,7 +567,7 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         slots=views, mode=mode, threshold=threshold, budget=float(profile.get("budget") or 0),
         source=cat.get("source", "empty"),
         collected=catalog_mod.collected_label(cat),
-        stores=cat.get("stores", {}), example_sizes=example,
+        stores=cat.get("stores", {}), example_sizes=example, brief=brief,
     )
     if mode == "budget":
         picks, fits, _ = _fit(wardrobe)
@@ -635,7 +642,8 @@ def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
     """
     free = [(view, [c for c in view.cands if c.available and c.price > 0 and c.score.total >= wardrobe.threshold])
             for view in wardrobe.slots if view.state == "auto"]
-    free = [(view, in_your_size_first(pool)) for view, pool in free if pool]
+    free = [(view, style.narrow(in_your_size_first(pool), view.slot["category"], wardrobe.brief))
+            for view, pool in free if pool]
     moving = {view.slot["id"]: min(pool, key=lambda c: (c.price, -c.score.total)) for view, pool in free}
     fixed = [view for view in wardrobe.slots if view.slot["id"] not in moving]
     spent = sum(view.cost for view in fixed)

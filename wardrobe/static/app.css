@@ -376,6 +376,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .soldout .btn { display: block; min-height: 44px; padding: var(--s-2) var(--s-3); text-align: left; overflow-wrap: anywhere; }
 .soldout-more { color: var(--muted); }
 .about-less { margin: 0; color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }
+.about-why { margin: 0; color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }   /* why the outfit fits his style brief */
 @media screen { .print-only { display: none !important; } }     /* on paper the button is gone: its product is named */
 .soldout-more a { display: inline-block; padding: var(--s-1) 0; color: var(--ink); text-underline-offset: 3px; }
 .slot .soldout { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
@@ -1213,6 +1214,22 @@ details[open] > summary .edit { visibility: hidden; }
 #model h2 { margin: 0; }
 .cc-save { margin-top: var(--s-5); }
 .cc-photo { margin-top: var(--s-5); padding-top: var(--s-5); border-top: 1px solid var(--line); }
+/* "Describe your style" (Profile): the style chat and the style brief start a new part of the card, like the photo.
+   His own lines stand to the right on a soft ground, the assistant's to the left with a line beside them; the
+   question it asks back is in ink. Nothing here is wider than a form. */
+.cc-style { margin-top: var(--s-5); padding-top: var(--s-5); border-top: 1px solid var(--line); }
+.style-chat { display: grid; gap: var(--s-3); min-width: 0; max-width: var(--form-w); }
+.style-chat p, .style-chat h3 { margin: 0; }
+.chat-lines { display: grid; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.chat-lines li { max-width: 88%; padding: var(--s-2) var(--s-3); font-size: var(--t-m); line-height: var(--lh-m); overflow-wrap: anywhere; }
+.chat-lines .me { justify-self: end; background: var(--soft); border-radius: var(--r-ui); }
+.chat-lines .it { justify-self: start; border-left: 2px solid var(--ink); }
+.chat-q { display: block; margin-top: var(--s-1); font-weight: 500; }
+.chat-say { display: grid; gap: var(--s-2); justify-items: start; }
+.chat-say .field { width: 100%; }
+.brief { padding: var(--s-4); border: 1px solid var(--field); border-radius: var(--r-ui); }
+.brief-head { font-size: var(--t-l); line-height: var(--lh-l); }
+.brief-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); }
 .cc[data-tabs] .cc-save {     /* stuck to the bottom of the screen while the controls go on under it */
   position: sticky; bottom: 0; z-index: 3; margin: var(--s-5) calc(-1 * var(--s-4)) calc(-1 * var(--s-4));
   padding: var(--s-3) var(--s-4); background: var(--surface); border-top: 1px solid var(--line); border-radius: 0 0 var(--r-ui) var(--r-ui);

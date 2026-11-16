@@ -322,6 +322,48 @@ Things to know:
   may have been charged for, so it counts.
 - Pictures are drawn two at a time; the rest wait their turn and say so.
 
+## Styles and the style chat (the chat is optional and costs money)
+
+On Profile, under "What do you dress for?", a customer can tick styles (Smart
+casual, Street, Minimal, Tailored, Workwear, Outdoor). With a Google key set
+(`GEMINI_API_KEY`, the same one as for the pictures) Profile also shows
+"Describe your style": he writes "street style, Berlin vibe", Google's text
+model answers in two or three sentences and suggests a **style brief** (styles,
+how formal, colours to favour and avoid, fits, price feeling, things he does
+not want). He corrects it and presses "Use this brief". Only a brief he
+confirmed changes anything.
+
+What a brief changes, all of it plain Python in `wardrobe/style.py`:
+
+- **Stores** are ranked by their `styles` and `price` lines in
+  `config/stores.toml`.
+- **Products** earn or lose points from the brief's words matched against
+  their name, fabric, fit and colour, and from their store. Among a piece's
+  products the price level then chooses among those that fit the brief; one
+  that goes against it is picked only when the piece has nothing else. The
+  quality score is not touched.
+- **Outfits** that fit the brief are shown first, and each says why in one
+  line ("Street: relaxed jeans, overshirt").
+
+Without a brief every pick is exactly as before. The points and the words of
+each style are in `config/style.toml`.
+
+- **Cost:** each message is one request to Google, about a tenth of a US cent
+  (about 1,200 tokens in and 300 out; `gemini-3.5-flash-lite` was listed at
+  $0.30 per million tokens in and $2.50 out on 16 Nov 2026). Limits in
+  `config/style.toml` under `[chat]`: 20 messages a day per customer, 500 a
+  day for everyone together (at most about 60 cents a day).
+- **What is sent to Google:** his message, the last lines of the conversation
+  and the brief. Never his name, email address, sizes, budget or photo.
+- **What comes back is not trusted:** only a reply, one question and a brief
+  are read from it; the brief keeps only styles, colours, fits and levels the
+  app knows; the model never chooses a product or a store.
+- **Not yet tried against the paid service.** The request was written from
+  Google's documentation of 16 Nov 2026. To try it (one message, about a tenth
+  of a cent): `python -m wardrobe chat --test "street style, Berlin vibe"`.
+  `python -m wardrobe chat` says whether the chat is on. If Google does not
+  know the model, put the current name in `config/style.toml`.
+
 ## Store feeds (licensed product data)
 
 The public site will take products only from stores whose affiliate programme
@@ -403,6 +445,7 @@ config/scoring.toml        quality score rules
 config/stores.toml         which category pages the collector reads, and how slowly
 config/size_charts.toml    each store's size labels and body measurements
 config/looks.toml          AI pictures and videos: service, limits, wording, where the dots sit
+config/style.toml          the styles to tick, what a style brief is worth, and the style chat's model and limits
 config/feeds.toml          the stores whose licensed product feeds are imported (see "Store feeds")
 data/catalog.json          what the stores sell (rewritten by refresh)
 data/wardrobe.db           your profile, slots, locks, saved outfits (SQLite)

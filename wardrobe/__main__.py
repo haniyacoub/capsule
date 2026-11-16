@@ -10,6 +10,8 @@
     python -m wardrobe looks --test           draw one sample picture, to check the key (costs one picture)
     python -m wardrobe looks --test-set       draw a sample outfit's whole set: the front picture and the five made from it
     python -m wardrobe looks --test-video     make one "See it move" video from that set (--video-model NAME tries another model)
+    python -m wardrobe chat                   is the style chat switched on?
+    python -m wardrobe chat --test "WORDS"    send one message to Google's text model (costs about a tenth of a cent)
     python -m wardrobe stores [sync | end KEY]    the stores whose feeds Stilsmith may use (config/feeds.toml)
     python -m wardrobe feeds [--store KEY] [--from FILE]   import the approved stores' product feeds (feeds/)
     python -m wardrobe owner [add EMAIL | remove EMAIL]    who sees the owner's pages, such as /stores (owner.py)
@@ -168,6 +170,27 @@ def publish(args: argparse.Namespace) -> None:
           "Showing them to the public needs the stores' permission; on your own machine it is yours to try.")
 
 
+def check_chat(args: argparse.Namespace) -> None:
+    """Say whether the style chat is on and, with --test, send one message and print what came back."""
+    from . import imagegen, settings, style, stylechat
+
+    print(f"Style chat: {stylechat.status()}")
+    if args.test is None:
+        return
+    if not stylechat.available():
+        sys.exit("\nNothing was sent.")
+    model = style.load_rules()["chat"]["model"]
+    turns = [{"who": stylechat.ME, "text": args.test}]
+    print(f"Sending to Google ({model}):\n{stylechat.sent_text(turns, style.EMPTY)}\n")
+    try:
+        reply, question, brief = stylechat.read(stylechat.ask(model, settings.GEMINI_API_KEY, turns, style.EMPTY))
+    except imagegen.DrawError as problem:
+        sys.exit(f"It did not work ({problem.kind}): {problem.detail}")
+    print(f"Reply:    {reply}\nQuestion: {question or '(none)'}\nBrief, after checking:")
+    for what, value in style.in_words(brief):
+        print(f"  {what}: {value}")
+
+
 def check_looks(args: argparse.Namespace) -> None:
     """Say whether the AI pictures are on and, with --test, prove it by drawing one."""
     from . import imagegen, looks
@@ -280,6 +303,10 @@ def main(argv: list[str] | None = None) -> None:
     p_looks.add_argument("--video-model", metavar="NAME",
                          help="with --test-video: try this name for the video model instead of [videos] model")
     p_looks.set_defaults(func=check_looks)
+
+    p_chat = sub.add_parser("chat", help="is the style chat switched on? (--test sends one message)")
+    p_chat.add_argument("--test", metavar="WORDS", help="send these words to Google's text model and print its answer")
+    p_chat.set_defaults(func=check_chat)
 
     p_mock = sub.add_parser("mock", help="go back to the invented demo catalogue")
     p_mock.add_argument("--yes", action="store_true", help="discard collected store data without asking")

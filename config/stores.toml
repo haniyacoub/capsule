@@ -16,6 +16,12 @@
 #  with "none" is skipped everywhere, also where its products are still in a
 #  file (wardrobe/programmes.py). Networks: awin, rakuten, tradedoubler,
 #  partnerize, daisycon, webgains, impact.
+#
+#  What a store is like: `styles` (the styles of config/style.toml it sells) and
+#  `price` (budget, mid, premium, or two of them: a tee under about 20 EUR is
+#  budget, 20 to 60 EUR mid, above that premium). A customer's style brief
+#  ranks the stores by them (wardrobe/style.py). From research/round6/stores.md
+#  where that covers the store.
 # ══════════════════════════════════════════════════════════════════════════════
 
 [collector]
@@ -70,6 +76,8 @@ bomber      = ["bomber"]
 # until you add it by hand (slot page → "Add details").
 [cos]
 label         = "COS"
+styles        = ["minimal", "smart-casual", "tailored"]   # our own reading of its range, not from the round 6 research (COS was not in its table)
+price         = "mid-premium"
 programme     = "rakuten"      # Germany is listed; it recruits "content creators", which may not cover a styling site (PLAN.md, medium confidence)
 base          = "https://www.cos.com"
 
@@ -148,6 +156,8 @@ pages   = ["/de-de/men/shoes/boots"]
 # estimated from the name. Weekday sells no men's shoes.
 [weekday]
 label         = "Weekday"
+styles        = ["street", "minimal"]   # our own reading too: denim and young casual
+price         = "budget-mid"
 # Rakuten, but UNCONFIRMED for Germany: Rakuten lists Weekday for Great Britain only, and its
 # Nordic programme (Adtraction) does not cover Germany. Kept on offer until the application
 # says otherwise; set "none" if Weekday has no programme open to a German site.
@@ -218,31 +228,43 @@ exclude = ["shorts", "jacke", "jorts"]
 
 [tom-tailor]
 label         = "Tom Tailor"
+styles        = ["smart-casual"]   # research: casual basics, denim, knitwear
+price         = "budget-mid"
 programme     = "awin"         # Awin 8617: 7% standard, up to 9%, product feed stated
 base          = "https://www.tom-tailor.de"
 
 [otto]
 label         = "OTTO"
+styles        = []   # research: everything, so no style of its own
+price         = "budget-mid"
 programme     = "awin"         # fashion 15% for content sites; a product feed is not promised on its page
 base          = "https://www.otto.de"
 
 [hirmer]
 label         = "Hirmer"
+styles        = ["tailored", "smart-casual"]   # research: tailoring, shirts, smart casual, shoes
+price         = "mid-premium"
 programme     = "awin"         # Awin 14837: 10%, product feed refreshed daily; men only
 base          = "https://www.hirmer.de"
 
 [breuninger]
 label         = "Breuninger"
+styles        = ["tailored", "smart-casual"]   # research: designer, tailoring, premium casual
+price         = "premium"
 programme     = "awin"         # Awin 11590: 12% new customers, 5% existing; no voucher, cashback or e-mail sites
 base          = "https://www.breuninger.com"
 
 [blue-tomato]
 label         = "Blue Tomato"
+styles        = ["street", "outdoor"]   # research: streetwear, skate, snow and surf
+price         = "mid"
 programme     = "awin"         # Awin 11873: 7%, daily product feed; its site refuses some automated requests
 base          = "https://www.blue-tomato.com"
 
 [bergfreunde]
 label         = "Bergfreunde"
+styles        = ["outdoor"]   # research: outdoor: jackets, fleece, boots
+price         = "mid-premium"
 programme     = "awin"         # Awin 14102: up to 15% for content sites, daily product feed
 base          = "https://www.bergfreunde.de"
 

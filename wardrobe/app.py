@@ -27,7 +27,7 @@ from markupsafe import Markup
 from werkzeug.exceptions import HTTPException, NotFound
 
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
-               owner, person, programmes, selection, shared, tryon)
+               owner, person, programmes, selection, shared, style, stylechat, tryon)
 from . import figure
 from . import videos
 from . import profile as profile_mod
@@ -931,6 +931,9 @@ def create_app() -> Flask:
             said = change_said(w, first)
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
                        "saved": o.key in saved} for o in chosen]
+            if w.brief:         # with a style brief, each outfit says in one line why it fits it (style.why)
+                for board in boards:
+                    board["why"] = style.why(board["pieces"], w.brief)
         # A small picture tapped without JavaScript (outfits_look): that outfit shows that picture large.
         for board in boards:
             if board["key"] == request.args.get("shot_of"):
@@ -1330,7 +1333,7 @@ def create_app() -> Flask:
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
                         videos_on=chosen is not None and videos.service() is not None,
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
-                        store_rows=store_rows(current),
+                        store_rows=store_rows(current), **style_context(),
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
                         # The one note while the answers are still the example's: the sizes may already be his
                         # ("These are my sizes"), and a plan edited on the plan page is not rebuilt by a save.
@@ -1338,6 +1341,11 @@ def create_app() -> Flask:
                         plan_kept=current["example"] and plan_edited(current))
 
         new, notes = profile_mod.from_form(request.form, current)
+        # The styles ticked under "What do you dress for?" are the style brief's styles (style.py). `styles_shown`
+        # tells a form that has them from one that does not. They change which products and outfits come first,
+        # never the plan itself.
+        if "styles_shown" in request.form:
+            style.set_styles(request.form.getlist("styles"))
         # The model's choices (the Body tab) are sent with the same form, where the menu is shown. A save that changed
         # only them saves only them, as the model's own button did (person.py): the profile stays as it was, also
         # while it holds the example's values, and the message is said beside the model.
@@ -1397,6 +1405,58 @@ def create_app() -> Flask:
                 for key, label in programmes.offered().items()]
         # The stores with products first; those with none yet are shown apart, under their own line (profile.html).
         return [row for row in rows if not row["empty"]] + [row for row in rows if row["empty"]]
+
+    def style_context(said: str = "") -> dict:
+        """What Profile's style part shows (_style_chat.html): the styles to tick, the brief in use, and, where the
+        chat is offered, the conversation and the brief it suggested. `said`: what just went wrong, if anything."""
+        chat = stylechat.state()
+        brief = style.stored()
+        shown = chat["draft"] or (brief if style.active(brief) else None)      # the brief the editor shows
+        mine = profile_mod.stores()
+        stocked = shared.stocked()
+        return {"STYLES": style.styles(), "FORMALITIES": style.formalities(), "PRICE_FEELINGS": style.prices(),
+                "STYLE_FITS": style.FITS, "brief": brief, "brief_in_use": style.active(brief),
+                "brief_words": style.in_words(brief), "chat_on": stylechat.available(), "chat": chat,
+                "brief_shown": shown, "chat_said": said,
+                "chat_allowance": stylechat.allowance(), "chat_max": style.load_rules()["chat"]["max_message_chars"],
+                # The stores that suit the brief shown, ranked by the style table (config/stores.toml), among the
+                # stores he ticked: a name, and whether Stilsmith has products from it yet.
+                "brief_stores": [{"label": programmes.label(key), "empty": key not in stocked}
+                                 for key in (style.stores_that_suit(shown, mine) if shown else [])]}
+
+    @app.post("/profile/style/say")
+    def profile_style_say():
+        """One message to the style chat. Its answer and the brief it suggests are shown; nothing is in use yet."""
+        said = stylechat.say(request.form.get("message", ""))
+        if request.headers.get("HX-Request"):
+            return render_template("_style_chat.html", **style_context(said))
+        if said:
+            flash(said)
+        return redirect(url_for("profile_page") + "#style")
+
+    @app.post("/profile/style/brief")
+    def profile_style_brief():
+        """The brief's own buttons: "Use this brief" (as he corrected it), "Remove brief", "Start again"."""
+        do = request.form.get("do")
+        if do == "use":
+            brief = style.from_form(request.form)
+            if style.active(brief):
+                style.save(brief)
+                stylechat.confirmed()
+                flash(Markup('Style brief saved. Your picks and outfits follow it from now on. '
+                             '<a href="%s">See your outfits</a>') % url_for("outfits_page"))
+            else:
+                style.remove()
+                stylechat.confirmed()
+                flash("The brief was empty, so none is in use. Your picks are as they are without one.")
+        elif do == "remove":
+            style.remove()
+            stylechat.forget()
+            flash("Style brief removed. Your picks are as they are without one.")
+        elif do == "forget":
+            stylechat.forget()
+            flash("The conversation is deleted." + (" Your style brief stays in use." if style.current() else ""))
+        return redirect(url_for("profile_page") + "#style")
 
     def back_to_tab():
         """Back to Profile, on the tab the form was sent from (app.js writes it in the form; without it, the first)."""

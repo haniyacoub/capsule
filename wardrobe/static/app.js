@@ -538,7 +538,7 @@ if (aboutYou) {
 // 13a. Profile: the tabs, a real tablist. One tab is open at a time; the arrow keys (and Home and End) move between the
 //      tabs and open them, and Tab goes from the open tab into its controls. The address keeps the open tab
 //      (/profile#colours), so a link to a place on the page opens its tab: #budget (the budget bar), #sizes ("Change"
-//      by Your sizes), #model (where "Model saved" is said), #photo (where the photo's messages are said). The form
+//      by Your sizes), #model (where "Model saved" is said), #photo (where the photo's messages are said), #style (the style chat). The form
 //      carries the open tab, so that a save comes back to it. Over the middle, a switch shows the drawn figure or
 //      "Your model" (the AI picture); changing a choice that the figure shows brings the figure back.
 const profileCreator = document.querySelector('[data-cc]');
@@ -549,7 +549,7 @@ if (profileCreator) {
   const panelsOf = (name) => [...profileCreator.querySelectorAll(`.cc-panel[data-tab="${name}"]`)];
   const tabField = profileCreator.querySelector('[data-cc-tab-field]');
   const tabOf = (hash) => {
-    const name = { model: 'body', photo: 'you' }[hash] || hash;
+    const name = { model: 'body', photo: 'you', style: 'you' }[hash] || hash;
     return names.includes(name) ? name : null;
   };
   // The top of the controls' card, brought back into view when the page was scrolled past it (on a phone it then
