@@ -86,27 +86,53 @@ class PublicSite(ProductionCase):
         self.assertEqual(visitor.get("/legal/nonsense").status_code, 404)
         self.assertEqual(visitor.get("/healthz").get_json(), {"status": "ok"})
 
-    def test_the_typefaces_come_from_this_site_with_their_licences(self):
+    def test_the_typeface_comes_from_this_site_with_its_licence(self):
         # Fetching fonts from Google's servers is unlawful in Germany (LG München, 2022). Stilsmith serves its
-        # two typefaces itself, each with its open licence next to it, and its stylesheet asks no other site.
+        # one typeface, Archivo, itself, with its open licence next to it, and no page asks another site for a font.
         visitor = self.app.test_client()
-        for name in ("instrument-sans-latin-wght-normal.woff2", "instrument-serif-latin-400-normal.woff2"):
-            response = visitor.get(f"/static/fonts/{name}")
-            self.assertEqual(response.status_code, 200, name)
-            self.assertEqual(response.get_data()[:4], b"wOF2", f"{name} is not a web font")
-            response.close()
-        for name in ("OFL-InstrumentSans.txt", "OFL-InstrumentSerif.txt"):
-            response = visitor.get(f"/static/fonts/{name}")
-            self.assertIn(b"SIL Open Font License", response.get_data(), name)
-            response.close()
-        response = visitor.get("/static/app.css")
-        addresses = re.findall(r"url\(([^)]*)\)", response.get_data(as_text=True))
+        font = "archivo-latin-wdth-normal.woff2"
+        fonts = Path(self.app.static_folder) / "fonts"
+        self.assertEqual(sorted(f.name for f in fonts.iterdir()), ["OFL-Archivo.txt", font],
+                         "static/fonts holds Archivo and its licence, and nothing left over from an earlier typeface")
+        response = visitor.get(f"/static/fonts/{font}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data()[:4], b"wOF2", f"{font} is not a web font")
         response.close()
-        self.assertIn('"fonts/instrument-sans-latin-wght-normal.woff2"', addresses)
+        response = visitor.get("/static/fonts/OFL-Archivo.txt")
+        licence = response.get_data(as_text=True)
+        response.close()
+        self.assertIn("SIL Open Font License", licence)
+        self.assertIn("The Archivo Project Authors", licence)
+        response = visitor.get("/static/app.css")
+        css = response.get_data(as_text=True)
+        response.close()
+        addresses = re.findall(r"url\(([^)]*)\)", css)
+        self.assertEqual([a for a in addresses if "woff" in a], [f'"fonts/{font}"'], "one font file, Archivo")
         self.assertEqual([a for a in addresses if "//" in a], [], "the stylesheet loads something from another site")
-        # The text font is asked for with the page, not only once the stylesheet has arrived.
-        self.assertIn('<link rel="preload" href="/static/fonts/instrument-sans-latin-wght-normal.woff2" as="font"',
-                      visitor.get("/").get_data(as_text=True))
+        self.assertNotIn("@import", css)
+        self.assertNotIn("Instrument", css, "the earlier typefaces are gone")
+        self.assertNotIn("serif;", css.replace("sans-serif;", ""), "no serif anywhere")
+        # The wordmark is the site's name as it is set, put in capitals by the stylesheet, not typed in capitals.
+        self.assertRegex(css, r"\.brand \{[^}]*text-transform: uppercase")
+        # The font is asked for with the page, not only once the stylesheet has arrived, and every page asks
+        # only this site for it: the public pages, a customer's pages and the error page.
+        preload = f'<link rel="preload" href="/static/fonts/{font}" as="font" type="font/woff2" crossorigin>'
+        ada = self.member("ada@example.com")
+        pages = [(visitor, url) for url in ("/", "/login", "/signup", "/forgot", "/legal/impressum", "/legal/privacy",
+                                            "/legal/terms", "/no-such-page")]
+        pages += [(ada, url) for url in ("/outfits", "/", "/list", "/slots", "/profile", "/account")]
+        for client, url in pages:
+            words = client.get(url).get_data(as_text=True)
+            if url != "/no-such-page":      # the error page stands on its own and leaves the font to the stylesheet
+                self.assertIn(preload, words, url)
+            self.assertIn('class="brand" href="', words, url)
+            self.assertIn(f">{settings.SITE_NAME}</a>", words, url)
+            self.assertNotIn(f">{settings.SITE_NAME.upper()}<", words, url)
+            elsewhere = [tag for tag in re.findall(r"<link[^>]*>", words)
+                         if re.search(r'href="(https?:)?//', tag) and re.search(r"font|stylesheet|preconnect", tag)]
+            self.assertEqual(elsewhere, [], f"{url} asks another site for a font or a stylesheet")
+            self.assertNotIn("fonts.googleapis", words, url)
+            self.assertNotIn("fonts.gstatic", words, url)
 
     def test_the_app_needs_a_login(self):
         visitor = self.app.test_client()
@@ -155,6 +181,10 @@ class PublicSite(ProductionCase):
         page = self.app.test_client().get("/").get_data(as_text=True)
         text = words(page)
         self.assertRegex(text, r"\bmen's wardrobe\b")
+        # Menswear only, said in the headline, the page's title and the first step.
+        self.assertIn("A small menswear wardrobe where everything goes with everything.", text)
+        self.assertIn("<title>Stilsmith — menswear: a small wardrobe that works together</title>", page)
+        self.assertIn("Stilsmith plans 15 to 20 menswear pieces that all go together", text)
         for planner in ("slot", "candidate", "score"):
             self.assertNotIn(planner, text.lower())
         self.assertEqual(text.count("Log in"), 1, "one way to log in: the header's")
@@ -955,7 +985,7 @@ class StilsmithsOwnFiles(ProductionCase):
     Cloudflare's keeps no file that sets one)."""
 
     YEAR = "public, max-age=31536000, immutable"
-    FONTS = ["/static/fonts/instrument-sans-latin-wght-normal.woff2", "/static/fonts/instrument-serif-latin-400-normal.woff2"]
+    FONTS = ["/static/fonts/archivo-latin-wdth-normal.woff2"]
 
     @staticmethod
     def versioned(html: str) -> dict[str, str]:

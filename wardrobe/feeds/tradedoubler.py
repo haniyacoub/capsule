@@ -48,6 +48,7 @@ def product(record: dict) -> dict:
         brand=record.get("brand"),                   # [TD] brand
         category=categories[0] if categories else None,      # [TD] unsure: not in its list, a guess: the first
                                                              #      of the product's "categories", by "name"
+        age_group=fields.get("age_group"),           # [TD] a store field; unsure: that a store calls it "age_group"
         gender=fields.get("gender"),                 # [TD] a store field; unsure: that a store calls it "gender"
         colour=fields.get("colour") or fields.get("color"),  # [TD] a store field, the page's own example;
                                                              #      unsure: its exact name

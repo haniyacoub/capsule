@@ -61,6 +61,9 @@
 </div>
 {% endif %}
 
+{# Sold out in his size: said first, with the next best in his size in one tap (_sold_out.html). #}
+{% if s.sold_out %}{% with back = 'outfit', qty = 1 %}{% include "_sold_out.html" %}{% endwith %}{% endif %}
+
 {% if swaps or without %}
 <h3 class="sec">In this outfit</h3>
 <div class="chips">
@@ -81,10 +84,11 @@
   <li{% if not o.available %} class="out"{% endif %}>
     {{ pic(o.data.image_url, o.colour_hex) }}
     <span class="swap-text">
+      {# In every card's order (_macros.html): the store and the quality, the name in English, the original. #}
+      <span class="by">{{ by(o.data.store, o.score) }}</span>
       {% set en = o.data.name|english %}
       <b lang="{{ 'en' if en else 'de' }}">{{ en or o.data.name }}</b>
       {% if en %}<small class="orig" lang="de">{{ o.data.name }}</small>{% endif %}
-      <span class="by">{{ by(o.data.store, o.score) }}</span>
       {% if not o.available %}<span>Not in your size</span>{% elif not o.size.known %}<span>Sizes not checked</span>{% endif %}
       <span class="swap-price">
         {% if o.price > 0 %}{{ o.price|eur }}{% else %}no price{% endif %}

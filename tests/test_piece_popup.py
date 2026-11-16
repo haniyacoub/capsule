@@ -65,6 +65,14 @@ class PiecePopUp(AppCase):
         for c in others:
             if english.name(c.data["name"]):
                 self.assertIn(f'<small class="orig" lang="de">{html.escape(c.data["name"], quote=False)}</small>', rest)
+        # In the same order as every card: the store and the quality, then the name in English, then the original.
+        rows = re.findall(r'<span class="swap-text">(.*?)<span class="swap-price">', rest, re.S)
+        self.assertEqual(len(rows), len(others))
+        for row, c in zip(rows, others):
+            at = [row.find('<span class="by">'), row.find("<b lang="), row.find('<small class="orig"')]
+            self.assertTrue(-1 < at[0] < at[1], f"the store and quality come before the name: {row}")
+            if english.name(c.data["name"]):
+                self.assertLess(at[1], at[2], f"the original comes after the English: {row}")
 
     def test_the_title_follows_the_pieces_name(self):
         # A piece that took a new colour in one tap is renamed ("Black wool coat" becomes "Navy wool coat"): the
@@ -79,9 +87,11 @@ class PiecePopUp(AppCase):
         outfit, coat = self.outfit_with("outer")
         score, store = coat.view.chosen.score, programmes.label(coat.view.chosen.data["store"])
         page = self.popup(outfit, coat.view.slot["id"])
-        self.assertIn(f'<p class="by"><span class="store">{store}</span> <span class="sep" aria-hidden="true">·</span> '
-                      f'<span class="quality">Quality <span class="pill {score.band}">{score.total}<span class="of" '
-                      f'aria-hidden="true">/100</span></span><span class="sr"> out of 100</span></span></p>', page)
+        # The dot is the quality's, so that it never hangs at the end of the store's line (app.css, .by-in).
+        self.assertIn(f'<p class="by"><span class="by-in"><span class="store">{store}</span> <span class="quality"><span '
+                      f'class="sep" aria-hidden="true">·</span>Quality <span class="pill {score.band}">{score.total}'
+                      f'<span class="of" aria-hidden="true">/100</span></span><span class="sr"> out of 100</span></span>'
+                      f'</span></p>', page)
         heard = self.read(re.sub(r'<span[^>]*aria-hidden="true">[^<]*</span>', "", page))
         self.assertIn(f"{store} Quality {score.total} out of 100", heard)
 

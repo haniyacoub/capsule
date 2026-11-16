@@ -56,6 +56,13 @@ def offered() -> dict[str, str]:
     return {key: store.get("label", key) for key, store in _stores().items() if store["programme"] != NONE}
 
 
+def read_by_the_collector() -> list[str]:
+    """The stores offered whose category pages config/stores.toml lists ([cos.garments.coat] and so on): the only
+    stores the collector ever visits. A store without them is never collected: its products can only be pasted
+    in by their links, until its product feed arrives (shared.stocked tells the two apart for customers)."""
+    return [key for key, store in _stores().items() if store["programme"] != NONE and store.get("garments")]
+
+
 class _Offered(Mapping):
     """offered() as a dict that is read each time it is used, so a change to config/stores.toml shows at the next
     page: the pages' STORES (app.py), {key: name}."""
@@ -73,6 +80,11 @@ class _Offered(Mapping):
 OFFERED: Mapping[str, str] = _Offered()
 
 
+def network(store: str) -> str:
+    """The network that runs a store's partner programme, as config/stores.toml names it ('rakuten'), or "none"."""
+    return _stores().get(store, {}).get("programme", NONE)
+
+
 def is_offered(store: object) -> bool:
     return store in offered()
 
@@ -88,11 +100,12 @@ def names(keys, last: str = "and") -> str:
     return ", ".join(words[:-1]) + f" {last} " + words[-1] if len(words) > 1 else "".join(words)
 
 
-def only_offered(catalogue: dict) -> dict:
+def only_offered(catalogue: dict, stores=None) -> dict:
     """A catalogue (a customer's, or the list every customer's products come from) without the products of
     stores that are not offered, and without their lines in its "stores" notes. A new dict: the one given,
-    and the file it came from, are left as they are."""
-    keep = offered()
+    and the file it came from, are left as they are. `stores`: fewer of the stores offered, the ones a customer
+    ticked on Profile's Stores tab (profile.stores); a store not offered is left out all the same."""
+    keep = offered() if stores is None else [key for key in offered() if key in stores]
     out = dict(catalogue)
     for name in ("candidates", "products"):
         if name in catalogue:

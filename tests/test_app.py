@@ -214,6 +214,12 @@ class APiecesPageInPlainWords(AppCase):
         # Every demo option has its sizes, so none is "with sizes not checked" (test_size_picks: one that is not).
         self.assertIn(f"{n} options · {coat.n_in_your_size} in your size By price", text)
         self.assertEqual(coat.n_not_checked, 0)
+        # The demo account's sizes are still the example's: the pick is said to be in the example size, until the
+        # customer says the sizes are his (test_size_picks: the pick line, true in every case).
+        self.assertIn("Picked for you: the cheapest option in the example size rated 70 or more. Choose another below "
+                      "to swap it in.", text)
+        db.set_setting("sizes_confirmed", True)
+        text = html.unescape(page_words(self.client.get(f"/slot/{sid}").data.decode()))
         self.assertIn("Picked for you: the cheapest option in your size rated 70 or more. Choose another below to swap "
                       "it in.", text)
         self.assertIn('href="/slot/%s" aria-current="true">By price</a>' % sid, page)
@@ -424,11 +430,12 @@ class SlotsAndProfile(AppCase):
         about = about[:about.index("</form>")]
         labels = [html.unescape(re.sub(r"<[^>]+>", "", label)).strip()
                   for label in re.findall(r'<label class="field"><span>(.*?)</span>', about)]
-        self.assertEqual(labels, ["Tops", "Shoes (EU)", "Trouser waist (inches)", "Trouser length (inches)", "Height (cm)",
+        # In the order of the tabs: You, (Body: the model's chips), Sizes, Colours, Budget.
+        self.assertEqual(labels, ["Things to build around (one per line, e.g. “white leather sneakers”)",
+                                  "Tops", "Shoes (EU)", "Trouser waist (inches)", "Trouser length (inches)", "Height (cm)",
                                   "Weight (kg)", "Chest (cm, optional)", "Body waist (cm, optional)",
-                                  "For the whole wardrobe (EUR)",
                                   "Colours you like (most important first, separated by commas)", "Colours to avoid",
-                                  "Things to build around (one per line, e.g. “white leather sneakers”)"])
+                                  "For the whole wardrobe (EUR)"])
         self.assertIn("We use these to warn you when a cut runs slim or large, or a size may not fit. Add your chest and "
                       "body waist to compare yourself with each store's size chart.", about)
         self.assertIn('<h2 class="sec" id="use-label">What do you dress for?</h2>', about)

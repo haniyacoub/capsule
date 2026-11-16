@@ -75,8 +75,8 @@ class WithPictures:
         self.drawn = []         # everything the "service" was asked to draw
         self.refuse = None        # set to a DrawError to make it refuse
 
-        def stand_in(service, prompt, photo=None):
-            self.drawn.append({"service": service, "prompt": prompt, "photo": photo})
+        def stand_in(service, prompt, photo=None, references=()):
+            self.drawn.append({"service": service, "prompt": prompt, "photo": photo, "references": list(references)})
             if self.refuse:
                 raise self.refuse
             return PICTURE, "jpg"
@@ -407,7 +407,28 @@ class Viewer(AppCase):
         self.assertIn("checkout", page)
         self.assertIn(f"{outfit.cost:,.2f}".rstrip("0").rstrip("."), page.replace("&nbsp;", " "))
         self.assertEqual(self.client.get("/outfits/buy", query_string={"at": "nope"}).status_code, 404)
-        self.assertIn(b"data-open-all", self.client.get("/list").data)
+
+    def test_a_stores_pages_open_one_by_one_from_a_plain_link(self):
+        # "Open all 2 at COS" opened one tab and lost the rest: a browser allows a site one new tab per tap. The
+        # button under a store is now an ordinary link to that store's first product page (app.js moves it on to
+        # the next after each tap), which no pop-up blocker holds back and which works without JavaScript.
+        page = self.client.get("/list").data.decode()
+        self.assertNotIn("Open all", page)
+        self.assertNotIn("data-open-all", page)
+        stores = [part for part in page.split('<section class="card store-list">')[1:]]
+        buttons = 0
+        for store in stores:
+            pages = re.findall(r'<a class="buy-product" href="(https?://[^"]+)"', store)
+            button = re.search(r'<a class="btn ghost small" href="([^"]+)" target="_blank" rel="noopener noreferrer" data-open-next', store)
+            if len(pages) < 2:
+                self.assertIsNone(button, "one product is its own link: no button to step through it")
+                continue
+            buttons += 1
+            self.assertIsNotNone(button, "a store with several products has no button to open them")
+            self.assertEqual(button.group(1), pages[0])
+            self.assertIn(f"Open the first of {len(pages)} at ", store)
+            self.assertEqual(len(re.findall(r'class="buy-opened no-print" data-line="[^"]+" hidden', store)), store.count('<li class="buy"'))
+        self.assertGreater(buttons, 0, "the example list has no store with several products")
 
     def test_an_item_without_a_price_cannot_be_chosen_from_the_pop_up(self):
         outfit = some_outfits(1)[0]
@@ -807,6 +828,24 @@ class PicturesOff(AppCase):
             self.assertNotIn("look_requests_v3", tables)
         self.assertTrue(db.take_look_ticket(0, per_day=5, per_user=None)[0])
 
+    def test_a_database_at_version_7_gains_the_table_for_pictures_made_from_a_front_picture(self):
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            con.executescript("""
+                DROP TABLE looks_made_from;
+                INSERT INTO looks (key, user_id, status, started_at, file) VALUES ('k1', NULL, 'ready', 1000.5, 'k1.jpg');
+                PRAGMA user_version = 7;
+            """)
+            before = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
+        db.init()
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            after = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
+            self.assertEqual(before - after, set(), "no table or index of version 7 was changed or removed")
+            self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
+                             [("index", "looks_made_from_front"), ("index", "sqlite_autoindex_looks_made_from_1"),
+                              ("table", "looks_made_from")])
+            self.assertEqual(con.execute("SELECT key, file FROM looks").fetchall(), [("k1", "k1.jpg")], "the pictures stay")
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
+
     def test_a_database_from_before_the_pictures_gains_their_tables(self):
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             con.executescript("DROP TABLE looks; DROP TABLE look_requests; PRAGMA user_version = 2;")
@@ -933,6 +972,65 @@ class Pictures(WithPictures, AppCase):
         self.assertIn("look-pic", again)
         self.assertEqual(len(self.drawn), 2)
         self.assertEqual(len(self.pictures_on_disk()), 1)
+
+    def test_while_draw_again_draws_the_picture_there_is_stays_under_the_band(self):
+        outfit = some_outfits(1)[0]
+        first = self.post("/outfits/look", key=outfit.key).data.decode()
+        earlier = re.search(r'src="(/looks/[^"]+)"', first).group(1)
+        drawing = self.being_drawn()
+        for shown in (self.post("/outfits/look", key=outfit.key, again="1").data.decode(),      # the answer to the tap
+                      self.client.get("/outfits").data.decode()):                               # and the page, reloaded
+            box = shown[shown.index(f'id="look-{outfit.key}"'):] if "<html" in shown else shown
+            box = box[:box.index('class="shots"')]                  # up to the box's row of small pictures
+            self.assertIn("Drawing this outfit on the model", box)
+            kept = re.search(r'<div class="look-pic kept">.*?</div>', box, re.S)
+            self.assertTrue(kept, "the picture there was is not under the band while the new one is drawn")
+            self.assertIn(f'src="{earlier}"', kept.group(0))
+            self.assertIn('<span class="ai-chip">AI picture</span>', kept.group(0))
+            self.assertNotIn("Draw again", box)                     # one drawing at a time
+        drawing.pop()()
+        done = self.client.get(f"/outfits/look/{look_key(outfit)}?outfit={outfit.key}&showing=drawing").data.decode()
+        self.assertNotIn("look-pic kept", done)
+        self.assertIn("Draw again", done)
+
+    def test_a_first_picture_being_drawn_has_no_picture_under_the_band(self):
+        self.being_drawn()
+        outfit = some_outfits(1)[0]
+        shown = self.post("/outfits/look", key=outfit.key).data.decode()
+        self.assertIn("Drawing this outfit on the model", shown)
+        self.assertNotIn("look-pic", shown)
+
+    def test_asked_how_the_drawing_is_going_nothing_is_sent_while_nothing_has_changed(self):
+        # The band asks every 3 seconds and says what it shows. While that is still true the answer is empty (204), so
+        # the page replaces nothing and nothing blinks; once it has changed, the answer is the box as it is now.
+        def asked(outfit, showing: str):
+            return self.client.get(f"/outfits/look/{look_key(outfit)}?outfit={outfit.key}&showing={showing}")
+
+        def band(html: str) -> str:
+            return re.search(r'<p class="look-bar band wait"[^>]*>', html).group(0)
+
+        first, second = some_outfits(2)
+        drawing = self.being_drawn()
+        shown = band(self.post("/outfits/look", key=first.key).data.decode())
+        self.assertIn('hx-trigger="every 3s"', shown)
+        self.assertIn("showing=drawing", shown)
+        self.assertEqual(asked(first, "drawing").status_code, 204)
+        self.assertEqual(asked(first, "drawing").data, b"")
+        self.assertEqual(asked(first, "line").status_code, 200)     # a page that still says "Waiting its turn"
+        # A page that does not say what it shows (an older one still open) gets the box, as before.
+        self.assertEqual(self.client.get(f"/outfits/look/{look_key(first)}?outfit={first.key}").status_code, 200)
+        drawing.pop()()                                             # drawn
+        done = asked(first, "drawing")
+        self.assertEqual(done.status_code, 200)
+        self.assertIn('<div class="look-pic">', done.data.decode())
+
+        waiting = self.in_line()                                    # both turns taken: the next one waits
+        self.assertIn("showing=line", band(self.post("/outfits/look", key=second.key).data.decode()))
+        self.assertEqual(asked(second, "line").status_code, 204)
+        self.assertEqual(asked(second, "drawing").status_code, 200)
+        self.assertIn("Waiting its turn", asked(second, "drawing").data.decode())
+        waiting.pop()()
+        self.assertIn('<div class="look-pic">', asked(second, "line").data.decode())
 
     def test_a_refusal_is_explained_and_can_be_tried_again(self):
         outfit = some_outfits(1)[0]
@@ -1079,10 +1177,21 @@ class Pictures(WithPictures, AppCase):
         with mock.patch.object(db, "touch_look", side_effect=broken):          # fails after the turn was taken
             self.assertEqual(self.post("/outfits/look", key=first.key).status_code, 500)
         self.assertTrue(both_turns_free())
+        tickets = db.look_requests(0)
         with mock.patch.object(looks, "_spawn", side_effect=RuntimeError("can't start new thread")):
-            self.assertEqual(self.post("/outfits/look", key=second.key).status_code, 500)
+            shown = self.post("/outfits/look", key=second.key)
         self.assertTrue(both_turns_free())
         self.assertEqual(self.drawn, [])
+        # Nothing was sent, so nothing counts, and the box says so with "Try again" instead of "Drawing this outfit"
+        # for minutes about nothing.
+        self.assertEqual(shown.status_code, 200)
+        self.assertIn("Something went wrong while drawing. Try again.", shown.data.decode())
+        self.assertIn(">Try again</button>", shown.data.decode())
+        self.assertNotIn("Drawing this outfit", shown.data.decode())
+        self.assertEqual(db.look_requests(0), tickets, "a drawing that never started was counted")
+        self.assertEqual(looks.get(look_key(second)).status, "failed")
+        self.assertIn("look-pic", self.post("/outfits/look", key=second.key).data.decode(), "Try again draws it")
+        self.assertEqual(len(self.drawn), 1)
 
     def age(self, seconds):
         with closing(sqlite3.connect(paths.DB_PATH)) as con, con:
@@ -1199,7 +1308,7 @@ class Pictures(WithPictures, AppCase):
         self.assertIn("per_day", refused)
         box = re.search(r'<form class="look-bar band ask".*?</form>', refused, re.S).group(0)
         self.assertNotIn("<button", box, "nothing in the picture box offers to try again")
-        self.assertEqual(refused.count("<button"), 4, "only the four scenes, whose pictures drawn already still show")
+        self.assertEqual(refused.count("<button"), 0, "nor does the row under it: there is no front picture to make more from")
         self.assertEqual(len(self.drawn), 1)
         self.assertIn("look-pic", self.post("/outfits/look", key=first.key).data.decode(), "the finished one stays")
 
@@ -1249,7 +1358,16 @@ class Pictures(WithPictures, AppCase):
             if not under_jumper:
                 self.assertEqual(piece["spot"], spots[piece["role"]])
         page = self.client.get("/outfits", query_string={"at": outfit.sig}).data.decode()
-        self.assertIn(f"left:{spots['bottom'][0]}%;top:{spots['bottom'][1]}%", page)
+        self.assertIn(f"--x:{spots['bottom'][0]}%;--y:{spots['bottom'][1]}%", page)
+        # A dot low on the picture (the shoes') keeps clear of the label 'AI picture' in its corner (app.css); the
+        # others are placed exactly where the settings say.
+        first = page[page.index(f'id="outfit-{outfit.key}"'):]
+        first = first[:first.index("</article>")]
+        dots = re.findall(r'<a class="(spot[^"]*)"[^>]*style="--x:([\d.]+)%;--y:([\d.]+)%"', first)
+        self.assertEqual(len(dots), len(outfit.pieces))
+        for cls, _, top in dots:
+            self.assertEqual(cls, "spot low" if float(top) >= 70 else "spot", (cls, top))
+        self.assertIn(("spot low", str(spots["shoes"][0]), str(spots["shoes"][1])), dots)
 
     def test_checking_the_key_from_the_command_line(self):
         said = io.StringIO()
@@ -1258,184 +1376,61 @@ class Pictures(WithPictures, AppCase):
         self.assertIn("It works", said.getvalue())
         self.assertTrue((looks.folder() / "sample.jpg").is_file())
         self.assertIn("5. Sneakers", self.drawn[0]["prompt"])
+        # A whole set of the sample outfit, to judge a real service by eye: the front picture, then five made from it.
+        said = io.StringIO()
+        with contextlib.redirect_stdout(said):
+            main(["looks", "--test-set"])
+        self.assertEqual(len(self.drawn), 7)
+        for name, sent in zip(("walking", "turned", "street", "cafe", "library"), self.drawn[2:]):
+            self.assertEqual(sent["references"], [PICTURE], "made from the sample's front picture")
+            self.assertTrue((looks.folder() / f"sample-{name}.jpg").is_file())
+            self.assertIn(f"sample-{name}.jpg  ({name}, made from the front picture", said.getvalue())
+        self.assertIn("5. Sneakers", self.drawn[6]["prompt"])
         self.refuse = imagegen.DrawError("key", "OpenAI answered 401: Incorrect API key provided")
+        with self.assertRaises(SystemExit) as stop, contextlib.redirect_stdout(io.StringIO()):
+            main(["looks", "--test-set"])
+        self.assertIn("did not accept the key", str(stop.exception))
         with self.assertRaises(SystemExit) as stop, contextlib.redirect_stdout(io.StringIO()):
             main(["looks", "--test"])
         self.assertIn("did not accept the key", str(stop.exception))
         self.assertIn("Incorrect API key", str(stop.exception))
 
 
-# ── scenes: the same outfit in a studio, on a street, in a library or a café ──
+# ── an outfit's six pictures: the front one, and five made from it ────────────
 
-# The studio picture's opening words as they were before there were scenes (config/looks.toml at c98d8c2). Every
-# picture drawn so far was asked for with exactly these words, and a picture's name comes from its words: changed by
-# one letter, every picture already drawn would be drawn (and paid for) again.
+# How pictures were asked for before round 6 (config/looks.toml at 716f52a): the studio's opening words, and the
+# street's. Pictures stored under names made from these words are no longer offered: the front picture is asked for
+# on white, and the others are made from it.
 STUDIO_BEFORE = ("A full-length studio photograph for a menswear lookbook: {model}, standing upright in a relaxed, "
                  "natural pose, facing the camera, arms loosely at the sides. The whole figure is in frame from head "
                  "to shoes, centred, with a little space above the head and below the shoes. Plain light-grey studio "
                  "background, soft even daylight, realistic fabric textures and true colours.")
-STUDIO_WITH_PHOTO_BEFORE = (
-    "A full-length studio photograph for a menswear lookbook. The model is the person in the attached photo: keep "
-    "their face, hair, skin tone and apparent age exactly as they are, and ignore the clothes and the background of "
-    "the photo. {body}They stand upright in a relaxed, natural pose, facing the camera, arms loosely at the sides. "
-    "The whole figure is in frame from head to shoes, centred, with a little space above the head and below the "
-    "shoes. Plain light-grey studio background, soft even daylight, realistic fabric textures and true colours.")
+STREET_BEFORE = (STUDIO_BEFORE.replace("studio photograph", "photograph taken on location", 1)
+                 .replace("Plain light-grey studio background, soft even daylight",
+                          "Outdoors on a quiet city street with stone buildings and a wide pavement, the background "
+                          "softly out of focus, in soft overcast daylight"))
+MORE = ["walking", "turned", "street", "cafe", "library"]        # the pictures after the front one, in the row's order
 
 
-class Scenes(WithPictures, AppCase):
+class Photos(WithPictures, AppCase):
     def setUp(self):
         super().setUp()
         self.switch_on()
 
-    def ask(self, outfit, scene="", **more) -> str:
-        return self.post("/outfits/look", key=outfit.key, scene=scene, **more).data.decode()
+    def ask(self, outfit, shot="", **more) -> str:
+        return self.post("/outfits/look", key=outfit.key, shot=shot, **more).data.decode()
 
-    def pressed(self, html: str) -> list[str]:
-        """The scenes whose button is pressed, by their words."""
-        return re.findall(r'<button[^>]*aria-pressed="true"[^>]*>([^<]+)</button>', html)
+    def more(self, outfit) -> str:
+        """Tap "More photos"."""
+        return self.post("/outfits/look", key=outfit.key, more="1", shown="front").data.decode()
 
-    def test_the_studio_picture_is_asked_for_in_the_same_words_as_before(self):
-        rules = looks.load_rules()
-        sample = [dict(piece) for piece in looks.SAMPLE]
-        cases = [(person.Who(), STUDIO_BEFORE.replace("{model}", rules["text"]["model"])),
-                 (person.Who(words="an adult man in his thirties (slim build)"),
-                  STUDIO_BEFORE.replace("{model}", "an adult man in his thirties (slim build)")),
-                 (person.Who(photo=Path("me.jpg"), body="tall, slim build", mark="m"),
-                  STUDIO_WITH_PHOTO_BEFORE.replace("{body}", "Their build: tall, slim build. ")),
-                 (person.Who(photo=Path("me.jpg"), mark="m"), STUDIO_WITH_PHOTO_BEFORE.replace("{body}", ""))]
-        for who, opening in cases:
-            for asked in (looks.prompt(sample, rules, who), looks.prompt(sample, rules, who, looks.STUDIO),
-                          looks.prompt(sample, rules, who, "no-such-scene")):
-                self.assertEqual(asked.split("\n")[0], opening)
-        # … so the outfits page names its pictures as before, and a picture drawn before scenes is simply there.
-        outfit = some_outfits(1)[0]
-        address = re.search(r'src="(/looks/[^"]+)"', self.ask(outfit)).group(1)
-        self.assertEqual(self.drawn[0]["prompt"].split("\n")[0], cases[0][1])
-        page = self.client.get("/outfits").data.decode()
-        self.assertIn(address, page)
-        self.assertEqual(page.count("See it worn"), 11)
-
-    def test_a_scene_changes_only_the_words_about_the_place(self):
-        rules = looks.load_rules()
-        sample = [dict(piece) for piece in looks.SAMPLE]
-        self.assertEqual([name for name, _ in looks.scenes()], ["studio", "street", "library", "cafe"])
-        self.assertEqual([label for _, label in looks.scenes()], ["Studio", "Street", "Library", "Café"])
-        studio = rules["scenes"]["studio"]
-        for who in (person.Who(), person.Who(photo=Path("me.jpg"), body="tall", mark="m")):
-            at_home = looks.prompt(sample, rules, who)
-            for name, scene in rules["scenes"].items():
-                if name == "studio":
-                    continue
-                there = looks.prompt(sample, rules, who, name)
-                self.assertNotEqual(there, at_home)
-                self.assertIn(scene["setting"], there)
-                self.assertNotIn("studio", there.lower())
-                # Put the studio's words back and it is the studio picture, word for word: the person, the pose, the
-                # framing (which the dots rely on), every piece and what to avoid are the same in every scene.
-                self.assertEqual(there.replace(scene["setting"], studio["setting"])
-                                 .replace(scene["photograph"], studio["photograph"], 1), at_home)
-        # The scene's own words are about the place and the light: never the person or the clothes.
-        about_people = re.compile(r"\b(man|men|male|model|person|people|he|his|him|face|hair|skin|body|build|pose|"
-                                  r"wear\w*|outfit|clothes|clothing|shirt|coat|jacket|trousers|jeans|shoes|tee|"
-                                  r"jumper|knit|suit|dress\w*)\b", re.IGNORECASE)
-        for name, scene in rules["scenes"].items():
-            for part in ("photograph", "setting"):
-                self.assertIsNone(about_people.search(scene[part]), f"scenes.{name}.{part}: {scene[part]!r}")
-
-    def test_only_the_studio_picture_is_drawn_by_itself_and_every_outfit_offers_the_scenes(self):
-        page = self.client.get("/outfits").data.decode()
-        self.assertEqual(page.count("data-auto-look"), 12)
-        rows = re.findall(r'<form class="scenes".*?</form>', page, re.S)
-        self.assertEqual(len(rows), 12)
-        for row in rows:
-            self.assertIn('role="group" aria-label="Scene"', row)
-            self.assertNotIn("data-auto-look", row)
-            self.assertEqual(self.pressed(row), ["Studio"])
-            self.assertEqual(re.findall(r'name="scene" value="(\w+)"', row), ["street", "library", "cafe"])
-            self.assertIn('<button type="button"', row, "the scene shown asks for nothing")
-        self.assertEqual(self.drawn, [], "looking at the page draws nothing; the page asks for the studio by itself")
-
-    def test_each_scene_is_a_picture_of_its_own_drawn_on_the_tap_and_kept(self):
-        outfit = some_outfits(1)[0]
-        studio = self.ask(outfit)
-        street = self.ask(outfit, "street")
-        self.assertEqual(len(self.drawn), 2)
-        self.assertIn(looks.load_rules()["scenes"]["street"]["setting"], self.drawn[1]["prompt"])
-        self.assertEqual(self.pressed(street), ["Street"])
-        self.assertIn("in the Street scene", street)
-        first, second = (re.search(r'src="(/looks/[^"]+)"', html).group(1) for html in (studio, street))
-        self.assertNotEqual(first, second)
-        self.assertEqual(len(self.pictures_on_disk()), 2)
-
-        self.assertIn(second, self.ask(outfit, "street"))               # tapped again: the same picture, not paid twice
-        self.assertIn(first, self.ask(outfit, "studio"))                # back to the studio: there at once
-        self.assertEqual(len(self.drawn), 2)
-        self.assertEqual(db.look_requests(0), 2, "each scene drawn counts as one picture")
-
-        self.ask(outfit, "library")
-        self.ask(outfit, "cafe")
-        self.assertEqual(len(self.drawn), 4)
-        self.assertEqual(len({look["prompt"] for look in self.drawn}), 4)
-        for address in (first, second):                                 # every picture can be fetched
-            self.assertEqual(self.client.get(address).data, PICTURE)
-
-    def test_draw_again_in_a_scene_draws_that_scene_and_leaves_the_studio_alone(self):
-        outfit = some_outfits(1)[0]
-        studio = re.search(r'src="(/looks/[^"]+)"', self.ask(outfit)).group(1)
-        street = self.ask(outfit, "street")
-        self.assertRegex(street, r'name="again" value="1">\s*<input type="hidden" name="scene" value="street">')
-        again = self.ask(outfit, "street", again="1")
-        self.assertEqual(len(self.drawn), 3)
-        self.assertIn(looks.load_rules()["scenes"]["street"]["setting"], self.drawn[2]["prompt"])
-        self.assertEqual(self.pressed(again), ["Street"])
-        self.assertIn(studio, self.ask(outfit), "the studio picture is still the one it was")
-        self.assertEqual(len(self.pictures_on_disk()), 2)
-
-    def test_the_box_says_which_scene_it_shows_while_it_is_drawn(self):
-        waiting = self.held_back()
-        outfit = some_outfits(1)[0]
-        shown = self.ask(outfit, "library")
-        self.assertEqual(self.pressed(shown), ["Library"])
-        asks_again = re.search(r'hx-get="([^"]+)"', shown).group(1)
-        self.assertIn("scene=library", asks_again)
-        self.assertIn(f"outfit={outfit.key}", asks_again)
-        self.assertNotIn("data-auto-look", shown)
-        waiting.pop()()
-        done = self.client.get(asks_again.replace("&amp;", "&")).data.decode()
-        self.assertIn("look-pic", done)
-        self.assertEqual(self.pressed(done), ["Library"])
-        self.assertIn('name="scene" value="library"', done)             # Draw again stays in the library
-        # The buttons keep their ids from one state to the next: keyboard focus stays on the scene tapped.
-        ids = re.findall(r'<button[^>]*id="(scene-[^"]+)"', shown)
-        self.assertEqual(ids, re.findall(r'<button[^>]*id="(scene-[^"]+)"', done))
-        self.assertEqual(ids, [f"scene-{outfit.key}-{name}" for name in ("studio", "street", "library", "cafe")])
-
-    def test_a_scene_that_is_not_offered_is_the_studio(self):
-        outfit = some_outfits(1)[0]
-        for name in ("beach", "STREET", "../street", ""):
-            self.assertEqual(self.pressed(self.ask(outfit, name)), ["Studio"])
-        self.assertEqual(len(self.drawn), 1)
-        state = self.client.get(f"/outfits/look/{look_key(outfit)}?outfit={outfit.key}&scene=moon").data.decode()
-        self.assertEqual(self.pressed(state), ["Studio"])
-
-    def test_a_scene_counts_in_the_daily_limit(self):
-        self.with_rules(per_day=2)
-        first, second = some_outfits(2)
-        self.ask(first)
-        self.ask(first, "street")
-        refused = self.ask(first, "cafe")
-        self.assertIn("pictures are used up", refused)
-        self.assertEqual(self.pressed(refused), ["Café"], "still in the café, saying why there is no picture")
-        self.assertNotIn("<button class=\"btn small\">", refused)
-        self.assertIn("pictures are used up", self.ask(second))
-        self.assertEqual(len(self.drawn), 2)
-        self.assertIn("look-pic", self.ask(first, "street"), "pictures already drawn are still shown")
-
-    def test_without_ai_pictures_there_are_no_scenes(self):
-        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
-            page = self.client.get("/outfits").data.decode()
-            self.assertNotIn('class="scenes"', page)
-            self.assertEqual(self.post("/outfits/look", key=some_outfits(1)[0].key, scene="street").status_code, 404)
+    def cells(self, html: str) -> list[tuple[str, str, str]]:
+        """The row of small pictures: (name, pressed?, what the cell shows: picture | drawing | plus)."""
+        found = []
+        for name, pressed, inside in re.findall(
+                r'<button id="shot-\w+-(\w+)"[^>]*aria-pressed="(true|false)"[^>]*>(.*?)</button>', html, re.S):
+            found.append((name, pressed, "picture" if "<img" in inside else "drawing" if "spin" in inside else "plus"))
+        return found
 
     def held_back(self) -> list:
         """Drawings wait here instead of running, until popped and called."""
@@ -1444,6 +1439,321 @@ class Scenes(WithPictures, AppCase):
         patch.start()
         self.addCleanup(patch.stop)
         return waiting
+
+    def test_the_front_picture_is_one_fixed_pose_on_a_white_studio_background(self):
+        rules = looks.load_rules()
+        sample = [dict(piece) for piece in looks.SAMPLE]
+        for who, said in ((person.Who(), rules["text"]["model"]),
+                          (person.Who(words="an adult man in his thirties (slim build)"), "an adult man in his thirties (slim build)"),
+                          (person.Who(photo=Path("me.jpg"), body="tall, slim build", mark="m"), "Their build: tall, slim build. "),
+                          (person.Who(photo=Path("me.jpg"), mark="m"), "the person in the attached photo")):
+            opening = looks.prompt(sample, rules, who).split("\n")[0]
+            self.assertIn(said, opening)
+            self.assertIn("Seamless pure white studio background and white floor", opening)
+            self.assertIn("facing the camera, arms loosely at the sides", opening, "the dots rely on this pose")
+            self.assertIn("The whole figure is in frame from head to shoes, centred", opening)
+            self.assertNotIn("grey", opening)
+            self.assertNotIn("{", opening, "a placeholder was left in the words")
+
+    def test_only_the_front_picture_is_drawn_by_itself_and_the_row_waits_for_it(self):
+        page = self.client.get("/outfits").data.decode()
+        self.assertEqual(page.count("data-auto-look"), 12)
+        self.assertEqual(page.count('<div class="shots"'), 12, "every outfit keeps the room of its small pictures")
+        self.assertNotIn("More photos", page, "nothing can be made from a front picture that is not there yet")
+        self.assertEqual(self.cells(page), [])
+        self.assertEqual(self.drawn, [], "looking at the page draws nothing; the page asks for the front picture by itself")
+        self.assertEqual([name for name, _ in looks.shots()], ["front"] + MORE)
+        self.assertEqual([label for _, label in looks.shots()], ["Front", "Walking", "Turned", "Street", "Café", "Library"])
+
+    def test_more_photos_says_what_it_costs_before_the_tap(self):
+        outfit = some_outfits(1)[0]
+        front = self.ask(outfit)
+        self.assertEqual(self.cells(front), [("front", "true", "picture")], "the front picture, small, and nothing else yet")
+        offer = re.search(r'<button class="btn ghost small" id="more-\w+" aria-describedby="(more-said-\w+)">More photos</button>\s*'
+                          r'<span class="shots-note" id="(more-said-\w+)">([^<]+)</span>', front)
+        self.assertIsNotNone(offer, "More photos, with what it costs beside it")
+        self.assertEqual(offer.group(1), offer.group(2), "a screen reader hears the cost with the button")
+        self.assertEqual(html_mod.unescape(offer.group(3)), "5 pictures of the day's 300")
+        self.assertEqual(len(self.drawn), 1, "nothing more is drawn until it is tapped")
+        self.assertEqual(self.client.get("/outfits").data.decode().count("More photos"), 1, "only under a front picture that is there")
+
+    def test_more_photos_makes_five_pictures_from_the_front_picture(self):
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        anchor = (looks.folder() / self.pictures_on_disk()[0]).read_bytes()
+        row = self.more(outfit)
+        self.assertNotIn("look-pic", row, "only the row is answered: the large picture stays as it is")
+        self.assertEqual(self.cells(row), [("front", "true", "picture")] + [(name, "false", "picture") for name in MORE])
+        self.assertNotIn("More photos", row)
+        self.assertEqual(len(self.drawn), 6)
+        self.assertEqual(db.look_requests(0), 6, "each of them is one picture of the day's allowance")
+        rules = looks.load_rules()
+        wording = {**rules["poses"], **rules["scenes"]}
+        for name, sent in zip(MORE, self.drawn[1:]):
+            with self.subTest(picture=name):
+                # The front picture itself goes to the image service, so the man and the clothes are copied …
+                self.assertEqual(sent["references"], [anchor])
+                self.assertIsNone(sent["photo"])
+                opening = sent["prompt"].split("\n")[0]
+                self.assertTrue(opening.startswith("The attached photograph shows a man in an outfit. Make a new photograph "
+                                                   "of the same man in the same outfit. Keep exactly:"))
+                # … and only the pose or the place is asked for in words, each its own.
+                self.assertIn("Change only this: " + wording[name]["change"], opening)
+                self.assertNotIn(rules["text"]["model"], sent["prompt"], "the man is in the picture, not described again")
+                for number, piece in enumerate(outfit.pieces, 1):
+                    self.assertIn(f"{number}. ", sent["prompt"])
+                last = sent["prompt"].split("\n")[-1]
+                self.assertEqual(last, rules["text"]["avoid_scene" if name in rules["scenes"] else "avoid"])
+        self.assertEqual(self.drawn[0]["references"], [], "the front picture is drawn from words alone")
+        # The two poses stay in the white studio; each surrounding has a pose of its own and its own light.
+        for name in ("walking", "turned"):
+            self.assertIn("Same seamless white studio background", wording[name]["change"])
+        for name, doing in (("street", "walking along the wide pavement"), ("cafe", "holding a plain white coffee cup"),
+                            ("library", "holding an open book")):
+            self.assertIn(doing, wording[name]["change"])
+            self.assertIn("lens at f/2.8", wording[name]["change"])
+            self.assertNotIn("out of focus", wording[name]["change"], "a blurred backdrop is what looked pasted")
+        # Asked again, nothing is drawn or counted again: they are kept.
+        self.assertEqual(self.more(outfit).count("<img"), 6)
+        self.assertEqual((len(self.drawn), db.look_requests(0)), (6, 6))
+        page = self.client.get("/outfits").data.decode()
+        mine = page[page.index(f'id="look-{outfit.key}"'):]
+        self.assertEqual(len(self.cells(mine[:mine.index('<div class="spots">')])), 6, "the page shows them next time")
+
+    def test_a_small_picture_tapped_is_shown_large_without_dots_and_costs_nothing(self):
+        outfit = some_outfits(1)[0]
+        front = self.ask(outfit)
+        self.assertIn('<div class="look-pic">', front, "the front picture: the dots show on it")
+        self.more(outfit)
+        street = self.ask(outfit, "street")
+        self.assertIn('<div class="look-pic more">', street, "app.css hides the dots over any picture but the front one")
+        self.assertIn("AI-generated picture of a model wearing this outfit, photo: Street", street)
+        self.assertEqual([(name, pressed) for name, pressed, _ in self.cells(street)],
+                         [(name, "true" if name == "street" else "false") for name in ["front"] + MORE])
+        self.assertIn(f'<button id="shot-{outfit.key}-street" title="Street" type="button" aria-pressed="true"', street,
+                      "the one shown asks for nothing")
+        self.assertEqual(len(self.drawn), 6, "looking at a picture that is there costs nothing")
+        self.assertNotEqual(re.search(r'<img src="(/looks/[^"]+)" alt="AI', street).group(1),
+                            re.search(r'<img src="(/looks/[^"]+)" alt="AI', front).group(1))
+        css = (paths.ROOT / "wardrobe" / "static" / "app.css").read_text(encoding="utf-8")
+        self.assertIn(".stage:has(.look-pic.more) .spots { display: none; }", css)
+        # "Draw again" under the street draws the street again, from the same front picture, and nothing else.
+        self.assertRegex(street, r'name="again" value="1">\s*<input type="hidden" name="shot" value="street">')
+        again = self.ask(outfit, "street", again="1")
+        self.assertEqual(len(self.drawn), 7)
+        self.assertIn("walking along the wide pavement", self.drawn[6]["prompt"])
+        self.assertEqual(self.drawn[6]["references"], self.drawn[3]["references"])
+        self.assertIn('<div class="look-pic more">', again)
+        self.assertEqual(len(self.pictures_on_disk()), 6, "the new street replaces the old one")
+        back = self.ask(outfit, "front")
+        self.assertIn('<div class="look-pic">', back)
+        self.assertEqual(re.search(r'<img src="(/looks/[^"]+)" alt="AI', back).group(1),
+                         re.search(r'<img src="(/looks/[^"]+)" alt="AI', front).group(1))
+        self.assertEqual(len(self.drawn), 7)
+
+    def test_each_picture_shows_as_it_arrives(self):
+        waiting = self.held_back()
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        waiting.pop(0)()                                            # the front picture is drawn
+        row = self.more(outfit)
+        self.assertEqual([what for _, _, what in self.cells(row)], ["picture"] + ["drawing"] * 5)
+        self.assertEqual(row.count("being drawn"), 5)
+        # The row asks every few seconds, on its own: the large picture is not sent again.
+        asks = re.search(r'<div class="shots" id="shots-\w+" hx-get="([^"]+)" hx-trigger="load delay:3s" hx-target="this" hx-swap="outerHTML">', row)
+        self.assertIsNotNone(asks, row[:300])
+        self.assertEqual(html_mod.unescape(asks.group(1)), f"/outfits/photos?outfit={outfit.key}")
+        waiting.pop(0)()                                            # the first of them arrives
+        row = self.client.get(f"/outfits/photos?outfit={outfit.key}").data.decode()
+        self.assertEqual([what for _, _, what in self.cells(row)], ["picture", "picture"] + ["drawing"] * 4)
+        self.assertNotIn("look-pic", row)
+        self.assertIn("hx-get", row, "it goes on asking while any is being drawn")
+        while waiting:
+            waiting.pop(0)()
+        row = self.client.get(f"/outfits/photos?outfit={outfit.key}").data.decode()
+        self.assertEqual([what for _, _, what in self.cells(row)], ["picture"] * 6)
+        self.assertNotIn("hx-get", row, "all there: the row stops asking")
+        self.assertEqual(self.client.get("/outfits/photos?outfit=000000000000").status_code, 404)
+
+    def test_a_small_picture_tapped_while_it_is_drawn_is_shown_as_being_drawn(self):
+        waiting = self.held_back()
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        waiting.pop(0)()
+        self.more(outfit)
+        cafe = self.ask(outfit, "cafe")
+        self.assertIn(looks.IN_LINE, cafe, "two are drawn at a time: the café waits its turn, and the box says so")
+        question = re.search(r'<p class="look-bar band wait" hx-get="([^"]+)"', cafe).group(1)
+        self.assertIn("shot=cafe", question, "the box asks about the café, not the front picture")
+        self.assertNotIn('hx-trigger="load delay:3s" hx-target="this"', cafe, "the box asks, so the row does not ask as well")
+        while waiting:
+            waiting.pop(0)()
+        done = self.client.get(html_mod.unescape(question)).data.decode()
+        self.assertIn('<div class="look-pic more">', done)
+        self.assertIn("photo: Café", done)
+        # The buttons keep their ids from one state to the next: keyboard focus stays on the picture tapped.
+        ids = re.findall(r'<button id="(shot-[^"]+)"', cafe)
+        self.assertEqual(ids, re.findall(r'<button id="(shot-[^"]+)"', done))
+        self.assertEqual(ids, [f"shot-{outfit.key}-{name}" for name in ["front"] + MORE])
+
+    def test_a_new_front_picture_starts_a_new_set_and_the_old_set_goes(self):
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        self.more(outfit)
+        self.assertEqual(len(self.pictures_on_disk()), 6)
+        with mock.patch.object(looks.time, "time", lambda: 2_000_000_000.0):   # a later second: a new file name
+            again = self.ask(outfit, again="1")
+        self.assertEqual(len(self.drawn), 7)
+        self.assertEqual(self.drawn[6]["references"], [])
+        self.assertEqual(len(self.pictures_on_disk()), 1, "the five showed the man of the old front picture: they are deleted")
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM looks").fetchone()[0], 1)
+        self.assertEqual(self.cells(again), [("front", "true", "picture")])
+        self.assertIn("More photos", again)
+
+    def test_each_picture_counts_in_the_daily_limit_and_the_rest_can_be_drawn_later(self):
+        self.with_rules(per_day=3)
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        row = self.more(outfit)
+        self.assertEqual(len(self.drawn), 3, "the front picture and two more: the day's three")
+        self.assertEqual([what for _, _, what in self.cells(row)], ["picture"] * 3 + ["plus"] * 3)
+        self.assertIn('<p class="look-msg" role="status">Today&#39;s pictures are used up.', row)
+        self.assertIn('aria-label="Draw the Street photo: 1 picture of the day&#39;s 3"', row)
+        refused = self.ask(outfit, "street")                         # a cell without a picture, tapped
+        self.assertIn("pictures are used up", refused)
+        self.assertEqual((len(self.drawn), db.look_requests(0)), (3, 3))
+        self.with_rules(per_day=4)                                   # tomorrow
+        street = self.ask(outfit, "street")
+        self.assertIn('<div class="look-pic more">', street)
+        self.assertEqual([what for _, _, what in self.cells(street)], ["picture"] * 4 + ["plus"] * 2)
+        self.assertEqual(len(self.drawn), 4)
+
+    def test_a_further_picture_asked_for_before_the_front_one_asks_for_the_front_one(self):
+        outfit = some_outfits(1)[0]
+        shown = self.ask(outfit, "street")
+        self.assertEqual(len(self.drawn), 1)
+        self.assertEqual(self.drawn[0]["references"], [])
+        self.assertIn("Seamless pure white studio background", self.drawn[0]["prompt"])
+        self.assertIn('<div class="look-pic">', shown)
+        self.assertEqual(self.more(some_outfits(2)[1]), self.client.get(f"/outfits/photos?outfit={some_outfits(2)[1].key}").data.decode(),
+                         "More photos without a front picture starts nothing")
+        self.assertEqual(len(self.drawn), 1)
+
+    def test_a_picture_that_is_not_offered_is_the_front_one(self):
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        moon = self.ask(outfit, "moon")
+        self.assertEqual(len(self.drawn), 1)
+        self.assertIn('<div class="look-pic">', moon)
+        key = look_key(outfit)
+        state = self.client.get(f"/outfits/look/{key}?outfit={outfit.key}&shot=moon").data.decode()
+        self.assertEqual(self.cells(state), [("front", "true", "picture")])
+
+    def test_pictures_made_the_old_way_are_no_longer_offered(self):
+        # A studio picture and a street picture stored before round 6, under the names their old words gave them.
+        outfit = some_outfits(1)[0]
+        chosen, rules = looks.service(), looks.load_rules()
+        listed = looks.prompt(outfits.snapshot(outfit), rules, person.Who()).split("\n", 1)[1]
+        looks.folder().mkdir(parents=True, exist_ok=True)
+        for before in (STUDIO_BEFORE, STREET_BEFORE):
+            key = looks.fingerprint(chosen, before.replace("{model}", rules["text"]["model"]) + "\n" + listed)
+            (looks.folder() / f"{key}-1.jpg").write_bytes(OTHER_PICTURE)
+            db.start_look(key, chosen.tag, 0, 0)
+            db.finish_look(key, f"{key}-1.jpg")
+        page = self.client.get("/outfits").data.decode()
+        self.assertNotIn("look-pic", page)
+        self.assertEqual(page.count("See it worn"), 12)
+        self.assertNotIn('name="scene"', page, "the scene switch is gone")
+        shown = self.ask(outfit)
+        self.assertEqual(len(self.drawn), 1, "the outfit's front picture is drawn anew, on white")
+        self.assertEqual(self.cells(shown), [("front", "true", "picture")])
+
+    def test_without_ai_pictures_there_are_no_small_pictures(self):
+        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
+            page = self.client.get("/outfits").data.decode()
+            self.assertNotIn('class="shots"', page)
+            outfit = some_outfits(1)[0]
+            self.assertEqual(self.post("/outfits/look", key=outfit.key, shot="street").status_code, 404)
+            self.assertEqual(self.post("/outfits/look", key=outfit.key, more="1").status_code, 404)
+            self.assertEqual(self.client.get(f"/outfits/photos?outfit={outfit.key}").status_code, 404)
+
+    def test_the_drawings_question_never_undoes_a_tap_on_a_small_picture(self):
+        # While a picture is drawn its box asks every few seconds how it is going. A small picture tapped meanwhile
+        # cancels a question under way (its answer, the front picture, would otherwise come back over the street), and
+        # no question is asked while a small picture is being asked for. (The walk-through answers one late, for real.)
+        waiting = self.held_back()
+        outfit = some_outfits(1)[0]
+        drawing = self.ask(outfit)
+        question = re.search(r'<p class="look-bar band wait"[^>]*>', drawing).group(0)
+        self.assertIn('hx-sync="closest .look:abort"', question)
+        page = self.client.get("/outfits").data.decode()
+        self.assertIn(f'<div class="look" id="look-{outfit.key}" hx-target="this"', page)
+        # The box's other requests for the front picture are the same: "See it worn" (sent by itself once the outfit
+        # is in view, or tapped) and "Draw again".
+        asks = re.findall(r'<form class="look-bar band ask"[^>]*>', page)
+        self.assertTrue(any("data-auto-look" in ask for ask in asks), "no outfit asks for its picture by itself")
+        for ask in asks:
+            self.assertIn('hx-sync="closest .look:abort"', ask)
+        waiting.pop()()                                            # the drawing finishes
+        ready = self.ask(outfit)
+        self.assertIn("look-pic", ready)
+        line = re.search(r'<form class="look-bar look-line"[^>]*>', ready).group(0)
+        self.assertIn('hx-sync="closest .look:abort"', line, "Draw again")
+        row = re.search(r'<form method="post"[^>]*role="group" aria-label="Photos of this outfit">', ready).group(0)
+        self.assertIn('hx-sync="closest .look:replace"', row)
+        more = re.search(r'<form method="post"[^>]*hx-target="closest .shots" hx-swap="outerHTML">', ready)
+        self.assertIsNotNone(more, "More photos answers the row alone")
+
+    def test_a_small_picture_tapped_without_javascript_is_the_picture_shown(self):
+        outfit, other = some_outfits(2)
+        front = re.search(r'<img src="(/looks/[^"]+)" alt="AI', self.ask(outfit)).group(1)
+        came_from = "http://localhost/outfits?occasion=all&n=12"
+        tapped = self.client.post("/outfits/look", data={"key": outfit.key, "more": "1", "shown": "front"},
+                                  headers={"Referer": came_from})
+        self.assertEqual(tapped.status_code, 302)
+        self.assertEqual(tapped.headers["Location"], f"/outfits?occasion=all&n=12#outfit-{outfit.key}")
+        self.assertEqual(len(self.drawn), 6)
+        tapped = self.client.post("/outfits/look", data={"key": outfit.key, "shot": "street"},
+                                  headers={"Referer": came_from})
+        self.assertEqual(tapped.headers["Location"],
+                         f"/outfits?occasion=all&n=12&shot=street&shot_of={outfit.key}#outfit-{outfit.key}")
+        page = self.client.get(tapped.headers["Location"].split("#")[0]).data.decode()
+        box = page[page.index(f'id="look-{outfit.key}"'):]
+        box = box[:box.index('<div class="spots">')]
+        self.assertIn('<div class="look-pic more">', box)
+        self.assertNotIn(front, re.search(r'<div class="look-pic more">\s*<img src="([^"]+)"', box).group(1))
+        self.assertEqual([name for name, pressed, _ in self.cells(box) if pressed == "true"], ["street"])
+        elsewhere = page[page.index(f'id="look-{other.key}"'):]
+        self.assertEqual(self.cells(elsewhere[:elsewhere.index('<div class="spots">')]), [], "another outfit changed too")
+        # Draw again from there stays in the street; back to the front picture, the address says nothing of a shot.
+        again = self.client.post("/outfits/look", data={"key": outfit.key, "shot": "street", "again": "1"},
+                                 headers={"Referer": "http://localhost" + tapped.headers["Location"].split("#")[0]})
+        self.assertEqual(again.headers["Location"], tapped.headers["Location"])
+        back = self.client.post("/outfits/look", data={"key": outfit.key, "shot": "front"},
+                                headers={"Referer": "http://localhost" + tapped.headers["Location"].split("#")[0]})
+        self.assertEqual(back.headers["Location"], f"/outfits?occasion=all&n=12#outfit-{outfit.key}")
+        # Only this site's outfits page is gone back to; a picture the settings do not offer is the front one.
+        away = self.client.post("/outfits/look", data={"key": outfit.key, "shot": "street"},
+                                headers={"Referer": "https://elsewhere.example/outfits?occasion=office"})
+        self.assertEqual(away.headers["Location"], f"/outfits?shot=street&shot_of={outfit.key}#outfit-{outfit.key}")
+        moon = self.client.get(f"/outfits?shot=moon&shot_of={outfit.key}").data.decode()
+        moon = moon[moon.index(f'id="look-{outfit.key}"'):]
+        self.assertIn('<div class="look-pic">', moon[:moon.index('<div class="spots">')])
+
+    def test_why_a_new_version_was_not_drawn_is_said_under_its_line(self):
+        self.with_rules(per_day=1)
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        refused = self.ask(outfit, again="1")
+        self.assertIn("pictures are used up", refused)
+        line = refused.index('class="look-bar look-line"')
+        message, row = refused.index('<p class="look-msg">'), refused.index('<div class="shots"')
+        self.assertLess(line, message)
+        self.assertLess(message, row, "the reason is under the small pictures, not under the line with Draw again")
+        between = refused[refused.index("</form>", line) + len("</form>"):message]
+        self.assertEqual(between.strip(), "", "something stands between the line with Draw again and the reason")
+        self.assertNotIn("More photos", refused.replace("More photos</button>", "", 1), "offered once")
 
 
 class TheModel(WithPictures, AppCase):
@@ -1572,6 +1882,7 @@ class TheModel(WithPictures, AppCase):
         self.assertIsNotNone(facts, "no facts in the photo's form")
         said = " ".join(facts.group(1).split())
         for fact in (f"Your photo goes to {service} each time a picture of you is drawn",
+                     f"further photos (“More photos”) are made from that picture of you, which goes to {service} again",
                      "without where and when it was taken, until you delete it",
                      "you can delete it here at any time, and the pictures made from it go with it"):
             self.assertIn(fact, said)
@@ -1678,28 +1989,35 @@ class SettingsFile(WithPictures, AppCase):
         rules = looks.load_rules()
         self.assertIn("{model}", rules["text"]["scene"])
         self.assertIn("{body}", rules["text"]["scene_with_photo"])
-        self.assertEqual(list(rules["scenes"])[0], looks.STUDIO, "the studio comes first")
+        self.assertIn("{change}", rules["text"]["from_anchor"])
+        self.assertEqual((list(rules["poses"]), list(rules["scenes"])), (["walking", "turned"], ["street", "cafe", "library"]))
+        # The limits the research proposed: five whole sets a day for a customer, 300 pictures for the site.
+        self.assertEqual((rules["pictures"]["per_customer_per_day"], rules["pictures"]["per_day"]), (30, 300))
 
-    def test_scenes_come_from_the_file_and_a_mistake_in_them_is_named(self):
-        self.edit('label      = "Library"', 'label      = "Books"')
-        self.assertIn(("library", "Books"), looks.scenes())
+    def test_poses_and_scenes_come_from_the_file_and_a_mistake_in_them_is_named(self):
+        self.edit('label  = "Library"', 'label  = "Books"')
+        self.assertIn(("library", "Books"), looks.shots())
         outfit = some_outfits(1)[0]
-        before = self.post("/outfits/look", key=outfit.key, scene="street")
-        self.assertEqual(len(self.drawn), 1)
-        self.edit("in soft overcast daylight", "at dusk")             # new words for a scene: a new picture in it
-        self.post("/outfits/look", key=outfit.key, scene="street")
+        self.post("/outfits/look", key=outfit.key)
+        before = self.post("/outfits/look", key=outfit.key, shot="street")
         self.assertEqual(len(self.drawn), 2)
-        self.assertIn("at dusk", self.drawn[1]["prompt"])
-        self.assertNotEqual(re.search(r'src="([^"]+)"', before.data.decode()).group(1),
-                            re.search(r'src="([^"]+)"', self.post("/outfits/look", key=outfit.key, scene="street").data.decode()).group(1))
+        self.edit("Natural overcast daylight from above", "Low evening sun")     # new words for a scene: a new picture of it
+        self.post("/outfits/look", key=outfit.key, shot="street")
+        self.assertEqual(len(self.drawn), 3)
+        self.assertIn("Low evening sun", self.drawn[2]["prompt"])
+        self.assertNotEqual(re.search(r'<img src="([^"]+)" alt="AI', before.data.decode()).group(1),
+                            re.search(r'<img src="([^"]+)" alt="AI', self.post("/outfits/look", key=outfit.key, shot="street").data.decode()).group(1))
         mistakes = [
-            ("[scenes.studio]", "[scenes.home]", "[scenes.studio] is missing"),
-            ("{setting}, realistic fabric textures and true colours.\"\n\n# Used",
-             "Plain grey, realistic fabric textures and true colours.\"\n\n# Used", "text.scene must say where"),
-            ('label      = "Café"', 'label      = "A café in Paris"', "scenes.cafe.label must be one short word"),
-            ("[scenes.cafe]", "[scenes.Cafe]", "a scene's name is a word in small letters"),
-            ('setting    = "Plain light-grey studio background, soft even daylight"', 'setting    = ""',
-             "scenes.studio.setting must be words"),
+            ("Change only this: {change} The whole", "Change the pose. The whole", "text.from_anchor must say where"),
+            ("lookbook: {model}. He stands", "lookbook: a man. He stands", "text.scene must say where"),
+            ('label  = "Café"', 'label  = "A café in Paris"', "scenes.cafe.label must be one short word"),
+            ("[scenes.cafe]", "[scenes.Cafe]", "its name is a word in small letters"),
+            ("[poses.turned]", "[poses.front]", "that name is taken"),
+            ("[scenes.street]", "[scenes.walking]", "that name is taken"),
+            ('change = "He stands turned about 45 degrees to his left, one hand in his trouser pocket, the other arm relaxed, '
+             'looking past the camera. Same seamless white studio background and white floor, same soft even light, a faint '
+             'shadow under his feet."', 'change = ""', "poses.turned.change must be words"),
+            ('avoid_scene = "', 'avoid_place = "', "text.avoid_scene must be a sentence"),
         ]
         original = (config.CONFIG_DIR / "looks.toml").read_text(encoding="utf-8")
         for old, new, said in mistakes:
@@ -1708,12 +2026,17 @@ class SettingsFile(WithPictures, AppCase):
             with self.assertRaises(config.ConfigError) as raised:
                 looks.load_rules()
             self.assertIn(said, str(raised.exception))
-        more = "".join(f'\n[scenes.{name}]\nlabel = "{name}"\nphotograph = "photograph"\nsetting = "somewhere"\n'
-                       for name in ("beach", "park", "office"))         # seven in all: too many for one row
+        more = "".join(f'\n[scenes.{name}]\nlabel = "{name}"\nchange = "He is somewhere else."\n'
+                       for name in ("beach", "park", "office", "bar"))         # seven scenes: too many for one row
         (config.CONFIG_DIR / "looks.toml").write_text(original + more, encoding="utf-8")
         with self.assertRaises(config.ConfigError) as raised:
             looks.load_rules()
-        self.assertIn("six scenes at most", str(raised.exception))
+        self.assertIn("[scenes] has room for six at most", str(raised.exception))
+        # A settings file with only the front picture: nothing more is offered.
+        cut = original[:original.index("[poses.walking]")] + original[original.index("# Where the dot for each piece sits"):]
+        (config.CONFIG_DIR / "looks.toml").write_text(cut, encoding="utf-8")
+        self.assertEqual(looks.shots(), [("front", "Front")])
+        self.assertNotIn("More photos", self.post("/outfits/look", key=outfit.key).data.decode())
 
 
 # ── the two real services, against canned answers ─────────────────────────────
@@ -1755,7 +2078,7 @@ class Services(unittest.TestCase):
         body = request["body"]
         self.assertTrue(body.startswith(f"--{boundary}\r\n".encode()))
         self.assertTrue(body.endswith(f"--{boundary}--\r\n".encode()))
-        self.assertIn(b'name="image[]"; filename="person.png"\r\nContent-Type: image/png\r\n\r\n' + OTHER_PICTURE, body)
+        self.assertIn(b'name="image[]"; filename="picture-1.png"\r\nContent-Type: image/png\r\n\r\n' + OTHER_PICTURE, body)
         for field, value in (("model", "gpt-image-2.5-flare"), ("prompt", "this person in a navy coat"),
                              ("size", "1024x1536"), ("quality", "high")):
             self.assertIn(f'name="{field}"\r\n\r\n{value}\r\n'.encode(), body)
@@ -1781,6 +2104,42 @@ class Services(unittest.TestCase):
         self.assertEqual(imagegen.draw(self.GOOGLE, "this person", OTHER_PICTURE)[0], PICTURE, "the last drawing")
         self.assertEqual(json.loads(sent[0]["body"])["input"][1],
                          {"type": "image", "mime_type": "image/png", "data": photo})
+
+    def test_google_is_sent_the_reference_pictures_inside_the_request(self):
+        # An outfit's further pictures are made from its front picture: it travels with the words, as base64, after
+        # them; with a person's own photo as well, the photo comes first.
+        sent = self.answer(200, {"status": "completed", "steps": [
+            {"type": "model_output", "content": [{"type": "image", "mime_type": "image/jpeg", "data": b64(PICTURE)}]}]})
+        front = b"\xff\xd8\xff" + b"\x07" * 3000
+        self.assertEqual(imagegen.draw(self.GOOGLE, "the same man, walking", references=[front]), (PICTURE, "jpg"))
+        self.assertEqual(json.loads(sent[0]["body"]), {
+            "model": "gemini-nano-banana-2.1",
+            "input": [{"type": "text", "text": "the same man, walking"},
+                      {"type": "image", "mime_type": "image/jpeg", "data": b64(front)}],
+            "response_format": {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": "2:3", "image_size": "2K"}})
+        imagegen.draw(self.GOOGLE, "this person, walking", OTHER_PICTURE, references=[front, front])
+        self.assertEqual([(part["type"], part.get("mime_type")) for part in json.loads(sent[1]["body"])["input"]],
+                         [("text", None), ("image", "image/png"), ("image", "image/jpeg"), ("image", "image/jpeg")])
+        # An answer in an unknown shape that only repeats what was sent is not a drawing, whichever picture it repeats.
+        self.answer(200, {"outputs": [{"type": "image", "data": b64(front)}, {"type": "image", "data": b64(OTHER_PICTURE)}]})
+        with self.assertRaises(imagegen.DrawError) as stop:
+            imagegen.draw(self.GOOGLE, "x", OTHER_PICTURE, references=[front])
+        self.assertEqual(stop.exception.kind, "empty")
+        # More pictures than Google takes: turned away here, nothing sent, nothing billed.
+        sent = self.answer(200, {})
+        with self.assertRaises(imagegen.DrawError) as stop:
+            imagegen.draw(self.GOOGLE, "x", references=[front] * 15)
+        self.assertEqual((stop.exception.kind, stop.exception.free, sent), ("request", True, []))
+
+    def test_openai_is_sent_the_reference_pictures_as_a_form(self):
+        sent = self.answer(200, {"data": [{"b64_json": b64(PICTURE)}]})
+        front = b"\xff\xd8\xff" + b"\x07" * 3000
+        self.assertEqual(imagegen.draw(self.OPENAI, "the same man, walking", OTHER_PICTURE, references=[front])[0], PICTURE)
+        self.assertEqual(sent[0]["url"], "https://api.openai.com/v1/images/edits")
+        body = sent[0]["body"]
+        first = body.index(b'name="image[]"; filename="picture-1.png"\r\nContent-Type: image/png\r\n\r\n' + OTHER_PICTURE)
+        second = body.index(b'name="image[]"; filename="picture-2.jpg"\r\nContent-Type: image/jpeg\r\n\r\n' + front)
+        self.assertLess(first, second, "the person's photo first, then the picture to make the new one from")
 
     def test_answers_in_another_shape_are_still_read(self):
         self.answer(200, [{"candidates": [{"content": {"parts": [
@@ -2040,33 +2399,47 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertIn(b"look-pic", self.ask(bob, keys[1]).data, "the allowance is per customer")
         self.assertEqual(len(self.drawn), 2)
 
-    def test_each_scene_is_one_of_the_customers_pictures_for_the_day(self):
-        self.with_rules(per_customer_per_day=2, per_day=50)
+    def test_each_of_an_outfits_pictures_is_one_of_the_customers_pictures_for_the_day(self):
+        self.with_rules(per_customer_per_day=3, per_day=50)
         ada, bob = self.member("ada@example.com"), self.member("bob@example.com")
         key = self.outfit_keys(ada)[0]
-        self.assertIn(b"look-pic", self.ask(ada, key).data)
-        self.assertIn(b"look-pic", self.ask(ada, key, scene="street").data)
-        refused = self.ask(ada, key, scene="library").data.decode()
-        self.assertIn("That&#39;s your 2 pictures for today. More tomorrow.", refused)
-        self.assertIn(b"look-pic", self.ask(ada, key, scene="street").data, "a scene drawn already costs nothing")
-        self.assertIn(b"look-pic", self.ask(bob, key, scene="street").data, "and is there for the next customer too")
-        self.assertEqual(len(self.drawn), 2)
+        front = self.ask(ada, key).data.decode()
+        self.assertIn("look-pic", front)
+        self.assertIn("5 pictures of your 3 a day", front, "the limit is said beside More photos, before the tap")
+        row = self.ask(ada, key, more="1", shown="front").data.decode()
+        self.assertIn("That&#39;s your 3 pictures for today. More tomorrow.", row)
+        self.assertNotIn("config/", row)
+        self.assertEqual((row.count("<img"), row.count('class="plus"')), (3, 3), "the front picture, two more, three not drawn")
+        self.assertEqual(len(self.drawn), 3)
+        self.assertIn(b"look-pic more", self.ask(ada, key, shot="walking").data, "a picture drawn already costs nothing")
+        self.assertIn(b"look-pic more", self.ask(bob, key, shot="walking").data, "and is there for the next customer too")
+        self.assertEqual(len(self.drawn), 3)
+        self.assertIn(b"look-pic more", self.ask(bob, key, shot="street").data, "the allowance is per customer")
+        self.assertEqual(len(self.drawn), 4)
 
-    def test_a_scene_picture_of_someone_is_theirs_and_goes_with_their_photo(self):
+    def test_pictures_made_from_someones_front_picture_are_theirs_and_go_with_their_photo(self):
         ada, bob = self.member("ada@example.com"), self.member("bob@example.com")
         uid = self.user_id("ada@example.com")
         ada.post("/profile/photo", content_type="multipart/form-data", data={
             "photo": (io.BytesIO(PHOTO), "me.jpg"), "agree": "on", "csrf_token": self.token(ada)})
         key = self.outfit_keys(ada)[0]
-        address = re.search(r'src="(/looks/[^"]+)"', self.ask(ada, key, scene="cafe").data.decode()).group(1)
+        self.ask(ada, key)
         self.assertEqual(self.drawn[0]["photo"], person.tidy(PHOTO)[0])
         self.assertIn("the person in the attached photo", self.drawn[0]["prompt"])
-        self.assertEqual(bob.get(address).status_code, 404)
+        front = (looks.folder() / self.pictures_on_disk()[0]).read_bytes()
+        address = re.search(r'<img src="(/looks/[^"]+)" alt="AI', self.ask(ada, key, shot="cafe").data.decode()).group(1)
+        # The café picture is made from his front picture, which shows him: the photo itself is not sent again.
+        self.assertEqual((self.drawn[1]["photo"], self.drawn[1]["references"]), (None, [front]))
+        self.assertEqual(ada.get(address).status_code, 200)
+        self.assertEqual(bob.get(address).status_code, 404, "a picture of Ada is shown to Ada only")
+        self.assertNotIn(b"look-pic", bob.get("/outfits").data, "Bob sees neither of them")
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
-            self.assertEqual(con.execute("SELECT COUNT(*) FROM looks WHERE user_id = ?", (uid,)).fetchone()[0], 1)
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM looks WHERE user_id = ?", (uid,)).fetchone()[0], 2)
         self.post(ada, "/profile/photo", remove="1")
         self.assertEqual(self.pictures_on_disk(), [])
         self.assertEqual(ada.get(address).status_code, 404)
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            self.assertEqual(con.execute("SELECT COUNT(*) FROM looks_made_from").fetchone()[0], 0)
 
     def test_customers_share_the_picture_of_the_same_outfit(self):
         ada, bob = self.member("ada@example.com"), self.member("bob@example.com")

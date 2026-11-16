@@ -389,7 +389,7 @@ class PublishedListReadAgain(unittest.TestCase):
             shared.refresh_customer()
             shared.refresh_customer()                   # the next page they open
         self.assertEqual(rebuild.call_count, 1, "rebuilt once, not on every page")
-        self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#refused#cos,weekday")
+        self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#refused#bergfreunde,blue-tomato,breuninger,cos,hirmer,otto,tom-tailor,weekday")
         after = selection.build().get("indigo-jeans")
         self.assertEqual({c.id: c.data["fit"] for c in after.cands},
                          {"weekday-0100000140": "regular", "weekday-0100000240": "regular"})
@@ -438,7 +438,7 @@ class ByHand(unittest.TestCase):
         self.assertIsNone(manual.store_of("javascript:alert(1)"))
         results = manual.from_urls(["https://shop.example.org/jumper", "https://www.zara.com/de/de/x-p01234567.html"],
                                    self.slot)
-        self.assertEqual([(cand, note) for _, cand, note in results], [(None, "is not a COS or Weekday link")] * 2)
+        self.assertEqual([(cand, note) for _, cand, note in results], [(None, "is not a link to one of the stores listed above")] * 2)
 
     def test_a_cos_link_is_not_opened_and_gives_what_the_link_says(self):
         link = COS + "/de-de/men/menswear/knitwear/jumpers/merino/product/brushed-merino-crew-neck-jumper-black-4100000902"
@@ -513,7 +513,7 @@ class ByHand(unittest.TestCase):
         self.assertTrue(r.headers["Location"].endswith("#add"), r.headers["Location"])
         page = self.client.get(r.headers["Location"])
         self.assertEqual(self.said(page, inside="add"), [
-            "Not added: “https://shop.example.org/jumper” is not a COS or Weekday link.",
+            "Not added: “https://shop.example.org/jumper” is not a link to one of the stores listed above.",
             "Added “Some jumper black”: only the link could be read — add the price, fabric and sizes under "
             "“Add details”."])
         before = page.get_data(as_text=True).split('id="add"')[0]
@@ -523,7 +523,7 @@ class ByHand(unittest.TestCase):
         self.assertEqual(self.said(nothing, inside="add"), ["Paste at least one product link."])
         long = "https://shop.example.org/" + "x" * 200
         cut = self.client.post(f"/slot/{self.sid}/import", data={"urls": long}, follow_redirects=True)
-        self.assertEqual(self.said(cut, inside="add"), [f"Not added: “{long[:79]}…” is not a COS or Weekday link."])
+        self.assertEqual(self.said(cut, inside="add"), [f"Not added: “{long[:79]}…” is not a link to one of the stores listed above."])
 
     def test_a_link_gives_the_products_name_without_its_article_number(self):
         for link, name in ((COS + "/de-de/x/product/brushed-merino-jumper-black-4100000902", "Brushed merino jumper black"),

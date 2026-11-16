@@ -316,6 +316,11 @@ def detect_garment(text: str) -> str | None:
     return None
 
 
+def garment_words(category: str) -> list[str]:
+    """The words that name one kind of garment: "coat", "overcoat", "trench", "parka", "mantel" for a coat."""
+    return next((words for key, words in _GARMENT_WORDS if key == category), [])
+
+
 def _lines(owned_text: str) -> list[str]:
     """The lines of "Things to build around", without list marks and blank lines."""
     return [line for line in (raw.strip(" \t-•*") for raw in (owned_text or "").splitlines()) if line]

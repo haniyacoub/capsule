@@ -3,9 +3,40 @@
    (_macros.html): the piece and its price, the store and the quality, the product's name in English where every
    word is known (english.py) as the link to its page, with the store's own name under it, the fabric and the fit.
    Then its colour and the size to order, and what else to check. Store words are German: marked lang="de".
-   "Open all" opens every product page of one store at once (app.js); each store has
-   its own basket, so that is as close as it gets to buying everything in one go. #}
+   Under a store with several products is one button that opens its product pages one by one: "Open the first of
+   3 at COS", then "Open the next at COS", each press one new tab, each opened line ticked, and "Start again" once
+   all are open, which takes the ticks off (app.js, 9). It is an ordinary
+   link to the next page not yet opened, because that always works: a browser lets a site open one tab per tap and
+   holds the rest back as pop-ups, which is why "Open all" opened only the first. Without JavaScript it stays a link
+   to the first. Each store has its own basket, so this is as close as it gets to buying everything in one go. #}
 {% from "_macros.html" import by, fabric_fit, icon, pic %}
+{# First, apart from the stores' baskets: the pieces whose chosen product is sold out in his size. They are in no
+   store's subtotal and in no total, and each offers the next best product in his size in one tap (_sold_out.html),
+   which brings it into its store's basket below. #}
+{% if sl.sold_out %}
+<section class="card store-list sold-list">
+  <header class="store-head">
+    <h2>{{ sl.gone_words|capitalize }}</h2>
+    <span class="muted">{{ sl.pieces_sold_out }} {{ 'piece' if sl.pieces_sold_out == 1 else 'pieces' }}</span>
+    <span class="subtotal muted">not counted</span>
+  </header>
+  <ul class="buys">
+    {% for line in sl.sold_out %}
+    <li class="buy">
+      {{ pic(line.image_url, line.hex) }}
+      <div class="buy-main">
+        <p class="buy-top"><span class="buy-slot">{{ line.slot }}{% if line.qty > 1 %} <span class="qty">×{{ line.qty }}</span>{% endif %}</span>
+          <span class="buy-total"><s>{{ line.total|eur }}</s><span class="sr"> (not counted in the total)</span></span></p>
+        {% set en = line.product|english %}
+        <span class="buy-product"><span lang="{{ 'en' if en else 'de' }}">{{ en or line.product }}</span></span>
+        {% if en %}<span class="orig" lang="de">{{ line.product }}</span>{% endif %}
+        {% with s = line.view, back = 'buy' if outfit is defined else 'list', sig = outfit.sig if outfit is defined else '', qty = line.qty %}{% include "_sold_out.html" %}{% endwith %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% for g in sl.groups %}
 <section class="card store-list">
   <header class="store-head">
@@ -24,17 +55,19 @@
         {% if c %}<span class="by">{{ by(c.data.store, c.score) }}</span>{% endif %}
         <a class="buy-product" href="{{ line.url|weblink }}" target="_blank" rel="noopener noreferrer"><span lang="{{ 'en' if en else 'de' }}">{{ en or line.product }}</span>&nbsp;{{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>
         {% if en %}<span class="orig" lang="de">{{ line.product }}</span>{% endif %}
-        {% if c %}{{ fabric_fit(c, 'span') }}{% endif %}
+        <span class="buy-opened no-print" data-line="{{ line.slot }}" hidden>{{ icon('check') }} Opened in a new tab</span>
+        {% if c %}{{ fabric_fit(c, 'span', buying=true) }}{% endif %}
         <span class="buy-meta">{% if line.colour %}Colour: <span lang="de">{{ line.colour }}</span> · {% endif %}Size: <b>{{ line.size }}</b>{% if line.qty > 1 %} · {{ line.qty }} × {{ line.unit_price|eur }}{% endif %}</span>
         {% for note in (line.cautions if c else line.notes) %}<span class="buy-note">{{ note }}</span>{% endfor %}
       </div>
     </li>
     {% endfor %}
   </ul>
-  {% if g.lines|length > 1 %}
+  {% set pages = g.lines|map(attribute='url')|map('weblink')|reject('equalto', '#')|list %}
+  {% if pages|length > 1 %}
   <p class="open-all no-print">
-    <button class="btn ghost small" type="button" data-open-all>{{ icon('ext') }} Open all {{ g.lines|length }} at {{ g.label }}</button>
-    <span class="open-hint" hidden>Your browser held some of the tabs back. Allow pop-ups for this site, or use the links above.</span>
+    <a class="btn ghost small" href="{{ pages[0] }}" target="_blank" rel="noopener noreferrer" data-open-next data-store="{{ g.label }}">{{ icon('ext') }} <span data-open-label>Open the first of {{ pages|length }} at {{ g.label }}</span><span class="sr"> (opens in a new tab)</span></a>
+    <span class="open-status" role="status" data-open-status></span>
   </p>
   {% endif %}
 </section>

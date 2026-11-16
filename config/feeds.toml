@@ -72,9 +72,9 @@ network        = "awin"
 programme_id   = "11590"
 status         = "none"
 programme_page = "https://ui.awin.com/merchant-profile/11590"
-unconfirmed    = "its terms, whose page could not be read when checked"
-notes          = """Said to require the feed refreshed daily and all its data deleted when the
-                    partnership ends. 12% for new customers, 5% for existing ones."""
+notes          = """12% for new customers, 5% for existing ones, 11% on luxury, 3% for voucher sites, 30 days.
+                    It excludes cashback, display, e-mail and search-advertising partners. Its page mentions
+                    no product feed (read 15 Nov 2026)."""
 
 [stores.peek-cloppenburg]
 label          = "Peek & Cloppenburg Düsseldorf"
@@ -125,6 +125,30 @@ status         = "none"
 programme_page = "https://ui.awin.com/merchant-profile/8617"
 notes          = "Product feed (\"Produktdaten\"). 7-9%."
 
+[stores.hirmer]
+label          = "Hirmer"
+network        = "awin"
+programme_id   = "14837"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/14837"
+notes          = "Men only. 10% per order, 4% with a voucher, 30 days. Product feed refreshed daily. No search-engine advertising."
+
+[stores.blue-tomato]
+label          = "Blue Tomato"
+network        = "awin"
+programme_id   = "11873"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/11873"
+notes          = "Streetwear and boardsport. 7%, 4% for voucher sites, 30 days. Daily feed with over 60,000 models; keep only its men's products at import."
+
+[stores.bergfreunde]
+label          = "Bergfreunde"
+network        = "awin"
+programme_id   = "14102"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/14102"
+notes          = "Outdoor. Up to 15% for content sites, 30 days. Daily feed with up to 270,000 products; keep only its men's products at import."
+
 [stores.s-oliver]
 label          = "s.Oliver"
 network        = "awin"
@@ -143,10 +167,11 @@ notes          = "6%, 30 days. A product feed is not mentioned."
 [stores.snipes]
 label          = "Snipes"
 network        = "awin"
+programme_id   = "122628"
 status         = "none"
-programme_page = "https://www.affilitizer.com/programs/snipes.com"
-notes          = """Listed as "Snipes EU". Sneakers. Probably a product feed: the older German
-                    programme had a full one."""
+programme_page = "https://ui.awin.com/merchant-profile/122628"
+notes          = """Listed as "Snipes EU"; the page covers Germany. Sneakers and streetwear. Its page states
+                    neither a commission nor a product feed (read 15 Nov 2026)."""
 
 [stores.lounge-by-zalando]
 label          = "Lounge by Zalando"

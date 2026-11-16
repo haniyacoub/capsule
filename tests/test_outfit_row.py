@@ -68,7 +68,7 @@ class TheDots(WithPictures, AppCase):
         # dots have none. The photos and the piece rows keep theirs.
         page = self.client.get("/outfits").data.decode()
         first = page[page.index("<article"):page.index("</article>")]
-        spots = re.findall(r'<a class="spot"[^>]*>', first)
+        spots = re.findall(r'<a class="spot(?: low)?"[^>]*>', first)     # (low: the shoes', clear of the 'AI picture' label)
         rows = re.findall(r'<a class="piece-row"[^>]*title="([^"]+)"[^>]*>.*?<span class="piece-price">([^<]+)<small>([^<·]+)',
                           first, re.S)
         self.assertGreaterEqual(len(spots), 3)
@@ -101,7 +101,7 @@ class APieceWithoutJavaScript(WithPictures, AppCase):
         page = self.client.get("/outfits", query_string={"occasion": "office"}).data.decode()
         first = page[page.index("<article"):page.index("</article>")]
         key = re.search(r'id="outfit-([0-9a-f]+)"', first).group(1)
-        opening = re.findall(r'<[a-z]+ class="(?:tile|spot|piece-row)"[^>]*>', first)
+        opening = re.findall(r'<[a-z]+ class="(?:tile|spot(?: low)?|piece-row)"[^>]*>', first)
         pieces = re.findall(r'<li>\s*<[a-z]+ class="piece-row"', first)
         self.assertGreaterEqual(len(pieces), 3)
         self.assertEqual(len(opening), 3 * len(pieces), "a photo, a dot and a line for each piece")

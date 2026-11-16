@@ -93,9 +93,16 @@ class Scoring(unittest.TestCase):
                            self.score("weekday", category="knit", **same).total)
 
     def test_only_the_stores_customers_are_offered_are_rated(self):
-        # A store without a partner programme (programmes.py) is not offered, so it is not rated either.
-        self.assertEqual(sorted(self.rules["brand"]), sorted(programmes.offered()))
+        # A store without a partner programme (programmes.py) is not offered, so it is not rated either. The stores
+        # Stilsmith has products from (the ones the collector reads) are each rated. A store whose products can only
+        # be pasted in by their links (Hirmer and the others of round 6) is not rated yet, and the working says so
+        # instead of claiming a rating nobody gave.
+        self.assertEqual(sorted(self.rules["brand"]), sorted(programmes.read_by_the_collector()))
+        self.assertLessEqual(set(self.rules["brand"]), set(programmes.offered()))
         self.assertNotIn("zara", self.rules["brand"])
+        self.assertIn("hirmer", programmes.offered())
+        self.assertEqual(scoring.brand_part("hirmer", "shirt", self.rules),
+                         (50.0, ["Stilsmith has not rated Hirmer yet, so its brand counts as the middle, 50/100"]))
 
     def test_mostly_synthetic_penalty_is_explained(self):
         s = self.score("weekday", 35.95, "74 % Polyester, 24 % Viskose, 2 % Elasthan", "trousers")

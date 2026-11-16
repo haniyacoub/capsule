@@ -10,19 +10,32 @@
 <header class="slot-head">
   {# `focus`: the piece has just taken a new colour (app.slot_colour); the button pressed is gone, so focus comes here. #}
   <h1{% if focus %} tabindex="-1" autofocus{% endif %}>{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</h1>
+  {# What really happened. `under`: no option that can be bought reaches the minimum quality, so the pick is the
+     best-rated one (selection.choose), whatever the price level; it is said once, never "rated 70 or more" over
+     "Nothing reaches 70". "In your size" only for a size the customer gave: "in the example size" until then (in
+     selection.choose's notes too). Where no option's sizes were checked: "the best-rated option you can buy", as
+     one sold out in your size or without a price is passed over. #}
+  {% set under = s.chosen and s.state == 'auto' and w.threshold > 0 and s.chosen.score.total < w.threshold %}
+  {% set size = (' in the example size' if example_sizes else ' in your size') if s.chosen and s.chosen.size.known else '' %}
+  {% set note = s.note|replace(' in your size', ' in the example size') if s.note and example_sizes else s.note %}
   <p class="state">
     {% if s.state == 'owned' %}
       You already own this, so it costs nothing and nothing is picked.
     {% elif s.state == 'locked' %}
       <b>Locked:</b> kept when you change the price level or the minimum quality.
     {% elif s.chosen %}
-      Picked for you: {% if w.mode == 'budget' %}what your budget allows here{% if w.threshold > 0 %}, rated {{ w.threshold }} or more{% endif %}
-      {%- else %}the {{ MODES[w.mode]|lower }} option{% if s.chosen.size.known %} in your size{% endif %}{% if w.threshold > 0 %} rated {{ w.threshold }} or more{% endif %}{% endif %}. Choose another below to swap it in.
+      Picked for you: {% if under %}the best-rated option{{ size or ' you can buy' }}
+      {%- elif w.mode == 'budget' %}what your budget allows here{% if w.threshold > 0 %}, rated {{ w.threshold }} or more{% endif %}
+      {%- else %}the {{ MODES[w.mode]|lower }} option{{ size }}{% if w.threshold > 0 %} rated {{ w.threshold }} or more{% endif %}{% endif %}. Choose another below to swap it in.
+      {% if under %}<span class="note">Nothing reaches your minimum quality of {{ w.threshold }}.</span>{% endif %}
     {% else %}
-      {{ s.note }}.
+      {{ note }}.
     {% endif %}
-    {% if s.note and s.chosen and s.state != 'owned' %}<span class="note">{{ s.note }}.</span>{% endif %}
+    {# Any other note (a locked choice gone from the product list…); the one about the minimum is said just above. #}
+    {% if note and s.chosen and s.state != 'owned' and not s.sold_out and not (under and note.startswith('Nothing reaches')) %}<span class="note">{{ note }}.</span>{% endif %}
   </p>
+  {# The locked product is sold out in his size: said here as wherever the piece shows, with the same one tap. #}
+  {% if s.sold_out %}{% with back = 'slot', sig = '', qty = s.qty, pick_args = dict(view='slot', sort=sort, **way) %}{% include "_sold_out.html" %}{% endwith %}{% endif %}
   {# `plan_link`: a piece left out has one more way forward on its own page: the plan, where it can be recoloured or removed. #}
   {% if s.offers or s.left_out %}{% set offer_args = dict(view='slot', sort=sort, **way) %}{% set plan_link = true %}{% include "_colour_offer.html" %}{% endif %}
   {% if not cands and not demo and s.state != 'owned' %}
@@ -171,11 +184,16 @@
   {% for message in link_messages or [] %}
   <p class="flash{% if not message.startswith('Added') %} bad{% endif %}" role="status">{{ message }}</p>
   {% endfor %}
-  {# The stores customers are offered (programmes.py); a link to any other store is refused. #}
-  <p class="muted small">Paste product page addresses from {{ store_names(STORES, 'or') }}, one per line. The page itself is not opened: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
-  <form class="form" method="post" action="{{ url_for('slot_import', slot_id=sid, **way) }}">{{ csrf_field() }}
+  {# The stores customers are offered (programmes.py) that he ticked (profile.stores); a link to any other store is refused. #}
+  <p class="muted small">Paste product page addresses from {{ store_names(my_stores(), 'or') }}, one per line. Menswear only. {{ site_name }} does not open the page: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>
+  <form class="form" method="post" enctype="multipart/form-data" action="{{ url_for('slot_import', slot_id=sid, **way) }}">{{ csrf_field() }}
     <label class="field"><span>Product links</span>
       <textarea name="urls" rows="3" placeholder="https://www.cos.com/de-de/…/product/…-1234567890" autocapitalize="off" spellcheck="false"></textarea></label>
+    {# Optional: the product's page as he saved it from his own browser. With one link, its name, price, colour and
+       fabric are read from the file (collect/generic.py), for any store; the photo never is. #}
+    <label class="field"><span>The product's page, saved from your browser (optional)</span>
+      <input type="file" name="page" accept=".html,.htm,text/html" aria-describedby="page-help"></label>
+    <p class="muted small" id="page-help">With one link: open the product in your browser, save the page (“Save page as”), and choose that file here. Its name, price, colour and fabric are filled in where the page states them.</p>
     <button class="btn small">Add</button>
   </form>
 </section>

@@ -39,7 +39,7 @@ import json
 import os
 from datetime import datetime
 
-from . import db, paths, programmes, settings
+from . import db, paths, profile, programmes, settings
 
 _cache: tuple[int, dict] | None = None
 
@@ -51,10 +51,13 @@ def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def load() -> dict:
+def load(every_store: bool = False) -> dict:
     """The catalogue: the local file, or in production the signed-in customer's own, with only the products
-    of stores customers are offered (programmes.py)."""
-    return programmes.only_offered(stored())
+    of stores customers are offered (programmes.py) and that he ticked on Profile's Stores tab (profile.stores):
+    what the planner picks from, and so what Outfits, Wardrobe, Buy and the shopping list show. A store he
+    unticked keeps its products in what is stored, so ticking it again brings them back at once.
+    `every_store`: those of every store offered, whatever he ticked (what `python -m wardrobe publish` shares)."""
+    return programmes.only_offered(stored(), None if every_store else profile.stores())
 
 
 def stored() -> dict:

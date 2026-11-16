@@ -14,11 +14,13 @@ Module map (each file does one job):
     outfits.py      outfit combinations from the selected pieces
     looks.py        AI pictures of an outfit being worn (config/looks.toml)
     person.py       who the model in those pictures is: a few choices, or your photo
+    figure.py       the drawn figure on Profile that takes those choices at once (no AI)
     imagegen.py     talks to the image services (OpenAI, Google) that draw them
     videos.py       "See it move": a short AI video of an outfit's picture, its limits and Pro accounts
     videogen.py     talks to Google's video model that makes those videos
     export.py       the shopping list (page, Markdown, CSV), for the wardrobe or one outfit
     programmes.py   which stores customers are offered: only those with a partner programme
+    menswear.py     Stilsmith is for men: which products are menswear, for every feed and pasted link
     catalog.py      reads/writes data/catalog.json (what the stores sell)
     db.py           reads/writes data/wardrobe.db (what you decided)
     collect/        the collector behind `python -m wardrobe refresh`
@@ -26,6 +28,7 @@ Module map (each file does one job):
         cos.py, weekday.py   reading each store's category pages
         matching.py   which products on a category page fit a slot
         manual.py     importing a pasted product link
+        generic.py    reading a product page the customer saved from his browser, for any store
     mock.py         invented demo catalogue (before the first refresh)
     tryon.py        extension point for a true virtual try-on of the actual garments (not built)
     feeds/          the licensed store feeds behind `python -m wardrobe stores` and `feeds`

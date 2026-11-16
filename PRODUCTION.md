@@ -116,9 +116,13 @@ only place they have run. The Tunnel has never been started.
   - Spending is capped in `config/looks.toml`: `per_customer_per_day` and
     `per_day` for the whole service. A picture that shows no real person is
     drawn once and shared by every customer who asks for the same outfit.
-  - Only the stores' own words and the menu choices reach the image service.
-    Anything a customer typed (slot names, links, items added by hand) is left
-    out of the description.
+  - Only the stores' own words, the menu choices and the customer's body in
+    words reach the image service. The body is the height, weight, chest and
+    waist from Profile turned into a few words ("a little shorter than
+    average, lean build"), never the numbers, and only once the customer has
+    entered his own (`wardrobe/person.py`, "the body from Profile"). Anything
+    a customer typed (slot names, links, items added by hand) is left out of
+    the description.
   - A customer may upload a photo of themselves after ticking a consent box.
     Only the picture is stored (what a phone writes into the file about place,
     time and device is cut out), under their account. It is sent to the image
@@ -135,7 +139,9 @@ only place they have run. The Tunnel has never been started.
   - Videos of outfits ("See it move", with `GEMINI_API_KEY`): `[videos]` in
     `config/looks.toml` caps them apart from the pictures, at one a day per
     customer, five for Pro accounts (`python -m wardrobe pro add EMAIL`) and
-    owners, and ten for the whole service. A video of a picture drawn from a
+    owners, and ten for the whole service. Each of an outfit's pictures has
+    its own clip (the front one's 8-second turn, 5 seconds for the others),
+    and each clip counts as one video. A video of a picture drawn from a
     customer's photo is shown only to them and deleted with the photo and the
     account. The container installs ffmpeg for smooth dragging.
   - When the service refuses for a reason only you can fix (key, credit,

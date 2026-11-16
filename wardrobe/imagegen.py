@@ -2,19 +2,28 @@
 
 The rest of the app uses one function:
 
-    draw(service, prompt, photo=None)  ->  (picture bytes, "jpg" | "png" | "webp")
+    draw(service, prompt, photo=None, references=())  ->  (picture bytes, "jpg" | "png" | "webp")
 
 Without `photo` the service draws whoever the prompt describes. With it (the
 bytes of a JPEG, PNG or WebP of a person) it is asked to draw that person.
+`references` are pictures to make the new one from: looks.py sends an outfit's
+front picture, so that the same man in the same clothes can be shown walking,
+turned, or somewhere else. Every picture given travels with the words in the
+one request (Google takes up to 14, of which 4 of a person).
+
+OpenAI: a request with any picture goes to its "edits" address, which takes
+several. That is how its documentation reads; it has only ever been tried here
+with one photo, so pictures made from a front picture are untested on OpenAI.
 
 Both are called over plain HTTPS with Python's standard library, so nothing
 extra has to be installed. Written from the companies' documentation as it
 stood in November 2026:
 
     OpenAI   POST https://api.openai.com/v1/images/generations    JSON
-             POST https://api.openai.com/v1/images/edits          a form carrying the photo
+             POST https://api.openai.com/v1/images/edits          a form carrying the pictures
              answer   {"data": [{"b64_json": "…"}]}
     Google   POST https://generativelanguage.googleapis.com/v1beta/interactions
+             input    [{"type": "text", …}, {"type": "image", "mime_type": …, "data": base64}, …]
              answer   {"steps": [{"type": "model_output", "content": [{"type": "image", "data": "…"}]}]}
 
 Answers are read tolerantly (one object, a list of objects, or a stream of
@@ -43,6 +52,7 @@ TIMEOUT = 180                        # seconds: a picture can take a minute or t
 MAX_ANSWER = 40 * 1024 * 1024        # bytes: no picture or video comes anywhere near this
 LABELS = {"openai": "OpenAI", "google": "Google"}
 MIME = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+MAX_PICTURES = 14                    # pictures sent along with the words in one request (Google's limit)
 
 
 @dataclass(frozen=True)
@@ -80,11 +90,16 @@ class DrawError(Exception):
         self.kind, self.detail, self.free = kind, detail, free
 
 
-def draw(service: Service, prompt: str, photo: bytes | None = None) -> tuple[bytes, str]:
+def draw(service: Service, prompt: str, photo: bytes | None = None,
+         references: list[bytes] | tuple[bytes, ...] = ()) -> tuple[bytes, str]:
+    # Every picture that goes with the words: the person's own photo first, then the pictures to make this one from.
+    pictures = ([photo] if photo is not None else []) + list(references)
+    if len(pictures) > MAX_PICTURES:
+        raise DrawError("request", f"{len(pictures)} pictures to send, and {MAX_PICTURES} is the most", free=True)
     if service.name == "openai":
-        return _openai(service, prompt, photo)
+        return _openai(service, prompt, pictures)
     if service.name == "google":
-        return _google(service, prompt, photo)
+        return _google(service, prompt, pictures)
     raise DrawError("request", f"unknown image service {service.name!r}")
 
 
@@ -106,24 +121,26 @@ _NO_CREDIT = {"insufficient_quota", "credit_balance_exhausted", "billing_hard_li
               "organization_usage_limit_exceeded"}
 
 
-def _openai(service: Service, prompt: str, photo: bytes | None) -> tuple[bytes, str]:
+def _openai(service: Service, prompt: str, pictures: list[bytes]) -> tuple[bytes, str]:
     fields = {"model": service.model, "prompt": prompt, "n": 1, "size": "1024x1536",   # portrait
               "quality": service.quality, "output_format": "jpeg", "output_compression": 90}
     auth = {"Authorization": f"Bearer {service.key}"}
-    if photo is None:
+    if not pictures:
         status, body = _send(f"{OPENAI_URL}/generations", {**auth, "Content-Type": "application/json"},
                              json.dumps(fields).encode())
     else:
-        ext = kind_of(photo) or "jpg"
-        form, content_type = _form({name: str(value) for name, value in fields.items()},
-                                   [("image[]", f"person.{ext}", MIME[ext], photo)])
+        files = []
+        for number, picture in enumerate(pictures, 1):
+            ext = kind_of(picture) or "jpg"
+            files.append(("image[]", f"picture-{number}.{ext}", MIME[ext], picture))
+        form, content_type = _form({name: str(value) for name, value in fields.items()}, files)
         status, body = _send(f"{OPENAI_URL}/edits", {**auth, "Content-Type": content_type}, form)
     answers = _answers(body)
     answer = answers[0] if answers else {}
     if status >= 400 or answer.get("error"):
         raise _openai_error(status, answer.get("error"), service)
-    pictures = answer.get("data")
-    first = pictures[0] if isinstance(pictures, list) and pictures and isinstance(pictures[0], dict) else {}
+    made = answer.get("data")
+    first = made[0] if isinstance(made, list) and made and isinstance(made[0], dict) else {}
     return _picture(first.get("b64_json"), service)
 
 
@@ -151,11 +168,12 @@ _WILL_NOT = {"image_safety", "image_prohibited_content", "image_recitation", "sa
              "blocklist"}
 
 
-def _google(service: Service, prompt: str, photo: bytes | None) -> tuple[bytes, str]:
+def _google(service: Service, prompt: str, pictures: list[bytes]) -> tuple[bytes, str]:
+    # The words first, then each picture inside the request itself (base64), in the order given.
     content: list[dict] = [{"type": "text", "text": prompt}]
-    if photo is not None:
-        ext = kind_of(photo) or "jpg"
-        content.append({"type": "image", "mime_type": MIME[ext], "data": base64.b64encode(photo).decode("ascii")})
+    for picture in pictures:
+        ext = kind_of(picture) or "jpg"
+        content.append({"type": "image", "mime_type": MIME[ext], "data": base64.b64encode(picture).decode("ascii")})
     payload = {"model": service.model, "input": content,
                "response_format": {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": "2:3",   # portrait
                                    "image_size": service.image_size}}
@@ -165,15 +183,14 @@ def _google(service: Service, prompt: str, photo: bytes | None) -> tuple[bytes, 
     error = next((answer["error"] for answer in answers if answer.get("error")), None)
     if status >= 400 or error:
         raise _google_error(status, error, service)
-    # The documented place: what the model produced, never the photo that was sent along.
+    # The documented place: what the model produced, never a picture that was sent along.
     drawn: list[object] = [
         block.get("data")
         for answer in answers for step in answer.get("steps") or []
         if isinstance(step, dict) and step.get("type") == "model_output"
         for block in step.get("content") or [] if isinstance(block, dict) and block.get("type") == "image"]
-    if not drawn:       # an answer shaped differently: any picture in it that is not the one we sent
-        sent = content[1]["data"] if photo is not None else None
-        drawn = list(_pictures_in(answers, sent))
+    if not drawn:       # an answer shaped differently: any picture in it that is not one we sent
+        drawn = list(_pictures_in(answers, {part["data"] for part in content[1:]}))
     if not drawn:
         faults = [fault for answer in answers for fault in answer.get("errors") or [] if isinstance(fault, dict)]
         if faults:
@@ -183,13 +200,13 @@ def _google(service: Service, prompt: str, photo: bytes | None) -> tuple[bytes, 
     return _picture(drawn[-1], service)              # the last one; earlier ones can be drafts
 
 
-def _pictures_in(node: object, sent: str | None) -> list[str]:
-    """Every encoded picture anywhere inside an answer, except the one that was sent."""
+def _pictures_in(node: object, sent: set[str]) -> list[str]:
+    """Every encoded picture anywhere inside an answer, except those that were sent."""
     found: list[str] = []
     if isinstance(node, dict):
         data = node.get("data")
         kind = str(node.get("mime_type") or node.get("mimeType") or "")
-        if (isinstance(data, str) and len(data) > 1000 and data != sent
+        if (isinstance(data, str) and len(data) > 1000 and data not in sent
                 and (node.get("type") == "image" or kind.startswith("image/"))):
             found.append(data)
         for value in node.values():

@@ -8,6 +8,8 @@ No AI and no outside service: every word of the name must be in WORDS below (or 
 the store's own words only and never a half-translated name that says something the store did not. The pages always
 show the original too, in small print, because it is what the store's own page calls the product.
 
+English says "an" before a vowel sound: "Pullover im Oversize-Fit" -> "Jumper in an oversized fit".
+
 Two things in a name are not words to look up: a model's own name before a dash stays as it is ("Florian - Legere
 Anzughose" -> "Florian – relaxed suit trousers"), and a cut said after the garment comes first, as in English ("Jeans
 Slim Tapered" -> "Slim tapered jeans"). A name that is English already ("Classic Boxy T-Shirt") gets no second line.
@@ -180,6 +182,16 @@ AFTER = {"regular", "relaxed", "standard", "slim", "tapered", "loose", "baggy", 
 DASHES = {"-", "–"}
 
 _ENDINGS = ("", "e", "en", "er", "es", "em")      # what German adds to an adjective: "einreihig" + "er"
+# English words a German name borrows as they are: German adds none of its endings to them, so "Lowe" (a model's
+# name that only looks like "low" + "e") is not a word of the list, and a name with it is left as the store wrote it.
+NO_ENDINGS = {"blazer", "overshirt", "cardigan", "t-shirt", "trousers", "jeans", "sneaker", "loafer", "loafers",
+              "derbys", "derby", "boots", "fit", "stretch", "used-details", "mix", "merino", "jersey", "twill",
+              "denim", "canvas", "nylon", "modal", "bouclé", "doubleface", "slub", "selvedge", "oversize",
+              "oversized", "relaxed", "boxy", "classic", "slim", "barrel", "standard", "tapered", "loose", "baggy",
+              "straight", "heavyweight", "midweight", "low", "oxford", "penny", "chelsea"}
+# Words that start with a vowel letter but not a vowel sound ("a uniform", "a one-off"), and the other way round.
+_A_BEFORE = ("uni", "use", "usu", "eu", "one", "once")
+_AN_BEFORE = ("hour", "honest", "honour")
 _MODEL = re.compile(r"^(\w+)\s+[-–]\s+(.+)$")      # "Florian - Legere Anzughose": the model's name, then the name
 
 
@@ -187,8 +199,9 @@ def _stem(word: str) -> str | None:
     """English for one word as it is written in the name (any case, any adjective ending), or None."""
     low = word.lower()
     for ending in _ENDINGS:
-        if low.endswith(ending) and low[: len(low) - len(ending)] in WORDS:
-            return low[: len(low) - len(ending)]
+        stem = low[: len(low) - len(ending)]
+        if low.endswith(ending) and stem in WORDS and not (ending and stem in NO_ENDINGS):
+            return stem
     return None
 
 
@@ -265,7 +278,16 @@ def _say(text: str) -> str | None:
             out.append(english)
         i += 1
     said = re.sub(r"(\s*,)+", ",", " ".join(out)).strip(" ,")
-    return said or None
+    return _a_or_an(said) or None
+
+
+def _a_or_an(text: str) -> str:
+    """'a' as English says it: "an" before a vowel sound ("in an oversized fit"), "a" before any other."""
+    def say(match: re.Match) -> str:
+        after = match.group(2).lower()
+        vowel = (after[0] in "aeiou" and not after.startswith(_A_BEFORE)) or after.startswith(_AN_BEFORE)
+        return ("an " if vowel else "a ") + match.group(2)
+    return re.sub(r"\b(a|an) (\w+)", say, text)
 
 
 @lru_cache(maxsize=4096)

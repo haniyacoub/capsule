@@ -14,7 +14,7 @@
 {% else %}{{ super() }}{% endif %}
 {% endblock %}
 {% block main %}
-{% from "_macros.html" import icon, pic %}
+{% from "_macros.html" import icon, pic, saved_chip %}
 <h1 class="sr">Outfits</h1>
 {% if said %}
 {# What a change just made from an outfit did, in words, with the way back (app.py, change_said), where the other
@@ -22,22 +22,25 @@
    price level no longer changes it, with Undo (a form: it changes the piece again). After leaving a piece off or
    wearing another in its place: a link to the outfit as it was. #}
 <div class="flash said{{ ' short' if said.kind != 'changed' }}" role="status">
-  {% if said.kind == 'changed' %}{% set v = said.view %}
-  {{ v.slot.name }} changed in all your outfits: <span lang="de">{{ v.chosen.data.name }}</span>, {{ v.chosen.price|eur }}{% if said.was_price %} (was {{ said.was_price|eur }}){% endif %}. It stays when you change the price level.
-  {% if said.undo %}
-  <form method="post" action="{{ url_for('slot_restore', slot_id=v.slot.id) }}">{{ csrf_field() }}
-    <input type="hidden" name="was" value="{{ said.was }}">
-    <input type="hidden" name="was_locked" value="{{ said.was_locked }}">
-    <input type="hidden" name="outfit" value="{{ said.at }}">
-    <input type="hidden" name="occasion" value="{{ occasion }}">
-    <button>Undo</button>
-  </form>
-  {% endif %}
+  {% if said.kind == 'changed' %}{% include "_changed.html" %}
   {% elif said.kind == 'left' %}
   Showing this outfit without the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Put it back</a>
   {% else %}
   Wearing the {{ said.new.slot.name|lower }} instead of the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Undo</a>
   {% endif %}
+</div>
+{% endif %}
+{% if removed %}
+{# Under Saved, after the heart took an outfit out: which one, and the way back. Undo saves it again exactly as it
+   was (app.py, outfits_save). #}
+<div class="flash said short" role="status">
+  Removed “{{ removed.label }}” from your saved outfits.
+  <form method="post" action="{{ url_for('outfits_save') }}">{{ csrf_field() }}
+    <input type="hidden" name="key" value="{{ removed.key }}">
+    <input type="hidden" name="want" value="restore">
+    <input type="hidden" name="on" value="saved">
+    <button>Undo</button>
+  </form>
 </div>
 {% endif %}
 
@@ -71,7 +74,7 @@
     {% for key, label in OCCASIONS.items() %}
     <a class="chip-link{% if occasion == key %} on{% endif %}" href="{{ url_for('outfits_page', occasion=key) }}"{% if occasion == key %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
-    <a class="chip-link{% if occasion == 'saved' %} on{% endif %}" href="{{ url_for('outfits_page', occasion='saved') }}"{% if occasion == 'saved' %} aria-current="page"{% endif %}>{{ icon('heart') }} Saved{% if n_saved %} {{ n_saved }}{% endif %}</a>
+    {{ saved_chip(n_saved, on=occasion == 'saved') }}
   </div>
   {% if occasion != 'saved' %}
   <a class="btn ghost shuffle" href="{{ url_for('outfits_page', occasion=occasion, n=n, seed=next_seed) }}">{{ icon('shuffle') }}<span>Shuffle</span></a>
@@ -113,14 +116,18 @@
         </div>
         {% if looks_on %}
         <div class="look" id="look-{{ o.key }}" hx-target="this" hx-swap="innerHTML">
-          {% with key = o.key, look = o.look, first = loop.first, video = o.video %}{% include "_look.html" %}{% endwith %}
+          {% with key = o.key, look = o.look, first = loop.first, video = o.video, clip = o.clip, shot = o.shot, photos = o.photos %}{% include "_look.html" %}{% endwith %}
         </div>
-        {# A dot on each piece of the AI picture (only shown once there is one). Its label (the piece, the store
+        {# A small dot on each piece of the AI picture (only once there is one). With a mouse the dots show while the
+           pointer is over the picture or the list of pieces beside it, or the keyboard is in either; on a touch
+           screen they are always there (app.css, .spot). A dot and its line in the list mark each other (app.js 6d):
+           both are in the order of o.pieces. Its label (the piece, the store
            and the price) shows on hover and focus, and Escape hides it (app.js); a screen reader hears it as the
-           dot's name, "Coat, Weekday, 159 €". #}
+           dot's name, "Coat, Weekday, 159 €". A dot low on the picture (from 70% down: the shoes') keeps clear of the
+           label 'AI picture' in its corner (app.css, .spot.low). #}
         <div class="spots">
           {% for p in o.pieces %}
-          {% call piece(o, p, 'spot', p.slot_name, 'left:' ~ p.spot[0] ~ '%;top:' ~ p.spot[1] ~ '%',
+          {% call piece(o, p, 'spot low' if p.spot[1] >= 70 else 'spot', p.slot_name, '--x:' ~ p.spot[0] ~ '%;--y:' ~ p.spot[1] ~ '%',
                         p.slot_name ~ ', ' ~ ('owned' if p.owned else 'no longer offered' if p.gone else STORES.get(p.store, p.store) ~ ', ' ~ p.price|eur)) %}
             <span class="tip"><b>{{ p.slot_name }}</b>{% if p.owned %}Owned{% elif p.gone %}No longer offered{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% endif %}</span>
           {% endcall %}
@@ -133,22 +140,41 @@
         {# The outfit line: its title, which agrees with the chip that is on (under Office a smart-casual outfit
            is "Office, smart casual"), then where it is in the row, its price and the heart, which move together
            under the title when they do not fit beside it. #}
+        {# A piece whose product is sold out in his size (see the list below) is not in the outfit's price, as it is
+           not in Buy this outfit's: one price for one outfit. Said right under it, by name. #}
+        {% set off = namespace(sum=0, said=[]) %}
+        {% for p in o.pieces %}
+          {% set g = sold.get(p.slot_id) if not p.owned and not p.gone else none %}
+          {% if g and (o.sig or p.cand_id == g.chosen.id) %}
+            {% set off.sum = off.sum + p.price %}
+            {% set off.said = off.said + [p.slot_name ~ ', ' ~ g.sold_words[0]|lower ~ g.sold_words[1:]] %}
+          {% endif %}
+        {% endfor %}
         <header class="about-head">
           <h2>{{ OCCASIONS[occasion] ~ ', smart casual' if o.label == 'Smart casual' and occasion in ('everyday', 'office') else o.label }}<span class="sr">, outfit {{ loop.index }} of {{ boards|length }}</span></h2>
           <div class="about-meta">
             <span class="count" aria-hidden="true">{{ loop.index }} / {{ boards|length }}</span>
-            <b class="board-cost" title="What the pieces in this outfit cost together">{{ o.cost|eur }}</b>
+            <b class="board-cost" title="{{ 'What the pieces of this outfit that can be bought cost together' if off.said else 'What the pieces in this outfit cost together' }}">{{ (o.cost - off.sum)|round(2)|eur }}</b>
             {% include "_save_button.html" %}
           </div>
         </header>
+        {% if off.said %}<p class="about-less">Not counted: {{ off.said|join('; ') }}</p>{% endif %}
         <ul class="pieces">
           {% for p in o.pieces %}
           <li>
             {% call piece(o, p, 'piece-row', p.slot_name) %}
               {{ pic('' if p.owned else p.image_url, p.hex) }}
               <span class="piece-text"><b>{{ p.slot_name }}</b>{% if p.owned %}<span>You own this</span>{% elif p.gone %}<span>No longer offered</span>{% else %}<span{% if p.store_name %} lang="de"{% endif %}>{{ p.name }}</span>{% endif %}</span>
-              <span class="piece-price">{% if p.owned %}0 €{% else %}{{ p.price|eur }}{% if not p.gone %}<small>{{ STORES.get(p.store, p.store) }}{% if p.changed %} · changed{% endif %}</small>{% endif %}{% endif %}</span>
+              {% set out = sold.get(p.slot_id) if not p.owned and not p.gone else none %}
+              {% set out = out and (o.sig or p.cand_id == out.chosen.id) %}
+              <span class="piece-price">{% if p.owned %}0 €{% else %}{% if out %}<s>{{ p.price|eur }}</s><span class="sr"> (not counted in the outfit's price)</span>{% else %}{{ p.price|eur }}{% endif %}{% if not p.gone %}<small>{{ STORES.get(p.store, p.store) }}{% if p.changed %} · changed{% endif %}</small>{% endif %}{% endif %}</span>
             {% endcall %}
+            {# Its product is sold out in his size: said under the piece, with the next best in his size in one
+               tap (_sold_out.html). The outfit stays. Under Saved, only while the piece is still that product. #}
+            {% set gone = sold.get(p.slot_id) if not p.owned and not p.gone else none %}
+            {% if gone and (o.sig or p.cand_id == gone.chosen.id) %}
+            {% with s = gone, back = 'outfit' if o.sig else 'saved', sig = o.sig, qty = 1 %}{% include "_sold_out.html" %}{% endwith %}
+            {% endif %}
           </li>
           {% endfor %}
         </ul>
@@ -176,7 +202,7 @@
 </section>
 
 {# The pop-up for one piece. Its content comes from /outfits/piece when a piece is tapped; its title there
-   (#piece-title, the product's name) names it. #}
+   (#piece-title, the piece's name) names it. #}
 <dialog class="sheet" id="piece" aria-labelledby="piece-title">
   <button class="sheet-close" type="button" data-close aria-label="Close">&times;</button>
   <div id="piece-body"></div>

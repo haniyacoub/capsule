@@ -20,7 +20,7 @@ import random
 import re
 import secrets
 from datetime import timedelta
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from flask import Flask, Response, abort, flash, g, redirect, render_template, request, send_file, url_for
 from markupsafe import Markup
@@ -28,6 +28,7 @@ from werkzeug.exceptions import HTTPException, NotFound
 
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
                owner, person, programmes, selection, shared, tryon)
+from . import figure
 from . import videos
 from . import profile as profile_mod
 from . import english
@@ -256,6 +257,11 @@ def site_password_given() -> Response | None:
         "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store"})
 
 
+# A product's page as a customer saved it from his browser, sent with its link (slot_import; collect/generic.py).
+SAVED_PAGE = 3 * 1024 * 1024
+PAGE_TOO_LARGE = "Not added: the saved page is larger than 3 MB. Paste the link alone and type in the price."
+
+
 def create_app() -> Flask:
     conf.check()
     app = Flask(__name__)
@@ -288,7 +294,9 @@ def create_app() -> Flask:
         USES=profile_mod.USES, MODES=selection.MODES, OCCASIONS=outfits.OCCASIONS,
         ink_on=colours.ink_on, level_hints=selection.HINTS,
         # The stores customers are offered, {key: name}, and their names in a sentence (programmes.py).
-        STORES=programmes.OFFERED, store_names=programmes.names,
+        STORES=programmes.OFFERED, store_names=programmes.names, stocked_stores=shared.stocked,
+        # The stores the signed-in customer ticked on Profile's Stores tab, [key], which his pieces come from.
+        my_stores=profile_mod.stores,
         # What a customer added to a piece from a store that is no longer offered, listed on its page (_set_aside.html).
         set_aside_for=catalog.set_aside,
     )
@@ -329,8 +337,10 @@ def create_app() -> Flask:
             abort(403)
         if not conf.PRODUCTION and not _this_computer(request.host):
             abort(403)
-        if request.endpoint == "profile_photo":     # the one form that carries a file
+        if request.endpoint == "profile_photo":     # the two forms that carry a file: a photo,
             request.max_content_length = person.MAX_PHOTO + 64 * 1024
+        elif request.endpoint == "slot_import":     # and a product's page as the customer saved it
+            request.max_content_length = SAVED_PAGE + 64 * 1024
 
     if conf.PRODUCTION:
         @app.before_request
@@ -427,6 +437,9 @@ def create_app() -> Flask:
         if err.code == 413 and request.endpoint == "profile_photo":     # back to the form, not to a dead end
             flash(f"Not saved. {person.TOO_LARGE}", "photo")
             return redirect(url_for("profile_page") + "#photo")
+        if err.code == 413 and request.endpoint == "slot_import":
+            flash(PAGE_TOO_LARGE, "import")
+            return redirect(url_for("slot_page", slot_id=(request.view_args or {}).get("slot_id", "")) + "#add")
         # abort(409, "That outfit changed…") stores its words on the error itself; Werkzeug's sentence for
         # each kind of error lives on the class.
         return error_page(err.code or 500, vars(err).get("description"))
@@ -469,6 +482,7 @@ def create_app() -> Flask:
         extra = render_template("_summary.html", w=w, oob=True)
         if template == "_wardrobe_body.html":   # that page also shows what each price level would cost
             extra += "".join(render_template("_level_total.html", w=w, key=key, oob=True) for key in selection.MODES)
+            ctx.setdefault("example_sizes", profile_mod.sizes_unconfirmed(profile_mod.load()))   # its cards' notes
         return render_template(template, w=w, **ctx) + extra
 
     def after_slot_change(slot_id: str):
@@ -497,6 +511,24 @@ def create_app() -> Flask:
         known = occasion in outfits.OCCASIONS or occasion == "saved"
         return {"from": "outfit", "at": at, **({"occasion": occasion} if known else {})}
 
+    def back_to(where: str | None, outfit: str, occasion: str | None, **said) -> str:
+        """The page a change to a piece was made from, to go back to it: the outfit it was made in (the pop-up, or
+        the outfit's own list of pieces), the Saved outfits, the Wardrobe, the Shopping list, or Buy this outfit.
+        Those are the places that offer a swap for a product sold out in his size (_sold_out.html); the form says
+        which in `back`. `said`: what the change did, for the line there with Undo (change_said). Buy this outfit
+        needs its outfit to exist still; if the change broke it, the outfits page says so instead."""
+        outfit = outfit[:400]
+        if where == "wardrobe":
+            return url_for("wardrobe", **said)
+        if where == "list":
+            return url_for("list_page", **said)
+        if where == "saved":
+            return url_for("outfits_page", occasion="saved", **said)
+        if where == "buy" and outfit and outfits.find_by_sig(selection.build(), outfit) is not None:
+            return url_for("outfits_buy", at=outfit, **said)
+        return url_for("outfits_page", at=outfit or None,
+                       occasion=occasion if occasion in outfits.OCCASIONS else None, **said)
+
     def earlier_option(view: selection.SlotView, cand_id: str) -> dict | None:
         """A product this piece had before a change, by its id: its name and price, if it is one of the piece's
         options now or (in production) a product a lock to it brings back among them (shared.brought_back_by_a_lock:
@@ -509,14 +541,16 @@ def create_app() -> Flask:
             return None
         return {"name": product.get("name", ""), "price": selection.usable_price(product.get("price"))}
 
-    def change_said(w: selection.Wardrobe, shown: outfits.Outfit | None) -> dict | None:
+    def change_said(w: selection.Wardrobe, shown: outfits.Outfit | None, where: str = "") -> dict | None:
         """What a change just made from an outfit did, for the line over the outfits (outfits.html), read from the
         address it led to. Each value is checked against this customer's own wardrobe, and one that does not match is
         left out: such an address can come from anywhere (an old tab, a link). `shown` is the outfit at the address.
 
         Choose in the pop-up (slot_pick): ?changed=<piece>&was=<product before, or empty>&was_locked=<0|1>: the piece
         now locked to another product than `was`. Said with Undo where `was` and was_locked describe a state it can
-        go back to (see slot_restore).
+        go back to (see slot_restore). The swap offered for a product sold out in his size is the same change, made
+        from the Wardrobe, the Shopping list, Buy this outfit and the Saved outfits too: those pages read the same
+        address and say the same line (`where`: which of them, so that Undo comes back to it; see back_to).
         'Leave the coat off' and 'Wear the … instead' (_piece.html): ?left=<piece>&back=<outfit> or
         ?instead=<piece>&back=<outfit>: the outfit shown is the one at `back` without that piece, or with another in
         its place. Said with the link back to it."""
@@ -526,7 +560,8 @@ def create_app() -> Flask:
             was, was_locked = args.get("was", ""), args.get("was_locked")
             if view is None or view.state != "locked" or view.chosen is None or view.chosen.id == was:
                 return None             # (after Undo and then Back, say: what the address says changed is undone)
-            said = {"kind": "changed", "view": view, "was": was, "was_locked": was_locked, "at": args.get("at", "")[:400]}
+            said = {"kind": "changed", "view": view, "was": was, "was_locked": was_locked, "at": args.get("at", "")[:400],
+                    "back": where}
             earlier = earlier_option(view, was) if was else None
             if (was_locked == "1" and earlier) or (was_locked == "0" and (earlier or not was)):
                 said["undo"], said["was_price"] = True, earlier["price"] if earlier else None
@@ -554,7 +589,9 @@ def create_app() -> Flask:
             cands = sorted(view.cands, key=lambda c: (c.size.rank, -c.score.total, c.price))
         else:
             sort, cands = "price", view.cands   # already: in your size first (sizes.SizeStatus.rank), then by price
-        return {"s": view, "cands": cands, "sort": sort, "way": way_back()}
+        # `example_sizes`: while the sizes are still the example's, the pick line says "in the example size".
+        return {"s": view, "cands": cands, "sort": sort, "way": way_back(),
+                "example_sizes": profile_mod.sizes_unconfirmed(profile_mod.load())}
 
     # ── Wardrobe ──────────────────────────────────────────────────────────────
 
@@ -565,7 +602,9 @@ def create_app() -> Flask:
                                    photos=_photos_on(), invite=bool(conf.INVITE_CODE))
         # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
         gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
-        return page("wardrobe.html", tab="wardrobe", gone=gone)
+        w = selection.build()
+        return page("wardrobe.html", w=w, tab="wardrobe", gone=gone, said=change_said(w, None, "wardrobe"),
+                    example_sizes=profile_mod.sizes_unconfirmed(profile_mod.load()))   # "in the example size"
 
     @app.post("/settings")
     def settings():
@@ -610,15 +649,17 @@ def create_app() -> Flask:
         db.update_slot(slot_id, pick=cand_id, locked=True, owned=False)
         if conf.PRODUCTION and before and before.id != cand_id and shared.kept_for_its_lock(view.slot, before.data):
             sync_catalog()      # the product it was locked to, in a colour he refused since, was kept only for that
-        if request.form.get("outfit"):      # swapped from inside an outfit: back to it, now with the new piece
-            # with what was there before, so that the page says what changed and can undo it (change_said). The
+        where = request.form.get("back")
+        if request.form.get("outfit") or where in ("wardrobe", "list", "saved"):
+            # Swapped from inside an outfit: back to it, now with the new piece. Or the swap for a product sold out
+            # in his size, from the page that offered it (back_to). Either way the address carries
+            # what was there before, so that the page says what changed and can undo it (change_said). The
             # pop-up's form says what it showed; a form without it (an older pop-up) gets the piece as it was here.
             was, was_locked = request.form.get("was"), request.form.get("was_locked")
             if was is None or was_locked not in ("0", "1"):
                 was = view.chosen.id if view.chosen and view.state != "owned" else ""
                 was_locked = "1" if view.state == "locked" else "0"
-            return redirect(url_for("outfits_page", at=request.form["outfit"][:400],
-                                    occasion=request.form.get("occasion") or None,
+            return redirect(back_to(where, request.form.get("outfit", ""), request.form.get("occasion"),
                                     changed=slot_id, was=was[:200], was_locked=was_locked))
         return after_slot_change(slot_id)
 
@@ -634,7 +675,8 @@ def create_app() -> Flask:
             abort(404)
         outfit = request.form.get("outfit", "")[:400]
         occasion = request.form.get("occasion", "")
-        back = url_for("outfits_page", at=outfit or None, occasion=occasion if occasion in outfits.OCCASIONS else None)
+        where = request.form.get("back")
+        back = back_to(where, outfit, occasion)
         earlier = earlier_option(view, was) if locked == "1" else None
         if locked == "1" and earlier is None:
             flash(f"The product your {view.slot['name'].lower()} had before is no longer in {conf.SITE_NAME}'s product "
@@ -661,6 +703,8 @@ def create_app() -> Flask:
         if conf.PRODUCTION and (brought_back or shared.kept_for_its_lock(view.slot, *letting_go)):
             sync_catalog()
         now = selection.build().get(slot_id)
+        if where == "buy":      # worked out before the change: is that outfit still one, with the product put back?
+            back = back_to(where, outfit, occasion)
         if now is not None and now.chosen is not None:     # "Indigo jeans: back to …" (the look: app.css .said)
             flash(Markup('%s: back to <span lang="de">%s</span>, %s, in all your outfits.%s') % (
                 view.slot["name"], now.chosen.data.get("name", ""), eur(now.chosen.price),
@@ -735,8 +779,14 @@ def create_app() -> Flask:
         if not links:
             flash("Paste at least one product link.", "import")
             return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
-        # No browser is ever opened: only what the link itself says is taken.
-        results = manual.from_urls(links, slot)
+        # No browser is ever opened: only what the link itself says is taken, and, with one link, what the product's
+        # page says as the customer saved it from his own browser and sent along (read as text, never shown).
+        upload = request.files.get("page")
+        raw = upload.read(SAVED_PAGE + 1) if upload else b""
+        if len(raw) > SAVED_PAGE:
+            flash(PAGE_TOO_LARGE, "import")
+            return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
+        results = manual.from_urls(links, slot, raw.decode("utf-8", errors="replace") if raw else None)
 
         def add(cat: dict) -> None:
             for _, cand, _ in results:
@@ -841,7 +891,11 @@ def create_app() -> Flask:
         saved = db.saved_keys()
         said = None             # what a change just made from an outfit did (change_said)
 
+        removed = None          # under Saved: the outfit just removed there, said with Undo (outfits_save)
         if occasion == "saved":
+            kept = db.get_setting("removed_outfit")
+            if kept and kept["key"] == request.args.get("removed") and kept["key"] not in saved:
+                removed = kept
             now_picked = {s.slot["id"]: (s.chosen.id if s.chosen and s.state != "owned" else None) for s in w.slots}
             boards = []
             for fav in db.list_saved():
@@ -860,6 +914,7 @@ def create_app() -> Flask:
                                "cost": round(sum(p["price"] for p in fav["pieces"]), 2),
                                "saved": True, "saved_at": catalog.collected_label({"collected_at": fav["saved_at"]})})
             total = len(boards)
+            said = change_said(w, None, "saved")       # the swap for a sold-out product, made under Saved
         else:
             chosen, total = outfits.generate(w, occasion=occasion, limit=n, seed=seed)
             at = request.args.get("at", "")
@@ -876,12 +931,18 @@ def create_app() -> Flask:
             said = change_said(w, first)
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
                        "saved": o.key in saved} for o in chosen]
+        # A small picture tapped without JavaScript (outfits_look): that outfit shows that picture large.
+        for board in boards:
+            if board["key"] == request.args.get("shot_of"):
+                board["shot"] = looks.shot_named(request.args.get("shot"))
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
         videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
-        return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved),
+        return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved), removed=removed,
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
+                    # Pieces whose chosen product is sold out in his size: said under the piece, with the swap.
+                    sold={s.slot["id"]: s for s in w.slots if s.sold_out},
                     looks_on=looks_on, videos_on=videos_on, turn_seconds=(videos.rules() or {}).get("turn_seconds", 6),
-                    scenes=looks.scenes() if looks_on else [],     # the studio picture first; the others on a tap
+                    allowance=looks.allowance_words() if looks_on else "",    # said beside "More photos"
                     # Until the profile is saved, the starter banner stands where the budget bar would: a budget
                     # the customer never set says nothing yet. Saving the profile brings the bar back.
                     starter=starter_line() if prof["example"] else "",
@@ -916,61 +977,134 @@ def create_app() -> Flask:
         if outfit is None:
             abort(404)
         return page("buy.html", w=w, tab="outfits", outfit=outfit, sl=export.build(w, only=outfit.slots),
-                    **your_sizes())
+                    said=change_said(w, outfit, "buy"), **your_sizes())
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
 
-    def look_fragment(outfit_key: str, look: looks.Look | None, scene: str) -> str:
-        return render_template("_look.html", key=outfit_key, look=look, scene=scene, scenes=looks.scenes(),
+    def shot_shown(outfit_key: str, shot: str) -> str:
+        """Where a picture asked for without JavaScript leads: back to the outfits page it was asked from (its
+        occasion, its outfits), with that outfit in view (#outfit-<key>) showing the picture that was asked for
+        (shot=, shot_of=; nothing for the front picture). So a tap on Street shows the street, not the front again."""
+        back = urlsplit(request.referrer or "")
+        same = back.path == url_for("outfits_page") and back.netloc in ("", request.host)
+        args = {name: value for name, value in parse_qsl(back.query) if same and name not in ("shot", "shot_of")}
+        if shot != looks.FRONT:
+            args.update(shot=shot, shot_of=outfit_key)
+        return url_for("outfits_page") + (f"?{urlencode(args)}" if args else "") + f"#outfit-{outfit_key}"
+
+    def pieces_of(outfit_key: str) -> list[dict] | None:
+        """The pieces of one of today's outfits or of a saved one, as its pictures describe them; None if it is gone."""
+        outfit = outfits.find(selection.build(), outfit_key)
+        if outfit:
+            return outfits.snapshot(outfit)
+        return next((fav["pieces"] for fav in db.list_saved() if fav["key"] == outfit_key), None)
+
+    def look_fragment(outfit_key: str, photos: list[looks.Photo], shot: str) -> str:
+        """The picture box of one outfit: the picture `shot` large (the front one if there is nothing of it to
+        show), and the row of the outfit's small pictures under it."""
+        large = looks.shown(photos, shot)
+        return render_template("_look.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
+                               allowance=looks.allowance_words(),
                                auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off(),
-                               videos_on=videos.service() is not None, video=videos.of(look),
+                               videos_on=videos.service() is not None, video=videos.of(large.look, large.name),
+                               clip=videos.clip_of(large.name),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
+
+    def shots_fragment(outfit_key: str, photos: list[looks.Photo], shot: str, said: str = "") -> str:
+        """Only the row of small pictures (it is swapped on its own while pictures arrive, so the large picture
+        stays as it is). `said`: why "More photos" did not start all of them."""
+        large = looks.shown(photos, shot)
+        return render_template("_shots.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
+                               allowance=looks.allowance_words(), said=said)
 
     @app.post("/outfits/look")
     def outfits_look():
-        """Ask for the picture of an outfit, or for a new version of it."""
+        """Ask for a picture of an outfit: its front picture, one of the others (shot=, a small picture tapped),
+        all of the others ("More photos", more=1), or a new version of one (again=1)."""
         key = request.form.get("key", "")
-        outfit = outfits.find(selection.build(), key)
-        pieces = outfits.snapshot(outfit) if outfit else next(
-            (fav["pieces"] for fav in db.list_saved() if fav["key"] == key), None)
+        pieces = pieces_of(key)
         if pieces is None:
             abort(409, "That outfit no longer exists — reload the page.")
-        scene = looks.scene_named(request.form.get("scene"))     # a scene tapped under the picture; else the studio
-        look = looks.request(pieces, again=request.form.get("again") == "1", scene=scene)
+        if request.form.get("more") == "1":
+            # "More photos": the pictures after the front one are started, each one picture of the day's allowance.
+            # The picture shown large stays; only the row of small pictures is answered.
+            if looks.service() is None:
+                abort(404)
+            said = looks.request_more(pieces)
+            staying = looks.shot_named(request.form.get("shown"))
+            if not request.headers.get("HX-Request"):
+                if said:
+                    flash(said)
+                return redirect(shot_shown(key, staying))
+            return shots_fragment(key, looks.gallery(pieces) or [], staying, said)
+        shot = looks.shot_named(request.form.get("shot"))      # a small picture tapped; else the front picture
+        front = (looks.gallery(pieces) or [looks.Photo(looks.FRONT, looks.FRONT_LABEL)])[0].look
+        if not (front and front.status == "ready"):
+            shot = looks.FRONT              # nothing can be made from a front picture that is not there: it is asked for
+        look = looks.request(pieces, again=request.form.get("again") == "1", shot=shot)
         if look is None:
             abort(404)                      # AI pictures are switched off
+        photos = looks.gallery(pieces) or []
+        for photo in photos:                # what was just answered, with its reason if it was refused
+            if photo.name == shot:
+                photo.look = look
         if not request.headers.get("HX-Request"):
-            return redirect(request.referrer or url_for("outfits_page"))
-        return look_fragment(key, look, scene)
+            return redirect(shot_shown(key, shot))
+        return look_fragment(key, photos, shot)
 
     @app.get("/outfits/look/<look_key>")
     def outfits_look_state(look_key: str):
-        """Asked every few seconds while a picture is being drawn."""
+        """Asked every few seconds while the picture shown large is being drawn."""
         look = looks.get(look_key) if re.fullmatch(r"[0-9a-f]{24}", look_key) else None
         if look is None:
             abort(404)
+        # The band on the page says what it shows now ("drawing", or "line" while it waits its turn). While that
+        # is still so there is nothing new to show: no content, and the page leaves the box as it is (no blink).
+        if look.status == "working" and request.args.get("showing") == ("line" if look.message else "drawing"):
+            return "", 204
         outfit_key = request.args.get("outfit", "")
-        return look_fragment(outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else "", look,
-                             looks.scene_named(request.args.get("scene")))
+        outfit_key = outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else ""
+        pieces = pieces_of(outfit_key) if outfit_key else None
+        shot = looks.shot_named(request.args.get("shot"))
+        photos = (looks.gallery(pieces) if pieces else None) or [looks.Photo(looks.FRONT, looks.FRONT_LABEL, look)]
+        return look_fragment(outfit_key, photos, shot if len(photos) > 1 else looks.FRONT)
+
+    @app.get("/outfits/photos")
+    def outfits_photos():
+        """Asked every few seconds while some of an outfit's small pictures are being drawn: the row of them."""
+        outfit_key = request.args.get("outfit", "")
+        pieces = pieces_of(outfit_key) if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else None
+        photos = looks.gallery(pieces) if pieces else None
+        if not photos:
+            abort(404)
+        return shots_fragment(outfit_key, photos, looks.shot_named(request.args.get("shot")))
 
     # ── AI videos of outfits: "See it move" (videos.py) ──────────────────────
     # The part of a picture box about its video is swapped on its own (_video.html), so the picture is not sent
     # again and does not fade in again. It is named by the picture (`look`, its key) and the outfit (`outfit`).
 
-    def video_look() -> tuple[looks.Look, str]:
-        """The finished picture a video request is about, and the outfit's key; 404 if there is none to see."""
+    def video_look() -> tuple[looks.Look, str, str]:
+        """The finished picture a video request is about, the outfit's key, and which of the outfit's pictures it is
+        (front, a pose, a surrounding: its movement follows from that); 404 if there is none to see. Which picture
+        it is is looked up among the outfit's own pictures, never taken from the page."""
         look_key = request.values.get("look", "")
         outfit_key = request.values.get("outfit", "")
         look = looks.get(look_key) if re.fullmatch(r"[0-9a-f]{24}", look_key) else None
         if look is None or look.status != "ready" or videos.service() is None:
             abort(404)
-        return look, outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else ""
+        outfit_key = outfit_key if re.fullmatch(r"[0-9a-f]{12}", outfit_key) else ""
+        pieces = pieces_of(outfit_key) if outfit_key else None
+        shot = videos.shot_of(look, looks.gallery(pieces) if pieces else None)
+        if shot is None:
+            abort(404)
+        return look, outfit_key, shot
 
-    def video_fragment(outfit_key: str, look: looks.Look, video: videos.Video | None, asking: bool = False,
-                       play: bool = False) -> str:
+    def video_fragment(outfit_key: str, look: looks.Look, shot: str, video: videos.Video | None,
+                       asking: bool = False, play: bool = False) -> str:
         offer = asking or (video is not None and video.status in ("failed", "limit", "consent"))
         return render_template("_video.html", key=outfit_key, look=look, video=video, asking=asking, play=play,
-                               left=videos.left() if offer else None, left_words=videos.left_words,
+                               clip=videos.clip_of(shot),
+                               left=videos.left() if offer else None, left_words=videos.left_words, told=videos.told,
                                needs_ok=offer and videos.needs_consent(look),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
 
@@ -978,20 +1112,20 @@ def create_app() -> Flask:
     def outfits_video():
         """'See it move' opened (ask=1: what a video is and how many are left today), closed again, and asked
         every few seconds while the video is being made (wait=1: once it is ready, it plays)."""
-        look, outfit_key = video_look()
-        video = videos.of(look)
+        look, outfit_key, shot = video_look()
+        video = videos.of(look, shot)
         ready = video is not None and video.status == "ready"
-        return video_fragment(outfit_key, look, video, asking=request.args.get("ask") == "1" and not video,
+        return video_fragment(outfit_key, look, shot, video, asking=request.args.get("ask") == "1" and not video,
                               play=ready and (request.args.get("wait") == "1" or request.args.get("ask") == "1"))
 
     @app.post("/outfits/video")
     def outfits_video_make():
-        """Make the video of an outfit's picture (or say why not)."""
-        look, outfit_key = video_look()
-        video = videos.request(look, agreed=request.form.get("agree") == "on")    # the band's box, where it has one
+        """Make the video of one of an outfit's pictures, the one showing (or say why not)."""
+        look, outfit_key, shot = video_look()
+        video = videos.request(look, agreed=request.form.get("agree") == "on", shot=shot)    # the band's box, where it has one
         if not request.headers.get("HX-Request"):
             return redirect(request.referrer or url_for("outfits_page"))
-        return video_fragment(outfit_key, look, video, play=video is not None and video.status == "ready")
+        return video_fragment(outfit_key, look, shot, video, play=video is not None and video.status == "ready")
 
     @app.get("/videos/<name>")
     def video_file(name: str):
@@ -1014,20 +1148,46 @@ def create_app() -> Flask:
 
     @app.post("/outfits/save")
     def outfits_save():
-        """Heart button: save an outfit as a favourite, or forget it again."""
+        """The heart under an outfit: save it as a favourite, or take it out of the saved ones again.
+
+        The button says which of the two it asks for ("want": save or remove), so a tap always does what the heart
+        showed, also on a page that has gone out of date (the outfit removed meanwhile under Saved, on another
+        device, by a second quick tap): asked twice, the same thing is simply true twice. A form without it (an
+        older page) switches the outfit over, as the heart always did.
+
+        Under Saved (the form says on=saved) a removed outfit leaves the page at once, the page says so, and its Undo
+        ("want": restore) puts back exactly what was removed: the pieces and prices as they were saved, which today's
+        wardrobe may no longer make. The last outfit removed is kept for that (the setting "removed_outfit").
+        """
         key = request.form.get("key", "")
-        if key in db.saved_keys():
-            db.unsave_outfit(key)
-            is_saved = False
-        else:
-            outfit = outfits.find(selection.build(), key)
-            if outfit is None:   # the wardrobe changed under the page
-                abort(409, "That outfit no longer exists — reload the page.")
-            db.save_outfit(key, catalog.now_iso(), outfit.label, outfits.snapshot(outfit))
-            is_saved = True
+        want = request.form.get("want", "")
+        on_saved = request.form.get("on") == "saved"
+        earlier = db.list_saved()
+        keys = [fav["key"] for fav in earlier]
+        if want not in ("save", "remove", "restore"):
+            want = "remove" if key in keys else "save"
+        if want == "remove":
+            if key in keys:
+                db.set_setting("removed_outfit", earlier[keys.index(key)])
+                db.unsave_outfit(key)
+        elif key not in keys:
+            removed = db.get_setting("removed_outfit")
+            if want == "restore" and removed and removed["key"] == key:
+                db.save_outfit(key, removed["saved_at"], removed["label"], removed["pieces"])
+                db.set_setting("removed_outfit", None)
+            else:
+                outfit = outfits.find(selection.build(), key)
+                if outfit is None:   # the wardrobe changed under the page
+                    abort(409, "That outfit no longer exists — reload the page.")
+                db.save_outfit(key, catalog.now_iso(), outfit.label, outfits.snapshot(outfit))
+        if on_saved:
+            if want == "remove":        # the page from its top, where it says what was removed, with Undo
+                return redirect(url_for("outfits_page", occasion="saved", removed=key))
+            return redirect(url_for("outfits_page", occasion="saved", _anchor=f"outfit-{key}"))     # shown again
         if not request.headers.get("HX-Request"):
             return redirect(request.referrer or url_for("outfits_page"))
-        return render_template("_save_button.html", key=key, saved=is_saved)
+        # The heart's new state and, beside it, the Saved chip with its new number (it is swapped in where it stands).
+        return render_template("_save_button.html", key=key, saved=want != "remove", chip=len(db.saved_keys()))
 
     # ── Shopping list ─────────────────────────────────────────────────────────
 
@@ -1040,7 +1200,8 @@ def create_app() -> Flask:
     @app.get("/list")
     def list_page():
         w = selection.build()
-        return page("list.html", w=w, tab="list", sl=export.build(w), **your_sizes())
+        return page("list.html", w=w, tab="list", sl=export.build(w), said=change_said(w, None, "list"),
+                    **your_sizes())
 
     @app.get("/list.md")
     def list_markdown():
@@ -1159,11 +1320,17 @@ def create_app() -> Flask:
             rules = looks.load_rules()
             chosen = looks.service()
             model = person.load()
-            return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model,
-                        model_words=person.describe(model)[0] or rules["text"]["model"],
+            w = selection.build()
+            return page("profile.html", tab="profile", profile=current, groups=person.GROUPS, model=model, w=w,
+                        # The drawn figure in the middle (figure.py), and what app.js needs to redraw it.
+                        fig=figure.drawing(model, current["height_cm"], current), figure_data=figure.data(),
+                        tabs=profile_mod.TABS, picture=model_picture(w) if chosen else None,
+                        model_words=person.describe(model, current)[0] or rules["text"]["model"],
+                        own_body=person.own_body(current),
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
                         videos_on=chosen is not None and videos.service() is not None,
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
+                        store_rows=store_rows(current),
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
                         # The one note while the answers are still the example's: the sizes may already be his
                         # ("These are my sizes"), and a plan edited on the plan page is not rebuilt by a save.
@@ -1171,9 +1338,27 @@ def create_app() -> Flask:
                         plan_kept=current["example"] and plan_edited(current))
 
         new, notes = profile_mod.from_form(request.form, current)
+        # The model's choices (the Body tab) are sent with the same form, where the menu is shown. A save that changed
+        # only them saves only them, as the model's own button did (person.py): the profile stays as it was, also
+        # while it holds the example's values, and the message is said beside the model.
+        model = person.load()
+        chosen_model = person.clean(request.form) if any(group in request.form for group in person.GROUPS) else model
+        if chosen_model != model:
+            person.save(chosen_model)
+            if not notes and profile_mod.same_answers(new, current):
+                flash("Model saved. Pictures drawn from now on show it.", "model")   # profile.html adds "See your outfits"
+                return redirect(url_for("profile_page") + "#model")
+            flash("Model saved. Pictures drawn from now on show it.")
+        elif looks.service() is not None and person.describe(model, new)[1] != person.describe(model, current)[1]:
+            # New measurements that change the body in words (person.body_words): the pictures are asked for anew.
+            flash("Your model now follows your new measurements. Pictures drawn from now on show it.")
+        # Stores unticked on the Stores tab: their pieces are picked again, his own choices among them (shared.py).
+        stores_line = shared.stores_unticked(current, new)
         profile_mod.save(new)
         for note in notes:
             flash(note)
+        if stores_line:
+            flash(stores_line)
 
         shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned")
         # The plan has no tab of its own, so a message that sends you to it carries the link.
@@ -1181,13 +1366,13 @@ def create_app() -> Flask:
         same_plan = all(current[f] == new[f] for f in shapes_capsule)
         if same_plan and not current["example"]:        # sizes or budget: the plan stays as it is
             flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
-            return redirect(url_for("profile_page"))
+            return back_to_tab()
         if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
             if current["refused"] != new["refused"]:
                 sync_catalog()          # its pieces stay, but no longer with products in a colour now refused
             flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
                          "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
-            return redirect(url_for("profile_page"))
+            return back_to_tab()
         if same_plan:
             # The first save, with the example's colours and use kept: the plan is built from them already. As the
             # note on Profile says, the outfits follow, now under the budget bar instead of the starter banner.
@@ -1201,6 +1386,55 @@ def create_app() -> Flask:
             flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
                   % (line, edit_the_plan))
         return redirect(url_for("outfits_page"))       # the new plan, where it shows best: on the model
+
+    def store_rows(profile: dict) -> list[dict]:
+        """The Stores tab: every store customers are offered (programmes.offered), with the network that runs its
+        partner programme ("Rakuten") and whether he ticked it (profile.stores)."""
+        mine = profile_mod.stores(profile)
+        stocked = shared.stocked()
+        rows = [{"key": key, "label": label, "on": key in mine, "empty": key not in stocked,
+                 "network": owner.NETWORKS.get(programmes.network(key), programmes.network(key).title())}
+                for key, label in programmes.offered().items()]
+        # The stores with products first; those with none yet are shown apart, under their own line (profile.html).
+        return [row for row in rows if not row["empty"]] + [row for row in rows if row["empty"]]
+
+    def back_to_tab():
+        """Back to Profile, on the tab the form was sent from (app.js writes it in the form; without it, the first)."""
+        tab = request.form.get("tab", "")
+        return redirect(url_for("profile_page") + (f"#{tab}" if tab in profile_mod.TABS else ""))
+
+    def first_outfit(w: selection.Wardrobe) -> list[dict] | None:
+        """The pieces of the first outfit Outfits shows (for what the customer dresses for, unshuffled)."""
+        use = profile_mod.load()["use"]
+        chosen, _ = outfits.generate(w, occasion="all" if use == "both" else use, limit=1)
+        return outfits.snapshot(chosen[0]) if chosen else None
+
+    def model_picture(w: selection.Wardrobe) -> dict:
+        """'Your model' on Profile: the AI picture of the saved model in the first outfit, which is the picture Outfits
+        shows first (the same picture, never drawn twice), or where it stands. `look` is None while there is none."""
+        pieces = first_outfit(w)
+        if pieces is None:
+            return {"look": None, "outfit": False}
+        board = {"pieces": pieces}
+        looks.attach([board])
+        return {"look": board.get("look"), "outfit": True}
+
+    @app.route("/profile/picture", methods=["GET", "POST"])
+    def profile_picture():
+        """'Draw my model' (POST), and where its picture stands, asked every few seconds while it is drawn (GET).
+        The picture is asked for like any outfit's (looks.request), with the same daily limits."""
+        if looks.service() is None:
+            abort(404)                      # AI pictures are switched off
+        w = selection.build()
+        if request.method == "POST":
+            pieces = first_outfit(w)
+            if pieces is None:
+                abort(409, "There is no outfit to draw yet — reload the page.")
+            look = looks.request(pieces, again=request.form.get("again") == "1")
+            if not request.headers.get("HX-Request"):
+                return redirect(url_for("profile_page") + "#figure")
+            return render_template("_model_picture.html", picture={"look": look, "outfit": True})
+        return render_template("_model_picture.html", picture=model_picture(w))
 
     @app.post("/profile/sizes-ok")
     def profile_sizes_ok():

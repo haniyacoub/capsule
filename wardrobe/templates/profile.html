@@ -2,7 +2,12 @@
 {% block title %}Profile · {{ site_name }}{% endblock %}
 {% block main %}
 {% macro colour_names(keys) %}{% for k in keys %}{{ COLOURS[k].label|lower if k in COLOURS else k }}{{ ', ' if not loop.last }}{% endfor %}{% endmacro %}
-<section class="card">
+{# Who wears the outfits in the AI pictures (person.py). Customers of a service without AI pictures are not shown a menu
+   that would do nothing; a photo stored before they were switched off is still shown, to see and delete (Account says
+   so), and so is what became of it. #}
+{% set model_menu = looks_on or not production %}
+{% set photo_part = model_menu or has_photo or get_flashed_messages(category_filter=['photo']) %}
+<div class="cc-head">
   <h1>About you</h1>
   {% if profile.example %}
   {# The one note about the example values every account starts with. It agrees with "These are my sizes" (Buy this
@@ -13,160 +18,237 @@
   {% else %}
   <p class="muted">Your sizes decide what counts as in stock, your colours and what you dress for shape your plan, and the budget sets the bar at the top.</p>
   {% endif %}
+</div>
 
-  {# id="about-you": app.js asks before the model's or the photo's form below is sent while this one has changes. #}
-  <form class="form" id="about-you" method="post" action="{{ url_for('profile_page') }}">{{ csrf_field() }}
-    <h2 class="sec" id="sizes">Sizes</h2>
-    <div class="row">
-      <label class="field"><span>Tops</span>
-        <select name="top_size">
-          {% for size in ALPHA %}<option{% if profile.top_size == size %} selected{% endif %}>{{ size }}</option>{% endfor %}
-        </select></label>
-      <label class="field"><span>Shoes (EU)</span>
-        <input type="text" name="shoe" inputmode="decimal" value="{{ profile.shoe }}"></label>
+{# One screen, like a game's character screen: the model in the middle, the tabs beside it (under it on a phone) and
+   the open tab's controls on the right (under the tabs). app.js (13a) makes the tabs work and marks the page with
+   data-tabs; without JavaScript the tabs stay hidden and every part shows, one under another. #}
+<div class="cc" data-cc>
+  {# The middle: the drawn figure (figure.py), which takes the choices as they are made (app.js 13b), and, where AI
+     pictures are on, "Your model": the AI picture of the saved model, behind the switch. #}
+  <div class="cc-stage" id="figure">
+    <div class="cc-view cc-fig" data-view="figure">{% include "_figure.html" %}</div>
+    {% if picture is not none %}
+    <div class="cc-view cc-pic" data-view="picture" data-model-picture>{% include "_model_picture.html" %}</div>
+    <div class="cc-switch" role="group" aria-label="Show in the middle" data-cc-switch hidden>
+      <button type="button" aria-pressed="true" data-show="figure">Drawn figure</button>
+      <button type="button" aria-pressed="false" data-show="picture">Your model</button>
     </div>
-    <div class="row">
-      <label class="field"><span>Trouser waist (inches)</span>
-        <input type="number" name="waist" min="26" max="46" inputmode="numeric" value="{{ profile.waist }}"></label>
-      <label class="field"><span>Trouser length (inches)</span>
-        <input type="number" name="length" min="28" max="38" inputmode="numeric" value="{{ profile.length }}"></label>
-    </div>
-    <div class="row">
-      <label class="field"><span>Height (cm)</span>
-        <input type="number" name="height_cm" min="140" max="220" inputmode="numeric" value="{{ profile.height_cm }}"></label>
-      <label class="field"><span>Weight (kg)</span>
-        <input type="number" name="weight_kg" min="40" max="200" inputmode="numeric" value="{{ profile.weight_kg }}"></label>
-    </div>
-    <div class="row">
-      <label class="field"><span>Chest (cm, optional)</span>
-        <input type="text" name="chest_cm" inputmode="decimal" placeholder="e.g. 98" value="{{ '%g'|format(profile.chest_cm) if profile.chest_cm else '' }}"></label>
-      <label class="field"><span>Body waist (cm, optional)</span>
-        <input type="text" name="waist_cm" inputmode="decimal" placeholder="e.g. 84" value="{{ '%g'|format(profile.waist_cm) if profile.waist_cm else '' }}"></label>
-    </div>
-    <p class="muted small">We use these to warn you when a cut runs slim or large, or a size may not fit. Add your chest and body waist to compare yourself with each store's size chart.</p>
+    {% endif %}
+    <p class="cc-words" data-figure-words>{{ fig.words }}</p>
+    {% if model_menu %}
+    {# The figure is a line drawing made by this site, not an AI picture: said here, with what ties the two together
+       (person.describe: the same height, build, skin and hair are what the AI pictures are asked for). #}
+    <p class="cc-sketch" data-figure-note>This is a sketch. The AI pictures on <a href="{{ url_for('outfits_page') }}">Outfits</a> follow the same body.</p>
+    {% endif %}
+  </div>
+  <script type="application/json" id="figure-data">{{ figure_data|tojson }}</script>
 
-    <h2 class="sec">Budget</h2>
-    <label class="field"><span>For the whole wardrobe (EUR)</span>
-      <input type="number" id="budget" name="budget" min="0" inputmode="numeric" value="{{ profile.budget }}"></label>
+  <div class="cc-tabs" role="tablist" aria-label="Your profile" data-cc-tabs hidden>
+    {% for key, label in tabs.items() if key != 'body' or model_menu %}
+    <button type="button" role="tab" id="tab-{{ key }}" aria-controls="panel-{{ key }}{{ ' photo-panel' if key == 'you' and photo_part }}" aria-selected="false" tabindex="-1">{{ label }}</button>
+    {% endfor %}
+  </div>
 
-    <h2 class="sec" id="colours-label">Colours</h2>
-    {# Every colour Stilsmith knows as a swatch to tap, in its own colour (the one the plan and the pictures show).
-       app.js (14) shows them and hides the two fields below, which the taps fill in: what is saved is the same text a
-       customer could type. Without JavaScript the swatches stay hidden and the fields are typed in. #}
-    <div class="swatches" data-swatches hidden>
-      <p class="muted small" id="swatch-help">Tap a colour once to like it, twice to avoid it, three times to clear it. The colours you like are numbered in the order you tap them: 1 counts most.</p>
-      <div class="swatch-grid" role="group" aria-labelledby="colours-label" aria-describedby="swatch-help">
-        {% for c in COLOURS.values() %}
-        <button type="button" class="swatch" data-colour="{{ c.label|lower }}" aria-pressed="false"><i style="background:{{ c.hex }}"><b aria-hidden="true"></b></i><span>{{ c.label }}</span><small aria-hidden="true">avoid</small></button>
+  <div class="cc-side card">
+    {# id="about-you": app.js asks before the photo's forms are sent while this one has changes. The model's choices are
+       in it (the Body tab), so one Save keeps them all. `tab`: app.js writes the open tab, to come back to it. #}
+    <form class="form" id="about-you" method="post" action="{{ url_for('profile_page') }}">{{ csrf_field() }}
+      <input type="hidden" name="tab" value="" data-cc-tab-field>
+
+      <section class="cc-panel" id="panel-you" data-tab="you" aria-labelledby="tab-you">
+        <h2 class="sec" id="use-label">What do you dress for?</h2>
+        <div class="seg" role="radiogroup" aria-labelledby="use-label">
+          {% for key, label in USES.items() %}
+          <label><input type="radio" name="use" value="{{ key }}"{% if profile.use == key %} checked{% endif %}><span>{{ label }}</span></label>
+          {% endfor %}
+        </div>
+        <label class="check"><input type="checkbox" name="shoes"{% if profile.shoes %} checked{% endif %}> Include shoes</label>
+        <label class="check"><input type="checkbox" name="outerwear"{% if profile.outerwear %} checked{% endif %}> Include outerwear</label>
+
+        <h2 class="sec">Already in your wardrobe</h2>
+        <label class="field"><span>Things to build around <small>(one per line, e.g. “white leather sneakers”)</small></span>
+          <textarea name="owned" rows="4" autocapitalize="off">{{ profile.owned }}</textarea></label>
+        <p class="muted small">Each line becomes a piece of your plan that you already own: it costs nothing and still appears in outfits.</p>
+      </section>
+
+      {% if model_menu %}
+      <section class="cc-panel" id="panel-body" data-tab="body" aria-labelledby="tab-body">
+        <div id="model">
+          <h2>Your model</h2>
+          {% for message in get_flashed_messages(category_filter=['model']) %}
+          <p class="flash" role="status">{{ message }}{% if message.startswith('Model saved') %} <a href="{{ url_for('outfits_page') }}">See your outfits</a>{% endif %}</p>
+          {% endfor %}
+          {% if not looks_on %}
+          <p class="demo"><b>AI pictures are switched off.</b> You can set the model up now; it is used once a key for the AI service is set (README, “AI pictures of outfits”).</p>
+          {% endif %}
+          {% for group, entry in groups.items() %}
+          <fieldset class="pick">
+            <legend>{{ entry[0] }}</legend>
+            <label><input type="radio" name="{{ group }}" value=""{% if group not in model %} checked{% endif %}><span>Any</span></label>
+            {% for o in entry[1] %}
+            <label><input type="radio" name="{{ group }}" value="{{ o.key }}"{% if model.get(group) == o.key %} checked{% endif %}><span>{% if o.swatch %}<i style="background:{{ o.swatch }}"></i>{% endif %}{{ o.label }}</span></label>
+            {% endfor %}
+          </fieldset>
+          {% endfor %}
+          {# person.describe: with every group on "Any" the pictures show the standard model (looks.toml, text.model); a
+             group left on "Any" beside chosen ones is not described at all, so there the AI decides. The choices come
+             first, so that on a phone they are under the figure they change. #}
+          <p class="muted">Choose who wears your outfits in the AI pictures. His height and build follow your own height, weight, chest and waist (<a href="#sizes">Sizes</a>) unless you choose them here. {% if own_body %}Whatever else is still on “Any” is up to the AI.{% else %}Until you enter those, and with everything on “Any”, it is our standard model: a man of average build. Once you choose something, whatever is still on “Any” is up to the AI.{% endif %}</p>
+          <p class="muted small">Described to the AI as: “{{ model_words }}”. Each picture is drawn afresh, so the face differs a little from one outfit to the next; with your own photo it stays you. With height on “Any”, the figure in the middle is as tall as you (Sizes).</p>
+          {# What leaves this site, said where the body is set (looks.py, person.body_words). `drawn_by` is the service
+             in use: Google, or OpenAI. #}
+          <p class="muted small" data-body-sent>These words go to {{ drawn_by }} with each picture, together with the outfit's pieces. Your height, weight, chest and waist are sent only as words like these about your body, never as numbers; your name, email address and clothing sizes are not sent. <a href="{{ url_for('legal_page', name='privacy') }}">Privacy policy</a></p>
+        </div>
+      </section>
+      {% endif %}
+
+      <section class="cc-panel" id="panel-sizes" data-tab="sizes" aria-labelledby="tab-sizes">
+        <h2 class="sec" id="sizes">Sizes</h2>
+        <div class="row">
+          <label class="field"><span>Tops</span>
+            <select name="top_size">
+              {% for size in ALPHA %}<option{% if profile.top_size == size %} selected{% endif %}>{{ size }}</option>{% endfor %}
+            </select></label>
+          <label class="field"><span>Shoes (EU)</span>
+            <input type="text" name="shoe" inputmode="decimal" value="{{ profile.shoe }}"></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>Trouser waist (inches)</span>
+            <input type="number" name="waist" min="26" max="46" inputmode="numeric" value="{{ profile.waist }}"></label>
+          <label class="field"><span>Trouser length (inches)</span>
+            <input type="number" name="length" min="28" max="38" inputmode="numeric" value="{{ profile.length }}"></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>Height (cm)</span>
+            <input type="number" name="height_cm" min="140" max="220" inputmode="numeric" value="{{ profile.height_cm }}"></label>
+          <label class="field"><span>Weight (kg)</span>
+            <input type="number" name="weight_kg" min="40" max="200" inputmode="numeric" value="{{ profile.weight_kg }}"></label>
+        </div>
+        <div class="row">
+          <label class="field"><span>Chest (cm, optional)</span>
+            <input type="text" name="chest_cm" inputmode="decimal" placeholder="e.g. 98" value="{{ '%g'|format(profile.chest_cm) if profile.chest_cm else '' }}"></label>
+          <label class="field"><span>Body waist (cm, optional)</span>
+            <input type="text" name="waist_cm" inputmode="decimal" placeholder="e.g. 84" value="{{ '%g'|format(profile.waist_cm) if profile.waist_cm else '' }}"></label>
+        </div>
+        <p class="muted small">We use these to warn you when a cut runs slim or large, or a size may not fit. Add your chest and body waist to compare yourself with each store's size chart.</p>
+        {% if model_menu %}
+        <p class="muted small" data-body-sent>Your height, weight, chest and body waist also shape the model in your AI pictures. They go to {{ drawn_by }} with each picture as a few words about your body (such as “a little shorter than average, lean build”), never as numbers.{% if looks_on %} Described to the AI now as: “{{ model_words }}”.{% endif %}</p>
+        {% endif %}
+      </section>
+
+      <section class="cc-panel" id="panel-colours" data-tab="colours" aria-labelledby="tab-colours">
+        <h2 class="sec" id="colours-label">Colours</h2>
+        {# Every colour Stilsmith knows as a swatch to tap, in its own colour (the one the plan and the pictures show).
+           app.js (14) shows them and hides the two fields below, which the taps fill in: what is saved is the same text a
+           customer could type. Without JavaScript the swatches stay hidden and the fields are typed in. #}
+        <div class="swatches" data-swatches hidden>
+          <p class="muted small" id="swatch-help">Tap a colour once to like it, twice to avoid it, three times to clear it. The colours you like are numbered in the order you tap them: 1 counts most.</p>
+          <div class="swatch-grid" role="group" aria-labelledby="colours-label" aria-describedby="swatch-help">
+            {% for c in COLOURS.values() %}
+            <button type="button" class="swatch" data-colour="{{ c.label|lower }}" aria-pressed="false"><i style="background:{{ c.hex }}"><b aria-hidden="true"></b></i><span>{{ c.label }}</span><small aria-hidden="true">avoid</small></button>
+            {% endfor %}
+          </div>
+          <p class="sr" role="status" data-swatch-said></p>
+        </div>
+        <div class="typed-colours" data-typed-colours>
+          {# Colour names, not words of a sentence: a phone's autocorrect and spell check would only get in the way. #}
+          <label class="field"><span>Colours you like <small>(most important first, separated by commas)</small></span>
+            <input type="text" name="liked" value="{{ colour_names(profile.liked) }}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+          <label class="field"><span>Colours to avoid</span>
+            <input type="text" name="refused" value="{{ colour_names(profile.refused) }}" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. yellow, pink"></label>
+          <p class="muted small">Recognised: {% for c in COLOURS.values() %}<span class="mini"><i style="background:{{ c.hex }}"></i>{{ c.label|lower }}</span>{% endfor %}</p>
+        </div>
+      </section>
+
+      <section class="cc-panel" id="panel-budget" data-tab="budget" aria-labelledby="tab-budget">
+        <h2 class="sec">Budget</h2>
+        <label class="field"><span>For the whole wardrobe (EUR)</span>
+          <input type="number" id="budget" name="budget" min="0" inputmode="numeric" value="{{ profile.budget }}"></label>
+      </section>
+
+      {# The Stores tab: every store customers are offered (programmes.offered), a row to tick each; his pieces are picked
+         only from the stores ticked (profile.stores). The stores Stilsmith has products from come first (shared.stocked);
+         a store with none yet is shown apart, under its own line: ticked, a product link from it can be pasted on a
+         piece's page, and that is all it does until its products arrive. At least one store with products stays ticked:
+         app.js (13c) says so when the last one is unticked, and without JavaScript the save does. `stores_shown` tells
+         a form with this tab from one without. #}
+      <section class="cc-panel" id="panel-stores" data-tab="stores" aria-labelledby="tab-stores">
+        <h2 class="sec" id="stores">Stores</h2>
+        <p class="muted small" id="stores-help">Your pieces are picked only from the stores you tick. At least one store with products stays ticked.</p>
+        <input type="hidden" name="stores_shown" value="1">
+        <div class="store-pick" role="group" aria-labelledby="stores" aria-describedby="stores-help" data-store-pick>
+          {% for s in store_rows if not s.empty %}
+          <label class="check store-row"><input type="checkbox" name="stores" value="{{ s.key }}"{% if s.on %} checked{% endif %}> <span><b>{{ s.label }}</b> <span class="store-note">· {{ s.network }} partner</span></span></label>
+          {% endfor %}
+          {# Said right under the stores it is about (app.js 13c), above the ones with no products yet. #}
+          <p class="flash store-said" data-store-said hidden></p>
+          {% if store_rows|selectattr('empty')|list %}
+          <div class="store-empty" role="group" aria-labelledby="stores-empty">
+            <h3 class="store-empty-head" id="stores-empty">No products yet: paste a link on a piece's page</h3>
+            {% for s in store_rows if s.empty %}
+            <label class="check store-row"><input type="checkbox" name="stores" value="{{ s.key }}" data-empty{% if s.on %} checked{% endif %}> <span><b>{{ s.label }}</b></span></label>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+        <p class="muted small">Menswear only, and only stores with a partner programme are listed. More will join.</p>
+      </section>
+    </form>
+
+    {# The one Save, for every tab: always in view (app.css), at the bottom of the screen on a phone. It sends the form
+       above from outside it (form="about-you"), so that the photo's own forms below can follow it on the page. #}
+    <div class="cc-save"><button class="btn" form="about-you">Save profile</button></div>
+
+    {% if photo_part %}
+    {# Part of the You tab: the customer's own photo, with its own forms (a file is sent on its own, with consent). #}
+    <section class="cc-panel cc-photo" id="photo-panel" data-tab="you" aria-labelledby="tab-you">
+      {% if not model_menu %}<h2>Your photo</h2>{% endif %}
+      {# What became of a photo that was just sent or deleted is said here, where the page lands. #}
+      <div id="photo">
+        {% if model_menu and (photos or has_photo) %}
+        <h2 class="sec">Or be the model yourself</h2>
+        {% endif %}
+        {% for message in get_flashed_messages(category_filter=['photo']) %}
+        <p class="flash{% if message.startswith('Not saved') or message.startswith('No photo') %} bad{% endif %}" role="status">{{ message }}{% if message.startswith('Photo saved') %} <a href="{{ url_for('outfits_page') }}">See your outfits</a>{% endif %}</p>
         {% endfor %}
       </div>
-      <p class="sr" role="status" data-swatch-said></p>
-    </div>
-    <div class="typed-colours" data-typed-colours>
-      {# Colour names, not words of a sentence: a phone's autocorrect and spell check would only get in the way. #}
-      <label class="field"><span>Colours you like <small>(most important first, separated by commas)</small></span>
-        <input type="text" name="liked" value="{{ colour_names(profile.liked) }}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
-      <label class="field"><span>Colours to avoid</span>
-        <input type="text" name="refused" value="{{ colour_names(profile.refused) }}" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. yellow, pink"></label>
-      <p class="muted small">Recognised: {% for c in COLOURS.values() %}<span class="mini"><i style="background:{{ c.hex }}"></i>{{ c.label|lower }}</span>{% endfor %}</p>
-    </div>
-
-    <h2 class="sec" id="use-label">What do you dress for?</h2>
-    <div class="seg" role="radiogroup" aria-labelledby="use-label">
-      {% for key, label in USES.items() %}
-      <label><input type="radio" name="use" value="{{ key }}"{% if profile.use == key %} checked{% endif %}><span>{{ label }}</span></label>
-      {% endfor %}
-    </div>
-    <label class="check"><input type="checkbox" name="shoes"{% if profile.shoes %} checked{% endif %}> Include shoes</label>
-    <label class="check"><input type="checkbox" name="outerwear"{% if profile.outerwear %} checked{% endif %}> Include outerwear</label>
-
-    <h2 class="sec">Already in your wardrobe</h2>
-    <label class="field"><span>Things to build around <small>(one per line, e.g. “white leather sneakers”)</small></span>
-      <textarea name="owned" rows="4" autocapitalize="off">{{ profile.owned }}</textarea></label>
-    <p class="muted small">Each line becomes a piece of your plan that you already own: it costs nothing and still appears in outfits.</p>
-
-    <button class="btn">Save profile</button>
-  </form>
-</section>
-
-{# Who wears the outfits in the AI pictures (person.py). Customers of a service
-   without AI pictures are not shown a menu that would do nothing; a photo stored
-   before they were switched off is still shown, to see and delete (Account says so),
-   and so is what became of it. #}
-{% set model_menu = looks_on or not production %}
-{% if model_menu or has_photo or get_flashed_messages(category_filter=['photo']) %}
-<section class="card" id="model">
-  {% if model_menu %}
-  <h2>Your model</h2>
-  {% for message in get_flashed_messages(category_filter=['model']) %}
-  <p class="flash" role="status">{{ message }}{% if message.startswith('Model saved') %} <a href="{{ url_for('outfits_page') }}">See your outfits</a>{% endif %}</p>
-  {% endfor %}
-  {# person.describe: with every group on "Any" the pictures show the standard model (looks.toml, text.model); a group
-     left on "Any" beside chosen ones is not described at all, so there the AI decides. #}
-  <p class="muted">Choose who wears your outfits in the AI pictures. With everything on “Any”, it is our standard model: a man of average build. Once you choose something, whatever is still on “Any” is up to the AI.</p>
-  {% if not looks_on %}
-  <p class="demo"><b>AI pictures are switched off.</b> You can set the model up now; it is used once a key for the AI service is set (README, “AI pictures of outfits”).</p>
-  {% endif %}
-  <form class="form" method="post" action="{{ url_for('profile_model') }}">{{ csrf_field() }}
-    {% for group, entry in groups.items() %}
-    <fieldset class="pick">
-      <legend>{{ entry[0] }}</legend>
-      <label><input type="radio" name="{{ group }}" value=""{% if group not in model %} checked{% endif %}><span>Any</span></label>
-      {% for o in entry[1] %}
-      <label><input type="radio" name="{{ group }}" value="{{ o.key }}"{% if model.get(group) == o.key %} checked{% endif %}><span>{% if o.swatch %}<i style="background:{{ o.swatch }}"></i>{% endif %}{{ o.label }}</span></label>
-      {% endfor %}
-    </fieldset>
-    {% endfor %}
-    <p class="muted small">Described to the AI as: “{{ model_words }}”. Each picture is drawn afresh, so the face differs a little from one outfit to the next; with your own photo it stays you.</p>
-    <button class="btn">Save model</button>
-  </form>
-  {% else %}
-  <h2>Your photo</h2>
-  {% endif %}
-
-  {# What became of a photo that was just sent or deleted is said here, where the page lands. #}
-  <div id="photo">
-    {% if model_menu and (photos or has_photo) %}
-    <h2 class="sec">Or be the model yourself</h2>
-    {% endif %}
-    {% for message in get_flashed_messages(category_filter=['photo']) %}
-    <p class="flash{% if message.startswith('Not saved') or message.startswith('No photo') %} bad{% endif %}" role="status">{{ message }}{% if message.startswith('Photo saved') %} <a href="{{ url_for('outfits_page') }}">See your outfits</a>{% endif %}</p>
-    {% endfor %}
-  </div>
-  {% if has_photo %}
-  <div class="me">
-    <img src="{{ url_for('profile_photo_file') }}" alt="Your photo" width="96" height="128">
-    <div>
-      {% if photos and model_menu %}
-      <p>The pictures are drawn from this photo of you (added {{ photo_added }}). Height and build are still taken from the choices above.</p>
-      {% else %}
-      <p>This photo of you is still stored (added {{ photo_added }}). Pictures are no longer drawn from photos, so it is not used.</p>
+      {% if has_photo %}
+      <div class="me">
+        <img src="{{ url_for('profile_photo_file') }}" alt="Your photo" width="96" height="128">
+        <div>
+          {% if photos and model_menu %}
+          <p>The pictures are drawn from this photo of you (added {{ photo_added }}). Height and build are still taken from the Body tab.</p>
+          {% else %}
+          <p>This photo of you is still stored (added {{ photo_added }}). Pictures are no longer drawn from photos, so it is not used.</p>
+          {% endif %}
+          <form method="post" action="{{ url_for('profile_photo') }}" data-confirm="Delete your photo and the pictures made from it?">{{ csrf_field() }}
+            <input type="hidden" name="remove" value="1">
+            <button class="link danger">Delete my photo and the pictures made from it</button>
+          </form>
+        </div>
+      </div>
       {% endif %}
-      <form method="post" action="{{ url_for('profile_photo') }}" data-confirm="Delete your photo and the pictures made from it?">{{ csrf_field() }}
-        <input type="hidden" name="remove" value="1">
-        <button class="link danger">Delete my photo and the pictures made from it</button>
+      {% if photos and model_menu %}
+      {# What a person needs to know before agreeing comes first: where the photo goes, how long it is kept, how to take
+         it back. The consent's words are dated: app.py stores PHOTO_CONSENT with the photo; change the two together.
+         `videos_on`: the pictures of him can also be made into videos ("See it move", videos.py), by Google. #}
+      <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
+        <p class="photo-facts" id="photo-facts">Your photo goes to {{ drawn_by }} each time a picture of you is drawn, so the model looks like you. An outfit's further photos (“More photos”) are made from that picture of you, which goes to {{ drawn_by }} again.
+          {%- if videos_on %} When you ask for a video of a picture of you (“See it move”), that picture goes to Google, which makes the video from it.{% endif %}
+          {{ site_name }} keeps it{{ ' in data/people on this computer' if not production }}, without where and when it was taken, until you delete it; you can delete it here at any time, and the pictures made from it go with it{{ ', with their videos' if videos_on }}.
+          How {{ site_name }} handles your data: <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>.</p>
+        <label class="field"><span>{{ 'Use a different photo' if has_photo else 'A clear, well-lit photo of you facing the camera' }}</span>
+          <input type="file" name="photo" accept="image/*" required></label>
+        {# app.js says here what it made of the chosen file: ready to send, or not a picture this browser can open. #}
+        <div class="photo-ready" data-photo-ready role="status" hidden><img alt="" width="54" height="72" hidden><p></p></div>
+        <label class="check"><input type="checkbox" name="agree" required aria-describedby="photo-facts"> <span>This is me, I'm 18 or over, and I agree to {{ site_name }} sending this photo to {{ drawn_by }} to draw pictures of me in my outfits{{ ', and those pictures to Google to make videos of them when I ask' if videos_on }}.</span></label>
+        <button class="btn small">{{ 'Replace photo' if has_photo else 'Use this photo' }}</button>
       </form>
-    </div>
+      <p class="muted small photo-note">Your face in a picture will be close, not exact.</p>
+      {% endif %}
+    </section>
+    {% endif %}
   </div>
-  {% endif %}
-  {% if photos and model_menu %}
-  {# What a person needs to know before agreeing comes first: where the photo goes, how long it is kept, how to take it
-     back. The consent's words are dated: app.py stores PHOTO_CONSENT with the photo; change the two together.
-     `videos_on`: the pictures of him can also be made into videos ("See it move", videos.py), by Google. #}
-  <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
-    <p class="photo-facts" id="photo-facts">Your photo goes to {{ drawn_by }} each time a picture of you is drawn, so the model looks like you.
-      {%- if videos_on %} When you ask for a video of a picture of you (“See it move”), that picture goes to Google, which makes the video from it.{% endif %}
-      {{ site_name }} keeps it{{ ' in data/people on this computer' if not production }}, without where and when it was taken, until you delete it; you can delete it here at any time, and the pictures made from it go with it{{ ', with their videos' if videos_on }}.
-      How {{ site_name }} handles your data: <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>.</p>
-    <label class="field"><span>{{ 'Use a different photo' if has_photo else 'A clear, well-lit photo of you facing the camera' }}</span>
-      <input type="file" name="photo" accept="image/*" required></label>
-    {# app.js says here what it made of the chosen file: ready to send, or not a picture this browser can open. #}
-    <div class="photo-ready" data-photo-ready role="status" hidden><img alt="" width="54" height="72" hidden><p></p></div>
-    <label class="check"><input type="checkbox" name="agree" required aria-describedby="photo-facts"> <span>This is me, I'm 18 or over, and I agree to {{ site_name }} sending this photo to {{ drawn_by }} to draw pictures of me in my outfits{{ ', and those pictures to Google to make videos of them when I ask' if videos_on }}.</span></label>
-    <button class="btn small">{{ 'Replace photo' if has_photo else 'Use this photo' }}</button>
-  </form>
-  <p class="muted small photo-note">Your face in a picture will be close, not exact.</p>
-  {% endif %}
-</section>
-{% endif %}
+</div>
 {% endblock %}

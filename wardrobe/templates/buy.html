@@ -7,10 +7,14 @@
 <p class="crumb"><a href="{{ url_for('outfits_page', at=outfit.sig) }}">{{ icon('back') }} Back to the outfit</a></p>
 
 <h1 class="page-title">Buy this outfit</h1>
+{# After the swap for a product sold out in his size: what changed, with Undo (_changed.html). #}
+{% if said %}<div class="flash said" role="status">{% include "_changed.html" %}</div>{% endif %}
 {% if sl.groups %}
 <p class="buy-head"><b>{{ sl.total|eur }}</b>
-  <span>{{ outfit.label }} · {{ sl.pieces }} {{ 'piece' if sl.pieces == 1 else 'pieces' }}{% if sl.owned %} to buy{% endif %} · prices and stock as of {{ sl.collected }}</span></p>
+  <span>{{ outfit.label }} · {{ sl.pieces }} {{ 'piece' if sl.pieces == 1 else 'pieces' }}{% if sl.owned or sl.sold_out %} to buy{% endif %}{% if sl.sold_out %} · {{ sl.pieces_sold_out }} {{ sl.gone_words }}, not counted{% endif %} · prices and stock as of {{ sl.collected }}</span></p>
 {% include "_your_sizes.html" %}
+{% elif sl.sold_out %}
+<p class="empty">Nothing to buy right now: {{ 'the piece you do not own is' if sl.pieces_sold_out == 1 else 'the pieces you do not own are' }} {{ sl.gone_words }}.</p>
 {% else %}
 <p class="empty">Nothing to buy: you own every piece of this outfit.</p>
 {% endif %}
