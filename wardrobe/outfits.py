@@ -263,7 +263,8 @@ def all_outfits(w: Wardrobe) -> list[Outfit]:
 
 def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0) -> tuple[list[Outfit], int]:
     """A varied selection of outfits, and how many valid combinations exist in total. With a style brief
-    (w.brief, style.py) the outfits that fit it are offered first; without one the order is as it always was."""
+    (w.brief, style.py) the outfits that fit it move up the order, those that are one of his styles as a whole
+    furthest; without one the order is as it always was."""
     pool = [o for o in all_outfits(w) if o.suits(occasion)]
     total = len(pool)
     rng = random.Random(seed)

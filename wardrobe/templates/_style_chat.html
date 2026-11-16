@@ -5,30 +5,41 @@
    `chat_on`: a key for Google's text model is set. Without it there is no chat; a brief that is in use is still
    shown, to change by hand or remove. `chat`: the conversation (turns, the question asked back, and `draft`, the brief
    the model suggested). `brief_shown`: the brief the editor shows: the suggestion while there is one, else the brief
-   in use. Only "Use this brief" puts a brief in use. Everything the model wrote is shown as plain text (escaped). #}
+   in use. Only "Use this brief" puts a brief in use. Everything the model wrote is shown as plain text (escaped).
+
+   What "Use this brief", "Remove brief" and "Start again" just did is said first, with its link to the outfits: the
+   page comes back to the top of this part (#style), so the sentence is on the screen without scrolling, on a phone
+   too. A message that could not be sent without JavaScript is said there as well (kind "style-bad").
+
+   After a message sent with HTMX, app.js (13d) keeps the keyboard in the message field and has the new answer, or
+   what went wrong, read out by the page's one live region (#announce, base.html): `data-chat-new` marks it. #}
 <div class="style-chat" id="style-chat">
+  {% for kind, message in get_flashed_messages(with_categories=true, category_filter=['style', 'style-bad']) %}
+  <p class="flash{{ ' bad' if kind == 'style-bad' }}" role="status" data-style-said>{{ message }}</p>
+  {% endfor %}
   {% if chat_on %}
   <h2 class="sec" id="style-title">Describe your style</h2>
   <p class="muted small">Say in your own words how you want to dress, such as “street style, Berlin vibe”. An AI model answers and suggests a style brief. Nothing changes until you press “Use this brief”.</p>
   {% if chat.turns %}
   <ol class="chat-lines" aria-label="Your conversation with the style assistant">
     {% for turn in chat.turns %}
-    <li class="{{ 'me' if turn.who == 'you' else 'it' }}"><span class="sr">{{ 'You' if turn.who == 'you' else 'Style assistant' }}: </span>{{ turn.text }}{% if loop.last and turn.who != 'you' and chat.question %} <b class="chat-q">{{ chat.question }}</b>{% endif %}</li>
+    <li class="{{ 'me' if turn.who == 'you' else 'it' }}"{% if loop.last and turn.who != 'you' %} data-chat-new{% endif %}><span class="sr">{{ 'You' if turn.who == 'you' else 'Style assistant' }}: </span>{{ turn.text }}{% if loop.last and turn.who != 'you' and chat.question %} <b class="chat-q">{{ chat.question }}</b>{% endif %}</li>
     {% endfor %}
   </ol>
   <p class="muted small chat-ai">The answers are written by AI and can be wrong. Only the brief below changes your picks.</p>
   {% endif %}
-  {% if chat_said %}<p class="flash bad" role="status" data-chat-said>{{ chat_said }}</p>{% endif %}
+  {# What went wrong with the message just sent; his words are back in the field, to send again. #}
+  {% if chat_said %}<p class="flash bad" data-chat-said>{{ chat_said }}</p>{% endif %}
   <form class="chat-say" method="post" action="{{ url_for('profile_style_say') }}" hx-post="{{ url_for('profile_style_say') }}" hx-target="#style-chat" hx-swap="outerHTML" hx-disabled-elt="find button">{{ csrf_field() }}
     <label class="field"><span>{{ 'Your answer, or something else to change' if chat.turns else 'How do you want to dress?' }}</span>
-      <textarea name="message" rows="2" maxlength="{{ chat_max }}" required></textarea></label>
+      <textarea name="message" rows="2" maxlength="{{ chat_max }}" required>{{ chat_kept }}</textarea></label>
     <button class="btn small">Send</button>
   </form>
   {# What leaves this site, said beside the chat (stylechat.sent_text). #}
   <p class="muted small" data-chat-sent>What you write here goes to Google, whose AI model writes the answer, together with the last lines of this conversation and your style brief. Your name, email address, sizes, budget and photo are not sent. Up to {{ chat_allowance }} messages a day. <a href="{{ url_for('legal_page', name='privacy') }}">Privacy policy</a></p>
   {% else %}
   {# A message sent from a page that still showed the chat, after the chat was switched off. #}
-  {% if chat_said %}<p class="flash bad" role="status" data-chat-said>{{ chat_said }}</p>{% endif %}
+  {% if chat_said %}<p class="flash bad" data-chat-said>{{ chat_said }}</p>{% endif %}
   {% if brief_shown %}<h2 class="sec" id="style-title">Your style brief</h2>{% endif %}
   {% endif %}
 
@@ -40,7 +51,7 @@
     <p class="demo"><b>Not in use yet.</b> This is what the assistant understood. Change what is wrong, then press “Use this brief”.{% if brief_in_use %} In use now: {% for what, value in brief_words %}{{ what|lower }} {{ value }}{{ '; ' if not loop.last }}{% endfor %}.{% endif %}</p>
     {% else %}
     <h3 class="brief-head">{{ 'Your style brief' if chat_on else 'What it says' }}</h3>
-    <p class="muted small">In use. Among each piece's products at your price level, the ones that fit this brief are picked first, and the outfits that fit it are shown first.</p>
+    <p class="muted small">In use. Among each piece's products at your price level, the ones that fit this brief are picked first. Outfits that fit it are moved up, and an outfit that fits it as a whole says so under its name.</p>
     {% endif %}
     <fieldset class="pick">
       <legend>Styles</legend>

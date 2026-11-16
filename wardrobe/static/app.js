@@ -846,6 +846,30 @@ if (storePick) {
   });
 }
 
+// 13d. Profile: the style chat (_style_chat.html). After a message is sent, HTMX puts the whole chat in again, with
+//      the answer and the brief it suggests. The keyboard stays in the message field (the new one, in place of the
+//      one that was typed in), so the next message can be written at once, and the new answer, or what went wrong,
+//      is read out by the page's one live region (base.html), which was on the page before the answer came.
+document.body.addEventListener('htmx:afterSwap', (e) => {
+  const was = e.detail.target;
+  if (!(was instanceof Element) || was.id !== 'style-chat') return;
+  const chat = document.getElementById('style-chat');
+  if (!chat) return;
+  const field = chat.querySelector('.chat-say textarea');
+  if (field) {
+    field.focus({ preventScroll: true });
+    field.setSelectionRange(field.value.length, field.value.length);     // after his words, when they came back unsent
+  }
+  const said = chat.querySelector('[data-chat-said]') || chat.querySelector('[data-chat-new]');
+  const announce = document.getElementById('announce');
+  if (!said || !announce) return;
+  let words = said.textContent.replace(/\s+/g, ' ').trim();
+  if (!said.matches('[data-chat-said]') && chat.querySelector('[data-brief="suggested"]')) {
+    words += ' A suggested style brief is below. It is not in use yet.';
+  }
+  announce.textContent = announce.textContent === words ? `${words}\u00a0` : words;    // the same words again are read again
+});
+
 // 14. Profile: the colours as swatches to tap. Once: a colour you like, numbered in the order you tapped it (1 counts
 //     most, which is how the plan reads "most important first"). Twice: a colour to avoid. Three times: neither.
 //     The swatches only fill in About you's two text fields ("Colours you like", "Colours to avoid") with the colours'

@@ -24,19 +24,26 @@ Its suggestion changes nothing until the customer presses "Use this brief" (app.
 
 The model's name and the daily limits are in config/style.toml under [chat]. Each message costs
 about a tenth of a US cent (README, "The style chat").
+
+The customer waits for the answer inside his request, so the chat must not tie up the site: at
+most two messages are on their way to Google at the same moment, for the whole site (`at_once`),
+and one is given up when Google has said nothing for 15 seconds (`wait_seconds`). One more message
+at such a moment is told "busy, try again in a moment" at once; it was not sent, so it is not
+counted.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import time
+from collections.abc import Iterator
 
-from . import db, imagegen, settings, style
+from . import db, imagegen, paths, settings, style
 from .config import ConfigError
 from .imagegen import DrawError
 
 SETTING = "style_chat"             # the conversation and the suggested brief, per customer
-TIMEOUT = 25                       # seconds: the answer is a few short sentences
 MAX_REPLY = 400                    # characters of the model's reply that are shown
 MAX_QUESTION = 200
 ME, IT = "you", "assistant"        # who said a line of the conversation
@@ -44,6 +51,7 @@ ME, IT = "you", "assistant"        # who said a line of the conversation
 SAY = {
     "closed": "The style chat is not available at the moment. The styles you tick above still work.",
     "busy": "The style chat did not answer. Try again in a moment.",
+    "full": "The style chat is busy. Try again in a moment. That message was not counted.",
     "empty": "The style chat could not make sense of that. Try saying it another way.",
     "mine": "That's your {n} messages for today. More tomorrow. You can still change the brief by hand.",
     "all": "The style chat has answered all it can today. More tomorrow.",
@@ -75,6 +83,8 @@ def status() -> str:
 def instruction() -> str:
     """The model's standing orders: what it is, what it may answer, and the only values a brief may hold."""
     rules = style.load_rules()
+    # What each level of formality is called on the page: "smart means in between".
+    meanings = ", ".join(key + " means " + entry["label"].lower() for key, entry in rules["formality"].items())
     return (
         "You are the style assistant of a menswear wardrobe app. A customer tells you in his own words how he "
         "wants to dress. Answer in JSON with three fields.\n"
@@ -84,7 +94,7 @@ def instruction() -> str:
         '"brief": the whole style brief as it should now be: start from the brief so far and change only what '
         "the customer's words call for. Use only these values. "
         f"styles: any of {json.dumps(list(rules['styles']))}. "
-        f"formality: one of {json.dumps(list(rules['formality']))} or an empty string. "
+        f"formality: one of {json.dumps(list(rules['formality']))} ({meanings}) or an empty string. "
         "colours_like and colours_avoid: plain English colour names such as navy, black, grey, white, ecru, "
         "olive, camel, brown, burgundy. "
         f"fits: any of {json.dumps(list(style.FITS))}. "
@@ -132,13 +142,14 @@ def sent_text(turns: list[dict], brief: dict) -> str:
 
 def ask(model: str, key: str, turns: list[dict], brief: dict) -> object:
     """One request to Google's text model: its answer as parsed JSON, not yet checked. Raises DrawError (the
-    kinds of imagegen.py) when Google says no or sends no JSON. Tests and the night preview replace this function
-    with a stand-in (mockchat.answer), so nothing is sent and nothing is billed."""
+    kinds of imagegen.py) when Google says no, sends no JSON, or says nothing for `wait_seconds`. Tests and the
+    night preview replace this function with a stand-in (mockchat.answer), so nothing is sent and nothing is billed."""
     payload = {"model": model, "system_instruction": instruction(), "input": sent_text(turns, brief), "store": False,
                "response_format": {"type": "text", "mime_type": "application/json", "schema": schema()}}
     headers = {"x-goog-api-key": key, "Content-Type": "application/json", "Api-Revision": imagegen.GOOGLE_REVISION}
     label = imagegen.Service(name="google", model=model, key=key)        # for the error's words
-    status, body = imagegen._send(imagegen.GOOGLE_URL, headers, json.dumps(payload).encode(), timeout=TIMEOUT)
+    status, body = imagegen._send(imagegen.GOOGLE_URL, headers, json.dumps(payload).encode(),
+                                  timeout=float(style.load_rules()["chat"]["wait_seconds"]))
     answers = imagegen._answers(body)
     error = next((answer["error"] for answer in answers if answer.get("error")), None)
     if status >= 400 or error:
@@ -189,18 +200,47 @@ def state() -> dict:
 
 
 def forget() -> None:
-    """Start again: the conversation and the suggestion go. A brief he confirmed stays (style.remove takes it)."""
-    db.set_setting(SETTING, None)
+    """Start again: the conversation and the suggestion go, and their row in the settings with them. A brief he
+    confirmed stays (style.remove takes it)."""
+    db.delete_setting(SETTING)
 
 
 def confirmed() -> None:
-    """He pressed "Use this brief": the suggestion is now the brief, so it is no longer a suggestion."""
+    """He pressed "Use this brief": the suggestion is now the brief, so it is no longer a suggestion. The
+    conversation stays; where there was none (a brief changed by hand), nothing is kept."""
     kept = state()
-    db.set_setting(SETTING, {"turns": kept["turns"], "draft": None, "question": ""})
+    if kept["turns"]:
+        db.set_setting(SETTING, {"turns": kept["turns"], "draft": None, "question": ""})
+    else:
+        forget()
 
 
 def allowance() -> int:
     return int(style.load_rules()["chat"]["per_customer_per_day"])
+
+
+@contextlib.contextmanager
+def a_turn(most: int) -> Iterator[bool]:
+    """One of the few messages that may be on their way to Google at the same moment, for the whole site. Gives
+    True when one was free, and holds it until the block ends; gives False at once when all are taken.
+
+    A turn is a lock on a small empty file in the data folder (chat/turn-1.lock, turn-2.lock), the way the store
+    feeds allow one run at a time (feeds/refresh.py). Every server process sees the same files, so the server's
+    processes share the site's turns instead of having two each, and a process that died gives its turn back
+    by dying."""
+    import fcntl        # macOS and Linux have it. Asked for here, so the app itself still starts where it is missing.
+
+    folder = paths.DATA_DIR / "chat"
+    folder.mkdir(parents=True, exist_ok=True)
+    for number in range(1, most + 1):
+        with (folder / f"turn-{number}.lock").open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue                     # taken: by another request here, or by another server process
+            yield True
+            return
+    yield False
 
 
 def say(message: str) -> str:
@@ -216,19 +256,22 @@ def say(message: str) -> str:
     kept = state()
     turns = (kept["turns"] + [{"who": ME, "text": said}])[-int(rules["keep_turns"]):]
     brief = kept["draft"] or style.stored()
-    ticket, used_up = db.take_chat_ticket(time.time() - 24 * 3600, int(rules["per_day"]),
-                                          int(rules["per_customer_per_day"]) if settings.PRODUCTION else None)
-    if not ticket:
-        return SAY[used_up].format(n=int(rules["per_customer_per_day"]))
-    try:
-        reply, question, suggested = read(ask(rules["model"], settings.GEMINI_API_KEY, turns, brief))
-    except DrawError as problem:
-        if problem.free:
-            db.drop_chat_request(ticket)        # it certainly cost nothing: not counted
-        text = SAY["closed"] if problem.kind in OPERATORS else SAY.get(problem.kind, SAY["busy"])
-        if settings.PRODUCTION and not settings.on_this_machine():
-            return text                          # to customers, nothing internal
-        return f"{text} ({problem.kind}: {problem.detail})" if problem.detail else text
+    with a_turn(int(rules["at_once"])) as free:
+        if not free:
+            return SAY["full"]                   # not sent, so not counted: no ticket was taken
+        ticket, used_up = db.take_chat_ticket(time.time() - 24 * 3600, int(rules["per_day"]),
+                                              int(rules["per_customer_per_day"]) if settings.PRODUCTION else None)
+        if not ticket:
+            return SAY[used_up].format(n=int(rules["per_customer_per_day"]))
+        try:
+            reply, question, suggested = read(ask(rules["model"], settings.GEMINI_API_KEY, turns, brief))
+        except DrawError as problem:
+            if problem.free:
+                db.drop_chat_request(ticket)        # it certainly cost nothing: not counted
+            text = SAY["closed"] if problem.kind in OPERATORS else SAY.get(problem.kind, SAY["busy"])
+            if settings.PRODUCTION and not settings.on_this_machine():
+                return text                          # to customers, nothing internal
+            return f"{text} ({problem.kind}: {problem.detail})" if problem.detail else text
     turns = (turns + [{"who": IT, "text": reply}])[-int(rules["keep_turns"]):]
     # A suggestion that says nothing (he asked about something else) leaves the earlier suggestion standing.
     draft = suggested if style.active(suggested) else kept["draft"]

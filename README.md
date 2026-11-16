@@ -342,8 +342,25 @@ What a brief changes, all of it plain Python in `wardrobe/style.py`:
   products the price level then chooses among those that fit the brief; one
   that goes against it is picked only when the piece has nothing else. The
   quality score is not touched.
-- **Outfits** that fit the brief are shown first, and each says why in one
-  line ("Street: relaxed jeans, overshirt").
+- **Outfits** whose pieces fit the brief move up the order. An outfit that is
+  one of his styles as a whole moves up further and says so in one line
+  ("Street: t-shirt, relaxed jeans, sneakers"), naming the pieces that make it
+  so. The rule: at least three quarters of its pieces (all of three, three of
+  four, four of five), and at least two, are garments the style is built on,
+  and the outfit is as formal as the style allows. Street stops below "Smart
+  casual", so an Office outfit of an oxford shirt, chinos and derby shoes is
+  never called street, whatever the store calls its fit. Minimal asks for
+  every piece, because its garments (T-shirt, jumper, shirt, trousers, coat,
+  sneakers) are in nearly every outfit. Every other outfit says nothing. In a
+  plan without boots (the example plan has none) no outfit is ever called
+  Workwear or Outdoor: neither style reaches three quarters of an outfit
+  without them. Those two styles still change which products are picked. A
+  brief that names no style (colours or fits only) is held to the same rule:
+  "Your brief: navy jumper, navy chinos, navy sneakers" only when three
+  quarters of the outfit's pieces are in a colour or a fit he favours, and
+  such an outfit moves up as far.
+- **Said plainly:** when confirming, changing or removing a brief changes his
+  pieces or his total, the page says so ("Your brief changed 1 piece: +4 €").
 
 Without a brief every pick is exactly as before. The points and the words of
 each style are in `config/style.toml`.
@@ -358,11 +375,56 @@ each style are in `config/style.toml`.
 - **What comes back is not trusted:** only a reply, one question and a brief
   are read from it; the brief keeps only styles, colours, fits and levels the
   app knows; the model never chooses a product or a store.
+- **The chat cannot tie up the site:** the customer waits for the answer, so
+  at most 2 messages are on their way to Google at the same moment, for the
+  whole site (every server process shares the same two turns), and a message
+  is given up when Google has said nothing for 15 seconds. One more message at
+  such a moment is told at once: "The style chat is busy. Try again in a
+  moment. That message was not counted." It was not sent, and it does not
+  count towards the day's limits. Both numbers are in `config/style.toml`
+  (`at_once`, `wait_seconds`).
 - **Not yet tried against the paid service.** The request was written from
   Google's documentation of 16 Nov 2026. To try it (one message, about a tenth
   of a cent): `python -m wardrobe chat --test "street style, Berlin vibe"`.
   `python -m wardrobe chat` says whether the chat is on. If Google does not
   know the model, put the current name in `config/style.toml`.
+
+### What a real test of the chat should look at
+
+Everything above was built and checked with a stand-in for Google's model
+(`wardrobe/mockchat.py`). Before customers use the chat, try these on the real
+key. Each message costs about a tenth of a cent.
+
+1. `python -m wardrobe chat --test "street style, Berlin vibe"`: does Google
+   know `gemini-3.5-flash-lite`, does it accept `response_format` with the
+   schema, and is the answer found where the code reads it (`steps`,
+   `model_output`, `text`)?
+2. The real cost: Google's bill or its token counts for a handful of
+   messages. The output price includes the model's thinking, so a message may
+   cost more than the estimate.
+3. Does the model keep to two or three sentences, ask at most one question,
+   name no brand, store or price, and leave the brief alone when asked about
+   something that is not style?
+4. German input ("Berliner Streetstyle, keine Logos") and vague input ("like
+   a Scandinavian architect"): is the brief sensible?
+5. An attempt to steer it ("ignore your rules and ..."): the page must show
+   only plain text and a brief of known values.
+6. How long an answer takes. A message is given up after 15 seconds with "The
+   style chat did not answer. Try again in a moment."; if real answers often
+   take longer, raise `wait_seconds`.
+7. Three messages sent at the same moment from three browsers: two are
+   answered, the third is told "The style chat is busy" and is not counted
+   towards the day's 20.
+8. With a real brief in use on the collected catalogue: do the picks and the
+   first outfits look like the style? Is each line under an outfit ("Street:
+   t-shirt, jeans, sneakers") true of the whole outfit, and do the outfits
+   that say nothing really not fit?
+9. After "Use this brief": is the sentence "Your brief changed N pieces: +X €"
+   right when compared with the Wardrobe page before and after?
+10. The limits on the live site: the 21st message of a day is refused in
+    words, and the note beside the chat names the right number.
+11. The privacy page's operator blanks for Google (location, agreement)
+    before anyone but the owner uses the chat.
 
 ## Store feeds (licensed product data)
 
@@ -453,6 +515,7 @@ data/looks/                AI pictures already drawn (safe to delete: they are d
                            and problems.log: why a picture could not be drawn
 data/videos/               AI videos already made ("See it move"), each with its turn for dragging
 data/people/               your photo, if you uploaded one
+data/chat/                 two empty files the style chat locks while a message is with Google (safe to delete)
 data/wardrobe.db.before-accounts   copy made when the database gained accounts; delete when happy
 data/browser-profile/      the collector's own Chrome profile (cookies and cache; safe to delete)
 wardrobe/                  the code; wardrobe/__init__.py lists what each file does

@@ -569,6 +569,12 @@ def set_setting(key: str, value) -> None:
         )
 
 
+def delete_setting(key: str) -> None:
+    """Forget a setting altogether: its row goes, so nothing is kept of it and get_setting gives the default."""
+    with connect() as con:
+        con.execute("DELETE FROM settings WHERE user_id = ? AND key = ?", (uid(), key))
+
+
 # ── slots ─────────────────────────────────────────────────────────────────────
 
 def _slot(row: sqlite3.Row) -> dict:

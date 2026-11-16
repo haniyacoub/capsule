@@ -19,8 +19,10 @@ What a brief does, all of it in this file and in plain arithmetic:
 
     product_points   a product's points for a brief, from its store, name, fabric, fit and colour
     narrow           among a piece's products, those that fit the brief first (selection.py)
+    outfit_style     the one of his styles an outfit is as a whole, with the pieces that make it so, or none
+    in_his_colours_or_fits   the same for a brief without styles: the outfit is mostly in his colours or fits
     outfit_bonus     how far an outfit moves up or down the order (outfits.generate)
-    why              one line saying why an outfit fits: "Street: relaxed jeans, overshirt"
+    why              one line under an outfit that fits as a whole: "Street: t-shirt, relaxed jeans, sneakers"
     stores_that_suit the stores ranked by the style table in config/stores.toml
 
 Without a brief (`current()` is None) none of it runs, and every pick is as it was before.
@@ -47,7 +49,8 @@ MAX_NOT_WANTED = 8          # how many things he does not want are kept …
 MAX_WORD = 30               # … and how long each may be
 MAX_COLOURS = 8
 POINTS = ("style_word", "style_garment", "fit", "other_fit", "colour", "colour_avoid", "not_wanted", "store_style",
-          "store_price", "outfit_per_point", "outfit_most", "outfit_least", "formality")
+          "store_price", "outfit_per_point", "outfit_most", "outfit_least", "formality", "outfit_share",
+          "outfit_pieces", "outfit_style")
 
 
 # ── the rules (config/style.toml) ─────────────────────────────────────────────
@@ -69,12 +72,11 @@ def _check(data: dict) -> None:
         unknown = [g for g in entry["garments"] if g not in GARMENTS]
         if unknown:
             raise ConfigError(f"styles.{key}.garments names {unknown[0]!r}, which is not a garment type")
+        _two_levels(entry.get("levels"), f"styles.{key}.levels")
+        if "share" in entry and not 0 < config.number(entry["share"], f"styles.{key}.share") <= 1:
+            raise ConfigError(f"styles.{key}.share must be more than 0 and at most 1")
     for key, entry in config.table(data.get("formality"), "formality").items():
-        levels = config.table(entry, f"formality.{key}").get("levels")
-        if not isinstance(levels, list) or len(levels) != 2:
-            raise ConfigError(f"formality.{key}.levels must be two numbers, lowest and highest")
-        for level in levels:
-            config.number(level, f"formality.{key}.levels")
+        _two_levels(config.table(entry, f"formality.{key}").get("levels"), f"formality.{key}.levels")
     for key, entry in config.table(data.get("price"), "price").items():
         if not isinstance(config.table(entry, f"price.{key}").get("stores"), list):
             raise ConfigError(f"price.{key}.stores must be a list of words")
@@ -87,6 +89,16 @@ def _check(data: dict) -> None:
     for name in ("per_day", "per_customer_per_day", "max_message_chars", "keep_turns"):
         if config.number(chat.get(name), f"chat.{name}") < 0:
             raise ConfigError(f"chat.{name} cannot be negative")
+    for name in ("at_once", "wait_seconds"):
+        if config.number(chat.get(name), f"chat.{name}") < 1:
+            raise ConfigError(f"chat.{name} must be at least 1")
+
+
+def _two_levels(levels: object, where: str) -> None:
+    if not isinstance(levels, list) or len(levels) != 2:
+        raise ConfigError(f"{where} must be two numbers, lowest and highest")
+    for level in levels:
+        config.number(level, where)
 
 
 def load_rules() -> dict:
@@ -184,21 +196,31 @@ def current() -> dict | None:
 
 
 def save(brief: dict) -> None:
-    db.set_setting(SETTING, clean(brief))
+    """Keep the brief he confirmed. One that says nothing is no brief: nothing is kept of it."""
+    brief = clean(brief)
+    if active(brief):
+        db.set_setting(SETTING, brief)
+    else:
+        remove()
 
 
 def set_styles(keys: list[str]) -> bool:
     """The styles ticked under "What do you dress for?": they are the brief's styles. True if that changed them."""
-    brief = stored()
-    new = clean({**brief, "styles": keys})
-    if new == brief:
+    if not styles_differ(keys):
         return False
-    save(new)
+    save({**stored(), "styles": keys})
     return True
 
 
+def styles_differ(keys: list[str]) -> bool:
+    """Whether ticking exactly these styles would change the brief (whether set_styles has something to do)."""
+    brief = stored()
+    return clean({**brief, "styles": keys}) != brief
+
+
 def remove() -> None:
-    db.set_setting(SETTING, None)
+    """No brief any more: its row in the settings goes (nothing is left behind, not even an empty value)."""
+    db.delete_setting(SETTING)
 
 
 # ── the stores ────────────────────────────────────────────────────────────────
@@ -246,10 +268,34 @@ def _has(text: str, word: str) -> bool:
     return re.search(rf"(?<![a-zäöüß]){re.escape(word.lower())}", text) is not None
 
 
+# Judgements already made: (the rules and the stores' lines they were made with, {what was judged: the judgement}).
+# The Outfits page orders hundreds of combinations of the same twenty or so pieces, and judging a piece reads the
+# store's words against every word of his styles, so a piece is judged once and remembered. A change of
+# config/style.toml or config/stores.toml starts a new, empty memory (config.load then hands out a new object).
+_judged: tuple[dict, dict, dict] | None = None
+MOST_JUDGED = 20000         # judgements remembered at most; past that the memory starts again, empty
+
+
 def judge(product: dict, category: str, brief: dict) -> tuple[int, str | None, str]:
     """A product (or an outfit's piece) against a brief: (points, the first of his styles it fits or None, the fit
     that earned points or ""). `category` is its garment type. Something he owns has no store, name or fit, so
-    only its garment type counts."""
+    only its garment type counts. Worked out once for the same words, colour, fit, store and brief (_judge), and
+    remembered while the rules stay as they are."""
+    global _judged
+    rules, stores = load_rules(), config.load("stores.toml")
+    memory = _judged
+    if memory is None or memory[0] is not rules or memory[1] is not stores or len(memory[2]) >= MOST_JUDGED:
+        memory = _judged = (rules, stores, {})
+    key = (category, _text(product), str(product.get("fit") or ""), str(product.get("colour") or ""),
+           str(product.get("store") or ""), tuple(str(brief[name]) for name in EMPTY))
+    found = memory[2].get(key)
+    if found is None:
+        found = memory[2][key] = _judge(product, category, brief)
+    return found
+
+
+def _judge(product: dict, category: str, brief: dict) -> tuple[int, str | None, str]:
+    """The judgement itself (see judge), worked out from the rules."""
     rules = load_rules()
     points = rules["points"]
     text = _text(product)
@@ -305,9 +351,66 @@ def narrow(pool: list, category: str, brief: dict | None) -> list:
 
 # ── an outfit ─────────────────────────────────────────────────────────────────
 
+def outfit_style(pieces: list[dict], level: float, brief: dict | None) -> tuple[str, list[dict]] | None:
+    """The one of his styles an outfit is as a whole, with the pieces that make it so, or None when it is none of
+    them. `pieces` as outfits.snapshot gives them, `level` how formal the outfit is (1 very casual … 5 formal).
+
+    An outfit is a style when all of this holds (the numbers are in config/style.toml):
+      * at least three quarters of its pieces, and at least two, are garments the style is built on (jeans, a
+        T-shirt and sneakers for street): all of three pieces, three of four, four of five. Minimal asks for
+        every piece (its own `share`). The words a store uses do not count here: a shirt the store calls
+        "loose" is not street by that;
+      * a piece that goes against his brief (a colour he avoids, something he does not want) is not counted
+        among them;
+      * the outfit is as formal as the style allows. Street stops below "Smart casual", so an Office outfit of an
+        oxford shirt, chinos and derby shoes is never street.
+    Where two of his styles hold, the one with more such pieces wins, then the one listed first."""
+    if not brief or not brief["styles"] or not pieces:
+        return None
+    rules = load_rules()
+    points = rules["points"]
+    best: tuple[str, list[dict]] | None = None
+    for key in brief["styles"]:
+        style = rules["styles"][key]
+        low, high = style["levels"]
+        if not low <= level <= high:
+            continue
+        own = [piece for piece in pieces if piece.get("category") in style["garments"]
+               and judge(piece, piece["category"], brief)[0] >= 0]
+        share = style.get("share", points["outfit_share"])
+        if len(own) < points["outfit_pieces"] or len(own) < share * len(pieces):
+            continue
+        if best is None or len(own) > len(best[1]):
+            best = (key, own)
+    return best
+
+
+def in_his_colours_or_fits(pieces: list[dict], brief: dict | None) -> list[dict] | None:
+    """For a brief that names no style (colours or fits only): the pieces of an outfit that are in a colour or a
+    fit he favours and do not go against the brief otherwise, when they are enough of the outfit to say so of it
+    as a whole (the threshold of outfit_style: three quarters of its pieces, and at least two). Else None."""
+    if not brief or brief["styles"]:
+        return None
+    his = []
+    for piece in pieces:
+        category = piece.get("category", "")
+        if category not in GARMENTS:
+            continue
+        score, _, fit = judge(piece, category, brief)
+        colour = colours.find(piece.get("colour")) if piece.get("colour") else None
+        if score > 0 and (fit or (colour and colour in brief["colours_like"])):
+            his.append(piece)
+    points = load_rules()["points"]
+    if len(his) < points["outfit_pieces"] or len(his) < points["outfit_share"] * len(pieces):
+        return None
+    return his
+
+
 def outfit_bonus(pieces: list[dict], level: float, brief: dict | None) -> float:
-    """How far an outfit moves up (or down) the order for a brief: from its pieces' points and from whether it is
-    as formal as he asked. `pieces` as outfits.snapshot gives them. 0 without a brief."""
+    """How far an outfit moves up (or down) the order for a brief: from its pieces' points, from whether it is
+    as formal as he asked, and from whether it fits the brief as a whole (it is one of his styles, outfit_style,
+    or, for a brief without styles, mostly in his colours or fits): those are the outfits that say why.
+    `pieces` as outfits.snapshot gives them. 0 without a brief."""
     if not brief:
         return 0.0
     points = load_rules()["points"]
@@ -316,38 +419,40 @@ def outfit_bonus(pieces: list[dict], level: float, brief: dict | None) -> float:
     if brief["formality"]:
         low, high = load_rules()["formality"][brief["formality"]]["levels"]
         bonus += points["formality"] if low <= level <= high else -points["formality"]
+    if outfit_style(pieces, level, brief) or in_his_colours_or_fits(pieces, brief):
+        bonus += points["outfit_style"]
     return float(bonus)
 
 
-def why(pieces: list[dict], brief: dict | None) -> str:
-    """One line saying why an outfit fits the brief: "Street: relaxed jeans, overshirt", or "" when nothing in it
-    does. It names only what is true of the pieces: a garment the style is built on or whose store's words hold
-    one of the style's words, with its fit when that is one he favours and the store states it."""
+def _named(piece: dict, brief: dict, fit: str) -> str:
+    """A piece as the line names it: its garment ("jeans"), with its fit before it when that is one he favours and
+    the store states it ("relaxed jeans", `fit` from judge), or else its colour when that is one he favours
+    ("black jeans")."""
+    name = GARMENTS[piece["category"]].label.lower()
+    colour = colours.find(piece.get("colour")) if piece.get("colour") else None
+    if fit:
+        return f"{fit} {name}"
+    if colour and colour in brief["colours_like"]:
+        return f"{colours.get(colour).label.lower()} {name}"
+    return name
+
+
+def why(pieces: list[dict], level: float, brief: dict | None) -> str:
+    """One line saying why an outfit fits the brief, or "" when there is nothing true to say of it as a whole.
+
+    With styles in the brief: "Street: t-shirt, relaxed jeans, sneakers" only when the outfit is that style as a
+    whole (outfit_style), naming the pieces that make it so. With a brief that names no style (colours or fits
+    only): "Your brief: navy jumper, navy chinos, navy sneakers", under the same threshold
+    (in_his_colours_or_fits). Any other outfit says nothing, so the line tells the outfits apart."""
     if not brief:
         return ""
-    rules = load_rules()
-    by_style: dict[str, list[str]] = {}
-    for piece in pieces:
-        category = piece.get("category", "")
-        score, style, fit = judge(piece, category, brief)
-        if score <= 0 or category not in GARMENTS:
-            continue
-        name = GARMENTS[category].label.lower()
-        colour = colours.find(piece.get("colour")) if piece.get("colour") else None
-        if fit:
-            name = f"{fit} {name}"
-        elif colour and colour in brief["colours_like"]:
-            name = f"{colours.get(colour).label.lower()} {name}"
-        elif style is None:
-            continue                    # its points are its store's alone: nothing to say about the piece itself
-        by_style.setdefault(style or "", []).append(name)
-    if not by_style:
-        return ""
-    # The style most of the pieces fit leads; pieces that fit only by fit or colour are named after it.
-    lead = max(by_style, key=lambda key: (key != "", len(by_style[key])))
-    named = list(dict.fromkeys(by_style[lead] + [n for key, names in by_style.items() if key != lead for n in names]))
-    label = rules["styles"][lead]["label"] if lead else "Your brief"
-    return f"{label}: {', '.join(named[:3])}"
+    found = outfit_style(pieces, level, brief)
+    if found:
+        label, own = load_rules()["styles"][found[0]]["label"], found[1]
+    else:
+        label, own = "Your brief", in_his_colours_or_fits(pieces, brief) or []
+    names = [_named(piece, brief, judge(piece, piece["category"], brief)[2]) for piece in own]
+    return f"{label}: {', '.join(dict.fromkeys(names))}" if names else ""
 
 
 # ── in words, for the page ────────────────────────────────────────────────────

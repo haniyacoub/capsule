@@ -7,8 +7,9 @@
    so), and so is what became of it. #}
 {% set model_menu = looks_on or not production %}
 {% set photo_part = model_menu or has_photo or get_flashed_messages(category_filter=['photo']) %}
-{# "Describe your style" (the style chat, where a key for it is set) and the style brief, once there is one. #}
-{% set style_part = chat_on or brief_shown %}
+{# "Describe your style" (the style chat, where a key for it is set) and the style brief, once there is one; and
+   what the brief's own buttons just did, said there (also when "Remove brief" left nothing else to show). #}
+{% set style_part = chat_on or brief_shown or get_flashed_messages(category_filter=['style', 'style-bad']) %}
 <div class="cc-head">
   <h1>About you</h1>
   {% if profile.example %}

@@ -18,8 +18,9 @@
 #      holds one of a style's words below, when it is a garment the style is
 #      built on, when its fit or colour is one he favours; it loses points for
 #      a colour or a thing he does not want.
-#    * outfits: the ones whose pieces earn the most are offered first, and each
-#      says in one line why it fits.
+#    * outfits: the ones whose pieces earn the most move up the order. An outfit
+#      that is one of his styles as a whole moves up further and says so in one
+#      line ("Street: t-shirt, jeans, sneakers"); the others say nothing.
 #
 #  Without a brief none of this runs: every pick is as it was before.
 #  Edits here apply on the next page load.
@@ -39,6 +40,10 @@ per_day              = 500    # messages in 24 hours, everyone together: at most
 per_customer_per_day = 20     # … and each customer of a public service
 max_message_chars    = 300    # how long one message from a customer may be
 keep_turns           = 6      # how many earlier lines of the conversation are kept and sent along
+# So that the chat cannot tie up the site (the server answers only a few requests at a time):
+at_once              = 2      # messages on their way to Google at the same moment, for the whole site; one more
+                              # is told "busy, try again in a moment" at once and is not counted
+wait_seconds         = 15     # how long Google may say nothing to one message before "did not answer"
 
 # What each thing is worth. A product with more than 0 points "fits the brief",
 # one below 0 is "against it". Among a piece's products the price level then
@@ -60,11 +65,28 @@ outfit_per_point = 3
 outfit_most      = 45
 outfit_least     = -30
 formality        = 8
+# When an outfit "is" one of his styles as a whole: at least `outfit_share` of
+# its pieces (0.75, three quarters: all 3 of 3, 3 of 4, 4 of 5), and at least
+# `outfit_pieces` of them, are garments the style is built on, none of those
+# against his brief, and the outfit is as formal as the style's `levels` allow.
+# Only such an outfit says so ("Street: t-shirt, jeans, sneakers", naming those
+# pieces), and it moves `outfit_style` further up the order. Any other outfit
+# says nothing. (Two thirds was tried first: it called a T-shirt, chinos and
+# sneakers "Street" and a shirt, chinos and derby shoes "Tailored".) A style may
+# ask for more with a `share` line of its own, as Minimal does below. A brief
+# that names no style is held to the same share: an outfit says "Your brief:
+# navy jumper, navy chinos, navy sneakers" only when that many of its pieces
+# are in a colour or a fit he favours, and it moves up as far.
+outfit_share  = 0.75
+outfit_pieces = 2
+outfit_style  = 20
 
 # How formal he wants to look: the range of an outfit's level (1 very casual … 5 formal).
+# The middle one is not called "Smart casual": that is the name of a style below,
+# and the two stand side by side in the brief.
 [formality]
 casual = { label = "Casual", levels = [1.0, 2.5] }
-smart  = { label = "Smart casual", levels = [2.5, 3.5] }
+smart  = { label = "In between", levels = [2.5, 3.5] }
 formal = { label = "Formal", levels = [3.5, 5.0] }
 
 # His price feeling, and the words of a store's `price` line that match it.
@@ -79,38 +101,57 @@ high = { label = "Higher prices", stores = ["premium", "luxury"] }
 # outdoor), plus "minimal" for COS, and each can be dressed from the garments
 # Stilsmith plans (no sportswear, no suits as a set: Stilsmith has neither).
 #   words:    looked for in a product's name, fabric and fit, in lower case; the
-#             stores write German, so both languages are listed
+#             stores write German, so both languages are listed. They earn a
+#             product points; they never make an outfit "Street" by themselves
+#             (a loose shirt is not street)
 #   garments: the garment types (wardrobe/garments.py) the style is built on
+#   levels:   how formal an outfit can be and still be called this style, lowest
+#             and highest (an outfit's level: under 3 it is titled "Everyday",
+#             at 3 "Smart casual", over 3 "Office"). Street stops at 2.5, so an
+#             Office outfit is never called Street, and Tailored starts at 3.5.
+#   share:    only where a style asks for more than `outfit_share` above: the
+#             share of an outfit's pieces that must be the style's garments
+#             before the outfit is called by its name
 [styles.smart-casual]
 label    = "Smart casual"
+levels   = [2.5, 3.5]
 words    = ["merino", "oxford", "polo", "chino", "strick", "knit", "loafer", "cardigan"]
 garments = ["shirt", "polo", "knit", "cardigan", "chinos", "blazer", "boots"]
 
 [styles.street]
 label    = "Street"
+levels   = [1.0, 2.5]
 words    = ["relaxed", "oversized", "baggy", "loose", "wide", "weit", "locker", "lässig", "boxy", "cargo",
             "denim", "bomber", "hoodie", "workwear", "heavyweight", "schwer"]
 garments = ["jeans", "overshirt", "tee", "longsleeve", "sneakers", "jacket"]
 
+# Minimal is plain pieces and nothing else, so every piece must be one of its
+# garments (share 1.0): its list is so common that at three quarters nearly
+# every outfit would be called minimal, and the word would tell him nothing.
 [styles.minimal]
 label    = "Minimal"
+levels   = [1.0, 5.0]
+share    = 1.0
 words    = ["clean", "plain", "schlicht", "minimal", "basic", "standard", "merino", "poplin", "popeline", "jersey"]
 garments = ["tee", "knit", "trousers", "coat", "sneakers", "shirt"]
 
 [styles.tailored]
 label    = "Tailored"
+levels   = [3.5, 5.0]
 words    = ["tailored", "anzug", "bundfalte", "pleat", "sakko", "blazer", "wolle", "wool", "slim", "schmal",
             "derby", "formell"]
 garments = ["blazer", "trousers", "shirt", "coat", "shoes"]
 
 [styles.workwear]
 label    = "Workwear"
+levels   = [1.0, 2.5]
 words    = ["workwear", "canvas", "twill", "cord", "corduroy", "flanell", "flannel", "heavy", "schwer",
             "chore", "arbeits", "denim", "raw"]
 garments = ["overshirt", "jeans", "chinos", "boots", "jacket"]
 
 [styles.outdoor]
 label    = "Outdoor"
+levels   = [1.0, 2.5]
 words    = ["fleece", "parka", "wattiert", "gesteppt", "padded", "wasserabweisend", "water-repellent",
             "windjacke", "windbreaker", "technical", "funktions", "kapuze", "hooded", "ripstop"]
 garments = ["jacket", "coat", "boots", "knit"]

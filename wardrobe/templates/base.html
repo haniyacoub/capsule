@@ -55,11 +55,12 @@
     <p class="demo"><b>Demo data</b> — invented items, not real products, prices or stock.</p>
     {% endif %}
     {% endblock %}
-    {# Messages about the model and the photo are shown where the Profile page lands (profile.html), what adding
+    {# Messages about the model and the photo are shown where the Profile page lands (profile.html), and so are
+       those about the style brief and the style chat (kinds "style" and "style-bad", _style_chat.html); what adding
        products by link came to inside that section of a piece's page (_slot_body.html), and what adding or saving a
        piece of the plan came to inside that piece (kind "plan:<its id>", slots.html). The line said after a change
        made from the model (kind "said") has its own look above the outfit. #}
-    {% for kind, message in get_flashed_messages(with_categories=true) if kind not in ('model', 'photo', 'import') and not kind.startswith('plan:') %}
+    {% for kind, message in get_flashed_messages(with_categories=true) if kind not in ('model', 'photo', 'import', 'style', 'style-bad') and not kind.startswith('plan:') %}
     <p class="flash{{ ' said' if kind == 'said' }}" role="status">{{ message }}</p>
     {% endfor %}
     {% block main %}{% endblock %}
