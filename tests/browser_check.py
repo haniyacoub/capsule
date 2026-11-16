@@ -4759,9 +4759,13 @@ def run(base: str) -> None:
             # as a whole says so in one line, and the others say nothing: no outfit titled Smart casual or Office is
             # called street. What "Use this brief", "Start again" and "Remove brief" did is said where the page comes
             # back to, on the screen without scrolling (a phone, a computer, and with JavaScript off), with what it did
-            # to his pieces and his total. After a message the keyboard is still in the message field and a screen
-            # reader hears the answer. What he typed is shown as text, never as markup. On a phone and a computer
-            # nothing is wider than the screen. A customer of his own, deleted when the step ends.
+            # to his pieces and his total. While a message is on its way the page says "Sending…"; after it the
+            # keyboard is still in the message field, a screen reader hears the answer, and on a phone the answer, its
+            # question and the field are on the screen together. A message that gets no answer back says so and
+            # keeps his words. "No leather" leaves the leather shoes, says that they still go against the brief, and
+            # no outfit with them says it fits. On a phone the line under an outfit's name is above the tab bar. What
+            # he typed is shown as text, never as markup. On a phone and a computer nothing is wider than the screen.
+            # A customer of his own, deleted when the step ends.
             who = "style-" + EMAIL
             whys = "() => [...document.querySelectorAll('[data-why]')].map(p => p.textContent.trim())"
             # Each outfit on the page: its title (Everyday, Smart casual, Office) and the line under it, if it has one.
@@ -4870,7 +4874,30 @@ def run(base: str) -> None:
                     f"beside the chat it does not say what is sent: {note!r}"
                 phone.fill("#style-chat textarea", "street style, Berlin vibe <b>bold</b>")
                 phone.evaluate("() => { document.getElementById('announce').dataset.before = 'the answer'; }")
+                # While the message is on its way (held back here; with Google it can be many seconds) the page says
+                # so: the button reads "Sending…" and is off, a line under the field says the answer can take a few
+                # seconds, and a screen reader hears it.
+                held: list = []
+                phone.route("**/profile/style/say", lambda route: held.append(route))
                 phone.locator("#style-chat .chat-say button").tap()
+                try:
+                    phone.wait_for_function("() => document.querySelector('#style-chat .chat-say button').textContent.trim() === 'Sending…'",
+                                            timeout=5000)
+                except Exception:
+                    raise AssertionError("while a message is on its way the Send button does not say so") from None
+                sending = phone.evaluate("""() => {
+                    const form = document.querySelector('#style-chat .chat-say'), wait = form.querySelector('[data-chat-wait]');
+                    const box = wait ? wait.getBoundingClientRect() : {height: 0, top: 0, bottom: 0};
+                    return {off: form.querySelector('button').disabled, line: wait ? wait.textContent.trim() : '',
+                            shown: !!wait && !wait.hidden && box.height > 0, heard: document.getElementById('announce').textContent.trim(),
+                            kept: form.querySelector('textarea').value}; }""")
+                assert sending["off"], "Send can be pressed a second time while the first message is on its way"
+                assert sending["shown"] and sending["line"] == "Sending your message. The answer can take a few seconds.", \
+                    f"while a message is on its way the page does not say so under the field: {sending}"
+                assert sending["heard"] == sending["line"], f"a screen reader does not hear that the message is on its way: {sending}"
+                assert len(held) == 1, f"{len(held)} requests were sent for one message"
+                held[0].continue_()
+                phone.unroute("**/profile/style/say")
                 phone.wait_for_selector("[data-brief=suggested]")
                 lines = phone.locator(".chat-lines li").all_inner_texts()
                 assert len(lines) == 2 and "street style, Berlin vibe <b>bold</b>" in lines[0], f"the conversation: {lines}"
@@ -4883,6 +4910,22 @@ def run(base: str) -> None:
                     f"a screen reader does not hear the new answer; the live region says {heard_it!r}"
                 assert phone.evaluate("() => document.activeElement === document.querySelector('#style-chat .chat-say textarea')"), \
                     "after a message the keyboard is no longer in the message field"
+                # On the phone the answer from its first line, the question it asks back, the field that holds the
+                # keyboard and Send are on the screen together: nothing of them under the Save bar, the tab bar or
+                # the figure and tabs that stay at the top.
+                on_screen = phone.evaluate("""() => {
+                    const shows = el => { const r = el.getBoundingClientRect();
+                        return r.height > 0 && [[r.left + 4, r.top + 4], [r.right - 4, r.bottom - 4]].every(([x, y]) => {
+                            const at = document.elementFromPoint(x, y); return !!at && el.contains(at); }); };
+                    const chat = document.getElementById('style-chat'), box = el => { const r = el.getBoundingClientRect(); return [Math.round(r.top), Math.round(r.bottom)]; };
+                    const parts = {answer: chat.querySelector('[data-chat-new]'), question: chat.querySelector('.chat-q'),
+                                   field: chat.querySelector('.chat-say textarea'), send: chat.querySelector('.chat-say button')};
+                    const save = document.querySelector('.cc-save'), tabs = document.querySelector('.cc-tabs');
+                    return {hidden: Object.keys(parts).filter(name => !shows(parts[name])),
+                            at: Object.fromEntries(Object.entries(parts).map(([name, el]) => [name, box(el)])),
+                            save_bar: save ? box(save) : null, tabs: tabs ? box(tabs) : null, screen: innerHeight}; }""")
+                assert not on_screen["hidden"], \
+                    f"after the answer on a phone, not on the screen: {on_screen['hidden']} (where things are: {on_screen})"
                 assert "Not in use yet." in phone.locator("[data-brief]").inner_text(), "the suggestion does not say it is not in use"
                 assert phone.locator("[data-brief] input[name=fits]:checked").evaluate_all("bs => bs.map(b => b.value)") == ["relaxed"]
                 assert phone.input_value("[data-brief] input[name=colours_like]") == "black, charcoal"
@@ -4921,6 +4964,15 @@ def run(base: str) -> None:
                 assert shown[0]["why"], f"with the brief in use the first outfit is not a street one: {shown[:3]}"
                 assert all(board["title"] == "Everyday" for board in shown if board["why"]), f"street is said of a formal outfit: {shown}"
                 assert any("relaxed" in line for line in now), f"no outfit names a relaxed piece: {now}"
+                # The line of the first outfit is on the phone's first screen, above the tab bar, not behind it. (The
+                # "Demo data" notice over this page is not on the live site. The picture gives up room for it, so it is
+                # taken away here: without it the picture is as large as it gets, and the line stood behind the bar.)
+                phone.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                line = phone.evaluate("""() => { const r = document.querySelector('#reel [data-slide] [data-why]').getBoundingClientRect();
+                    return {top: Math.round(r.top), bottom: Math.round(r.bottom), scrolled: Math.round(scrollY),
+                            bar: Math.round(document.querySelector('nav.tabs').getBoundingClientRect().top)}; }""")
+                assert line["scrolled"] == 0 and line["top"] >= 0 and line["bottom"] <= line["bar"], \
+                    f"on a phone the line under the outfit's name is not above the tab bar on the first screen: {line}"
                 assert phone.evaluate("document.documentElement.scrollWidth") <= 391, "the outfits are wider than a phone"
             finally:
                 context.close()
@@ -4934,6 +4986,21 @@ def run(base: str) -> None:
                 wide.goto(base + "/profile#style", wait_until="networkidle")
                 assert wide.evaluate("document.documentElement.scrollWidth") <= 1281, "Profile with the chat is wider than the screen"
                 assert wide.locator(".chat-lines li").count() == 2, "the conversation is gone on another device"
+                # A message that gets no answer back (the connection is cut here): said under the field, read out,
+                # his words still in the field and Send ready again.
+                wide.route("**/profile/style/say", lambda route: route.abort())
+                wide.fill("#style-chat .chat-say textarea", "no leather at all")
+                wide.locator("#style-chat .chat-say button").click()
+                expect(wide.locator("#style-chat [data-chat-wait]")).to_have_text(
+                    "No answer came back. Check your connection and send it again.")
+                expect(wide.locator("#style-chat [data-chat-wait]")).to_be_visible()
+                expect(wide.locator("#style-chat .chat-say button")).to_have_text("Send")
+                expect(wide.locator("#style-chat .chat-say button")).to_be_enabled()
+                assert wide.input_value("#style-chat .chat-say textarea") == "no leather at all", "his words are gone"
+                assert "No answer came back." in (wide.locator("#announce").text_content() or ""), "it is not read out"
+                assert wide.locator(".chat-lines li").count() == 2, "a message that was not sent stands in the conversation"
+                wide.unroute("**/profile/style/say")
+                wide.fill("#style-chat .chat-say textarea", "")
                 wide.locator("#style-chat .chat-say textarea").focus()
                 wide.keyboard.type("no leather")
                 wide.keyboard.press("Tab")
@@ -4946,6 +5013,25 @@ def run(base: str) -> None:
                 heard_it = wide.locator("#announce").text_content() or ""
                 assert "I understood no leather" in heard_it, f"the second answer is not read out: {heard_it!r}"
                 wide.fill("#style-chat .chat-say textarea", "")
+                # He confirms "no leather". Every pair of shoes and sneakers the example plan can take is leather, so
+                # they stay, and the page says that they still go against the brief. No outfit with them is said to fit
+                # it, and every outfit has shoes: no line at all, where the same brief without the wish had lines.
+                assert wide.input_value("[data-brief=suggested] input[name=not_wanted]") == "logo, leather", "the suggestion"
+                before = bought(wide)
+                with wide.expect_navigation(wait_until="networkidle"):
+                    wide.click("button:has-text('Use this brief')")
+                after = bought(wide)
+                sentence = said_on_screen(wide, "Style brief saved.", "/outfits", "Use this brief with no leather")
+                shoes = {piece: product for piece, (product, _, _) in after.items() if "sneakers" in piece or "shoes" in piece}
+                assert len(shoes) == 2 and all(before[piece][0] == product for piece, product in shoes.items()), \
+                    f"no leather changed the shoes to other shoes: {[(before[piece][0], product) for piece, product in shoes.items()]}"
+                expected = (f"Style brief saved. {change(before, after, 'Your brief', 'It changed none of your pieces.')} "
+                            "2 pieces still go against it: White leather sneakers, Dark brown derby shoes. See your outfits")
+                assert sentence == expected, f"after Use this brief with no leather the page says {sentence!r}, not {expected!r}"
+                wide.goto(base + "/outfits", wait_until="networkidle")
+                lines = wide.evaluate(whys)
+                assert lines == [], f"he wants no leather, and outfits with leather shoes say they fit his brief: {lines}"
+                wide.goto(base + "/profile#style", wait_until="networkidle")
                 with wide.expect_navigation(wait_until="networkidle"):
                     wide.click("button:has-text('Start again')")
                 sentence = said_on_screen(wide, "The conversation is deleted.", "", "Start again on a computer")

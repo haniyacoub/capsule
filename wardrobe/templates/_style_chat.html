@@ -11,8 +11,12 @@
    page comes back to the top of this part (#style), so the sentence is on the screen without scrolling, on a phone
    too. A message that could not be sent without JavaScript is said there as well (kind "style-bad").
 
-   After a message sent with HTMX, app.js (13d) keeps the keyboard in the message field and has the new answer, or
-   what went wrong, read out by the page's one live region (#announce, base.html): `data-chat-new` marks it. #}
+   While a message is on its way (HTMX), app.js (13d) says so: the button reads "Sending…", the line under the field
+   (data-chat-wait) is shown, and the live region reads it out. After it, app.js keeps the keyboard in the message
+   field, brings the answer and the field onto the screen together where they fit (the field stands right under the
+   conversation for that, with Send beside it), and has the new answer, or what went wrong, read out by the page's
+   one live region (#announce, base.html): `data-chat-new` marks it. Without JavaScript the browser loads the page
+   again, and a message that was not sent is back in the field (`chat_kept`). #}
 <div class="style-chat" id="style-chat">
   {% for kind, message in get_flashed_messages(with_categories=true, category_filter=['style', 'style-bad']) %}
   <p class="flash{{ ' bad' if kind == 'style-bad' }}" role="status" data-style-said>{{ message }}</p>
@@ -26,7 +30,6 @@
     <li class="{{ 'me' if turn.who == 'you' else 'it' }}"{% if loop.last and turn.who != 'you' %} data-chat-new{% endif %}><span class="sr">{{ 'You' if turn.who == 'you' else 'Style assistant' }}: </span>{{ turn.text }}{% if loop.last and turn.who != 'you' and chat.question %} <b class="chat-q">{{ chat.question }}</b>{% endif %}</li>
     {% endfor %}
   </ol>
-  <p class="muted small chat-ai">The answers are written by AI and can be wrong. Only the brief below changes your picks.</p>
   {% endif %}
   {# What went wrong with the message just sent; his words are back in the field, to send again. #}
   {% if chat_said %}<p class="flash bad" data-chat-said>{{ chat_said }}</p>{% endif %}
@@ -34,7 +37,9 @@
     <label class="field"><span>{{ 'Your answer, or something else to change' if chat.turns else 'How do you want to dress?' }}</span>
       <textarea name="message" rows="2" maxlength="{{ chat_max }}" required>{{ chat_kept }}</textarea></label>
     <button class="btn small">Send</button>
+    <p class="muted small chat-wait" data-chat-wait hidden>Sending your message. The answer can take a few seconds.</p>
   </form>
+  {% if chat.turns %}<p class="muted small chat-ai">The answers are written by AI and can be wrong. Only the brief below changes your picks.</p>{% endif %}
   {# What leaves this site, said beside the chat (stylechat.sent_text). #}
   <p class="muted small" data-chat-sent>What you write here goes to Google, whose AI model writes the answer, together with the last lines of this conversation and your style brief. Your name, email address, sizes, budget and photo are not sent. Up to {{ chat_allowance }} messages a day. <a href="{{ url_for('legal_page', name='privacy') }}">Privacy policy</a></p>
   {% else %}

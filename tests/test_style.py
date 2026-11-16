@@ -124,8 +124,8 @@ class TheBrief(AppCase):
         jeans = {"name": "Relaxed Jeans aus Denim", "fit": "relaxed", "colour": "Schwarz", "store": "weekday",
                  "composition_text": "100 % Baumwolle"}
         points = style.load_rules()["points"]
-        total, fits_style, fit = style.judge(jeans, "jeans", STREET)
-        self.assertEqual((fits_style, fit), ("street", "relaxed"))
+        total, fits_style, fit, against, garment_of, _ = style.judge(jeans, "jeans", STREET)
+        self.assertEqual((fits_style, fit, against, garment_of), ("street", "relaxed", False, ("street",)))
         self.assertEqual(total, points["style_word"] + points["style_garment"] + points["fit"] + points["colour"]
                          + points["store_style"], "a street word, a street garment, his fit, his colour, a street store")
         slim = {**jeans, "name": "Slim Jeans", "fit": "slim", "colour": "Beige", "store": "cos"}
@@ -139,7 +139,8 @@ class TheBrief(AppCase):
                          0, "a word is looked for at the start of a word: 'katalog' is not a logo")
         self.assertEqual(style.product_points({}, "tee", style.clean({})), 0, "an empty brief gives nothing")
         # Something he owns has no store, name or fit: only its garment type counts.
-        self.assertEqual(style.judge({"owned": True}, "jeans", STREET), (points["style_garment"], "street", ""))
+        self.assertEqual(style.judge({"owned": True}, "jeans", STREET),
+                         (points["style_garment"], "street", "", False, ("street",), False))
 
     def test_the_products_that_fit_come_first_and_one_against_the_brief_only_when_nothing_else(self):
         class Cand:
@@ -180,7 +181,7 @@ class TheBrief(AppCase):
         street = {**style.EMPTY, "styles": ["street"]}
         overshirt, tee, sneakers = piece("overshirt", "Overshirt aus Twill", colour="Schwarz"), piece("tee"), piece("sneakers")
         jeans = piece("jeans", "Relaxed Jeans", fit="relaxed", colour="Blau")
-        coat, jacket, knit, shirt = piece("coat"), piece("jacket"), piece("knit"), piece("shirt")
+        coat, jacket, knit, shirt = piece("coat"), piece("jacket", "Bomberjacke"), piece("knit"), piece("shirt")
         chinos = piece("chinos")
         # Every piece is a garment street is built on, in an everyday outfit: it says so and names them.
         self.assertEqual(style.why([overshirt, tee, jeans, sneakers], 2.0, street),
@@ -205,14 +206,191 @@ class TheBrief(AppCase):
         self.assertEqual(style.why([tee], 2.0, street), "", "one piece is not a style")
         self.assertEqual(style.why([], 2.0, street), "")
         self.assertEqual(style.why([tee, jeans, sneakers], 2.0, None), "", "no brief: nothing")
-        # A piece that goes against his brief (a colour he avoids) is not one that makes the outfit his style.
+        # An outfit with a piece that goes against his brief (a colour he avoids) does not fit the brief as a whole:
+        # it says nothing, however street its other pieces are.
         mustard = {**street, "colours_avoid": ["mustard"]}
         yellow_tee = piece("tee", colour="Senfgelb")
-        self.assertEqual(style.why([overshirt, yellow_tee, jeans, sneakers], 2.0, mustard), "Street: overshirt, jeans, sneakers")
-        self.assertEqual(style.why([yellow_tee, jeans, sneakers], 2.0, mustard), "", "without it, 2 of 3 are left")
+        self.assertEqual(style.why([overshirt, yellow_tee, jeans, sneakers], 2.0, mustard), "")
+        self.assertEqual(style.why([yellow_tee, jeans, sneakers], 2.0, mustard), "")
         self.assertEqual(style.why([piece("tee"), jeans, sneakers], 2.0, mustard), "Street: t-shirt, jeans, sneakers")
         self.assertIsNone(style.outfit_style([yellow_tee, jeans, sneakers], 2.0, mustard))
         self.assertEqual(style.outfit_style([tee, jeans, sneakers], 2.0, street), ("street", [tee, jeans, sneakers]))
+
+    def test_a_piece_the_brief_speaks_against_is_never_counted_or_named_whatever_else_it_earns(self):
+        # The case that went wrong: he says "tailored, no leather". The shoes are a tailored garment, their name holds
+        # a tailored word ("schmal") and their store is a tailored one, so they earn more points than "leather"
+        # takes away. They are leather all the same: the outfit is not said to fit his brief.
+        brief = style.clean({"styles": ["tailored"], "not_wanted": ["leather"]})
+        shirt = piece("shirt", "Hemd aus Popeline", store="cos")
+        trousers = piece("trousers", "Hose aus Wolle", store="cos")
+        loafers = piece("shoes", "Schmale Loafers aus Leder", colour="Braun", store="cos")
+        found = style.judge(loafers, "shoes", brief)
+        self.assertEqual(found.points, 0, "by its points alone (0 or more) the pair was counted, and named")
+        self.assertTrue(found.against)
+        self.assertTrue(style.against(loafers, "shoes", brief))
+        self.assertFalse(style.against(shirt, "shirt", brief))
+        self.assertFalse(style.against(loafers, "shoes", None), "no brief speaks against nothing")
+        self.assertEqual(style.why([shirt, trousers, loafers], 4.0, brief), "")
+        self.assertIsNone(style.outfit_style([shirt, trousers, loafers], 4.0, brief))
+        self.assertEqual(style.why([shirt, trousers, loafers], 4.0, {**brief, "not_wanted": []}),
+                         "Tailored: shirt, trousers, leather shoes", "without the wish it is tailored, and says so")
+        # With enough other tailored pieces the outfit would pass the threshold without the shoes. It still says
+        # nothing: an outfit with leather shoes in it does not fit "no leather" as a whole, and is not moved up
+        # as one that does.
+        four = [piece("coat", store="cos"), piece("blazer", store="cos"), trousers, loafers]
+        self.assertEqual(style.why(four, 4.0, brief), "")
+        points = style.load_rules()["points"]
+        with mock.patch.object(style, "_each_judged", lambda pieces, b: [style.judge(p, p["category"], b) for p in pieces]):
+            counted = style.outfit_bonus(four, 4.0, brief)      # as if the leather did not matter
+        self.assertEqual(counted - style.outfit_bonus(four, 4.0, brief), points["outfit_style"],
+                         "the outfit is not moved up as one that fits the brief as a whole")
+        # What the garment itself is called counts as well: every pair of "Leather shoes" is leather, whatever the
+        # store's words are, and "no blazers" speaks against every blazer.
+        plain = piece("shoes", "Derby Schnürschuh", store="cos")
+        self.assertTrue(style.against(plain, "shoes", brief), "the piece is called Leather shoes on the page")
+        self.assertEqual(style.why([shirt, trousers, plain], 4.0, brief), "")
+        self.assertFalse(style.against(piece("sneakers", "Turnschuhe aus Canvas"), "sneakers", brief))
+        self.assertTrue(style.against(piece("sneakers", "Turnschuhe"), "sneakers", {**brief, "not_wanted": ["sneaker"]}))
+        no_blazers = style.clean({"styles": ["tailored"], "not_wanted": ["blazers"]})
+        sakko = piece("blazer", "Sakko aus Wolle", store="cos")
+        self.assertTrue(style.against(sakko, "blazer", no_blazers))
+        self.assertEqual(style.why([sakko, shirt, trousers, plain], 4.0, no_blazers), "")
+        self.assertTrue(style.against(piece("shirt", "Hemd"), "shirt", style.clean({"not_wanted": ["shirts"]})))
+        self.assertFalse(style._is_called("tee", "shirt"), "a T-shirt is not called a shirt")
+        self.assertFalse(style.against(piece("knit", "Pullover"), "knit", style.clean({"not_wanted": ["shirts"]})))
+        # A colour he avoids, on a piece that earns points otherwise: the checker's second case.
+        smart = style.clean({"styles": ["smart-casual"], "colours_avoid": ["navy"]})
+        navy_jumper = piece("knit", "Pullover aus Merinowolle", colour="Navy", store="cos")
+        self.assertGreater(style.judge(navy_jumper, "knit", smart).points, 0)
+        self.assertTrue(style.against(navy_jumper, "knit", smart))
+        outfit = [piece("blazer", store="cos"), navy_jumper, piece("shirt", store="cos"), piece("chinos"), piece("sneakers")]
+        self.assertEqual(level_of(outfit), 3.0)
+        self.assertEqual(style.why(outfit, 3.0, smart), "")
+        grey = {**navy_jumper, "colour": "Grau"}
+        self.assertEqual(style.why([outfit[0], grey, *outfit[2:]], 3.0, smart), "Smart casual: blazer, jumper, shirt, chinos")
+        # A brief without a style is held to the same: one piece against it, and nothing is said.
+        relaxed = style.clean({"fits": ["relaxed"], "colours_avoid": ["navy"]})
+        easy = [piece("overshirt", fit="relaxed"), piece("tee", fit="relaxed"), piece("jeans", fit="relaxed")]
+        self.assertEqual(style.why(easy, 2.0, relaxed), "Your brief: relaxed overshirt, relaxed t-shirt, relaxed jeans")
+        self.assertEqual(style.why([*easy, piece("sneakers", colour="Navy")], 2.0, relaxed), "")
+
+    def test_leather_and_other_words_are_found_inside_the_stores_words(self):
+        # The stores write "Veloursleder" and "Kuhleder" as one word. A word with a star before it in config/style.toml
+        # is looked for anywhere; one without, at the start of a word ("woll" is not in "Baumwolle", cotton).
+        self.assertTrue(style._has("penny loafers aus veloursleder", "*leder"))
+        self.assertFalse(style._has("penny loafers aus veloursleder", "leder"))
+        self.assertTrue(style._has("hose aus wollmischung", "woll"))
+        self.assertFalse(style._has("hemd aus baumwolle", "woll"))
+        leather = style.load_rules()["not_wanted"]["leather"]
+        self.assertIn("*leder", leather)
+        no_leather = style.clean({"not_wanted": ["leather"]})
+        for name, fabric in (("Penny Loafers aus Veloursleder", ""), ("Loafers aus Spalt-Veloursleder", ""),
+                             ("Sneaker im Retro-Stil", "Schnitt: 100% kuhleder; Futter: 100% polyester"),
+                             ("Leder-Turnie", ""), ("Suede Loafers", ""), ("Leather Trainers", "")):
+            self.assertTrue(style.against({"name": name, "composition_text": fabric}, "sneakers", no_leather), name)
+        self.assertFalse(style.against({"name": "Turnschuhe aus Canvas", "composition_text": "100% Baumwolle"},
+                                       "sneakers", no_leather))
+        no_wool = style.clean({"not_wanted": ["wool"]})
+        self.assertFalse(style.against({"name": "Oxford-Hemd aus Baumwolle"}, "shirt", no_wool), "cotton is not wool")
+        for name in ("Jacke aus Schurwolle", "Pullover aus Merinowolle", "Mantel aus Woll-Mix", "Lambswool Jumper"):
+            self.assertTrue(style.against({"name": name}, "knit", no_wool), name)
+        self.assertTrue(style.against({"name": "T-Shirt mit Brustlogo"}, "tee", style.clean({"not_wanted": ["logos"]})))
+        self.assertFalse(style.against({"name": "Katalog Hemd"}, "shirt", style.clean({"not_wanted": ["logo"]})))
+        # "No leather" never changes a piece to another leather product, as it did when "Veloursleder" was not seen
+        # as leather (149 € loafers became 169 € ones, and the page said "+20 €"). Where every product is leather
+        # the brief leaves the choice as it is without one; where one is not, that one is taken.
+
+        class Cand:
+            def __init__(self, **data):
+                self.data = data
+
+        penny = Cand(name="Penny Loafers aus Veloursleder", store="cos", price=149.0)
+        split = Cand(name="Loafers aus Spalt-Veloursleder", slug="split-suede-loafers-brown", store="cos", price=169.0)
+        derby = Cand(name="Schmale Derby-Loafers aus Leder", store="cos", price=179.0)
+        canvas = Cand(name="Schnürschuh aus Canvas", store="cos", price=99.0)
+        tailored = style.clean({"styles": ["smart-casual", "tailored"], "not_wanted": ["leather"]})
+        pool = [penny, split, derby]
+        self.assertTrue(all(style.against(c.data, "shoes", no_leather) for c in pool))
+        self.assertEqual(style.narrow(pool, "sneakers", no_leather), pool, "all of them: the pick is as without a brief")
+        self.assertEqual(style.narrow(pool, "sneakers", tailored), pool)
+        self.assertGreater(style.product_points(derby.data, "sneakers", tailored), 0,
+                           "a leather pair that earns points for a tailored word and store is still not preferred")
+        self.assertEqual(style.narrow([penny, canvas, derby], "sneakers", tailored), [canvas])
+        self.assertEqual(style.narrow([penny, canvas, derby], "sneakers", no_leather), [canvas])
+        # Among "Leather shoes" every pair goes against "no leather" by the garment's name; a pair that is not
+        # leather by the store's words is still the one taken.
+        vegan = Cand(name="Derby-Schuhe", composition_text="100 % Polyurethan", store="cos", price=90.0)
+        self.assertTrue(style.against(vegan.data, "shoes", no_leather))
+        self.assertFalse(style.judge(vegan.data, "shoes", no_leather).unwanted)
+        self.assertEqual(style.narrow([penny, vegan, derby], "shoes", no_leather), [vegan])
+        self.assertEqual(style.narrow([penny, derby], "shoes", no_leather), [penny, derby])
+        # A product the brief does not speak against, even one it gives no points or takes one from, comes before
+        # one it speaks against.
+        other_fit = style.clean({"fits": ["relaxed"], "not_wanted": ["leather"]})
+        slim = Cand(name="Schnürschuh aus Canvas", fit="slim")
+        self.assertLess(style.product_points(slim.data, "sneakers", other_fit), 0)
+        self.assertEqual(style.narrow([penny, slim], "sneakers", other_fit), [slim])
+
+    def test_a_jacket_counts_for_a_style_only_when_the_store_says_it_is_that_kind(self):
+        # "Jacket" is too many things: under Street the page said "Street: navy jacket, relaxed jeans, sneakers" of a
+        # boiled-wool jacket with a shawl collar over an oxford shirt.
+        street = style.clean({"styles": ["street"]})
+        self.assertNotIn("jacket", style.load_rules()["styles"]["street"]["garments"])
+        wool = piece("jacket", "Jacke aus Gekochter Wolle mit Schalkragen", store="cos")
+        bomber = piece("jacket", "Lässige Bomberjacke", fit="relaxed")
+        shirt, tee, jeans, sneakers = piece("shirt", "Oxford-Hemd"), piece("tee"), piece("jeans"), piece("sneakers")
+        self.assertEqual(style.why([wool, shirt, jeans, sneakers], 2.5, street), "", "2 of 4: the wool jacket is not street")
+        self.assertEqual(style.why([bomber, shirt, jeans, sneakers], 2.5, street), "Street: jacket, jeans, sneakers")
+        self.assertEqual(style.why([wool, tee, jeans, sneakers], 2.0, street), "Street: t-shirt, jeans, sneakers",
+                         "the outfit is street by its other three pieces; the wool jacket is not named")
+        self.assertEqual(style.judge(wool, "jacket", street).garment_of, ())
+        self.assertEqual(style.judge(bomber, "jacket", street).garment_of, ("street",))
+        self.assertEqual(style.why([{"category": "jacket", "owned": True}, shirt, jeans, sneakers], 2.5, street), "",
+                         "a jacket he owns has no store's words: it is not counted")
+        points = style.load_rules()["points"]
+        self.assertEqual(style.product_points({"name": "Bomberjacke"}, "jacket", street)
+                         - style.product_points({"name": "Jacke"}, "jacket", street),
+                         points["style_word"] + points["style_garment"], "a bomber is a street word and a street garment")
+        # Workwear and Outdoor likewise, and for Outdoor a coat too: a wool overcoat is not outdoor.
+        for key, name in (("workwear", "Arbeitsjacke aus Canvas"), ("outdoor", "Wattierte Windjacke mit Kapuze")):
+            brief = style.clean({"styles": [key]})
+            self.assertEqual(style.judge(piece("jacket", name), "jacket", brief).garment_of, (key,), name)
+            self.assertEqual(style.judge(wool, "jacket", brief).garment_of, (), key)
+        outdoor = style.clean({"styles": ["outdoor"]})
+        self.assertEqual(style.judge(piece("coat", "Mantel aus Wolle"), "coat", outdoor).garment_of, ())
+        self.assertEqual(style.judge(piece("coat", "Wattierter Parka"), "coat", outdoor).garment_of, ("outdoor",))
+
+    def test_smart_casual_means_one_thing_on_the_outfits_page(self):
+        # An outfit's title is "Smart casual" at formality level 3 exactly. The style of that name is said only of
+        # such an outfit, so "Smart casual: jumper, shirt, chinos" never stands under "Office" or "Everyday".
+        self.assertEqual(style.load_rules()["styles"]["smart-casual"]["levels"], [3.0, 3.0])
+        smart = style.clean({"styles": ["smart-casual"]})
+        blazer, knit, shirt, chinos = piece("blazer"), piece("knit"), piece("shirt"), piece("chinos")
+        at_three = [blazer, shirt, chinos, piece("sneakers")]
+        self.assertEqual((level_of(at_three), outfits.Outfit(pieces=[], score=100, level=3.0).label), (3.0, "Smart casual"))
+        self.assertEqual(style.why(at_three, 3.0, smart), "Smart casual: blazer, shirt, chinos")
+        office = [knit, shirt, chinos, piece("shoes")]
+        self.assertEqual((level_of(office), outfits.Outfit(pieces=[], score=100, level=3.5).label), (3.5, "Office"))
+        self.assertEqual(style.why(office, 3.5, smart), "", "titled Office: not called Smart casual underneath")
+        everyday = [knit, shirt, chinos, piece("sneakers")]
+        self.assertEqual((level_of(everyday), outfits.Outfit(pieces=[], score=100, level=2.5).label), (2.5, "Everyday"))
+        self.assertEqual(style.why(everyday, 2.5, smart), "", "titled Everyday: not called Smart casual underneath")
+        # For every style and every outfit of the example plan: a line never names a title other than the outfit's
+        # own (Everyday, Smart casual and Office are the titles).
+        titles = {"Everyday", "Smart casual", "Office"}
+        for key in style.styles():
+            style.save({**style.EMPTY, "styles": [key]})
+            w = selection.build()
+            for outfit in outfits.all_outfits(w):
+                named = style.why(outfits.snapshot(outfit), outfit.level, w.brief).partition(":")[0]
+                if named in titles:
+                    self.assertEqual(named, outfit.label, [p.category for p in outfit.pieces])
+        # … and with Smart casual ticked some outfits of the plan do say it, all of them titled Smart casual.
+        style.save(smart)
+        w = selection.build()
+        said = [o.label for o in outfits.all_outfits(w) if style.why(outfits.snapshot(o), o.level, w.brief)]
+        self.assertTrue(said, "no outfit of the example plan is smart casual as a whole")
+        self.assertEqual(set(said), {"Smart casual"})
 
     def test_an_office_outfit_of_oxford_shirt_chinos_and_derby_shoes_never_reads_street(self):
         # The store's words for the shirt and the chinos hold street's own words (locker, relaxed, weit, oversized,
@@ -230,13 +408,13 @@ class TheBrief(AppCase):
             self.assertEqual(style.why(office, level, brief), "", brief)
             self.assertIsNone(style.outfit_style(office, level, brief))
         # With every style ticked it still says nothing (two of its three pieces are smart casual garments, two are
-        # tailored ones: neither is three quarters). With a jumper over the shirt it is named for the style it then
-        # is, never for street.
+        # tailored ones: neither is three quarters). With a jumper over the shirt it says nothing either: it is
+        # titled Office, and "Smart casual" is said only under that title. Never street.
         everything = {**style.EMPTY, "styles": list(style.styles())}
         self.assertEqual(style.why(office, level, everything), "")
         with_jumper = [piece("knit", "Lockerer Pullover Oversized", fit="oversized"), *office]
         self.assertEqual(level_of(with_jumper), 3.5)
-        self.assertEqual(style.why(with_jumper, 3.5, everything), "Smart casual: jumper, shirt, chinos")
+        self.assertEqual(style.why(with_jumper, 3.5, everything), "")
         self.assertEqual(style.why(with_jumper, 3.5, loud), "")
         # And however street its pieces, no outfit as formal as Smart casual or Office is called street.
         tee, jeans, sneakers = piece("tee"), piece("jeans"), piece("sneakers")
@@ -253,7 +431,8 @@ class TheBrief(AppCase):
         both = {**style.EMPTY, "styles": ["workwear", "street"]}
         self.assertEqual(style.clean(both)["styles"], ["street", "workwear"], "kept in the file's order")
         both = style.clean(both)
-        jacket, overshirt, tee, shirt = piece("jacket"), piece("overshirt"), piece("tee"), piece("shirt")
+        # (a denim jacket is a street jacket and a workwear one: `kinds` in config/style.toml)
+        jacket, overshirt, tee, shirt = piece("jacket", "Jeansjacke"), piece("overshirt"), piece("tee"), piece("shirt")
         jeans, chinos, sneakers, boots = piece("jeans"), piece("chinos"), piece("sneakers"), piece("boots")
         self.assertEqual(style.why([jacket, overshirt, tee, jeans, sneakers], 2.0, both),
                          "Street: jacket, overshirt, t-shirt, jeans, sneakers", "all five are street, three are workwear")
@@ -317,9 +496,11 @@ class TheBrief(AppCase):
         relaxed = {**style.EMPTY, "fits": ["relaxed"], "not_wanted": ["logo"]}
         logo_tee = piece("tee", "T-Shirt mit Logo", fit="relaxed")
         jeans, overshirt, shirt = piece("jeans", fit="relaxed"), piece("overshirt", fit="relaxed"), piece("shirt", fit="relaxed")
-        self.assertEqual(style.why([overshirt, shirt, logo_tee, jeans], 2.0, relaxed),
-                         "Your brief: relaxed overshirt, relaxed shirt, relaxed jeans", "a piece against the brief is not named")
-        self.assertEqual(style.why([logo_tee, jeans], 2.0, relaxed), "", "and not counted: one of two is left")
+        self.assertEqual(style.why([overshirt, shirt, piece("tee"), jeans], 2.0, relaxed),
+                         "Your brief: relaxed overshirt, relaxed shirt, relaxed jeans", "3 of 4: the regular tee is not named")
+        self.assertEqual(style.why([overshirt, shirt, logo_tee, jeans], 2.0, relaxed), "",
+                         "a piece against the brief: the outfit does not fit it as a whole")
+        self.assertEqual(style.why([logo_tee, jeans], 2.0, relaxed), "")
         # On the example plan such a brief tells the outfits apart too: some say it, most say nothing.
         style.save({**style.EMPTY, "colours_like": ["navy", "charcoal"]})
         w = selection.build()
@@ -341,6 +522,10 @@ class TheBrief(AppCase):
                              (lambda r: r["styles"]["street"].pop("levels"), "styles.street.levels must be two numbers"),
                              (lambda r: r["styles"]["minimal"].update(share=1.5),
                               "styles.minimal.share must be more than 0 and at most 1"),
+                             (lambda r: r["styles"]["street"].update(kinds={"cape": ["bomber"]}),
+                              "styles.street.kinds names 'cape', which is not a garment type"),
+                             (lambda r: r["styles"]["street"].update(kinds={"jacket": "bomber"}),
+                              "styles.street.kinds.jacket must be a list of words"),
                              (lambda r: r.update(styles={}), "at least one style"),
                              (lambda r: r["formality"].update(casual={"label": "Casual", "levels": [1]}), "two numbers")):
             broken = json.loads(json.dumps(rules))
@@ -440,10 +625,15 @@ class Steering(AppCase):
         self.assertTrue(said[0].startswith("Street: "), f"the first outfit is street as a whole and says so: {said}")
         self.assertTrue(any(said) and not all(said), f"some outfits say why and some say nothing: {said}")
         self.assertLess(sum(1 for line in lines.values() if line), len(every) / 2, "most combinations are not street")
-        street = set(style.load_rules()["styles"]["street"]["garments"])
+        street = style.load_rules()["styles"]["street"]
+
+        def is_street(part: dict) -> bool:      # a street garment, or a jacket of a street kind (a bomber)
+            return part["category"] in street["garments"] or any(
+                style._has(style._text(part), word) for word in street["kinds"].get(part["category"], []))
+
         for outfit in every:
             line = lines[outfit.key]
-            own = [GARMENTS[p.category].label.lower() for p in outfit.pieces if p.category in street]
+            own = [GARMENTS[part["category"]].label.lower() for part in outfits.snapshot(outfit) if is_street(part)]
             if not line:
                 # Nothing is said of an outfit under the threshold, or as formal as Smart casual or Office.
                 self.assertTrue(len(own) < 2 or len(own) / len(outfit.pieces) < 0.75 or outfit.level > 2.5,
@@ -590,15 +780,27 @@ class Ticking(AppCase):
         self.assertEqual(self.sent()["styles"], ["workwear"])
         page = self.client.post("/profile", data=self.sent(), follow_redirects=True).get_data(as_text=True)
         self.assertNotIn("Your styles changed", page)
-        # A save that changes something else as well (the budget) leaves the sentence out: the two cannot be told
-        # apart in it. The styles are saved all the same.
+        # A save that changes something else as well (the budget, at the price level that follows it) says what the
+        # styles did all the same: they are saved last, so the sentence compares the wardrobe with the new budget
+        # and the old styles to the one with the new budget and the new styles.
+        self.set_mode("budget")
         with_workwear = selection.build()
         page = self.client.post("/profile", data=self.sent(styles=["tailored"], budget="3000"),
                                 follow_redirects=True).get_data(as_text=True)
-        self.assertGreater(changed_between(with_workwear, selection.build())[0], 0, "the pieces did change")
-        self.assertNotIn("Your styles changed", page)
         self.assertEqual(style.current()["styles"], ["tailored"])
-        self.client.post("/profile", data=self.sent(styles=["workwear"]))
+        both = selection.build()
+        style.save({**style.EMPTY, "styles": ["workwear"]})
+        budget_only = selection.build()         # the new budget, the styles as they were
+        style.save({**style.EMPTY, "styles": ["tailored"]})
+        self.assertGreater(changed_between(with_workwear, budget_only)[0], 0, "the budget alone changed pieces too")
+        by_styles, by_euros = changed_between(budget_only, both)
+        self.assertGreater(by_styles, 0)
+        self.assertNotEqual(changed_between(with_workwear, both), (by_styles, by_euros),
+                            "the two effects differ, so the sentence must be about the styles alone")
+        self.assertIn(brief_changed(({"a": ("x", by_styles)}, 0), ({"a": ("y", by_styles)}, by_euros), "Your styles"), page)
+        self.assertIn("Profile saved.", words(page))
+        self.set_mode("cheapest")
+        self.client.post("/profile", data=self.sent(styles=["workwear"], budget="1500"))
         # Unticking it takes the same pieces back, and says so.
         page = self.client.post("/profile", data=self.sent(styles=[]), follow_redirects=True).get_data(as_text=True)
         self.assertIn(f"Your styles changed {pieces} pieces: −{money(euros)}", words(page))
@@ -827,13 +1029,86 @@ class Chat(NoNetwork, AppCase):
         self.assertIn(f'<p class="flash bad" data-chat-said>{stylechat.SAY["full"]}</p>', fragment)
         self.assertIn(">street style, &lt;b&gt;Berlin&lt;/b&gt; vibe</textarea>", fragment, "to send again without retyping")
         self.assertEqual((self.asked, db.chat_requests(0), stylechat.state()["turns"]), ([], 0, []))
-        # Without JavaScript the same sentence is said where the page comes back to, beside the chat.
+        # Without JavaScript the same sentence is said where the page comes back to, beside the chat, and his words
+        # are back in the field there too. Once: the next time the page is opened the field is empty again.
         with stylechat.a_turn(2), stylechat.a_turn(2):
-            page = self.client.post("/profile/style/say", data={"message": "street"}, follow_redirects=True).get_data(as_text=True)
-        self.assertIn(f'<p class="flash bad" role="status" data-style-said>{stylechat.SAY["full"]}</p>',
-                      page.split('id="style-chat"', 1)[1])
+            page = self.client.post("/profile/style/say", data={"message": "street, <i>no</i> logos"},
+                                    follow_redirects=True).get_data(as_text=True)
+        chat = page.split('id="style-chat"', 1)[1]
+        self.assertIn(f'<p class="flash bad" role="status" data-style-said>{stylechat.SAY["full"]}</p>', chat)
+        self.assertIn(">street, &lt;i&gt;no&lt;/i&gt; logos</textarea>", chat, "without JavaScript his words are lost")
+        self.assertNotIn("street, &lt;i&gt;no", page.split('id="style-chat"', 1)[0], "his words are shown only in the field")
+        self.assertIn('required></textarea>', self.client.get("/profile").get_data(as_text=True))
+        self.assertNotIn("street, &lt;i&gt;no", self.client.get("/outfits").get_data(as_text=True))
+        # A message of nothing but spaces comes back with its sentence and an empty field.
+        page = self.client.post("/profile/style/say", data={"message": "   "}, follow_redirects=True).get_data(as_text=True)
+        self.assertIn(stylechat.SAY["nothing"], page)
+        self.assertIn('required></textarea>', page)
         # A message that was answered leaves the field empty.
         self.assertIn('required></textarea>', self.say("street", **HX).get_data(as_text=True))
+
+    def test_while_a_message_is_on_its_way_the_page_can_say_so(self):
+        # app.js (13d) shows this line, turns the button to "Sending…" and has the live region read it out while the
+        # request is on its way; the walk-through holds a request back and looks. Here: the line is on the page,
+        # hidden until then, inside the form, and the button is the one HTMX switches off meanwhile.
+        page = self.client.get("/profile").get_data(as_text=True)
+        form = page.split('<form class="chat-say"', 1)[1].split("</form>", 1)[0]
+        self.assertIn('hx-disabled-elt="find button"', form)
+        self.assertIn('<button class="btn small">Send</button>', form)
+        self.assertIn('<p class="muted small chat-wait" data-chat-wait hidden>Sending your message. '
+                      'The answer can take a few seconds.</p>', form)
+        fragment = self.say("street", **HX).get_data(as_text=True)
+        self.assertIn("data-chat-wait hidden", fragment, "after the answer the line is hidden again")
+        # The field stands right under the conversation (the note about AI comes after it), so that the answer and
+        # the field fit on a phone's screen together.
+        self.assertLess(fragment.index('class="chat-lines"'), fragment.index('<form class="chat-say"'))
+        self.assertLess(fragment.index('<form class="chat-say"'), fragment.index("The answers are written by AI"))
+        between = fragment.split("</ol>", 1)[1].split('<form class="chat-say"', 1)[0]
+        self.assertEqual(words(between), "", f"something stands between the answer and the field: {between!r}")
+
+    def test_no_leather_leaves_the_leather_shoes_and_says_so(self):
+        # He says "tailored, no leather". On the demo catalogue every pair of shoes and sneakers that passes the
+        # quality threshold is leather, so the two pieces keep their products. The page says that they still go
+        # against the brief, and no outfit with them is said to fit it.
+        self.set_mode("cheapest")
+        plain = selection.build()
+        fragment = self.say("tailored, no leather", **HX).get_data(as_text=True)
+        self.assertRegex(fragment, r'name="styles" value="tailored" checked')
+        self.assertRegex(fragment, r'name="not_wanted" value="leather"')
+        page = self.client.post("/profile/style/brief", data={"do": "use", "styles": ["tailored"], "not_wanted": "leather"},
+                                follow_redirects=True).get_data(as_text=True)
+        w = selection.build()
+        self.assertEqual(w.brief, {**style.EMPTY, "styles": ["tailored"], "not_wanted": ["leather"]})
+        shoes = [view for view in w.slots if view.slot["category"] in ("shoes", "sneakers")]
+        self.assertEqual(len(shoes), 2)
+        for view in shoes:
+            self.assertTrue(style.against(view.chosen.data, view.slot["category"], w.brief), view.chosen.data["name"])
+            good = [c for c in view.cands if c.score.total >= w.threshold]
+            self.assertTrue(good and all(style.judge(c.data, view.slot["category"], w.brief).unwanted for c in good),
+                            "the demo catalogue has a good pair without leather after all: this test needs another case")
+            self.assertEqual(view.chosen.id, plain.get(view.slot["id"]).chosen.id,
+                             "no leather changed a pair of leather shoes for another pair of leather shoes")
+        against = [view.slot["name"] for view in w.slots
+                   if view.chosen and style.against(view.chosen.data, view.slot["category"], w.brief)]
+        self.assertEqual(against, [view.slot["name"] for view in shoes], "only the shoes go against it")
+        said = words(page.split('id="style-chat"', 1)[1])
+        self.assertIn(f"2 pieces still go against it: {', '.join(against)}. See your outfits", said)
+        self.assertIn("Style brief saved.", said)
+        # Every outfit has shoes or sneakers, so none fits "no leather" as a whole, and none says "Tailored".
+        outfits_page = self.client.get("/outfits").get_data(as_text=True)
+        self.assertNotIn("data-why", outfits_page)
+        self.assertNotIn("leather shoes</p>", outfits_page)
+        self.assertTrue(all(not style.why(outfits.snapshot(o), o.level, w.brief) for o in outfits.all_outfits(w)))
+        # Without the wish the same outfits do say it, leather shoes named: the wish is what silences them.
+        page = self.client.post("/profile/style/brief", data={"do": "use", "styles": ["tailored"]},
+                                follow_redirects=True).get_data(as_text=True)
+        self.assertNotIn("against it", words(page))
+        self.assertRegex(self.client.get("/outfits").get_data(as_text=True),
+                         r'<p class="about-why" data-why>Tailored: [a-z, -]*leather shoes</p>')
+        # One piece: "1 piece still goes against it". A colour he avoids is said the same way.
+        page = self.client.post("/profile/style/brief", data={"do": "use", "colours_avoid": "ecru"},
+                                follow_redirects=True).get_data(as_text=True)
+        self.assertIn("1 piece still goes against it: Ecru cardigan. See your outfits", words(page))
 
     def test_the_turns_are_shared_with_every_other_server_process(self):
         # The live server runs more than one process. Another process (here: a second Python, on the same data
@@ -1023,8 +1298,16 @@ class Limits(NoNetwork, ProductionCase):
         with db.as_user(self.user_id("anna@example.com")):
             self.assertEqual(db.chat_requests(0, mine=True), 0, "given back")
         with mock.patch.object(stylechat, "ask", side_effect=DrawError("busy", "no answer from Google: TimeoutError")):
-            self.assertIn(stylechat.SAY["busy"], words(self.say(anna, "street")))
+            answer = words(self.say(anna, "street"))
         self.assertEqual(db.chat_requests(0), 1, "sent and perhaps billed: counted")
+        # … and he is told that it counted, with his own number for the day.
+        self.assertIn("The style chat did not answer. Try again in a moment. It still counts as one of your 20 messages "
+                      "for today.", answer)
+        self.assertNotIn("TimeoutError", answer)
+        with mock.patch.object(stylechat, "ask", side_effect=DrawError("key", "no such key", free=True)):
+            self.assertNotIn("still counts", words(self.say(anna, "street")), "a message that cost nothing is not")
+        with stylechat.a_turn(2), stylechat.a_turn(2):
+            self.assertNotIn("still counts", words(self.say(anna, "street")), "nor one that was never sent")
 
     def test_what_goes_to_google_is_his_words_and_the_brief_and_nothing_else_about_him(self):
         anna = self.member("anna.personal@example.com")

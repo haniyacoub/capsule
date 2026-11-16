@@ -56,6 +56,8 @@ SAY = {
     "mine": "That's your {n} messages for today. More tomorrow. You can still change the brief by hand.",
     "all": "The style chat has answered all it can today. More tomorrow.",
     "nothing": "Write a few words about how you want to dress first.",
+    # After a message that was sent and got no usable answer: Google may have billed it, so it is counted.
+    "counted": " It still counts as one of your {n} messages for today.",
 }
 OPERATORS = {"key", "account", "model", "request"}      # nothing a customer can do about these
 
@@ -269,6 +271,8 @@ def say(message: str) -> str:
             if problem.free:
                 db.drop_chat_request(ticket)        # it certainly cost nothing: not counted
             text = SAY["closed"] if problem.kind in OPERATORS else SAY.get(problem.kind, SAY["busy"])
+            if not problem.free and settings.PRODUCTION:    # where each customer has a daily number, he is told
+                text += SAY["counted"].format(n=int(rules["per_customer_per_day"]))
             if settings.PRODUCTION and not settings.on_this_machine():
                 return text                          # to customers, nothing internal
             return f"{text} ({problem.kind}: {problem.detail})" if problem.detail else text

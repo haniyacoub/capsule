@@ -17,10 +17,13 @@
 #    * products: a product earns points when its name, fabric, fit or colour
 #      holds one of a style's words below, when it is a garment the style is
 #      built on, when its fit or colour is one he favours; it loses points for
-#      a colour or a thing he does not want.
+#      a colour or a thing he does not want. Whatever else it earns, a product
+#      in a colour he avoids or with something he does not want is "against the
+#      brief": it is picked only when the piece has nothing else.
 #    * outfits: the ones whose pieces earn the most move up the order. An outfit
 #      that is one of his styles as a whole moves up further and says so in one
-#      line ("Street: t-shirt, jeans, sneakers"); the others say nothing.
+#      line ("Street: t-shirt, jeans, sneakers"); the others say nothing, and so
+#      does every outfit with a piece that is against the brief.
 #
 #  Without a brief none of this runs: every pick is as it was before.
 #  Edits here apply on the next page load.
@@ -45,9 +48,11 @@ at_once              = 2      # messages on their way to Google at the same mome
                               # is told "busy, try again in a moment" at once and is not counted
 wait_seconds         = 15     # how long Google may say nothing to one message before "did not answer"
 
-# What each thing is worth. A product with more than 0 points "fits the brief",
-# one below 0 is "against it". Among a piece's products the price level then
-# chooses among those that fit; those against it only when there is nothing else.
+# What each thing is worth. A product with more than 0 points "fits the brief".
+# One in a colour he avoids, or with something he does not want, is "against
+# it", however many points it has otherwise. Among a piece's products the price
+# level chooses among those that fit; those against it only when there is
+# nothing else.
 [points]
 style_word   = 2    # the product's name, fabric or fit holds one of the style's words
 style_garment = 1   # it is a garment the style is built on (jeans for street)
@@ -65,10 +70,11 @@ outfit_per_point = 3
 outfit_most      = 45
 outfit_least     = -30
 formality        = 8
-# When an outfit "is" one of his styles as a whole: at least `outfit_share` of
-# its pieces (0.75, three quarters: all 3 of 3, 3 of 4, 4 of 5), and at least
-# `outfit_pieces` of them, are garments the style is built on, none of those
-# against his brief, and the outfit is as formal as the style's `levels` allow.
+# When an outfit "is" one of his styles as a whole: none of its pieces is
+# against his brief (with "no leather", an outfit with leather shoes fits no
+# style), at least `outfit_share` of its pieces (0.75, three quarters: all 3 of
+# 3, 3 of 4, 4 of 5), and at least `outfit_pieces` of them, are garments the
+# style is built on, and the outfit is as formal as the style's `levels` allow.
 # Only such an outfit says so ("Street: t-shirt, jeans, sneakers", naming those
 # pieces), and it moves `outfit_style` further up the order. Any other outfit
 # says nothing. (Two thirds was tried first: it called a T-shirt, chinos and
@@ -105,16 +111,24 @@ high = { label = "Higher prices", stores = ["premium", "luxury"] }
 #             product points; they never make an outfit "Street" by themselves
 #             (a loose shirt is not street)
 #   garments: the garment types (wardrobe/garments.py) the style is built on
+#   kinds:    garment types that are this style only in some kinds, with the
+#             words by which a store's product name says it is one of them. A
+#             "jacket" is too many things to count as it is: a bomber is street,
+#             a boiled-wool jacket with a shawl collar is not. A jacket he owns
+#             has no store's words, so it does not count.
 #   levels:   how formal an outfit can be and still be called this style, lowest
 #             and highest (an outfit's level: under 3 it is titled "Everyday",
 #             at 3 "Smart casual", over 3 "Office"). Street stops at 2.5, so an
 #             Office outfit is never called Street, and Tailored starts at 3.5.
+#             Smart casual is exactly 3: the outfits titled "Smart casual". So
+#             the words mean one thing on the Outfits page, and "Smart casual:
+#             blazer, shirt, chinos" never stands under "Office" or "Everyday".
 #   share:    only where a style asks for more than `outfit_share` above: the
 #             share of an outfit's pieces that must be the style's garments
 #             before the outfit is called by its name
 [styles.smart-casual]
 label    = "Smart casual"
-levels   = [2.5, 3.5]
+levels   = [3.0, 3.0]
 words    = ["merino", "oxford", "polo", "chino", "strick", "knit", "loafer", "cardigan"]
 garments = ["shirt", "polo", "knit", "cardigan", "chinos", "blazer", "boots"]
 
@@ -123,7 +137,9 @@ label    = "Street"
 levels   = [1.0, 2.5]
 words    = ["relaxed", "oversized", "baggy", "loose", "wide", "weit", "locker", "lässig", "boxy", "cargo",
             "denim", "bomber", "hoodie", "workwear", "heavyweight", "schwer"]
-garments = ["jeans", "overshirt", "tee", "longsleeve", "sneakers", "jacket"]
+garments = ["jeans", "overshirt", "tee", "longsleeve", "sneakers"]
+[styles.street.kinds]
+jacket = ["bomber", "blouson", "jeansjacke", "denim", "trucker", "coach", "harrington", "trainingsjacke", "track"]
 
 # Minimal is plain pieces and nothing else, so every piece must be one of its
 # garments (share 1.0): its list is so common that at three quarters nearly
@@ -147,30 +163,47 @@ label    = "Workwear"
 levels   = [1.0, 2.5]
 words    = ["workwear", "canvas", "twill", "cord", "corduroy", "flanell", "flannel", "heavy", "schwer",
             "chore", "arbeits", "denim", "raw"]
-garments = ["overshirt", "jeans", "chinos", "boots", "jacket"]
+garments = ["overshirt", "jeans", "chinos", "boots"]
+[styles.workwear.kinds]
+jacket = ["chore", "arbeits", "worker", "canvas", "jeansjacke", "denim", "trucker", "cord", "field", "gewachst", "waxed"]
 
 [styles.outdoor]
 label    = "Outdoor"
 levels   = [1.0, 2.5]
 words    = ["fleece", "parka", "wattiert", "gesteppt", "padded", "wasserabweisend", "water-repellent",
             "windjacke", "windbreaker", "technical", "funktions", "kapuze", "hooded", "ripstop"]
-garments = ["jacket", "coat", "boots", "knit"]
+garments = ["boots", "knit"]
+# A wool overcoat is not outdoor either: a coat counts as a jacket does, by its kind.
+[styles.outdoor.kinds]
+jacket = ["windjacke", "windbreaker", "regen", "rain", "parka", "anorak", "fleece", "wattiert", "gesteppt", "padded",
+          "puffer", "daunen", "technical", "funktions", "kapuze", "hooded", "wasserabweisend", "water-repellent",
+          "ripstop"]
+coat   = ["parka", "regen", "rain", "wattiert", "gesteppt", "padded", "puffer", "daunen", "technical", "funktions",
+          "kapuze", "hooded", "wasserabweisend", "water-repellent"]
 
 # Things a customer may not want, as he says them in English, and how the
 # stores write them. A word that is not listed is looked for as he wrote it.
+# A word is looked for at the start of a word ("woll" finds "Wollmischung" and
+# not "Baumwolle", which is cotton). With a star before it, it is looked for
+# anywhere, inside a word too: the stores write "Veloursleder", "Kuhleder" and
+# "Brustlogo" as one word. ("*leder" also finds "Kunstleder", leather that is
+# none: with "no leather" such a product is passed over too.)
+# A word that is what a garment itself is called ("leather" for leather shoes,
+# "blazer") speaks against every product of that garment.
 [not_wanted]
-logo     = ["logo", "schriftzug", "slogan", "print", "bedruckt", "grafik", "graphic", "stickerei", "embroider"]
-logos    = ["logo", "schriftzug", "slogan", "print", "bedruckt", "grafik", "graphic", "stickerei", "embroider"]
-print    = ["print", "bedruckt", "grafik", "graphic", "muster"]
-prints   = ["print", "bedruckt", "grafik", "graphic", "muster"]
-pattern  = ["muster", "gestreift", "streifen", "stripe", "kariert", "karo", "check", "jacquard"]
-patterns = ["muster", "gestreift", "streifen", "stripe", "kariert", "karo", "check", "jacquard"]
-stripes  = ["gestreift", "streifen", "stripe"]
-leather  = ["leder", "leather"]
-wool     = ["woll", "wool", "merino", "kaschmir", "cashmere"]
+logo     = ["*logo", "schriftzug", "slogan", "*print", "bedruckt", "grafik", "graphic", "stickerei", "embroider"]
+logos    = ["*logo", "schriftzug", "slogan", "*print", "bedruckt", "grafik", "graphic", "stickerei", "embroider"]
+print    = ["*print", "bedruckt", "grafik", "graphic", "*muster"]
+prints   = ["*print", "bedruckt", "grafik", "graphic", "*muster"]
+pattern  = ["*muster", "gestreift", "*streifen", "stripe", "kariert", "karo", "check", "jacquard"]
+patterns = ["*muster", "gestreift", "*streifen", "stripe", "kariert", "karo", "check", "jacquard"]
+stripes  = ["gestreift", "*streifen", "stripe"]
+leather  = ["*leder", "leather", "suede", "nubuk", "nubuck"]
+suede    = ["veloursleder", "wildleder", "rauleder", "suede", "nubuk", "nubuck"]
+wool     = ["woll", "wool", "schurwoll", "lammwoll", "lambswool", "merino", "kaschmir", "cashmere", "alpaka", "alpaca", "mohair"]
 polyester = ["polyester"]
-synthetic = ["polyester", "acryl", "nylon", "polyamid", "elasthan"]
-synthetics = ["polyester", "acryl", "nylon", "polyamid", "elasthan"]
+synthetic = ["polyester", "acryl", "nylon", "polyamid", "elasthan", "elastan"]
+synthetics = ["polyester", "acryl", "nylon", "polyamid", "elasthan", "elastan"]
 skinny   = ["skinny", "super slim"]
 slim     = ["slim", "schmal", "skinny"]
 oversized = ["oversized", "baggy"]

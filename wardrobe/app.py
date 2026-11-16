@@ -22,7 +22,8 @@ import secrets
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from flask import Flask, Response, abort, flash, g, redirect, render_template, request, send_file, url_for
+from flask import (Flask, Response, abort, flash, g, get_flashed_messages, redirect, render_template, request,
+                   send_file, url_for)
 from markupsafe import Markup
 from werkzeug.exceptions import HTTPException, NotFound
 
@@ -191,7 +192,7 @@ def brief_changed(before: tuple[dict, float], after: tuple[dict, float], what: s
     """What a change of the style brief did to his picks, in one sentence: "Your brief changed 1 piece: +4 €."
     (the pieces that now have another product, and what that does to the wardrobe's total), or "" when every piece
     kept its product. `before` and `after`: each piece's product and how many of it the plan has ({piece: (product,
-    how many)}), and the total, from before and after the change (picks_now in create_app). `what` did it: "Your
+    how many)}), and the total, from before and after the change (picks_of in create_app). `what` did it: "Your
     brief", "Removing it", "Your styles"."""
     (was, total_was), (now, total_now) = before, after
     n = sum(qty for slot_id, (product, qty) in now.items() if was.get(slot_id, (None, 0))[0] != product)
@@ -1353,7 +1354,9 @@ def create_app() -> Flask:
                         looks_on=chosen is not None, drawn_by=chosen.label if chosen else "the AI service",
                         videos_on=chosen is not None and videos.service() is not None,
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
-                        store_rows=store_rows(current), **style_context(),
+                        store_rows=store_rows(current),
+                        # A message that was not sent without JavaScript: its words came along (profile_style_say).
+                        **style_context(kept=next(iter(get_flashed_messages(category_filter=["style-kept"])), "")),
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
                         # The one note while the answers are still the example's: the sizes may already be his
                         # ("These are my sizes"), and a plan edited on the plan page is not rebuilt by a save.
@@ -1361,17 +1364,23 @@ def create_app() -> Flask:
                         plan_kept=current["example"] and plan_edited(current))
 
         new, notes = profile_mod.from_form(request.form, current)
+        answer = save_answers(current, new, notes)
         # The styles ticked under "What do you dress for?" are the style brief's styles (style.py). `styles_shown`
         # tells a form that has them from one that does not. They change which products and outfits come first,
-        # never the plan itself.
+        # never the plan itself. They are saved last, after everything else this save changes (the budget, the
+        # sizes, a plan built anew), so that what the styles did to his picks can be told apart from the rest and
+        # said: "Your styles changed 1 piece: +70 €."
         if "styles_shown" in request.form and style.styles_differ(request.form.getlist("styles")):
-            before = picks_now()
+            before = picks_of(selection.build())
             style.set_styles(request.form.getlist("styles"))
-            # What the styles alone did to his picks, said only when this save changes nothing else that could.
-            if not notes and profile_mod.same_answers(new, current):
-                changed = brief_changed(before, picks_now(), "Your styles")
-                if changed:
-                    flash(changed)
+            changed = brief_changed(before, picks_of(selection.build()), "Your styles")
+            if changed:
+                flash(changed)
+        return answer
+
+    def save_answers(current: dict, new: dict, notes: list[str]):
+        """Profile's form, sent: everything in it but the styles is saved, and the page to go to next is given
+        back (profile_page saves the styles after it)."""
         # The model's choices (the Body tab) are sent with the same form, where the menu is shown. A save that changed
         # only them saves only them, as the model's own button did (person.py): the profile stays as it was, also
         # while it holds the example's values, and the message is said beside the model.
@@ -1445,18 +1454,33 @@ def create_app() -> Flask:
         return {"STYLES": style.styles(), "FORMALITIES": style.formalities(), "PRICE_FEELINGS": style.prices(),
                 "STYLE_FITS": style.FITS, "brief": brief, "brief_in_use": style.active(brief),
                 "brief_words": style.in_words(brief), "chat_on": stylechat.available(), "chat": chat,
-                "brief_shown": shown, "chat_said": said, "chat_kept": kept[:most] if said else "",
+                "brief_shown": shown, "chat_said": said, "chat_kept": kept[:most],
                 "chat_allowance": stylechat.allowance(), "chat_max": most,
                 # The stores that suit the brief shown, ranked by the style table (config/stores.toml), among the
                 # stores he ticked: a name, and whether Stilsmith has products from it yet.
                 "brief_stores": [{"label": programmes.label(key), "empty": key not in stocked}
                                  for key in (style.stores_that_suit(shown, mine) if shown else [])]}
 
-    def picks_now() -> tuple[dict[str, tuple[str | None, int]], float]:
-        """Each piece's product as it is picked now (and how many of it the plan has), and the wardrobe's total:
-        taken before and after a change of the style brief, to say what the change did (brief_changed)."""
-        w = selection.build()
+    def picks_of(w: selection.Wardrobe) -> tuple[dict[str, tuple[str | None, int]], float]:
+        """Each piece's product as it is picked in a wardrobe (and how many of it the plan has), and the wardrobe's
+        total: taken before and after a change of the style brief, to say what the change did (brief_changed)."""
         return {view.slot["id"]: (view.chosen.id if view.chosen else None, view.qty) for view in w.slots}, w.total
+
+    def still_against(w: selection.Wardrobe) -> Markup | str:
+        """The pieces whose product the brief in use speaks against (a colour he avoids, something he does not
+        want: style.against), in one sentence, or "". Such a product stays where nothing else good enough was
+        found for the piece, or where he chose it himself; saying so keeps "no leather" from reading as if the
+        leather shoes were gone."""
+        names = [(view.slot["name"], view.qty) for view in w.slots
+                 if view.state != "owned" and view.chosen is not None
+                 and style.against(view.chosen.data, view.slot["category"], w.brief)]
+        if not names:
+            return ""
+        n = sum(qty for _, qty in names)
+        shown = ", ".join(name for name, _ in names[:3])
+        more = f" and {len(names) - 3} more" if len(names) > 3 else ""
+        return Markup("%s still %s against it: %s%s.") % (f"{n} {'piece' if n == 1 else 'pieces'}",
+                                                         "goes" if n == 1 else "go", shown, more)
 
     @app.post("/profile/style/say")
     def profile_style_say():
@@ -1464,9 +1488,13 @@ def create_app() -> Flask:
         message = request.form.get("message", "")
         said = stylechat.say(message)
         if request.headers.get("HX-Request"):
-            return render_template("_style_chat.html", **style_context(said, message))
+            return render_template("_style_chat.html", **style_context(said, message if said else ""))
         if said:
-            flash(said, "style-bad")            # said beside the chat, where the page comes back to (_style_chat.html)
+            # Without JavaScript the page is loaded again: what went wrong is said beside the chat, where the page
+            # comes back to, and his words are put back in the field there as well (_style_chat.html).
+            flash(said, "style-bad")
+            if message.strip():
+                flash(message[:int(style.load_rules()["chat"]["max_message_chars"])], "style-kept")
         return redirect(url_for("profile_page") + "#style")
 
     @app.post("/profile/style/brief")
@@ -1477,22 +1505,24 @@ def create_app() -> Flask:
         see_outfits = Markup('<a href="%s">See your outfits</a>') % url_for("outfits_page")
         if do == "use":
             brief = style.from_form(request.form)
-            before = picks_now()
+            before = picks_of(selection.build())
             style.save(brief)                   # one that says nothing is none: style.save removes it
             stylechat.confirmed()
+            now = selection.build()
             if style.active(brief):
-                changed = brief_changed(before, picks_now(), "Your brief")
-                flash(Markup("Style brief saved. %s %s") % (changed or "It changed none of your pieces.", see_outfits),
-                      "style")
+                changed = brief_changed(before, picks_of(now), "Your brief")
+                against = still_against(now)
+                flash(Markup("Style brief saved. %s %s%s") % (changed or "It changed none of your pieces.",
+                                                              against + " " if against else "", see_outfits), "style")
             else:
-                changed = brief_changed(before, picks_now(), "Removing the one you had")
+                changed = brief_changed(before, picks_of(now), "Removing the one you had")
                 flash(Markup("The brief was empty, so none is in use. %s %s")
                       % (changed or "Your picks are as they are without one.", see_outfits), "style")
         elif do == "remove":
-            before = picks_now()
+            before = picks_of(selection.build())
             style.remove()
             stylechat.forget()
-            changed = brief_changed(before, picks_now(), "Removing it")
+            changed = brief_changed(before, picks_of(selection.build()), "Removing it")
             flash(Markup("Style brief removed. %s %s") % (changed or "That changed none of your pieces.", see_outfits),
                   "style")
         elif do == "forget":

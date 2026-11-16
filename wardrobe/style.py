@@ -18,6 +18,7 @@ that is read here.
 What a brief does, all of it in this file and in plain arithmetic:
 
     product_points   a product's points for a brief, from its store, name, fabric, fit and colour
+    against          whether the brief speaks against a product: a colour he avoids, something he does not want
     narrow           among a piece's products, those that fit the brief first (selection.py)
     outfit_style     the one of his styles an outfit is as a whole, with the pieces that make it so, or none
     in_his_colours_or_fits   the same for a brief without styles: the outfit is mostly in his colours or fits
@@ -36,6 +37,7 @@ catalogue.
 from __future__ import annotations
 
 import re
+from typing import NamedTuple
 
 from . import capsule, colours, config, db, programmes
 from .config import ConfigError
@@ -72,6 +74,11 @@ def _check(data: dict) -> None:
         unknown = [g for g in entry["garments"] if g not in GARMENTS]
         if unknown:
             raise ConfigError(f"styles.{key}.garments names {unknown[0]!r}, which is not a garment type")
+        for garment, kinds in config.table(entry.get("kinds", {}), f"styles.{key}.kinds").items():
+            if garment not in GARMENTS:
+                raise ConfigError(f"styles.{key}.kinds names {garment!r}, which is not a garment type")
+            if not isinstance(kinds, list) or not kinds or not all(isinstance(word, str) for word in kinds):
+                raise ConfigError(f"styles.{key}.kinds.{garment} must be a list of words")
         _two_levels(entry.get("levels"), f"styles.{key}.levels")
         if "share" in entry and not 0 < config.number(entry["share"], f"styles.{key}.share") <= 1:
             raise ConfigError(f"styles.{key}.share must be more than 0 and at most 1")
@@ -264,8 +271,41 @@ def _text(product: dict) -> str:
 
 
 def _has(text: str, word: str) -> bool:
-    """Whether a word (or the start of one: "woll" finds "wollmischung") is in the text."""
-    return re.search(rf"(?<![a-zäöüß]){re.escape(word.lower())}", text) is not None
+    """Whether a word (or the start of one: "woll" finds "wollmischung", and not "baumwolle") is in the text. A
+    word written with a star before it is looked for anywhere, inside another word too: "*leder" finds
+    "veloursleder" and "kuhleder"."""
+    word = word.lower()
+    if word.startswith("*"):
+        return word[1:] in text
+    return re.search(rf"(?<![a-zäöüß]){re.escape(word)}", text) is not None
+
+
+def _names(category: str) -> set[str]:
+    """What a garment type is called on the pages, as whole names and as single words, in lower case: for "shoes"
+    that is "shoes", "leather shoes" and "leather"."""
+    garment = GARMENTS.get(category)
+    if garment is None:
+        return set()
+    whole = {garment.key, garment.label.lower(), garment.plural.lower()}
+    return whole | {part for name in whole for part in name.split()}
+
+
+def _is_called(category: str, word: str) -> bool:
+    """Whether a word he wrote is what the garment itself is called ("blazer", "blazers", and "leather" for
+    leather shoes), whatever the store's words for the product are."""
+    word = word.lower().lstrip("*")
+    return bool({word, word + "s", word.removesuffix("s")} & _names(category))
+
+
+class Judged(NamedTuple):
+    """A product (or an outfit's piece) against a brief."""
+    points: int                 # what it earns and loses (config/style.toml, [points])
+    style: str | None           # the first of his styles it fits, by a word or as a garment
+    fit: str                    # its fit, when that is one he favours and the store states it; else ""
+    against: bool               # the brief speaks against it: a colour he avoids, or something he does not want
+    garment_of: tuple[str, ...]   # those of his styles it is a garment of (what makes an outfit that style)
+    unwanted: bool = False      # … against it by the product itself (its colour, the store's words), not only by
+    #                             what its garment is called: among "Leather shoes" a pair that is not leather
 
 
 # Judgements already made: (the rules and the stores' lines they were made with, {what was judged: the judgement}).
@@ -276,11 +316,10 @@ _judged: tuple[dict, dict, dict] | None = None
 MOST_JUDGED = 20000         # judgements remembered at most; past that the memory starts again, empty
 
 
-def judge(product: dict, category: str, brief: dict) -> tuple[int, str | None, str]:
-    """A product (or an outfit's piece) against a brief: (points, the first of his styles it fits or None, the fit
-    that earned points or ""). `category` is its garment type. Something he owns has no store, name or fit, so
-    only its garment type counts. Worked out once for the same words, colour, fit, store and brief (_judge), and
-    remembered while the rules stay as they are."""
+def judge(product: dict, category: str, brief: dict) -> Judged:
+    """A product (or an outfit's piece) against a brief (Judged). `category` is its garment type. Something he
+    owns has no store, name or fit, so only its garment type and its colour count. Worked out once for the same
+    words, colour, fit, store and brief (_judge), and remembered while the rules stay as they are."""
     global _judged
     rules, stores = load_rules(), config.load("stores.toml")
     memory = _judged
@@ -294,20 +333,24 @@ def judge(product: dict, category: str, brief: dict) -> tuple[int, str | None, s
     return found
 
 
-def _judge(product: dict, category: str, brief: dict) -> tuple[int, str | None, str]:
+def _judge(product: dict, category: str, brief: dict) -> Judged:
     """The judgement itself (see judge), worked out from the rules."""
     rules = load_rules()
     points = rules["points"]
     text = _text(product)
     total = 0
     fits_style = None
+    garment_of = []
     for key in brief["styles"]:
         style = rules["styles"][key]
         earned = 0
         if any(_has(text, word) for word in style["words"]):
             earned += points["style_word"]
-        if category in style["garments"]:
+        # A garment the style is built on, or one it is built on only in some kinds (a jacket is street when the
+        # store's words say it is a bomber, not when it is a boiled-wool jacket: `kinds`).
+        if category in style["garments"] or any(_has(text, word) for word in style.get("kinds", {}).get(category, [])):
             earned += points["style_garment"]
+            garment_of.append(key)
         if earned and fits_style is None:
             fits_style = key
         total += earned
@@ -319,53 +362,85 @@ def _judge(product: dict, category: str, brief: dict) -> tuple[int, str | None, 
             fit_liked = fit
         else:
             total += points["other_fit"]
+    unwanted = called = False
     colour = colours.find(product.get("colour")) if product.get("colour") else None
     if colour:
         if colour in capsule.banned(brief["colours_avoid"]):      # avoiding "green" avoids olive too, as on Profile
             total += points["colour_avoid"]
+            unwanted = True
         elif colour in brief["colours_like"]:
             total += points["colour"]
     for word in brief["not_wanted"]:
-        if any(_has(text, form) for form in rules.get("not_wanted", {}).get(word, [word])):
+        # In the store's words about the product, or in what the garment itself is called: "leather" speaks
+        # against every piece the pages call "Leather shoes", whatever the store calls the pair.
+        forms = rules.get("not_wanted", {}).get(word, [word])
+        in_words = any(_has(text, form) for form in forms)
+        is_called = any(_is_called(category, form) for form in [word, *forms])
+        if in_words or is_called:
             total += points["not_wanted"]
+        unwanted, called = unwanted or in_words, called or is_called
     if product.get("store"):
         total += store_points(product["store"], brief)
-    return int(total), fits_style, fit_liked
+    return Judged(int(total), fits_style, fit_liked, unwanted or called, tuple(garment_of), unwanted)
 
 
 def product_points(product: dict, category: str, brief: dict) -> int:
-    return judge(product, category, brief)[0]
+    return judge(product, category, brief).points
+
+
+def against(product: dict, category: str, brief: dict | None) -> bool:
+    """Whether the brief speaks against a product in any one respect: its colour is one he avoids, or something he
+    does not want is in the store's words about it or in what the garment itself is called. Whatever else it
+    earns points for does not make up for that: such a product is picked only when the piece has nothing else,
+    and an outfit with such a piece is never said to fit the brief."""
+    return brief is not None and judge(product, category, brief).against
 
 
 def narrow(pool: list, category: str, brief: dict | None) -> list:
-    """Among a piece's products (selection.Cand), those the price level chooses among: the ones that fit the brief
-    (more than 0 points) if there are any, else the ones it says nothing about, else all of them. So a product
-    against the brief is picked only when the piece has nothing else. Without a brief: all of them, as before."""
+    """Among a piece's products (selection.Cand), those the price level chooses among. First the ones the brief
+    does not speak against by themselves (their colour, the store's words: `unwanted`; what the garment is called
+    is the same for all of them, so among "Leather shoes" a pair that is not leather comes first): of those, the
+    ones that fit it (more than 0 points) if there are any, else the ones it says nothing about, else the rest of
+    them. Only when the brief speaks against every product are all of them left, so no piece is left empty.
+    Without a brief: all of them, as before."""
     if not brief or not pool:
         return pool
-    scored = [(product_points(cand.data, category, brief), cand) for cand in pool]
-    return ([cand for score, cand in scored if score > 0]
-            or [cand for score, cand in scored if score == 0]
+    judged = [(judge(cand.data, category, brief), cand) for cand in pool]
+    allowed = [(found.points, cand) for found, cand in judged if not found.unwanted]
+    return ([cand for score, cand in allowed if score > 0]
+            or [cand for score, cand in allowed if score == 0]
+            or [cand for score, cand in allowed]
             or pool)
 
 
 # ── an outfit ─────────────────────────────────────────────────────────────────
+
+def _each_judged(pieces: list[dict], brief: dict) -> list[Judged] | None:
+    """Each piece of an outfit against the brief, or None when the brief speaks against one of them: such an
+    outfit does not fit the brief as a whole, whatever its other pieces are."""
+    found = [judge(piece, piece.get("category", ""), brief) for piece in pieces]
+    return None if any(one.against for one in found) else found
+
 
 def outfit_style(pieces: list[dict], level: float, brief: dict | None) -> tuple[str, list[dict]] | None:
     """The one of his styles an outfit is as a whole, with the pieces that make it so, or None when it is none of
     them. `pieces` as outfits.snapshot gives them, `level` how formal the outfit is (1 very casual … 5 formal).
 
     An outfit is a style when all of this holds (the numbers are in config/style.toml):
+      * the brief speaks against none of its pieces (`against`: a colour he avoids, something he does not want).
+        With "no leather" an outfit with leather shoes is never "Tailored", however tailored the rest of it is;
       * at least three quarters of its pieces, and at least two, are garments the style is built on (jeans, a
         T-shirt and sneakers for street): all of three pieces, three of four, four of five. Minimal asks for
         every piece (its own `share`). The words a store uses do not count here: a shirt the store calls
-        "loose" is not street by that;
-      * a piece that goes against his brief (a colour he avoids, something he does not want) is not counted
-        among them;
+        "loose" is not street by that. Only for a garment the style lists under `kinds` do they say which kind
+        it is: a jacket is street when it is a bomber, not when it is a boiled-wool jacket;
       * the outfit is as formal as the style allows. Street stops below "Smart casual", so an Office outfit of an
         oxford shirt, chinos and derby shoes is never street.
     Where two of his styles hold, the one with more such pieces wins, then the one listed first."""
     if not brief or not brief["styles"] or not pieces:
+        return None
+    judged = _each_judged(pieces, brief)
+    if judged is None:
         return None
     rules = load_rules()
     points = rules["points"]
@@ -375,8 +450,7 @@ def outfit_style(pieces: list[dict], level: float, brief: dict | None) -> tuple[
         low, high = style["levels"]
         if not low <= level <= high:
             continue
-        own = [piece for piece in pieces if piece.get("category") in style["garments"]
-               and judge(piece, piece["category"], brief)[0] >= 0]
+        own = [piece for piece, found in zip(pieces, judged) if key in found.garment_of]
         share = style.get("share", points["outfit_share"])
         if len(own) < points["outfit_pieces"] or len(own) < share * len(pieces):
             continue
@@ -387,18 +461,20 @@ def outfit_style(pieces: list[dict], level: float, brief: dict | None) -> tuple[
 
 def in_his_colours_or_fits(pieces: list[dict], brief: dict | None) -> list[dict] | None:
     """For a brief that names no style (colours or fits only): the pieces of an outfit that are in a colour or a
-    fit he favours and do not go against the brief otherwise, when they are enough of the outfit to say so of it
-    as a whole (the threshold of outfit_style: three quarters of its pieces, and at least two). Else None."""
-    if not brief or brief["styles"]:
+    fit he favours, when the brief speaks against none of the outfit's pieces and they are enough of the outfit
+    to say so of it as a whole (the threshold of outfit_style: three quarters of its pieces, and at least two).
+    Else None."""
+    if not brief or brief["styles"] or not pieces:
+        return None
+    judged = _each_judged(pieces, brief)
+    if judged is None:
         return None
     his = []
-    for piece in pieces:
-        category = piece.get("category", "")
-        if category not in GARMENTS:
+    for piece, found in zip(pieces, judged):
+        if piece.get("category", "") not in GARMENTS:
             continue
-        score, _, fit = judge(piece, category, brief)
         colour = colours.find(piece.get("colour")) if piece.get("colour") else None
-        if score > 0 and (fit or (colour and colour in brief["colours_like"])):
+        if found.points > 0 and (found.fit or (colour and colour in brief["colours_like"])):
             his.append(piece)
     points = load_rules()["points"]
     if len(his) < points["outfit_pieces"] or len(his) < points["outfit_share"] * len(pieces):
@@ -414,7 +490,7 @@ def outfit_bonus(pieces: list[dict], level: float, brief: dict | None) -> float:
     if not brief:
         return 0.0
     points = load_rules()["points"]
-    total = sum(judge(piece, piece.get("category", ""), brief)[0] for piece in pieces)
+    total = sum(judge(piece, piece.get("category", ""), brief).points for piece in pieces)
     bonus = max(points["outfit_least"], min(points["outfit_most"], total * points["outfit_per_point"]))
     if brief["formality"]:
         low, high = load_rules()["formality"][brief["formality"]]["levels"]
@@ -451,7 +527,7 @@ def why(pieces: list[dict], level: float, brief: dict | None) -> str:
         label, own = load_rules()["styles"][found[0]]["label"], found[1]
     else:
         label, own = "Your brief", in_his_colours_or_fits(pieces, brief) or []
-    names = [_named(piece, brief, judge(piece, piece["category"], brief)[2]) for piece in own]
+    names = [_named(piece, brief, judge(piece, piece["category"], brief).fit) for piece in own]
     return f"{label}: {', '.join(dict.fromkeys(names))}" if names else ""
 
 
