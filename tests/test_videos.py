@@ -457,7 +457,7 @@ class FromThePictureShowing(WithVideos, AppCase):
         self.assertEqual(len(self.videos_on_disk()), 2)
         later = looks.time.time() + 30                              # a new version comes later, with a new name
         with mock.patch.object(looks.time, "time", lambda: later):
-            self.post("/outfits/look", key=self.outfit.key, again="1")
+            self.post("/outfits/look", key=self.outfit.key, again="1", sure="1")    # asked first, and answered yes
         self.assertEqual(self.videos_on_disk(), [], "clips of pictures that are gone")
 
 

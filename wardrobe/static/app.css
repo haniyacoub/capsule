@@ -504,6 +504,19 @@ details.why summary::-webkit-details-marker { display: none; }
 .looks { --shots-h: 0px; }
 .looks:has(.shots) { --shots-h: 84px; }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
+/* A short phone (under 820px of height while the browser's own bars show: most phones in a browser, 390 x 664,
+   360 x 740, 393 x 760). There the picture is already at its smallest, so an 84px row would push the outfit's name,
+   price and heart off the first screen: the row is 40px there, its pictures smaller and without their names (see
+   .shots), and everything on the first screen is where it was before the pictures had names.
+   --tall says which it is: 0px on a short phone, 1px on a tall one and on a computer, so that a size can be written
+   as "40px, and 44px more where it is tall". It is worked out from 100svh, the height with the browser's bars
+   showing, like the picture's own size: that height stays the same while the bars hide during a scroll. (A media
+   query's height does not on an iPhone: the row would grow and shrink under the thumb.) */
+.looks { --tall: 1px; }
+@media (max-width: 759.98px) {
+  .looks { --tall: clamp(0px, (100svh - 819.98px) * 1000, 1px); }
+  .looks:has(.shots) { --shots-h: calc(40px + var(--tall) * 44); }
+}
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
    room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
    than 240px, so that the whole model still shows on the first screen of a short phone (390 x 664) under a message
@@ -519,10 +532,9 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 @media (max-width: 759.98px) {
   main:has(> .said) .looks { --told: var(--said-h, calc(4 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 150px; }
   main:has(> .said.short) .looks { --told: var(--said-h, calc(2 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 170px; }
-  /* With the small pictures under the picture as well, the smallest width gives up 40px of height (a third less
-     width, 2:3), so the whole model and the line under it still end above the tab bar on that 390 x 664 phone, and
-     the row of small pictures begins above it (the rest of the row is a short scroll down: a narrower picture
-     than this would be too small to see the outfit on). */
+  /* With the small pictures under the picture as well (40px more on a short phone), the smallest width gives up the
+     same 40px of height (a third less width, 2:3), so the whole model, the line under it and the row of small
+     pictures still end above the tab bar on that 390 x 664 phone. */
   main:has(> .said) .looks:has(.shots) { --least: 124px; }
   main:has(> .said.short) .looks:has(.shots) { --least: 144px; }
 }
@@ -626,31 +638,48 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .look-msg { color: var(--ok); }
 /* Why a new version was not drawn: right under the line with "Draw again", as wide as it, above the small pictures. */
 p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var(--s-2); font-size: var(--t-s); line-height: var(--lh-s); }
+/* A question asked before anything is drawn (_look_ask.html: "Draw again" on a front picture that other photos
+   were made from; a photo made from the AI picture of a customer who has not agreed to that yet): the question, as
+   wide as the line, and under it its two answers. What is below moves down while it is asked. */
+.look-ask { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var(--s-2); }
+.look-ask p.look-msg { width: auto; margin: 0 0 var(--s-2); color: var(--ink); }
+.look-ask-btns { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 /* The outfit's small pictures under the line (_shots.html): the front picture, then "More photos" with what it
    costs beside it, or, once that was tapped, a cell for each of the other pictures (a spinner until it arrives, a
    plus where it was not drawn). One row, 84px tall in every state, empty until the front picture is there
-   (--shots-h gives the picture's room for it). Each cell is 48 by 64px, the top of its picture (the head and the
-   chest; in a surrounding, the place too), large enough to tell the six apart, with its name under it. The six
-   with their gaps are 328px: the row is as wide as the line above it, on a phone wider where the screen has the
-   room (never under 272px), and where six do not fit (a narrow phone, a small picture on a computer) it scrolls
-   sideways, still one row. Its 3px of padding, taken back by its margin, is the room for a cell's focus ring
-   (flow-root: that margin stays inside .shots, which is then 84px tall, right under the line). */
-.shots { --row: 272px; display: flow-root; width: max(100%, var(--row)); margin: 0 min(0px, (100% - var(--row)) / 2); }
-@media (max-width: 759.98px) { .shots { --row: max(272px, min(328px, 100vw - 2 * var(--gutter))); } }
-.shots-row {
-  display: flex; align-items: flex-start; gap: var(--s-2); box-sizing: border-box; height: 90px; padding: 3px; margin: -3px;
-  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain;
+   (--shots-h gives the picture's room for it). Each cell is 48 by 64px (--cell is its width; it is 3 wide by 4
+   high), the top of its picture (the head and the chest; in a surrounding, the place too), large enough to tell the
+   six apart, with its name under it. The six with their gaps are 328px: the row is as wide as the line above it,
+   on a phone wider where the screen has the room (never under 272px). Its 3px of padding, taken back by its margin,
+   is the room for a cell's focus ring (flow-root: that margin stays inside .shots, which is then 84px tall, right
+   under the line).
+   The six are never cut off and the row never scrolls sideways (a mouse cannot scroll that way, and on a phone a
+   sideways swipe that starts on the row moves to the next outfit, like a swipe anywhere else on the outfit). Where
+   six of 48px do not fit, each is a sixth of the row less the gaps (100cqw is the picture's width, .stage):
+     a computer's window under about 840px high (most laptops), a tall phone under 360px wide:
+                        38 by 51px at the least (a 272px row), where "Walking" still fits under it
+     a short phone (--tall is 0px, see .looks): the row as it was before the pictures had names, 40px tall, each
+                        picture 30 by 40px, which a finger can still hit, and no names shown (a screen reader hears
+                        them all the same): under the pictures they would push the outfit's name and price off the
+                        first screen */
+.shots {
+  --row: 272px; --cell: min(30px + var(--tall) * 18, (max(100cqw, var(--row)) - 5 * var(--s-2)) / 6);
+  display: flow-root; width: max(100%, var(--row)); margin: 0 min(0px, (100% - var(--row)) / 2);
 }
-.shots-row::-webkit-scrollbar { display: none; }
+@media (max-width: 759.98px) { .shots { --row: max(272px, min(272px + var(--tall) * 56, 100vw - 2 * var(--gutter))); } }
+.shots-row {
+  display: flex; align-items: flex-start; gap: var(--s-2); box-sizing: border-box; height: calc(46px + var(--tall) * 44); padding: 3px; margin: -3px;
+}
 .shots-row form { display: contents; }
 .shots-row button[aria-pressed] {
-  flex: none; display: grid; justify-items: center; gap: 2px; width: 48px; padding: 0;
+  flex: none; display: grid; justify-items: center; gap: calc(var(--tall) * 2); width: var(--cell); padding: 0;
   border: 0; border-radius: 4px; background: none; color: var(--muted); font: inherit; cursor: pointer;
 }
-.shot-pic { position: relative; display: grid; place-items: center; width: 48px; height: 64px; border-radius: 4px; overflow: hidden; background: var(--soft); }
-.shots-row img { display: block; width: 48px; height: 64px; object-fit: cover; object-position: 50% 15%; }
-/* The picture's name under it, on one line: "Walking", the longest, fits the cell. */
-.shot-name { font-size: var(--t-xs); line-height: 16px; white-space: nowrap; }
+.shot-pic { position: relative; display: grid; place-items: center; width: var(--cell); height: calc(var(--cell) * 4 / 3); border-radius: 4px; overflow: hidden; background: var(--soft); }
+.shots-row img { display: block; width: var(--cell); height: calc(var(--cell) * 4 / 3); object-fit: cover; object-position: 50% 15%; }
+/* The picture's name under it, on one line: "Walking", the longest, fits the cell. On a short phone the line has
+   no height, so the name does not show. */
+.shot-name { height: calc(var(--tall) * 16); overflow: hidden; font-size: var(--t-xs); line-height: 16px; white-space: nowrap; }
 .shots-row [aria-pressed="true"] .shot-name { color: var(--ink); font-weight: 600; }
 /* A hairline round each cell, over its picture: a white studio picture has an edge on a light page too. */
 .shot-pic::before { content: ""; position: absolute; inset: 0; border: 1px solid var(--line); border-radius: inherit; pointer-events: none; }
@@ -660,13 +689,13 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .shots-row [aria-pressed="true"] .shot-pic::after { content: ""; position: absolute; inset: 0; border: 2px solid var(--ink); border-radius: inherit; box-shadow: inset 0 0 0 2px var(--bg); pointer-events: none; }
 .shots-row [aria-pressed="false"]:hover { color: var(--ink); }
 .shots-row .plus { font-size: var(--t-l, 18px); line-height: 1; }
-/* "More photos" and what it costs stand beside the front picture, level with its middle. */
-.shots-row .btn { flex: none; margin-top: 12px; }
-.shots-note { min-width: 0; min-height: 64px; display: flex; align-items: center; font-size: var(--t-s); line-height: 1.25; color: var(--muted); }
+/* "More photos" (40px tall) and what it costs stand beside the front picture, level with its middle. */
+.shots-row .btn { flex: none; margin-top: calc((var(--cell) * 4 / 3 - 40px) / 2); }
+.shots-note { min-width: 0; min-height: calc(var(--cell) * 4 / 3); display: flex; align-items: center; font-size: var(--t-s); line-height: 1.25; color: var(--muted); }
 /* Why "More photos" did not draw them all, with OK to put it away (a link in the line, 44px tall to a finger). */
 .shots-said { margin: 0; }
 .shots p.look-msg { margin-top: var(--s-1); }
-.shots-said .link { position: relative; display: inline-block; padding: 2px 0; margin: -2px 0 -2px var(--s-1); font-size: inherit; }
+.shots-said .link { position: relative; display: inline-block; padding: 4px 0; margin: -4px 0 -4px var(--s-1); font-size: inherit; }   /* 24px tall at least */
 .shots-said .link::after { content: ""; position: absolute; inset: calc((100% - 44px) / 2) calc(-1 * var(--s-2)); }
 /* The dots are placed for the front picture's pose: over any of the other pictures there are none. */
 .stage:has(.look-pic.more) .spots { display: none; }
@@ -1016,6 +1045,8 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .card h2 { font-size: var(--t-l); margin-bottom: 10px; }
 .card.add { margin-top: 22px; }
 .card.add .flash { overflow-wrap: anywhere; }   /* what pasted links came to (a piece's page): a long link wraps, never widens the page */
+/* A link not added yet because its name says "kids" or "damen": the question, and under it the button that adds it. */
+.card.add .flash.ask p { margin: 0 0 var(--s-2); }
 /* A piece's page: what you added from a store no longer offered (_set_aside.html), each with its store, name and
    price, and Remove at the end of its line (44px tall to tap). */
 .card.set-aside { margin-top: var(--s-5); }

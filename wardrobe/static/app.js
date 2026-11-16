@@ -126,17 +126,15 @@ if (reel) {
   //     into the outfit being moved to. So Tab from Next leads into the outfit you moved to, and Shift+Tab from
   //     below the row back into it, never into outfit 1, which the browser would scroll back to. The other outfits
   //     are not made inert: swiping, and a screen reader reading the whole row, work as before. What HTMX puts in
-  //     (a picture, the heart) is sorted the same way once it is in. The row of small pictures (.shots-row) is
-  //     sorted with them: where it scrolls sideways, a browser lets Tab stop on the row itself once its buttons
-  //     are out of the Tab order.
-  const pressable = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [tabindex], .shots-row';
+  //     (a picture, the heart) is sorted the same way once it is in.
+  const pressable = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [tabindex]';
   const tabInto = (current) => slides.forEach((slide) => slide.querySelectorAll(pressable).forEach((el) => {
     if (slide === current) {
       if (!('tab' in el.dataset)) return;
       if (el.dataset.tab) el.setAttribute('tabindex', el.dataset.tab);
       else el.removeAttribute('tabindex');
       delete el.dataset.tab;
-    } else if (el.tabIndex >= 0 || (el.matches('.shots-row') && !('tab' in el.dataset))) {
+    } else if (el.tabIndex >= 0) {
       el.dataset.tab = el.getAttribute('tabindex') || '';
       el.tabIndex = -1;
     }
@@ -208,7 +206,13 @@ if (reel) {
   document.body.addEventListener('htmx:beforeSwap', (e) => {
     const box = e.detail.target;
     if (isBox(box) && box.closest('.stage').contains(document.activeElement)) box.dataset.focus = 'in';
-    if (isRow(box)) rowFocus = box.contains(document.activeElement);
+    if (isRow(box)) {
+      // … or on the answer to a question asked under the picture before the photos are drawn (_look_ask.html):
+      // the question goes when the row comes.
+      const here = document.activeElement;
+      const asked = box.closest('.look') && box.closest('.look').querySelector('.look-ask-at');
+      rowFocus = box.contains(here) || !!(asked && asked.contains(here));
+    }
   });
   document.body.addEventListener('htmx:afterSwap', (e) => {
     const was = e.detail.target;
@@ -226,6 +230,34 @@ if (reel) {
       if (shown) shown.focus({ preventScroll: true });
     }
     rowFocus = false;
+  });
+  // A question asked before anything is drawn (_look_ask.html: 'Draw again' on a front picture, whose other photos
+  // would go with it; a photo made from the AI picture of a customer who has not yet agreed to that) is put into its
+  // own place under the picture. It is said, it is brought above the tab bar where a short phone would hide it, and
+  // keyboard focus goes to its first answer. When the other answer ('Keep them', 'Not now') takes the question
+  // away, focus goes back to what was pressed ('More photos', a small picture), or to 'Draw again' in the line above.
+  let askedFrom = '';       // the id of what was pressed when the question came
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    const place = e.detail.target;
+    if (!(place instanceof Element) || !place.matches('.look-ask-at')) return;
+    const answer = place.querySelector('button');
+    if (answer) {
+      const sent = e.detail.requestConfig && e.detail.requestConfig.triggeringEvent;
+      askedFrom = (sent && sent.submitter && sent.submitter.id) || '';
+      say(place.querySelector('.look-msg').textContent.trim());
+      if (place.closest('[data-slide]') === onScreen()) {
+        const room = innerHeight - (parseFloat(getComputedStyle(document.documentElement).scrollPaddingBottom) || 0);
+        const { top, bottom } = place.getBoundingClientRect();
+        const by = Math.min(bottom - room, top);
+        if (by > 0) window.scrollBy({ top: by, behavior: motion.matches ? 'auto' : 'smooth' });
+      }
+      answer.focus({ preventScroll: true });
+    } else {
+      const here = document.activeElement;
+      const back = (askedFrom && document.getElementById(askedFrom)) || place.closest('.look').querySelector('.look-line button');
+      askedFrom = '';
+      if (back && (!here || here === document.body)) back.focus({ preventScroll: true });
+    }
   });
   document.body.addEventListener('htmx:afterSwap', (e) => {
     const box = e.detail.target;

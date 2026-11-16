@@ -109,6 +109,15 @@ class TheStorePicker(ProductionCase):
         self.assertEqual(rows(self.ada.get("/profile").get_data(as_text=True)),
                          [("cos", True, "COS · Rakuten partner"), ("weekday", True, "Weekday")])
 
+    def test_the_foot_says_not_affiliated_only_while_no_programme_has_accepted(self):
+        foot = lambda: re.search(r'<footer class="site-foot">.*?</footer>', self.ada.get("/profile").get_data(as_text=True), re.S).group(0)   # noqa: E731
+        self.assertIn("Not affiliated with any retailer.", foot())
+        db.save_store("cos", {"label": "COS", "network": "rakuten", "programme_id": None, "feed_format": None,
+                              "feed_location": None, "delivery_note": None, "disclaimer": None, "rules": {},
+                              "status": "approved"})
+        self.assertNotIn("affiliated", foot(), "a partner on the Stores tab and 'not affiliated' below it would contradict")
+        self.assertIn("Impressum", foot())
+
     def test_the_tab_lists_every_store_offered_all_ticked_with_its_programme(self):
         page = self.ada.get("/profile").get_data(as_text=True)
         self.assertIn('<button type="button" role="tab" id="tab-stores" aria-controls="panel-stores"', page)

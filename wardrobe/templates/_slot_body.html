@@ -182,7 +182,18 @@
   {# What the links pasted here came to (app.slot_import) is said here, where the page lands (#add), not at its top.
      Only the whole page reads it (slot.html): an HTMX answer that re-renders this part never reads a message. #}
   {% for message in link_messages or [] %}
+  {% if message is mapping %}
+  {# A link whose name holds a word such as "kids" or "damen" (menswear.link_name_says): not refused, asked about.
+     The button sends that one link again with the answer yes. #}
+  <form class="flash ask" method="post" action="{{ url_for('slot_import', slot_id=sid, **way) }}">{{ csrf_field() }}
+    <input type="hidden" name="urls" value="{{ message.link }}">
+    <input type="hidden" name="anyway" value="1">
+    <p role="status" id="ask-{{ loop.index }}">{{ message.asks }}</p>
+    <button class="btn small" aria-describedby="ask-{{ loop.index }}">Add it anyway</button>
+  </form>
+  {% else %}
   <p class="flash{% if not message.startswith('Added') %} bad{% endif %}" role="status">{{ message }}</p>
+  {% endif %}
   {% endfor %}
   {# The stores customers are offered (programmes.py) that he ticked (profile.stores); a link to any other store is refused. #}
   <p class="muted small">Paste product page addresses from {{ store_names(my_stores(), 'or') }}, one per line. Menswear only. {{ site_name }} does not open the page: the name is taken from the link, and you add the price, fabric and sizes under “Add details”.</p>

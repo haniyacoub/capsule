@@ -39,7 +39,7 @@
   {% if production %}
   <footer class="site-foot">
     {% for name, label in legal_pages.items() %}<a href="{{ url_for('legal_page', name=name) }}">{{ label }}</a>{% endfor %}
-    <span>Not affiliated with any retailer.</span>
+    {% if no_partners() %}<span>Not affiliated with any retailer.</span>{% endif %}
   </footer>
   {% endif %}
 </body>

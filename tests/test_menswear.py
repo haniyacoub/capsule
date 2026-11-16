@@ -93,50 +93,90 @@ class WhoAProductIsFor(unittest.TestCase):
                 ("https://www.blue-tomato.com/de-DE/kids/product/hoodie-9000015/", "children"),
                 ("https://www.otto.de/kids-boys/p/hoodie-C9000016/", "children"),
                 ("https://www.tom-tailor.de/damen/jacken/steppjacke-1041235_10668", "women"),
-                ("https://www.otto.de/p/beispielmarke-damenjacke-C1689044822/", "women"),
                 ("https://www.blue-tomato.com/de-DE/products/categories/Women-00000002/product/hoodie-9000009/", "women"),
                 ("https://www.bergfreunde.de/kinder/jacken/regenjacke-9000010/", "children"),
                 ("https://www.breuninger.com/de/kindermode/jungen/hemd/p/9000011", "children"),
-                ("https://www.otto.de/p/beispielmarke-maedchen-kleid-C1689044823/", "children")):
+                ("https://www.otto.de/baby/p/beispielmarke-strickjacke-C9000100/", "children"),      # the babies' folder
+                # Only the product's own name says it: not refused (asked about: the next test).
+                ("https://www.otto.de/p/beispielmarke-damenjacke-C1689044822/", None),
+                ("https://www.otto.de/p/beispielmarke-maedchen-kleid-C1689044823/", None)):
             self.assertEqual(says(link), verdict, link)
 
-    def test_a_products_own_name_in_a_link_says_whom_it_is_for(self):
-        """Not only a folder ("/kinder/"): the product's name in the link says it too. A word for children or women
-        right before a word for clothes, or joined to one, or a word no brand is called by, is refused."""
-        says = menswear.link_not_for_men
-        for link, verdict in (
-                ("https://www.otto.de/p/beispielmarke-jungen-mantel-C9000041/", "children"),
-                ("https://www.blue-tomato.com/de-DE/product/Beispielmarke-Girls+Jacket-9000042/", "children"),
-                ("https://www.bergfreunde.de/beispielmarke-kids-hoodie-9000043/", "children"),
-                ("https://www.otto.de/p/beispielmarke-boys-t-shirt-C9000044/", "children"),
-                ("https://www.otto.de/p/beispielmarke-kinder-regenjacke-C9000045/", "children"),
-                ("https://www.otto.de/p/beispielmarke-jungenmantel-C9000046/", "children"),
-                ("https://www.bergfreunde.de/beispielmarke-kidswear-set-9000047/", "children"),
-                ("https://www.otto.de/p/beispielmarke-damen-mantel-C9000048/", "women"),
-                ("https://www.otto.de/p/beispielmarke-damen-slim-fit-jeans-C9000049/", "women"),
-                ("https://www.blue-tomato.com/de-DE/product/Beispielmarke-Womens+Jacket-9000050/", "women"),
-                ("https://www.tom-tailor.de/ladies-blazer-1049051_10668", "women"),
-                ("https://www.otto.de/p/beispielmarke-frauen-pullover-C9000052/", "women"),
-                ("https://www.otto.de/p/beispielmarke-damenmantel-C9000053/", "women")):
-            self.assertEqual(says(link), verdict, link)
+    def test_a_word_in_a_products_name_in_a_link_is_asked_about_never_refused(self):
+        """A folder says it plainly ("/kinder/"): refused. The product's name alone is not reliable: a word for
+        children or women in it, as a word of its own or joined to a word for clothes, is asked about."""
+        for link, word, whom in (
+                ("https://www.otto.de/p/beispielmarke-jungen-mantel-C9000041/", "jungen", "children"),
+                ("https://www.blue-tomato.com/de-DE/product/Beispielmarke-Girls+Jacket-9000042/", "girls", "children"),
+                ("https://www.bergfreunde.de/beispielmarke-kids-hoodie-9000043/", "kids", "children"),
+                ("https://www.otto.de/p/beispielmarke-boys-t-shirt-C9000044/", "boys", "children"),
+                ("https://www.otto.de/p/beispielmarke-kinder-regenjacke-C9000045/", "kinder", "children"),
+                ("https://www.otto.de/p/beispielmarke-jungenmantel-C9000046/", "jungenmantel", "children"),
+                ("https://www.bergfreunde.de/beispielmarke-kidswear-set-9000047/", "kidswear", "children"),
+                ("https://www.otto.de/p/beispielmarke-M%C3%A4dchen-Kleid-C9000040/", "mädchen", "children"),
+                ("https://www.otto.de/p/beispielmarke-maedchen-kleid-C1689044823/", "maedchen", "children"),
+                ("https://www.otto.de/p/beispielmarke-damen-mantel-C9000048/", "damen", "women"),
+                ("https://www.otto.de/p/beispielmarke-damen-slim-fit-jeans-C9000049/", "damen", "women"),
+                ("https://www.blue-tomato.com/de-DE/product/Beispielmarke-Womens+Jacket-9000050/", "womens", "women"),
+                ("https://www.tom-tailor.de/ladies-blazer-1049051_10668", "ladies", "women"),
+                ("https://www.otto.de/p/beispielmarke-frauen-pullover-C9000052/", "frauen", "women"),
+                ("https://www.otto.de/p/beispielmarke-damenmantel-C9000053/", "damenmantel", "women"),
+                ("https://www.otto.de/p/beispielmarke-damenjacke-C1689044822/", "damenjacke", "women"),
+                # the word need not stand right before the clothes: the shapes real store links have
+                ("https://www.bergfreunde.de/beispielmarke-kids-down-sweater-daunenjacke-9000081/", "kids", "children"),
+                ("https://www.blue-tomato.com/de-DE/product/Beispielmarke-Girls+Elodie+Jacket-9000082/", "girls", "children"),
+                ("https://www.otto.de/p/beispielmarke-kids-air-max-90-C9000083/", "kids", "children"),
+                ("https://www.otto.de/p/beispielmarke-mantel-fuer-jungen-C9000084/", "jungen", "children"),
+                ("https://www.otto.de/p/beispielmarke-hoodie-kids-C9000085/", "kids", "children"),
+                ("https://www.otto.de/p/beispielmarke-boys-blue-jacket-C9000086/", "boys", "children"),
+                ("https://www.otto.de/p/beispielmarke-girls-wool-coat-C9000087/", "girls", "children"),
+                ("https://www.otto.de/p/beispielmarke-junior-steppjacke-C9000088/", "junior", "children"),
+                ("https://www.otto.de/p/kids-only-jeans-C9000089/", "kids", "children"),
+                # a word for one person counts right before the clothes
+                ("https://www.otto.de/p/beispielmarke-teen-jacke-C9000090/", "teen", "children"),
+                ("https://www.otto.de/p/beispielmarke-girl-jacket-C9000091/", "girl", "children"),
+                ("https://www.otto.de/p/beispielmarke-boy-jacket-C9000092/", "boy", "children"),
+                ("https://www.otto.de/p/beispielmarke-baby-jacke-C9000093/", "baby", "children"),
+                ("https://www.otto.de/p/beispielmarke-woman-coat-C9000094/", "woman", "women"),
+                # "unisex" says for women too, not for children too
+                ("https://www.otto.de/p/beispielmarke-unisex-kids-hoodie-C9000101/", "kids", "children"),
+                # A band, a series, a brand or a sweet with such a word in its name, on a men's shirt: these were
+                # refused as children's or women's products. Now the customer is asked, and adds them with one tap.
+                ("https://www.otto.de/p/beastie-boys-shirt-C9000075/", "boys", "children"),
+                ("https://www.otto.de/p/pet-shop-boys-shirt-C9000076/", "boys", "children"),
+                ("https://www.blue-tomato.com/de-DE/product/Backstreet+Boys+Tshirt-9000077/", "boys", "children"),
+                ("https://www.otto.de/p/bad-boys-hoodie-C9000078/", "boys", "children"),
+                ("https://www.otto.de/p/gilmore-girls-sweatshirt-C9000079/", "girls", "children"),
+                ("https://www.otto.de/p/cool-kids-sweater-C9000080/", "kids", "children"),
+                ("https://www.otto.de/p/kinder-bueno-tshirt-C9000095/", "kinder", "children"),
+                ("https://www.breuninger.com/de/billionaire-boys-club-hoodie/9000066/p/", "boys", "children"),
+                ("https://www.hirmer.de/kids-see-ghosts-hoodie/p/9000067", "kids", "children"),
+                ("https://www.otto.de/p/les-femmes-tee-C9000096/", "femmes", "women"),
+                ("https://www.otto.de/p/women-crush-tee-C9000097/", "women", "women")):
+            self.assertIsNone(menswear.link_not_for_men(link), f"refused: {link}")
+            self.assertEqual(menswear.link_name_says(link), (word, whom), link)
 
-    def test_a_brand_or_an_ordinary_word_in_a_links_name_is_not_refused_by_mistake(self):
-        says = menswear.link_not_for_men
+    def test_a_brand_or_an_ordinary_word_in_a_links_name_is_neither_refused_nor_asked_about(self):
         for link in ("https://www.otto.de/p/frau-holle-t-shirt-C9000061/",              # a brand, a fairy tale
                      "https://www.otto.de/p/beispielmarke-lady-like-hemd-C9000062/",
                      "https://www.otto.de/p/womensecret-pyjama-C9000063/",                # one word, a brand
                      "https://www.breuninger.com/de/marken/womensecret/pyjama/p/9000064",
-                     "https://www.blue-tomato.com/de-DE/product/Girl-Shirt-9000065/",    # the skate brand "Girl"
-                     "https://www.breuninger.com/de/billionaire-boys-club-hoodie/9000066/p/",
-                     "https://www.hirmer.de/kids-see-ghosts-hoodie/p/9000067",
+                     "https://www.blue-tomato.com/de-DE/product/Girl-Hand+Shakers+Hoodie-9000065/",    # the skate brand "Girl"
                      "https://www.otto.de/p/teen-spirit-jeans-C9000068/",
                      "https://www.otto.de/p/boyfriend-jeans-C9000069/",
-                     "https://www.otto.de/p/beispielmarke-jacke-fuer-jungen-und-junggebliebene-C9000070/",
+                     "https://www.otto.de/p/beispielmarke-jacke-fuer-junggebliebene-C9000070/",
+                     "https://www.otto.de/p/beispielmarke-baby-blue-jacke-C9000074/",          # a colour
                      "https://www.otto.de/p/beispielmarke-damenhaft-eleganter-schal-C9000071/",
-                     # a men's word anywhere in the link still wins
+                     "https://www.otto.de/p/beispielmarke-langarmhemd-C1689044821/",
+                     # a men's word anywhere in the link wins: kept, and not asked about either
+                     "https://www.otto.de/p/beispielmarke-herren-und-damen-jacke-C9000098/",   # for both
+                     "https://www.otto.de/p/beispielmarke-unisex-damen-herren-schal-C9000102/",
+                     "https://www.otto.de/p/beispielmarke-ladies-unisex-beanie-C9000103/",     # unisex: for women too
                      "https://www.otto.de/p/herren-jacke-im-boys-look-C9000072/",
-                     "https://www.breuninger.com/de/herren/beispielmarke-girls-jacket/9000073/p/"):
-            self.assertIsNone(says(link), link)
+                     "https://www.breuninger.com/de/herren/beispielmarke-girls-jacket/9000073/p/",
+                     "https://www.breuninger.com/de/herren/billionaire-boys-club-hoodie/1001234777/p/"):
+            self.assertIsNone(menswear.link_not_for_men(link), link)
+            self.assertIsNone(menswear.link_name_says(link), link)
 
 
 class FeedsKeepOnlyMenswear(unittest.TestCase):
@@ -275,7 +315,30 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         answer = self.client.post(f"/slot/{self.sid}/import", data=data, content_type="multipart/form-data",
                                   follow_redirects=True).get_data(as_text=True)
         section = re.search(r'<section class="card add" id="add">(.*?)</section>', answer, re.S).group(1)
-        return [html.unescape(m) for m in re.findall(r'<p class="flash[^"]*" role="status">(.*?)</p>', section, re.S)]
+        return [html.unescape(m) for m in re.findall(r'<p [^>]*role="status"[^>]*>(.*?)</p>', section, re.S)]
+
+    def asked(self) -> list[tuple[str, str]]:
+        """The questions on the piece's page now, each as (its words, the link its "Add it anyway" button sends)."""
+        shown = self.client.get(f"/slot/{self.sid}").get_data(as_text=True)
+        return [(html.unescape(words), html.unescape(link)) for link, words in re.findall(
+            r'<form class="flash ask" method="post" action="/slot/[^"]+/import">.*?<input type="hidden" name="urls" value="([^"]*)">'
+            r'\s*<input type="hidden" name="anyway" value="1">\s*<p role="status" id="ask-\d+">(.*?)</p>'
+            r'\s*<button class="btn small" aria-describedby="ask-\d+">Add it anyway</button>', shown, re.S)]
+
+    def asked_after(self, answer) -> list[tuple[str, str]]:
+        """The questions on the page a paste leads to (see asked)."""
+        assert answer.status_code == 302, answer.status_code
+        return self.asked()
+
+    def add_anyway(self, link: str, saved: str | None = None) -> list[str]:
+        """Tap "Add it anyway" under the question about a link: that link again, with the answer yes."""
+        data: dict = {"urls": link, "anyway": "1"}
+        if saved is not None:
+            data["page"] = (io.BytesIO(saved.encode()), "page.html")
+        answer = self.client.post(f"/slot/{self.sid}/import", data=data, content_type="multipart/form-data",
+                                  follow_redirects=True).get_data(as_text=True)
+        section = re.search(r'<section class="card add" id="add">(.*?)</section>', answer, re.S).group(1)
+        return [html.unescape(m) for m in re.findall(r'<p [^>]*role="status"[^>]*>(.*?)</p>', section, re.S)]
 
     def stored(self, cand_id: str) -> dict | None:
         return catalog.find(catalog.stored(), self.sid, cand_id)
@@ -378,15 +441,81 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         women = "https://www.tom-tailor.de/damen/jacken/steppjacke-1041235_10668"
         kids = "https://www.bergfreunde.de/kinder/jacken/regenjacke-9000010/"
         self.assertEqual(self.add(f"{women}\n{kids}\n{self.LINKS['hirmer'][0]}"), [
-            f"Not added: “{women}” is a women's product, and Stilsmith is for menswear only.",
-            f"Not added: “{kids}” is a children's product, and Stilsmith is for menswear only.",
+            f"Not added: “{women}” looks like a women's product, and Stilsmith is for menswear only.",
+            f"Not added: “{kids}” looks like a children's product, and Stilsmith is for menswear only.",
             "Added “Oxford hemd regular fit hellblau”: only the link could be read — add the price, fabric and sizes "
             "under “Add details”."])
         self.assertEqual([c["id"] for c in catalog.stored()["candidates"] if c.get("source") == "manual"], ["hirmer-9000001"])
         # The same for COS and Weekday, the stores Stilsmith has products from.
         cos = "https://www.cos.com/de-de/women/womenswear/knitwear/product/merino-jumper-black-4100000999"
-        self.assertEqual(self.add(cos), [f"Not added: “{cos[:79]}…” is a women's product, and Stilsmith is for "
+        self.assertEqual(self.add(cos), [f"Not added: “{cos[:79]}…” looks like a women's product, and Stilsmith is for "
                                          "menswear only."])
+
+    def test_a_link_whose_name_says_kids_or_damen_is_asked_about_and_added_with_one_tap(self):
+        manual_ids = lambda: [c["id"] for c in catalog.stored()["candidates"] if c.get("source") == "manual"]   # noqa: E731
+        # The shapes real store links have, and a band's shirt: none is refused, each is asked about by its word.
+        kids = "https://www.bergfreunde.de/beispielmarke-kids-down-sweater-daunenjacke-9000081/"
+        girls = "https://www.blue-tomato.com/de-DE/product/Beispielmarke-Girls+Elodie+Jacket-9000082/"
+        band = "https://www.otto.de/p/beastie-boys-shirt-C9000075/"
+        damen = "https://www.otto.de/p/beispielmarke-damen-slim-fit-jeans-C9000049/"
+        self.assertGreater(len(girls), 80)          # a long link is shortened in the sentence, never in the button
+        self.assertEqual(self.add(f"{kids}\n{girls}\n{band}\n{damen}\n{self.LINKS['hirmer'][0]}"), [
+            f"“{kids}” is not added yet. Its name says “kids”: this may be a children's product. Add it anyway?",
+            f"“{girls[:79]}…” is not added yet. Its name says “girls”: this may be a children's product. Add it anyway?",
+            f"“{band}” is not added yet. Its name says “boys”: this may be a children's product. Add it anyway?",
+            f"“{damen}” is not added yet. Its name says “damen”: this may be a women's product. Add it anyway?",
+            "Added “Oxford hemd regular fit hellblau”: only the link could be read — add the price, fabric and sizes "
+            "under “Add details”."])
+        self.assertEqual(manual_ids(), ["hirmer-9000001"], "nothing he was asked about is added before his answer")
+        # Each question has its own button, which sends that one link (whole, not shortened) with the answer yes.
+        answer = self.client.post(f"/slot/{self.sid}/import", data={"urls": f"{girls}\n{band}"})
+        self.assertEqual([link for _, link in self.asked_after(answer)], [girls, band])
+        # One tap on "Add it anyway": added, like any other link.
+        self.assertEqual(self.add_anyway(band), ["Added “Beastie boys shirt”: only the link could be read — add the "
+                                                 "price, fabric and sizes under “Add details”."])
+        self.assertEqual(manual_ids(), ["hirmer-9000001", "otto-9000075"])
+        # He is not asked twice: pasting the link again, once it is on this piece, adds it as before.
+        self.assertRegex(self.add(band)[0], "^Added “Beastie boys shirt”")
+        self.assertRegex(self.add(kids)[0], "Add it anyway\\?$", "another link is still asked about")
+
+    def test_the_question_never_opens_what_the_store_says_plainly(self):
+        # A women's or children's folder, or the saved page's own word, is refused, with the answer yes too.
+        women = "https://www.tom-tailor.de/damen/jacken/steppjacke-1041235_10668"
+        refused = [f"Not added: “{women}” looks like a women's product, and Stilsmith is for menswear only."]
+        self.assertEqual(self.add(women), refused)
+        self.assertEqual(self.add_anyway(women), refused)
+        hoodie = "https://www.blue-tomato.com/de-DE/product/beispielmarke-kapuzenpullover-9000003/"
+        refused = [f"Not added: “{hoodie}” looks like a children's product, and Stilsmith is for menswear only."]
+        self.assertEqual(self.add_anyway(hoodie, page("kids-hoodie.html")), refused)
+        self.assertEqual([c for c in catalog.stored()["candidates"] if c.get("source") == "manual"], [])
+
+    def test_the_question_says_where_the_word_is_and_that_a_saved_page_was_not_kept(self):
+        # The word stands in a folder that also holds other words, not in the product's name: "Its link says".
+        link = "https://www.otto.de/damen-jacken/beispielmarke-steppjacke-C9000099/"
+        self.assertEqual(self.add(link), [f"“{link}” is not added yet. Its link says “damen”: this may be a women's "
+                                          "product. Add it anyway?"])
+        # With a page he saved that does not say whom the product is for: it cannot be kept while he is asked, and
+        # that is said.
+        band = "https://www.hirmer.de/beastie-boys-shirt/p/9000001"
+        self.assertEqual(self.add(band, page("says-nothing.html")), [
+            f"“{band}” is not added yet. Its name says “boys”: this may be a children's product. Add it anyway? "
+            "The page you saved was not kept: once the link is added, send it again with the link."])
+        self.assertEqual([c for c in catalog.stored()["candidates"] if c.get("source") == "manual"], [])
+
+    def test_a_saved_page_filed_under_mens_needs_no_question(self):
+        # The page he saved shows the store filing the product under "Herren": the store says it plainly, so a
+        # word in the product's name is not asked about, and what the page says is read at once.
+        band = "https://www.hirmer.de/beastie-boys-shirt/p/9000001"
+        self.assertTrue(menswear.filed_for_men("Herren > Hemden"))
+        self.assertFalse(menswear.filed_for_men("Unisex > Hoodies") or menswear.filed_for_men("Hemden", None))
+        self.assertEqual(self.add(band, page("mens-shirt.html")), [
+            "Added “Oxford-Hemd Regular Fit”: its name, price, colour and fabric were read from the page you saved — "
+            "add the sizes under “Add details”."])
+        self.assertEqual(self.asked(), [])
+        # A page that files it under children's is refused as before, whatever the name says.
+        kids = "https://www.blue-tomato.com/de-DE/product/marke-kids-kapuzenpullover-9000003/"
+        self.assertEqual(self.add(kids, page("kids-hoodie.html")),
+                         [f"Not added: “{kids}” looks like a children's product, and Stilsmith is for menswear only."])
 
     def test_with_the_page_he_saved_its_name_price_colour_and_fabric_are_filled_in(self):
         link = self.LINKS["hirmer"][0]
@@ -413,9 +542,9 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         hoodie = "https://www.blue-tomato.com/de-DE/product/beispielmarke-kapuzenpullover-9000003/"
         self.assertIsNone(menswear.link_not_for_men(jacket) or menswear.link_not_for_men(hoodie))
         self.assertEqual(self.add(jacket, page("womens-jacket.html")),
-                         [f"Not added: “{jacket}” is a women's product, and Stilsmith is for menswear only."])
+                         [f"Not added: “{jacket}” looks like a women's product, and Stilsmith is for menswear only."])
         self.assertEqual(self.add(hoodie, page("kids-hoodie.html")),
-                         [f"Not added: “{hoodie}” is a children's product, and Stilsmith is for menswear only."])
+                         [f"Not added: “{hoodie}” looks like a children's product, and Stilsmith is for menswear only."])
         self.assertEqual([c for c in catalog.stored()["candidates"] if c.get("source") == "manual"], [])
 
     def test_a_saved_page_that_cannot_help_never_stops_the_link(self):

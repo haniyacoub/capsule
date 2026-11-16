@@ -20,9 +20,13 @@ not picked from it, and what he added from it would not be shown. The stores
 that have no products yet (Tom Tailor, OTTO, Hirmer and the others without
 category pages in config/stores.toml) are served by this alone.
 
-Menswear only (menswear.py): a link whose own words say women's or children's
+Menswear only (menswear.py): a link whose folders say women's or children's
 ("/damen/", "/kinder/"), or whose saved page says so in its breadcrumbs, is
-refused with a sentence saying why.
+refused with a sentence saying why. Where only the product's name in the link
+holds such a word ("kids-hoodie", but "beastie-boys-shirt" too), the link is
+not refused: it is not added yet, and the customer is asked "Add it anyway?"
+(a Question below), with one button that adds it. He is not asked when the
+page he saved shows the store filing the product under men's.
 
 The kind of garment is not checked hard, because a name read from a link is
 too rough for a refusal: a link whose name plainly says another kind (a shirt
@@ -135,9 +139,27 @@ def _from_link_alone(url: str, store: str, slot: dict, known: list[dict]) -> tup
 
 
 def _not_menswear(whom: str) -> str:
-    """'is a women's product, and Stilsmith is for menswear only': why a link was not added."""
+    """'looks like a women's product, and Stilsmith is for menswear only': why a link was not added. "Looks like":
+    it is read from the link's folders or the saved page's words, where a brand's name can be mistaken for one."""
     from ..settings import SITE_NAME
-    return f"is {menswear.WORDS[whom]}, and {SITE_NAME} is for menswear only"
+    return f"looks like {menswear.WORDS[whom]}, and {SITE_NAME} is for menswear only"
+
+
+class Question(str):
+    """What is asked about a link that was not added yet, in place of a reason why it was refused: "Its name says
+    “kids”: this may be a children's product. Add it anyway?". The page shows it with a button that pastes the
+    link again with the answer yes (app.slot_import, `anyway`)."""
+
+
+def _name_asks(url: str, word: str, whom: str, page: bool) -> Question:
+    """The question about a link whose name holds a word such as "kids" or "damen" (menswear.link_name_says).
+    "Its name says": the word is in the part of the link that names the product; else "Its link says".
+    `page`: he sent the saved page along, which is not kept while he is asked."""
+    in_name = menswear.link_name_says("/" + _slug(url))
+    where = "name" if in_name and in_name[0] == word else "link"
+    again = " The page you saved was not kept: once the link is added, send it again with the link." if page else ""
+    return Question(f"is not added yet. Its {where} says “{word}”: this may be {menswear.WORDS[whom]}. "
+                    f"Add it anyway?{again}")
 
 
 def _from_saved_page(cand: dict, info: dict) -> str:
@@ -196,9 +218,12 @@ def _another_kind(cand: dict, slot: dict) -> str:
             "another piece, remove it here and paste the link there")
 
 
-def from_urls(urls: list[str], slot: dict, page: str | None = None) -> list[tuple[str, dict | None, str]]:
+def from_urls(urls: list[str], slot: dict, page: str | None = None,
+              anyway: bool = False) -> list[tuple[str, dict | None, str]]:
     """One (link, candidate or None, what happened) per pasted link. No page is ever opened.
-    `page`: the HTML of the product's page as the customer saved it, read for one link only."""
+    `page`: the HTML of the product's page as the customer saved it, read for one link only.
+    `anyway`: he was asked about these links ("Add it anyway?") and said yes. A link he is asked about comes back
+    without a candidate, and what happened is a Question."""
     known = catalog.load().get("candidates", [])
     mine = list(hosts().values())
     # "is not a COS or Weekday link"; with more stores than a sentence holds, the form's own list is pointed to.
@@ -221,6 +246,16 @@ def from_urls(urls: list[str], slot: dict, page: str | None = None) -> list[tupl
             results.append((url, None, _not_menswear(whom)))
             continue
         stub, note = _from_link_alone(url, store, slot, known)
+        # Only the product's name in the link holds a word such as "kids" or "damen": not refused, asked about
+        # once. Not again after his yes, nor for a product he already added to this piece, nor where the page he
+        # saved shows the store filing it under men's ("Herren > Hemden"): then the store has said it plainly.
+        filed_men = menswear.filed_for_men(" > ".join(said.get("breadcrumbs", [])), said.get("category")) if said else False
+        asked = None if anyway or filed_men else menswear.link_name_says(url)
+        mine_already = any(c.get("id") == stub["id"] and c.get("slot_id") == slot["id"] and c.get("source") == "manual"
+                           for c in known)
+        if asked and not mine_already:
+            results.append((url, None, _name_asks(url, *asked, page=bool(page and len(urls) == 1))))
+            continue
         # Pasted on this piece before, and more is known about it than a link says (from the page he saved then,
         # or typed in): that is kept, not wiped by pasting the link again.
         before = next((c for c in known if c.get("id") == stub["id"] and c.get("slot_id") == slot["id"]

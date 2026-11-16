@@ -448,6 +448,55 @@ def to_draw(photos: list[Photo]) -> int:
     return sum(1 for photo in photos[1:] if not photo.look or photo.look.status not in ("ready", "working"))
 
 
+def made_from_front(pieces: list[dict]) -> int:
+    """How many of an outfit's other photos are there or being drawn: they are made from the front picture, and are
+    removed when it is drawn again (forget_made_from). 0 while the front picture itself is not there."""
+    photos = gallery(pieces) or []
+    if not photos or not photos[0].look or photos[0].look.status != "ready":
+        return 0
+    return sum(1 for photo in photos[1:] if photo.look and photo.look.status in ("ready", "working"))
+
+
+# ── a picture of the customer's own photo: his yes before it goes out again ──
+
+# From this date on, the words a customer agrees to when he adds his photo (the box on Profile: their date is
+# app.PHOTO_CONSENT, stored with the photo as photo_consent) say that an outfit's further photos are made from the
+# AI picture of him, which goes to the image service again. Whoever added his photo under earlier words is asked
+# once, before the first such photo is made (app.outfits_look, _look_ask.html). His yes is stored as
+# more_photos_consent, with the photo it is about.
+# (On the live site those words were shown from 16 Nov, some days before this date was stored with them. A photo
+# added in those days carries the older date although its owner read the words: he is asked once all the same,
+# which costs him one tap, and the question does not claim that he was never told.)
+SENT_AGAIN_SAID = "2026-11-15"
+
+
+def agreed_to_sending_again() -> bool:
+    """Whether the signed-in customer agreed that the AI picture of him may go to the image service again, for an
+    outfit's further photos: when he added his photo (the words of SENT_AGAIN_SAID or later ones), or since then,
+    asked under an outfit's picture."""
+    if str(db.get_setting("photo_consent") or "") >= SENT_AGAIN_SAID:
+        return True
+    later = db.get_setting("more_photos_consent")
+    return isinstance(later, dict) and later.get("photo_added") == db.get_setting("photo_added")   # for this photo
+
+
+def agree_to_sending_again() -> None:
+    """He said yes under an outfit's picture: kept, for the photo he has now, so he is not asked again."""
+    db.set_setting("more_photos_consent", {"words": SENT_AGAIN_SAID, "photo_added": db.get_setting("photo_added"),
+                                           "at": db.now_iso()})
+
+
+def needs_ok(pieces: list[dict]) -> bool:
+    """Whether making another photo from this outfit's front picture needs the customer's yes first: the front
+    picture is drawn from his own photo, and he has not agreed to its going to the image service again."""
+    photos = gallery(pieces) or []
+    front = photos[0].look if photos else None
+    if front is None or front.status != "ready":
+        return False                    # nothing is made from a front picture that is not there
+    row = db.look_rows([front.key]).get(front.key) or {}
+    return row.get("user_id") is not None and not agreed_to_sending_again()
+
+
 def allowance_words() -> str:
     """The day's limit, as said beside "More photos" before it is tapped: "of your 30 a day"."""
     limits = load_rules()["pictures"]

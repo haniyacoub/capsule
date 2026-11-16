@@ -60,11 +60,7 @@
   {%- with video = video if video and video.status in ('ready', 'working') else none, asking = false, play = false, left = none %}{% include "_video.html" %}{% endwith -%}
 </div>
 {% endif %}
-{# "Draw again" on the front picture says first what goes with it: the other photos are made from it, and are
-   removed once the new one is there (looks.forget_made_from). `others`: how many of them there are or are being drawn. #}
-{% set others = (photos or [])[1:]|selectattr('look')|list|length if shot == 'front' else 0 %}
-<form class="look-bar look-line" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:abort"
-      {%- if others %} hx-confirm="Draw the front picture again? {{ 'The other photo of this outfit is made from it, so it' if others == 1 else 'The other ' ~ others ~ ' photos of this outfit are made from it, so they' }} will be removed. “More photos” draws {{ 'it' if others == 1 else 'them' }} again."{% endif %}>{{ csrf_field() }}
+<form class="look-bar look-line" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:abort">{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
   <input type="hidden" name="again" value="1">
   {% if shot != 'front' %}<input type="hidden" name="shot" value="{{ shot }}">{% endif %}
@@ -77,6 +73,14 @@
 </form>
 {# Why a new version was not drawn: right under the line with "Draw again", above the small pictures. #}
 {% if look.message %}<p class="look-msg">{{ look.message }}</p>{% endif %}
+{# A question asked before anything is drawn, in its own place (_look_ask.html): "Draw again" on the front picture
+   says first that the other photos, made from it, will be removed with it (looks.forget_made_from); and a photo
+   made from the AI picture of a customer who has not yet agreed to that asks him first (looks.needs_ok). The
+   server decides at the tap whether to ask (app.outfits_look), so the question is there however the photos came
+   (just now, by "More photos", which replaces only the row below), and it puts the question into this place on
+   its own, so the picture above it is not sent again and does not blink. Without JavaScript the page comes back
+   with the question in it (`ask`, from outfits.html). #}
+<div class="look-ask-at" id="ask-at-{{ key }}">{% if ask %}{% include "_look_ask.html" %}{% endif %}</div>
 {{ shot_row }}
 {% else %}
 <form class="look-bar band ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-trigger="submit, draw" hx-sync="closest .look:abort"{% if not look and auto and shot == 'front' %} data-auto-look{% endif %}>{{ csrf_field() }}
