@@ -181,14 +181,16 @@
          a store with none yet is shown apart, under its own line: ticked, a product link from it can be pasted on a
          piece's page, and that is all it does until its products arrive. At least one store with products stays ticked:
          app.js (13c) says so when the last one is unticked, and without JavaScript the save does. `stores_shown` tells
-         a form with this tab from one without. #}
+         a form with this tab from one without. A store is called a partner ("· Rakuten partner") only once its
+         programme has accepted Stilsmith: the owner's registry says "approved" for it (python -m wardrobe stores,
+         the /stores page). Until then only its name is shown: the page's foot says "Not affiliated with any retailer". #}
       <section class="cc-panel" id="panel-stores" data-tab="stores" aria-labelledby="tab-stores">
         <h2 class="sec" id="stores">Stores</h2>
         <p class="muted small" id="stores-help">Your pieces are picked only from the stores you tick. At least one store with products stays ticked.</p>
         <input type="hidden" name="stores_shown" value="1">
         <div class="store-pick" role="group" aria-labelledby="stores" aria-describedby="stores-help" data-store-pick>
           {% for s in store_rows if not s.empty %}
-          <label class="check store-row"><input type="checkbox" name="stores" value="{{ s.key }}"{% if s.on %} checked{% endif %}> <span><b>{{ s.label }}</b> <span class="store-note">· {{ s.network }} partner</span></span></label>
+          <label class="check store-row"><input type="checkbox" name="stores" value="{{ s.key }}"{% if s.on %} checked{% endif %}> <span><b>{{ s.label }}</b>{% if s.accepted %} <span class="store-note">· {{ s.network }} partner</span>{% endif %}</span></label>
           {% endfor %}
           {# Said right under the stores it is about (app.js 13c), above the ones with no products yet. #}
           <p class="flash store-said" data-store-said hidden></p>
@@ -201,7 +203,7 @@
           </div>
           {% endif %}
         </div>
-        <p class="muted small">Menswear only, and only stores with a partner programme are listed. More will join.</p>
+        <p class="muted small">Menswear only. More stores will join.</p>
       </section>
     </form>
 
@@ -248,7 +250,8 @@
       {% endif %}
       {% if photos and model_menu %}
       {# What a person needs to know before agreeing comes first: where the photo goes, how long it is kept, how to take
-         it back. The consent's words are dated: app.py stores PHOTO_CONSENT with the photo; change the two together.
+         it back. The consent's words are dated: app.py stores PHOTO_CONSENT with the photo; change the two together
+         (the sentence about videos has its own date, videos.CONSENT).
          `videos_on`: the pictures of him can also be made into videos ("See it move", videos.py), by Google. #}
       <form class="form" method="post" action="{{ url_for('profile_photo') }}" enctype="multipart/form-data" data-photo-form>{{ csrf_field() }}
         <p class="photo-facts" id="photo-facts">Your photo goes to {{ drawn_by }} each time a picture of you is drawn, so the model looks like you. An outfit's further photos (“More photos”) are made from that picture of you, which goes to {{ drawn_by }} again.

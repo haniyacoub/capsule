@@ -1,0 +1,47 @@
+{# A question asked under an outfit's picture before anything is drawn, in its own place under the line (_look.html,
+   .look-ask-at; app.outfits_look decides at the tap whether to ask). `ask` says which:
+
+   "again"          "Draw again" on a front picture that other photos were made from: they will be removed with it.
+                    "Draw again" here draws (the whole picture box is answered, as after any "Draw again").
+   "more"           "More photos" where the front picture is drawn from the customer's own photo, which he added
+                    before its words said that this picture goes to the image service again (looks.needs_ok). He
+                    is asked once: his yes is kept, for all his outfits. "Yes" here starts the photos (the row of
+                    small pictures is answered, and the question goes with it). The question says only what
+                    happens, not what he was or was not told before: that is true for everyone it is asked of.
+   "send:<picture>" the same question for one photo: a cell not drawn yet, tapped, or "Draw again" on it.
+
+   The other button takes the question away and leaves everything as it is. `shot`: the picture shown large
+   meanwhile; `photos`: the outfit's pictures. #}
+{% set what, _, wanted = (ask or '').partition(':') %}
+{% set ns = namespace(others=0, there=false) %}
+{% for p in (photos or [])[1:] %}
+  {% if p.look and p.look.status in ('ready', 'working') %}{% set ns.others = ns.others + 1 %}{% endif %}
+  {% if p.name == wanted and p.look and p.look.status == 'ready' %}{% set ns.there = true %}{% endif %}
+{% endfor %}
+{% if what == 'again' and ns.others %}
+<form class="look-ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:abort">{{ csrf_field() }}
+  <input type="hidden" name="key" value="{{ key }}">
+  <input type="hidden" name="again" value="1">
+  <input type="hidden" name="sure" value="1">
+  <p class="look-msg" id="ask-{{ key }}">Draw the front picture again? {{ 'The other photo of this outfit is made from it, so it' if ns.others == 1 else 'The other ' ~ ns.others ~ ' photos of this outfit are made from it, so they' }} will be removed. “More photos” draws {{ 'it' if ns.others == 1 else 'them' }} again.</p>
+  <span class="look-ask-btns">
+    <button class="btn small" aria-describedby="ask-{{ key }}">Draw again</button>
+    <button class="btn ghost small" name="keep" value="1">Keep {{ 'it' if ns.others == 1 else 'them' }}</button>
+  </span>
+</form>
+{% elif what == 'more' or (what == 'send' and wanted) %}
+<form class="look-ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:abort"
+      {%- if what == 'more' %} hx-target="#shots-{{ key }}" hx-swap="outerHTML"{% endif %}>{{ csrf_field() }}
+  <input type="hidden" name="key" value="{{ key }}">
+  <input type="hidden" name="agree" value="1">
+  <input type="hidden" name="shown" value="{{ shot or 'front' }}">
+  {% if what == 'more' %}<input type="hidden" name="more" value="1">
+  {% else %}<input type="hidden" name="shot" value="{{ wanted }}">{% if ns.there %}<input type="hidden" name="again" value="1">{% endif %}
+  {% endif %}
+  <p class="look-msg" id="ask-{{ key }}">{{ 'These photos are' if what == 'more' else 'This photo is' }} made from the AI picture of you, which goes to {{ picture_service() }} again. Is that OK from now on, for all your outfits?</p>
+  <span class="look-ask-btns">
+    <button class="btn small" aria-describedby="ask-{{ key }}">Yes, draw {{ 'them' if what == 'more' else 'it' }}</button>
+    <button class="btn ghost small" name="keep" value="1">Not now</button>
+  </span>
+</form>
+{% endif %}

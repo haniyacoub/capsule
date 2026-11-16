@@ -23,7 +23,7 @@ from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from flask import (Flask, Response, abort, flash, g, get_flashed_messages, redirect, render_template, request,
-                   send_file, url_for)
+                   send_file, session, url_for)
 from markupsafe import Markup
 from werkzeug.exceptions import HTTPException, NotFound
 
@@ -57,9 +57,11 @@ PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_ima
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
 # The date of the words a customer agrees to when he uploads his photo (the box on Profile, profile.html). It is
 # stored with the photo, so it is known which words he agreed to. Give it a new date whenever those words change.
-# While videos are on, the box's words also say that pictures of him go to Google for videos: those words are
-# dated videos.CONSENT, and that date is stored instead.
-PHOTO_CONSENT = "2026-11-12"
+# 2026-11-15: the words say that an outfit's further photos ("More photos") are made from the AI picture of him,
+# which goes to the image service again. (2026-11-12: his photo goes to the service for each picture of him.)
+# While videos are on, the box's words also say that pictures of him go to Google for videos: those words have
+# their own date, videos.CONSENT, which is stored beside this one (videos.agreed_with_the_photo).
+PHOTO_CONSENT = "2026-11-15"
 
 
 def bootstrap() -> None:
@@ -336,6 +338,8 @@ def create_app() -> Flask:
         my_stores=profile_mod.stores,
         # What a customer added to a piece from a store that is no longer offered, listed on its page (_set_aside.html).
         set_aside_for=catalog.set_aside,
+        # Beside "More photos": what it costs, or how many pictures are really left today (_shots.html).
+        more_words=looks.more_words,
     )
     bootstrap()
 
@@ -551,11 +555,16 @@ def create_app() -> Flask:
 
     def back_to(where: str | None, outfit: str, occasion: str | None, **said) -> str:
         """The page a change to a piece was made from, to go back to it: the outfit it was made in (the pop-up, or
-        the outfit's own list of pieces), the Saved outfits, the Wardrobe, the Shopping list, or Buy this outfit.
+        the outfit's own list of pieces), the Saved outfits, the Wardrobe, the Shopping list, Buy this outfit, or
+        the piece's own page ("slot").
         Those are the places that offer a swap for a product sold out in his size (_sold_out.html); the form says
         which in `back`. `said`: what the change did, for the line there with Undo (change_said). Buy this outfit
         needs its outfit to exist still; if the change broke it, the outfits page says so instead."""
         outfit = outfit[:400]
+        if where == "slot" and request.view_args and request.view_args.get("slot_id"):
+            # The piece's own page (the change was posted to /slot/<id>/...), with its way back to an outfit kept.
+            keep: dict = {**({"sort": "score"} if request.args.get("sort") == "score" else {}), **way_back(), **said}
+            return url_for("slot_page", slot_id=request.view_args["slot_id"], **keep)
         if where == "wardrobe":
             return url_for("wardrobe", **said)
         if where == "list":
@@ -703,7 +712,10 @@ def create_app() -> Flask:
         # the Wardrobe.
         way = way_back()
         back = url_for("outfits_page", at=way["at"], occasion=way.get("occasion")) if way else ""
-        return page("slot.html", w=w, tab="outfits" if back else "wardrobe", back=back, **slot_context(w, slot_id))
+        # After the swap for a product sold out in his size, made here: what changed, with Undo (change_said).
+        return page("slot.html", w=w, tab="outfits" if back else "wardrobe", back=back,
+                    said=change_said(w, None, "slot") if request.args.get("changed") == slot_id else None,
+                    **slot_context(w, slot_id))
 
     @app.post("/slot/<slot_id>/pick")
     def slot_pick(slot_id: str):
@@ -720,7 +732,7 @@ def create_app() -> Flask:
         if conf.PRODUCTION and before and before.id != cand_id and shared.kept_for_its_lock(view.slot, before.data):
             sync_catalog()      # the product it was locked to, in a colour he refused since, was kept only for that
         where = request.form.get("back")
-        if request.form.get("outfit") or where in ("wardrobe", "list", "saved"):
+        if request.form.get("outfit") or where in ("wardrobe", "list", "saved", "slot"):
             # Swapped from inside an outfit: back to it, now with the new piece. Or the swap for a product sold out
             # in his size, from the page that offered it (back_to). Either way the address carries
             # what was there before, so that the page says what changed and can undo it (change_said). The
@@ -882,7 +894,9 @@ def create_app() -> Flask:
     def slot_import(slot_id: str):
         """Manual import: pasted product links become candidates (see collect/manual.py). What each link came to
         is said inside the "Add a product by link" section the page comes back to (#add), not at the top of the
-        page, far above it: those messages have their own kind, "import" (slot.html, base.html)."""
+        page, far above it: those messages have their own kind, "import" (slot.html, base.html).
+        A link whose name holds a word such as "kids" or "damen" is not added yet: the page asks "Add it anyway?"
+        with a button that sends that link again with anyway=1 (_slot_body.html)."""
         from .collect import manual
 
         slot = db.get_slot(slot_id)
@@ -899,7 +913,8 @@ def create_app() -> Flask:
         if len(raw) > SAVED_PAGE:
             flash(PAGE_TOO_LARGE, "import")
             return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
-        results = manual.from_urls(links, slot, raw.decode("utf-8", errors="replace") if raw else None)
+        results = manual.from_urls(links, slot, raw.decode("utf-8", errors="replace") if raw else None,
+                                   anyway=request.form.get("anyway") == "1")
 
         def add(cat: dict) -> None:
             for _, cand, _ in results:
@@ -910,6 +925,11 @@ def create_app() -> Flask:
         catalog.update(add)
         for link, cand, note in results:
             shown = link if len(link) <= 80 else link[:79] + "…"
+            if isinstance(note, manual.Question):
+                # Not added yet: asked. The message carries the whole link too, for the form of its button
+                # (Flask keeps a message of any plain kind, not only words).
+                flash({"asks": f"“{shown}” {note}", "link": link}, "import")    # type: ignore[arg-type]
+                continue
             flash(f"Added “{cand['name']}”: {note}." if cand else f"Not added: “{shown}” {note}.", "import")
         return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
 
@@ -1097,7 +1117,16 @@ def create_app() -> Flask:
         for board in boards:
             if board["key"] == request.args.get("shot_of"):
                 board["shot"] = looks.shot_named(request.args.get("shot"))
+            # Asked for without JavaScript where a question comes first ("Draw again" on a front picture with
+            # other photos; a photo made from the picture of him, see looks.needs_ok): that outfit asks it.
+            board["ask"] = request.args.get("ask", "")[:40] if board["key"] == request.args.get("ask_of") else ""
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
+        for board in boards:
+            # The question about the picture of him is only asked of a customer it is true for: not again once he
+            # has said yes (the page reloaded, the address opened again).
+            if board["ask"].startswith(("more", "send")) and not (
+                    looks_on and looks.needs_ok(board.get("look_pieces") or board["pieces"])):
+                board["ask"] = ""
         videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved), removed=removed,
                     answer=answer, n_declined=n_declined, news=wardrobe_news(w),
@@ -1145,15 +1174,20 @@ def create_app() -> Flask:
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
 
-    def shot_shown(outfit_key: str, shot: str) -> str:
+    def shot_shown(outfit_key: str, shot: str, ask: str = "") -> str:
         """Where a picture asked for without JavaScript leads: back to the outfits page it was asked from (its
         occasion, its outfits), with that outfit in view (#outfit-<key>) showing the picture that was asked for
-        (shot=, shot_of=; nothing for the front picture). So a tap on Street shows the street, not the front again."""
+        (shot=, shot_of=; nothing for the front picture). So a tap on Street shows the street, not the front again.
+        `ask`: what the page asks under that outfit's picture before anything is drawn (ask=, ask_of=; the
+        questions are in _look_ask.html)."""
         back = urlsplit(request.referrer or "")
         same = back.path == url_for("outfits_page") and back.netloc in ("", request.host)
-        args = {name: value for name, value in parse_qsl(back.query) if same and name not in ("shot", "shot_of")}
+        args = {name: value for name, value in parse_qsl(back.query)
+                if same and name not in ("shot", "shot_of", "ask", "ask_of")}
         if shot != looks.FRONT:
             args.update(shot=shot, shot_of=outfit_key)
+        if ask:
+            args.update(ask=ask, ask_of=outfit_key)
         return url_for("outfits_page") + (f"?{urlencode(args)}" if args else "") + f"#outfit-{outfit_key}"
 
     def pieces_of(outfit_key: str) -> list[dict] | None:
@@ -1174,6 +1208,28 @@ def create_app() -> Flask:
                                clip=videos.clip_of(large.name),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
 
+    def photos_said(outfit_key: str, said: str | None = None) -> str:
+        """Why "More photos" did not draw every picture of an outfit (the day's pictures ran out part-way, the
+        service is being left alone): kept with the customer's session, so that the row of small pictures goes on
+        saying it, through its own questions "are they done?" and a reload, until he taps OK (or taps "More photos"
+        again and all are drawn). `said`: the reason to keep now; "" forgets it. Returns what is kept."""
+        kept = dict(session.get("photos_said") or {})
+        if said is not None:
+            kept.pop(outfit_key, None)
+            if said:
+                kept = {**dict(list(kept.items())[-4:]), outfit_key: said[:300]}      # a handful at most
+            session["photos_said"] = kept
+        return kept.get(outfit_key, "")
+
+    app.jinja_env.globals["photos_said"] = photos_said
+
+    def picture_service() -> str:
+        """The image service, as a sentence names it to the customer: "Google" (as `drawn_by` on Profile)."""
+        chosen = looks.service()
+        return chosen.label if chosen else "the AI service"
+
+    app.jinja_env.globals["picture_service"] = picture_service
+
     def shots_fragment(outfit_key: str, photos: list[looks.Photo], shot: str, said: str = "") -> str:
         """Only the row of small pictures (it is swapped on its own while pictures arrive, so the large picture
         stays as it is). `said`: why "More photos" did not start all of them."""
@@ -1184,31 +1240,88 @@ def create_app() -> Flask:
     @app.post("/outfits/look")
     def outfits_look():
         """Ask for a picture of an outfit: its front picture, one of the others (shot=, a small picture tapped),
-        all of the others ("More photos", more=1), or a new version of one (again=1)."""
+        all of the others ("More photos", more=1), or a new version of one (again=1). Two things are asked about
+        first, under the picture (ask_first): drawing a front picture again that other photos were made from, and
+        making a photo from the AI picture of a customer who has not yet agreed to that (looks.needs_ok)."""
         key = request.form.get("key", "")
         pieces = pieces_of(key)
         if pieces is None:
             abort(409, "That outfit no longer exists — reload the page.")
+        by_htmx = bool(request.headers.get("HX-Request"))
+        # A question's own place under the picture (_look.html): only that is answered, so the picture stays put.
+        question_only = {"HX-Retarget": f"#ask-at-{key}", "HX-Reswap": "innerHTML"}
+
+        def ask_first(what: str, staying: str):
+            """Nothing is drawn yet: the page asks first, under the outfit's picture (_look_ask.html), and the
+            answer yes sends the same request again with it (sure=1, agree=1). Asked here, at the tap, so it is
+            right however the page came to be as it is (photos that arrived a moment ago, without a reload), and
+            without JavaScript too: then the outfits page comes back with the question (shot_shown).
+            `what`: "again", "more" or "send:<picture>"; `staying`: the picture shown large meanwhile."""
+            if not by_htmx:
+                return redirect(shot_shown(key, staying, ask=what))
+            return render_template("_look_ask.html", key=key, ask=what, shot=staying,
+                                   photos=looks.gallery(pieces) or []), 200, question_only
+
+        if request.form.get("keep") == "1":
+            # "Keep them" or "Not now" under a question: the question goes, nothing else changes.
+            if not by_htmx:
+                return redirect(shot_shown(key, looks.shot_named(request.form.get("shown"))))
+            return "", 200, question_only
+        agreed = request.form.get("agree") == "1"       # "Yes" under the question about the picture of him
         if request.form.get("more") == "1":
             # "More photos": the pictures after the front one are started, each one picture of the day's allowance.
             # The picture shown large stays; only the row of small pictures is answered.
             if looks.service() is None:
                 abort(404)
-            said = looks.request_more(pieces)
             staying = looks.shot_named(request.form.get("shown"))
-            if not request.headers.get("HX-Request"):
-                if said:
-                    flash(said)
+            if looks.needs_ok(pieces):
+                # They are made from the AI picture of him, which goes to the image service again. He added his
+                # photo before its words said so: he is asked once, and his yes is kept.
+                if not agreed:
+                    return ask_first("more", staying)
+                looks.agree_to_sending_again()
+            said = photos_said(key, looks.request_more(pieces))     # kept, and said under the row until he taps OK
+            if not by_htmx:
                 return redirect(shot_shown(key, staying))
-            return shots_fragment(key, looks.gallery(pieces) or [], staying, said)
+            row = shots_fragment(key, looks.gallery(pieces) or [], staying, said)
+            if agreed:                  # sent from the question, which goes now that it is answered
+                row += str(Markup('<div class="look-ask-at" id="ask-at-%s" hx-swap-oob="true"></div>') % key)
+            return row
+        if request.form.get("read") == "1":
+            # "OK" beside why "More photos" did not draw every picture: the reason is read, and goes.
+            photos_said(key, "")
+            staying = looks.shot_named(request.form.get("shown"))
+            if not by_htmx:
+                return redirect(shot_shown(key, staying))
+            return shots_fragment(key, looks.gallery(pieces) or [], staying)
         shot = looks.shot_named(request.form.get("shot"))      # a small picture tapped; else the front picture
-        front = (looks.gallery(pieces) or [looks.Photo(looks.FRONT, looks.FRONT_LABEL)])[0].look
+        photos = looks.gallery(pieces) or [looks.Photo(looks.FRONT, looks.FRONT_LABEL)]
+        front = photos[0].look
         if not (front and front.status == "ready"):
             shot = looks.FRONT              # nothing can be made from a front picture that is not there: it is asked for
-        look = looks.request(pieces, again=request.form.get("again") == "1", shot=shot)
+        again = request.form.get("again") == "1"
+        if again and shot == looks.FRONT and looks.made_from_front(pieces) and request.form.get("sure") != "1":
+            # "Draw again" on a front picture that other photos were made from: they will be removed with it, so
+            # the page says that and asks first; "Draw again" under the question sends sure=1.
+            return ask_first("again", looks.FRONT)
+        there = next((photo.look for photo in photos if photo.name == shot), None)
+        if shot != looks.FRONT and (again or not (there and there.status in ("ready", "working"))) \
+                and looks.needs_ok(pieces):
+            # One of the other pictures is to be drawn now (a cell not drawn yet, or "Draw again" on it): from the
+            # AI picture of him, like "More photos". The same question first, once.
+            if not agreed:
+                return ask_first(f"send:{shot}", shot if again else looks.FRONT)
+            looks.agree_to_sending_again()
+        look = looks.request(pieces, again=again, shot=shot)
         if look is None:
             abort(404)                      # AI pictures are switched off
         photos = looks.gallery(pieces) or []
+        if shot != looks.FRONT and look.status in ("limit", "failed"):
+            # One of the small pictures, tapped where it was not drawn, cannot be drawn now (the day's pictures are
+            # used up, the service is being left alone): the front picture stays large, and the reason is said once,
+            # under the row, until he taps OK. Not over the picture, which would hide it behind the pieces' photos.
+            photos_said(key, look.message)
+            shot, look = looks.FRONT, photos[0].look if photos else look
         for photo in photos:                # what was just answered, with its reason if it was refused
             if photo.name == shot:
                 photo.look = look
@@ -1702,10 +1815,13 @@ def create_app() -> Flask:
 
     def store_rows(profile: dict) -> list[dict]:
         """The Stores tab: every store customers are offered (programmes.offered), with the network that runs its
-        partner programme ("Rakuten") and whether he ticked it (profile.stores)."""
+        partner programme ("Rakuten") and whether he ticked it (profile.stores). `accepted`: the store's programme
+        has accepted Stilsmith ("approved" in the owner's registry, the stores table); only then is the store called
+        a partner on the page."""
         mine = profile_mod.stores(profile)
         stocked = shared.stocked()
-        rows = [{"key": key, "label": label, "on": key in mine, "empty": key not in stocked,
+        approved = {store["key"] for store in db.list_stores() if store["status"] == "approved"}
+        rows = [{"key": key, "label": label, "on": key in mine, "empty": key not in stocked, "accepted": key in approved,
                  "network": owner.NETWORKS.get(programmes.network(key), programmes.network(key).title())}
                 for key, label in programmes.offered().items()]
         # The stores with products first; those with none yet are shown apart, under their own line (profile.html).
@@ -1800,6 +1916,17 @@ def create_app() -> Flask:
             flash("The conversation is deleted." + (" Your style brief stays in use." if style.current() else ""),
                   "style")
         return redirect(url_for("profile_page") + "#style")
+
+    def no_partners() -> bool:
+        """True while no store's partner programme has accepted Stilsmith ("approved" in the owner's registry). From
+        the day one has, the Stores tab calls that store a partner, and the page's foot no longer says "Not
+        affiliated with any retailer". If the registry cannot be read (an error page), the foot says nothing."""
+        try:
+            return not any(store["status"] == "approved" for store in db.list_stores())
+        except Exception:
+            return False
+
+    app.jinja_env.globals["no_partners"] = no_partners
 
     def back_to_tab():
         """Back to Profile, on the tab the form was sent from (app.js writes it in the form; without it, the first)."""
@@ -1966,9 +2093,10 @@ def create_app() -> Flask:
         else:
             problem = person.save_photo(data)
             if problem is None:
-                # Beside photo_added: which words he agreed to (with the videos' words while videos are on).
+                # Beside photo_added: which words he agreed to, and whether the videos' words were among them.
                 videos_shown = looks.service() is not None and videos.service() is not None    # as profile_page
-                db.set_setting("photo_consent", videos.CONSENT if videos_shown else PHOTO_CONSENT)
+                db.set_setting("photo_consent", PHOTO_CONSENT)
+                videos.agreed_with_the_photo(videos_shown)
                 looks.forget_pictures_of(db.uid())      # those showed the previous photo
             flash(f"Not saved. {problem}" if problem
                   else "Photo saved. Pictures drawn from now on show you.", "photo")

@@ -232,7 +232,8 @@ def run(base: str) -> None:
         browser = p.chromium.launch()
         page = browser.new_context(viewport={"width": 1280, "height": 860}).new_page()
         page.set_default_timeout(15000)
-        page.on("dialog", lambda d: d.accept())
+        confirmed: list[str] = []     # what the browser asked before going on (deleting the account), each said yes to
+        page.on("dialog", lambda d: (confirmed.append(d.message), d.accept()))
         # (The demo catalogue has one picture that is missing on purpose, to show the fallback.)
         page.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
                 if r.status >= 400 and r.url.startswith(base) and "does-not-exist" not in r.url else None)
@@ -856,8 +857,16 @@ def run(base: str) -> None:
             # focus goes to the picture shown. Tapping a small picture shows it large, without dots (they are placed for
             # the front picture's pose), and costs nothing; back on the front picture the dots are there again. On a
             # phone and a computer, light and dark, the row lies under the line under the picture, whole on the screen,
-            # its cells big enough for a finger, the one shown framed so that it can be told (3:1); on a phone the
-            # outfit's title and price still end above the tab bar.
+            # each picture 48 by 64px (large enough to tell the six apart) with its name under it (Front, Walking,
+            # Turned, Street, Café, Library), the one shown framed so that it can be told (3:1); on a phone the
+            # outfit's title and price still end above the tab bar. On a short phone (390 x 664, 320 x 568:
+            # the browser's own bars showing) the pictures are 30 by 40px without names, as before they had names,
+            # so nothing is pushed off the first screen, and the six fit. Where six of 48px do not fit (a laptop's
+            # window, 1366 x 650, where the picture is narrower than that; a tall phone only 320px wide), the six are
+            # narrower, whole in their row with their names. The row never scrolls sideways: a mouse could not reach
+            # a picture cut off, Tab reaches the last one whole, and a sideways swipe that starts on the row moves on
+            # to the next outfit, like a swipe anywhere else on the outfit. "Draw again" on the front picture, right
+            # after "More photos", asks first, under the picture, because the other five would go with it.
             row = f"{first} .shots"
             cells = ("s => [...document.querySelectorAll(s + ' .shots-row button[aria-pressed]')].map(b => ({"
                      "name: b.id.split('-').pop(), pressed: b.getAttribute('aria-pressed'), label: b.getAttribute('aria-label'),"
@@ -866,6 +875,165 @@ def run(base: str) -> None:
             changes = {name: shot["change"] for group in ("poses", "scenes") for name, shot in rules[group].items()}
             order = ["front", *changes]
             assert order == ["front", "walking", "turned", "street", "cafe", "library"], f"an outfit's pictures are {order}"
+            names = dict(zip(order, ("Front", "Walking", "Turned", "Street", "Café", "Library")))
+
+            def swipe(session, other, selector: str, distance: int = -250) -> None:
+                """A sideways swipe by touch that starts on `selector` in the first outfit (at its right end when
+                swiping left)."""
+                box = other.locator(f"{first} {selector}").bounding_box()
+                session.send("Input.synthesizeScrollGesture", {
+                    "x": int(box["x"] + (box["width"] - 30 if distance < 0 else 30)), "y": int(box["y"] + box["height"] / 2),
+                    "xDistance": distance, "yDistance": 0, "gestureSourceType": "touch", "speed": 800})
+                other.wait_for_timeout(900)
+
+            at = "() => document.getElementById('reel').scrollLeft"       # how far the outfits have moved
+
+            def narrow_phone() -> None:
+                # A tall phone under 360px wide: six pictures of 48px do not fit. They are narrower there (41px, 3 wide
+                # by 4 high), all six whole in one row with their names, and the row does not scroll: the last one is
+                # whole when Tab reaches it, and a sideways swipe that starts on the row moves on to the next outfit.
+                # (Some headless browsers ignore a synthesized swipe: then one that starts on the line above is
+                # ignored too, and only the row's style is checked.)
+                context, other = logged_in_on(browser, viewport={"width": 320, "height": 844}, is_mobile=True, has_touch=True)
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.wait_for_selector(f"{first} .look-pic img")
+                seen = other.evaluate("""s => {
+                    const shots = document.querySelector(s + ' .shots'), row = shots.querySelector('.shots-row'), box = el => el.getBoundingClientRect();
+                    const pics = [...row.querySelectorAll('.shot-pic')], r = box(shots), words = [...row.querySelectorAll('.shot-name')];
+                    return {count: pics.length, rows: new Set(pics.map(p => Math.round(box(p).top))).size,
+                            sizes: pics.map(p => [box(p).width, box(p).height]),
+                            inside: pics.every(p => box(p).left >= r.left - 0.5 && box(p).right <= r.right + 0.5) && r.left >= 0 && r.right <= innerWidth,
+                            names: words.map(w => w.textContent.trim()),
+                            apart: words.map(box).every((w, i, all) => w.height >= 11 && w.height <= 17 && (i === 0 || w.left >= all[i - 1].right + 2)),
+                            overflow: getComputedStyle(row).overflowX, scrolls: row.scrollWidth > row.clientWidth + 1,
+                            page: document.documentElement.scrollWidth}; }""", first)
+                # By keyboard: Tab from the first picture to the last, which is whole in the row.
+                other.focus(f"{first} .shots-row button[aria-pressed=true]")
+                for _ in range(5):
+                    other.keyboard.press("Tab")
+                tabbed = other.evaluate("""() => { const cell = document.activeElement, c = cell.getBoundingClientRect(),
+                    r = cell.closest('.shots').getBoundingClientRect();
+                    return {id: cell.id, whole: c.left >= r.left - 0.5 && c.right <= r.right + 0.5 && c.right <= innerWidth}; }""")
+                # By touch: a swipe that starts on the row moves on to the next outfit.
+                other.evaluate("() => document.activeElement.blur()")
+                touch = context.new_cdp_session(other)
+                swipe(touch, other, ".shots-row")
+                on_row = other.evaluate(at)
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.wait_for_selector(f"{first} .look-pic img")
+                swipe(touch, other, ".look-line")
+                on_line = other.evaluate(at)
+                context.close()
+                assert seen["count"] == 6 and seen["rows"] == 1 and seen["inside"] and seen["page"] <= 320, \
+                    f"at 320 x 844 one of the six small pictures is cut off at the end of its row, or the page is wider than the screen: {seen}"
+                assert all(38 <= w <= 48 and abs(h - w * 4 / 3) < 0.5 for w, h in seen["sizes"]), \
+                    f"at 320 x 844 a small picture is under 38px wide, or not 3 wide by 4 high: {seen['sizes']}"
+                assert seen["names"] == [names[name] for name in order] and seen["apart"], \
+                    f"at 320 x 844 the small pictures' names are missing, on two lines, or run into each other: {seen}"
+                assert seen["overflow"] == "visible" and not seen["scrolls"], \
+                    f"at 320 x 844 the row of small pictures is a scrolling box: it swallows a swipe ({seen})"
+                assert tabbed["id"].endswith("-library") and tabbed["whole"], \
+                    f"at 320px the last small picture, reached by Tab, is cut off at the row's edge: {tabbed}"
+                assert on_row >= 320 or on_line < 320, \
+                    f"at 320 x 844 a swipe that starts on the row of small pictures does not move to the next outfit ({on_row}px; from the line above: {on_line}px)"
+
+            def short_phones() -> None:
+                # A phone under 820px of visible height: the row as it was before the pictures had names. 40px, six
+                # pictures of 30 by 40px that fit without scrolling (at 320px too), no names shown, but each still
+                # says its name to a screen reader. The row is no scrolling box, so a swipe on it moves the outfits.
+                for width, height in ((390, 664), (320, 568), (360, 740)):
+                    context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=True, has_touch=True)
+                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.wait_for_selector(f"{first} .look-pic img")
+                    seen = other.evaluate("""s => {
+                        const shots = document.querySelector(s + ' .shots'), row = shots.querySelector('.shots-row'), box = el => el.getBoundingClientRect();
+                        const cells = [...row.querySelectorAll('button[aria-pressed]')], r = box(shots);
+                        return {height: r.height, sizes: cells.map(c => [box(c.querySelector('.shot-pic')).width, box(c.querySelector('.shot-pic')).height]),
+                                inside: cells.every(c => box(c).left >= r.left - 0.5 && box(c).right <= r.right + 0.5 && box(c).right <= innerWidth),
+                                names: [...row.querySelectorAll('.shot-name')].filter(n => box(n).height > 0).length,
+                                tall: cells.map(c => box(c).height),
+                                labels: cells.map(c => c.getAttribute('aria-label')), overflow: getComputedStyle(row).overflowX,
+                                scrolls: row.scrollWidth > row.clientWidth + 1, page: document.documentElement.scrollWidth}; }""", first)
+                    where = f"at {width} x {height}"
+                    assert seen["height"] == 40 and seen["sizes"] == [[30, 40]] * 6 and seen["inside"] and not seen["names"] \
+                        and seen["tall"] == [40] * 6, \
+                        f"{where} the small pictures are not one 40px row of six 30 by 40px pictures without names: {seen}"
+                    assert seen["labels"] == [names[name] for name in order], f"{where} a small picture does not say its name: {seen['labels']}"
+                    assert seen["overflow"] == "visible" and not seen["scrolls"] and seen["page"] <= width, \
+                        f"{where} the row scrolls or is a scrolling box, or the page is wider than the screen: {seen}"
+                    if width == 390:
+                        other.evaluate("s => document.querySelector(s + ' .shots-row').scrollIntoView({block: 'center', behavior: 'instant'})", first)
+                        other.wait_for_timeout(300)
+                        touch = context.new_cdp_session(other)
+                        swipe(touch, other, ".shots-row")
+                        on_row = other.evaluate(at)
+                        other.evaluate("() => document.getElementById('reel').scrollTo({left: 0, behavior: 'instant'})")
+                        other.wait_for_timeout(300)
+                        swipe(touch, other, ".look-line")
+                        on_line = other.evaluate(at)
+                        assert on_row >= width or on_line < width, \
+                            f"{where} a swipe that starts on the row of small pictures does not move to the next outfit ({on_row}px; from the line above: {on_line}px)"
+                    context.close()
+
+            def laptops() -> None:
+                # A computer's window under about 840px high (most laptops): the picture is narrower than six
+                # pictures of 48px. None of the six is cut off and the row does not scroll: each is narrower (38px
+                # at the least, 3 wide by 4 high), with its name under it, and no name runs into the next.
+                for width, height in ((1366, 650), (1280, 720), (1440, 780)):
+                    context, other = logged_in_on(browser, viewport={"width": width, "height": height})
+                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.wait_for_selector(f"{first} .look-pic img")
+                    seen = other.evaluate("""s => {
+                        const shots = document.querySelector(s + ' .shots'), row = shots.querySelector('.shots-row'), box = el => el.getBoundingClientRect();
+                        const cells = [...row.querySelectorAll('button[aria-pressed]')], r = box(shots);
+                        const words = cells.map(c => box(c.querySelector('.shot-name')));
+                        return {row: [r.left, r.right], picture: box(document.querySelector(s + ' .look-pic')).width,
+                                sizes: cells.map(c => [box(c.querySelector('.shot-pic')).width, box(c.querySelector('.shot-pic')).height]),
+                                inside: cells.every(c => box(c.querySelector('.shot-pic')).left >= r.left - 0.5 && box(c.querySelector('.shot-pic')).right <= r.right + 0.5),
+                                rows: new Set(cells.map(c => Math.round(box(c).top))).size,
+                                names: cells.map(c => c.querySelector('.shot-name').textContent.trim()),
+                                apart: words.every((w, i) => w.width > 0 && w.height <= 17 && (i === 0 || w.left >= words[i - 1].right + 2)),
+                                overflow: getComputedStyle(row).overflowX, scrolls: row.scrollWidth > row.clientWidth + 1,
+                                page: document.documentElement.scrollWidth}; }""", first)
+                    context.close()
+                    where = f"at {width} x {height}"
+                    assert len(seen["sizes"]) == 6 and seen["rows"] == 1 and seen["inside"], \
+                        f"{where} one of the six small pictures is cut off at the end of its row: {seen}"
+                    assert seen["overflow"] == "visible" and not seen["scrolls"] and seen["page"] <= width, \
+                        f"{where} the row of small pictures scrolls sideways, which a mouse cannot do: {seen}"
+                    assert all(38 <= w <= 48 and abs(h - w * 4 / 3) < 0.5 for w, h in seen["sizes"]), \
+                        f"{where} a small picture is under 38px wide, or not 3 wide by 4 high: {seen['sizes']}"
+                    assert seen["names"] == [names[name] for name in order] and seen["apart"], \
+                        f"{where} the small pictures' names are missing, on two lines, or run into each other: {seen}"
+
+            def a_swipe_on_the_row_moves_on() -> None:
+                # On a 390px phone the six fit, so the row scrolls nothing: a sideways swipe that starts on it moves on
+                # to the next outfit, like one that starts anywhere else on the outfit. (Some headless browsers ignore
+                # a synthesized swipe: then one on the line above is ignored too, and only the row's style is checked.)
+                context, other = logged_in_on(browser, viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+                touch = context.new_cdp_session(other)
+
+                def swiped(selector: str) -> float:
+                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.wait_for_selector(f"{first} .look-pic img")
+                    motion_ended(other)
+                    swipe(touch, other, selector)
+                    return other.evaluate(at)
+
+                on_row, on_line = swiped(".shots-row"), swiped(".look-line")
+                style = other.evaluate("s => getComputedStyle(document.querySelector(s + ' .shots-row')).overflowX", first)
+                # "OK" beside why "More photos" stopped (shown only once a day's pictures ran out): 24px high at least.
+                ok = other.evaluate("""s => { const row = document.querySelector(s + ' .shots');
+                    row.insertAdjacentHTML('beforeend', '<form class="shots-said"><p class="look-msg">Today&#39;s pictures are used up. <button type="button" class="link">OK</button></p></form>');
+                    const link = row.querySelector('.shots-said .link'), high = link.getBoundingClientRect().height,
+                        target = parseFloat(getComputedStyle(link, '::after').height);
+                    row.querySelector('.shots-said').remove();
+                    return {high, target}; }""", first)
+                context.close()
+                assert style == "visible", f"at 390px, where the six small pictures fit, their row is a scrolling box ({style}): it swallows a swipe"
+                assert on_row >= 390 or on_line < 390, \
+                    f"a swipe that starts on the row of small pictures does not move to the next outfit ({on_row}px; from the line above: {on_line}px)"
+                assert ok["high"] >= 24 and ok["target"] >= 44, f"'OK' under the row is {ok['high']}px high, a {ok['target']}px target"
 
             def layout(state: str) -> None:
                 for width, height, touch in ((390, 844, True), (1280, 860, False)):
@@ -884,15 +1052,20 @@ def run(base: str) -> None:
                             const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
                             const inside = el => { const b = box(el); return b.width > 0 && b.left >= r.left - 0.5 && b.right <= r.right + 0.5
                                                    && b.top >= r.top - 0.5 && b.bottom <= r.bottom + 0.5; };
-                            const cells = [...row.querySelectorAll('.shots-row button[aria-pressed]')].map(b => ({
-                                name: b.id.split('-').pop(), width: box(b).width, height: box(b).height, inside: inside(b),
-                                loaded: !b.querySelector('img') || (b.querySelector('img').complete && b.querySelector('img').naturalWidth > 0)}));
-                            const shown = row.querySelector('[aria-pressed="true"]');
+                            const cells = [...row.querySelectorAll('.shots-row button[aria-pressed]')].map(b => {
+                                const pic = box(b.querySelector('.shot-pic')), name = b.querySelector('.shot-name'), n = box(name);
+                                return {name: b.id.split('-').pop(), width: box(b).width, height: box(b).height, inside: inside(b),
+                                        picture: [pic.width, pic.height], words: name.textContent.trim(), top: Math.round(pic.top),
+                                        named: n.top >= pic.bottom - 0.5 && n.left >= pic.left - 0.5 && n.right <= pic.right + 0.5
+                                               && parseFloat(getComputedStyle(name).fontSize) >= 11,
+                                        loaded: !b.querySelector('img') || (b.querySelector('img').complete && b.querySelector('img').naturalWidth > 0)}; });
+                            const shown = row.querySelector('[aria-pressed="true"] .shot-pic');
                             const frame = shown ? getComputedStyle(shown, '::after') : null;
                             const more = row.querySelector('.btn'), note = row.querySelector('.shots-note');
                             const meta = [...slide.querySelectorAll('.about-head h2, .count, .board-cost')].map(el => box(el).bottom);
                             return {cells, height: r.height, left: r.left, right: r.right, under: Math.abs(r.top - line.bottom) < 1,
-                                    same_width: Math.abs(r.width - line.width) < 1, screen: innerWidth,
+                                    same_width: r.width >= line.width - 1 && Math.abs((r.left + r.right) - (line.left + line.right)) < 2,
+                                    screen: innerWidth,
                                     frame: frame && parseFloat(frame.borderTopWidth) >= 2
                                            ? Math.round(ratio(frame.borderTopColor, getComputedStyle(document.body).backgroundColor) * 100) / 100 : 0,
                                     more: more && {words: more.textContent.trim(), height: box(more).height, inside: inside(more)},
@@ -902,14 +1075,17 @@ def run(base: str) -> None:
                                     page: document.documentElement.scrollWidth};
                         }""", first)
                         where = f"{width} x {height}, {scheme}, {state}"
-                        assert seen["under"] and seen["same_width"] and seen["height"] == 40 and 0 <= seen["left"] \
+                        assert seen["under"] and seen["same_width"] and seen["height"] == 84 and 0 <= seen["left"] \
                             and seen["right"] <= seen["screen"], \
-                            f"{where}: the small pictures are not one 40px row right under the line under the picture, whole on the screen: {seen}"
+                            f"{where}: the small pictures are not one 84px row right under the line under the picture, whole on the screen: {seen}"
+                        assert len({cell["top"] for cell in seen["cells"]}) == 1, f"{where}: the small pictures are not one row: {seen['cells']}"
                         assert seen["page"] <= width, f"{where}: the page is {seen['page']}px wide"
                         assert [cell["name"] for cell in seen["cells"]] == (order if state == "six" else ["front"]), f"{where}: {seen['cells']}"
                         for cell in seen["cells"]:
-                            assert cell["width"] >= 24 and cell["height"] >= 40 and cell["inside"] and cell["loaded"], \
-                                f"{where}: the small picture {cell['name']!r} is too small for a finger, outside its row, or did not load: {cell}"
+                            assert cell["picture"] == [48, 64] and cell["inside"] and cell["loaded"], \
+                                f"{where}: the small picture {cell['name']!r} is not 48 by 64px, is outside its row, or did not load: {cell}"
+                            assert cell["words"] == names[cell["name"]] and cell["named"], \
+                                f"{where}: the small picture {cell['name']!r} does not have its name {names[cell['name']]!r} under it: {cell}"
                         assert seen["frame"] >= 3, f"{where}: the picture shown is not framed so that it can be told ({seen['frame']}:1)"
                         if state == "six":
                             assert not seen["more"], f"{where}: 'More photos' is still offered: {seen}"
@@ -984,7 +1160,49 @@ def run(base: str) -> None:
                     break
                 page.wait_for_timeout(100)
             assert not page.locator(f"{row}[hx-get]").count(), "all six are there, and the row still asks for news"
+            # "Draw again" on the front picture, right now: no reload, no small picture tapped since "More photos"
+            # (which replaced only the row). It asks first, saying that the other five will be removed; nothing is
+            # drawn or removed until he answers; keyboard focus is on the answer. "Keep them": all as it was.
+            before = len(asked)
+            page.click(f"{first} .look-line button:has-text('Draw again')")
+            page.wait_for_selector(f"{first} .look-ask")
+            question = page.inner_text(f"{first} .look-ask p")
+            assert question == ("Draw the front picture again? The other 5 photos of this outfit are made from it, so they "
+                                "will be removed. “More photos” draws them again."), \
+                f"'Draw again' on the front picture, right after 'More photos', asks {question!r}"
+            answers = page.evaluate("s => [...document.querySelectorAll(s + ' .look-ask button')].map(b => [b.textContent.trim(), b.getBoundingClientRect().height])", first)
+            assert [words for words, _ in answers] == ["Draw again", "Keep them"] and all(height >= 40 for _, height in answers), \
+                f"the answers to the question are {answers}"
+            assert page.evaluate("() => document.activeElement.textContent.trim()") == "Draw again" \
+                and page.evaluate("() => !!document.activeElement.closest('.look-ask')"), "keyboard focus is not on the question's answer"
+            assert len(asked) == before and sum(1 for cell in page.evaluate(cells, first) if cell["picture"]) == 6, \
+                "'Draw again' on the front picture drew or removed something before it was answered"
+            page.click(f"{first} .look-ask button:has-text('Keep them')")
+            page.wait_for_selector(f"{first} .look-ask", state="detached")
+            assert len(asked) == before and sum(1 for cell in page.evaluate(cells, first) if cell["picture"]) == 6 \
+                and page.get_attribute(f"{first} .look-pic img", "src") == front, "'Keep them' did not leave everything as it was"
+            # Without JavaScript the same tap leads to the outfits page asking it, under that outfit's picture, with
+            # nothing drawn or removed; "Keep them" leads back to the outfit as it was.
+            context, plain = logged_in_on(browser, viewport={"width": 390, "height": 844}, java_script_enabled=False)
+            plain.goto(base + "/outfits", wait_until="networkidle")
+            plain.click(f"{first} .look-line button:has-text('Draw again')")
+            plain.wait_for_load_state("networkidle")
+            asks = plain.locator(".look-ask p").all_inner_texts()
+            assert "ask=again" in plain.url and asks == [question] and plain.locator(f"{first} .look-ask").count() == 1, \
+                f"without JavaScript 'Draw again' on the front picture leads to {plain.url}, which asks {asks}"
+            assert len(asked) == before and plain.locator(f"{first} .shots-row img").count() == 6, \
+                "without JavaScript 'Draw again' drew or removed something before it was answered"
+            plain.click(f"{first} .look-ask button:has-text('Keep them')")
+            plain.wait_for_load_state("networkidle")
+            assert "ask" not in plain.url and not plain.locator(".look-ask").count() \
+                and plain.locator(f"{first} .shots-row img").count() == 6 and len(asked) == before, \
+                f"without JavaScript 'Keep them' did not leave everything as it was ({plain.url})"
+            context.close()
             layout("six")
+            narrow_phone()
+            short_phones()
+            laptops()
+            a_swipe_on_the_row_moves_on()
 
             dots = "s => getComputedStyle(document.querySelector(s + ' .spots')).display"
             assert page.evaluate(dots, first) != "none", "the front picture has no dots"
@@ -1691,7 +1909,14 @@ def run(base: str) -> None:
                     if (!window.again.stop) requestAnimationFrame(look);
                 };
                 requestAnimationFrame(look); }""", first)
+            # The other five photos are made from the front picture, so they go with it: that is said first.
             page.click(f"{first} .look-line button:has-text('Draw again')")
+            page.wait_for_selector(f"{first} .look-ask")
+            said_first = page.inner_text(f"{first} .look-ask p")
+            assert said_first == ("Draw the front picture again? The other 5 photos of this outfit are made from it, so "
+                                  "they will be removed. “More photos” draws them again."), \
+                f"'Draw again' on the front picture did not say first that the other five go: {said_first!r}"
+            page.click(f"{first} .look-ask button:has-text('Draw again')")
             page.wait_for_selector(f"{first} .look-bar.wait")
             kept = page.evaluate("s => { const i = document.querySelector(s + ' .look-pic img'); return i && i.getAttribute('src'); }", first)
             assert kept == earlier, "while 'Draw again' draws, the picture that was there is gone: the pieces' photos show under the band"
@@ -1743,7 +1968,7 @@ def run(base: str) -> None:
             # outfit before the change is never shown over it. Undo brings back the product it had and its lock state
             # (an automatic piece is automatic again, as its Wardrobe card shows). Then it is chosen again, for the
             # steps after this one. On a short phone the line is whole on the first screen, with the outfit's picture
-            # box still above the tab bar, under the starter banner too.
+            # box (its row of small pictures included) still above the tab bar, under the starter banner too.
             choose = page.locator("#piece-body .swap li:not(.out) button", has_text="Choose")
             assert choose.count() > 0, "nothing to swap for"
             # The store's own name for the option (lang=de: under its English name where there is one), which is
@@ -1789,11 +2014,14 @@ def run(base: str) -> None:
                 const line = box(document.querySelector('main > .said')), undo = document.querySelector('main > .said button');
                 return {top: line.top, bottom: line.bottom, starter: !!document.querySelector('.starter'),
                         stage: box(document.querySelector('#reel .slide:first-child .stage')).bottom,
+                        row: box(document.querySelector('#reel .slide:first-child .shots')).bottom,
                         tabs: box(document.querySelector('nav.tabs')).top,
-                        target: parseFloat(getComputedStyle(undo, '::after').height)}; }""")
+                        height: box(undo).height, target: parseFloat(getComputedStyle(undo, '::after').height)}; }""")
             context.close()
             assert 0 <= seen["top"] and seen["bottom"] <= seen["tabs"] and seen["stage"] <= seen["tabs"] + 0.5, \
                 f"at 390 x 664 the line after Choose is not whole on the first screen, or the picture runs under the tab bar: {seen}"
+            assert seen["row"] <= seen["tabs"] + 0.5, f"at 390 x 664 after Choose the row of small pictures runs under the tab bar: {seen}"
+            assert seen["height"] >= 24, f"Undo is {seen['height']}px high: under 24px"
             assert seen["target"] >= 44, f"Undo is a {seen['target']}px tall target"
 
             with page.expect_navigation(url="**/outfits?at=**"):     # (the address it leaves matches that too)
@@ -2843,6 +3071,48 @@ def run(base: str) -> None:
             page.wait_for_selector(f"{first} .look-pic img")
             assert asked[-1]["photo"], "the photo did not go with the request"
             assert asked[-1]["photo"][:3] == b"\xff\xd8\xff", "the page did not turn the photo into a small JPEG first"
+
+            # He added this photo under today's words, which say that an outfit's further photos are made from the AI
+            # picture of him. A customer who added his photo under the older words (their date is put beside the
+            # photo here, as it is stored for such a customer) is asked once, plainly, under the picture, before
+            # the first "More photos" sends that picture to the image service again. Nothing is sent before his
+            # yes; "Not now" leaves everything as it is, with keyboard focus back on "More photos"; after "Yes, draw
+            # them" the five are made from the picture of him, not from his photo, and the question is gone.
+            with db.connect() as con:
+                con.execute("DELETE FROM look_requests")            # a new day: the five fit, whatever was drawn before
+                con.execute("UPDATE settings SET value = ? WHERE key = 'photo_consent' "
+                            "AND user_id = (SELECT id FROM users WHERE email = ?)", ('"2026-11-12"', EMAIL))
+            before = len(asked)
+            more = f"{first} .shots-row button:has-text('More photos')"
+            page.click(more)
+            page.wait_for_selector(f"{first} .look-ask")
+            question = page.inner_text(f"{first} .look-ask p")
+            assert question == (f"These photos are made from the AI picture of you, which goes to {looks.service().label} "
+                                "again. Is that OK from now on, for all your outfits?"), \
+                f"'More photos' of a photo added under the older words asks {question!r}"
+            answers = page.evaluate("s => [...document.querySelectorAll(s + ' .look-ask button')].map(b => [b.textContent.trim(), b.getBoundingClientRect().height])", first)
+            assert [words for words, _ in answers] == ["Yes, draw them", "Not now"] and all(height >= 40 for _, height in answers), \
+                f"the answers to the question are {answers}"
+            assert page.evaluate("() => document.activeElement.textContent.trim()") == "Yes, draw them", \
+                "keyboard focus is not on the question's answer"
+            expect(page.locator(f"{first} .look-ask button").last, "the question and its answers show on the screen").to_be_in_viewport()
+            assert len(asked) == before and page.locator(f"{first} .shots-row img").count() == 1, \
+                "'More photos' sent the picture of him before he answered"
+            page.click(f"{first} .look-ask button:has-text('Not now')")
+            page.wait_for_selector(f"{first} .look-ask", state="detached")
+            assert len(asked) == before and page.locator(f"{first} .shots-row img").count() == 1, "'Not now' sent something"
+            assert page.evaluate("() => document.activeElement.textContent.trim()") == "More photos", \
+                "after 'Not now' keyboard focus is not back on 'More photos'"
+            page.click(more)
+            page.wait_for_selector(f"{first} .look-ask")
+            page.click(f"{first} .look-ask button:has-text('Yes, draw them')")
+            page.wait_for_selector(f"{first} .look-ask", state="detached")
+            page.wait_for_function("s => document.querySelectorAll(s + ' .shots-row img').length === 6", arg=first, timeout=60000)
+            sent = asked[before:]
+            assert len(sent) == 5 and all(not one["photo"] and len(one["references"]) == 1 for one in sent), \
+                f"after his yes the five were not each made from the picture of him: {[(bool(one['photo']), len(one['references'])) for one in sent]}"
+            assert page.locator(f"{first} .look-pic img").count() == 1 and not page.locator(f"{first} .look-ask").count(), \
+                "after his yes the large picture is gone, or the question is still there"
             page.goto(base + "/profile", wait_until="networkidle")
             page.click("button:has-text('Delete my photo')")
             page.wait_for_load_state("networkidle")
@@ -3331,8 +3601,11 @@ def run(base: str) -> None:
                 assert "Weekday" in phone.locator("main").inner_text(), "the starter shopping list has nothing from Weekday"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
-                assert phone.evaluate(stores_of) == [["cos", True, "COS · Rakuten partner"],
-                                                     ["weekday", True, "Weekday · Rakuten partner"]], phone.evaluate(stores_of)
+                assert phone.evaluate(stores_of) == [["cos", True, "COS"], ["weekday", True, "Weekday"]], phone.evaluate(stores_of)
+                # No programme has accepted Stilsmith yet: nothing on the tab calls a store a partner, as the page's
+                # foot says ("Not affiliated with any retailer").
+                assert "partner" not in phone.locator("#panel-stores").inner_text().lower(), \
+                    "the Stores tab calls a store a partner before any programme has accepted Stilsmith"
                 rows = phone.locator(".store-row").evaluate_all("rs => rs.map(r => r.getBoundingClientRect().height)")
                 assert all(h >= 48 for h in rows), f"a store's row is under 48px to tap: {rows}"
                 # The six stores with no products yet: apart, under a line that says what they are for, below the
@@ -3348,18 +3621,18 @@ def run(base: str) -> None:
                 expect(phone.get_by_role("checkbox", name="Hirmer")).not_to_be_checked()
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
                 phone.get_by_role("checkbox", name="Hirmer").tap()
-                phone.get_by_role("checkbox", name="Weekday · Rakuten partner").tap()
+                phone.get_by_role("checkbox", name="Weekday", exact=True).tap()
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
                 # The last store with products cannot be unticked, however many of the six are ticked.
-                phone.get_by_role("checkbox", name="COS · Rakuten partner").tap()
-                expect(phone.get_by_role("checkbox", name="COS · Rakuten partner")).to_be_checked()
+                phone.get_by_role("checkbox", name="COS", exact=True).tap()
+                expect(phone.get_by_role("checkbox", name="COS", exact=True)).to_be_checked()
                 said = "At least one store with products must stay ticked: your pieces need a store to come from."
                 expect(phone.locator("[data-store-said]")).to_have_text(said)
                 expect(phone.locator("[data-store-said]")).to_be_in_viewport()
                 assert phone.locator("#announce").text_content() == said, "a screen reader is not told"
                 phone.focus("input[name=stores][value=cos]")
                 phone.keyboard.press("Space")
-                expect(phone.get_by_role("checkbox", name="COS · Rakuten partner"), "by keyboard too").to_be_checked()
+                expect(phone.get_by_role("checkbox", name="COS", exact=True), "by keyboard too").to_be_checked()
                 # The line goes away again with the next tick or untick of any other store.
                 expect(phone.locator("[data-store-said]")).to_be_visible()
                 phone.get_by_role("checkbox", name="Hirmer").tap()
@@ -3376,7 +3649,7 @@ def run(base: str) -> None:
                     assert not phone.locator("main a[href*='weekday']").count(), f"{path} still links to Weekday"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
                 assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False], "the unticked store is not kept"
-                phone.get_by_role("checkbox", name="Weekday · Rakuten partner").tap()
+                phone.get_by_role("checkbox", name="Weekday", exact=True).tap()
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/profile#stores")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
@@ -4662,6 +4935,31 @@ def run(base: str) -> None:
             assert "Smart casual" not in heads["titles"], f"under Office an outfit is titled only 'Smart casual': {heads['titles']}"
             context.close()
 
+            # Shorter phones (360 x 740, 393 x 760: a phone with the browser's bars showing). The picture keeps its
+            # smallest width, 240px, and the row of small pictures is the small one (40px, no names), so that the row
+            # is whole above the tab bar and the outfit's name begins above it; at 393 x 760 the name and the price
+            # are whole above it. All as it was before the small pictures had names.
+            for width, height in ((360, 740), (393, 760)):
+                context, other = opened(width, height, True)
+                seen = other.evaluate("""() => {
+                    const slide = document.querySelector('#reel .slide:first-child'), box = el => el.getBoundingClientRect();
+                    return {picture: box(slide.querySelector('.look-pic')).width,
+                            row: box(slide.querySelector('.shots')).bottom,
+                            cells: Math.max(...[...slide.querySelectorAll('.shots-row button[aria-pressed]')].map(el => box(el).bottom)),
+                            name: [box(slide.querySelector('.about-head h2')).top, box(slide.querySelector('.about-head h2')).bottom],
+                            price: box(slide.querySelector('.board-cost')).bottom, heart: box(slide.querySelector('.heart')).top,
+                            tabs: box(document.querySelector('nav.tabs')).top}; }""")
+                context.close()
+                where = f"at {width} x {height}"
+                assert seen["picture"] >= 240, f"{where} the picture is only {seen['picture']:.0f}px wide"
+                assert seen["row"] <= seen["tabs"] and seen["cells"] <= seen["tabs"], \
+                    f"{where} the small pictures are cut by the tab bar: {seen}"
+                assert seen["name"][0] < seen["tabs"] and seen["heart"] < seen["tabs"], \
+                    f"{where} the outfit's name and heart begin under the tab bar: {seen}"
+                if height >= 760:
+                    assert seen["name"][1] <= seen["tabs"] and seen["price"] <= seen["tabs"], \
+                        f"{where} the outfit's name or price ends under the tab bar: {seen}"
+
             for path, where in (("/outfits", "390 x 664"), ("/outfits?at=no~such~outfit", "390 x 664 under a message")):
                 context, other = opened(390, 664, True, path)
                 seen = screen(other)
@@ -4939,11 +5237,35 @@ def run(base: str) -> None:
                 phone.locator("#add button", has_text="Add").click()
                 phone.wait_for_load_state("networkidle")
                 said = phone.locator("#add .flash").all_inner_texts()
-                assert said == [f"Not added: “{women}” is a women's product, and Stilsmith is for menswear only."], said
+                assert said == [f"Not added: “{women}” looks like a women's product, and Stilsmith is for menswear only."], said
                 expect(phone.locator("#add .flash")).to_be_in_viewport()
-                phone.locator("#cand-hirmer-9000001 button", has_text="Remove").click()     # as it was, for the next steps
+                # Only the product's name holds such a word (a band's shirt): not refused. The page asks, and one tap
+                # on "Add it anyway" adds it.
+                band = "https://www.hirmer.de/beastie-boys-shirt/p/9000077"
+                phone.fill("#add textarea[name=urls]", band)
+                phone.locator("#add button", has_text="Add").first.click()
                 phone.wait_for_load_state("networkidle")
-                assert not phone.locator("#cand-hirmer-9000001").count(), "the option added by its link was not removed"
+                said = phone.locator("#add .flash.ask p").all_inner_texts()
+                assert said == [f"“{band}” is not added yet. Its name says “boys”: this may be a children's product. "
+                                "Add it anyway?"], f"a link whose name says 'boys' is answered: {said} {phone.locator('#add .flash').all_inner_texts()}"
+                assert not phone.locator("#cand-hirmer-9000077").count(), "the link was added before he answered"
+                anyway = phone.locator("#add .flash.ask button", has_text="Add it anyway")
+                expect(anyway).to_be_in_viewport()
+                assert anyway.bounding_box()["height"] >= 40, f"'Add it anyway' is {anyway.bounding_box()['height']}px high"
+                assert phone.evaluate("document.documentElement.scrollWidth <= innerWidth"), "the question makes the page wider than the phone"
+                with phone.expect_navigation():
+                    anyway.tap()
+                phone.wait_for_load_state("networkidle")
+                said = phone.locator("#add .flash").all_inner_texts()
+                assert len(said) == 1 and said[0].startswith("Added “Beastie boys shirt”: only the link could be read"), \
+                    f"'Add it anyway' is answered: {said}"
+                assert phone.locator("#cand-hirmer-9000077").count() == 1, "'Add it anyway' did not add the product"
+                phone.locator("#cand-hirmer-9000077 button", has_text="Remove").click()     # as it was, for the next steps
+                phone.wait_for_load_state("networkidle")
+                phone.locator("#cand-hirmer-9000001 button", has_text="Remove").click()
+                phone.wait_for_load_state("networkidle")
+                assert not phone.locator("#cand-hirmer-9000001, #cand-hirmer-9000077").count(), \
+                    "the options added by their links were not removed"
                 stores = ("hirmer.de", "tom-tailor.de", "otto.de", "breuninger.com", "blue-tomato.com", "bergfreunde.de")
                 reached = [url for url in asked_of if any(store in url.split("/")[2] for store in stores)]
                 assert not reached, f"a store was asked for something: {reached}"
