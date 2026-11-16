@@ -23,10 +23,15 @@ Rules, in order:
      next best product that is in stock in your size is offered in its place (next_best).
      "Nothing else is in stock in your size" is said only when that is known: other products
      whose sizes were never checked (COS) are counted and pointed to instead (SlotView.no_swap).
+
+The pieces are the plan: what outfits are made from. The customer's wardrobe is the part of it he said yes to
+(SlotView.mine, Wardrobe.mine): the pieces of the outfits he added, what he owns, and what he had chosen by hand
+before the wardrobe worked this way. Only that part is counted in a total.
 """
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 
@@ -142,6 +147,18 @@ class SlotView:
     # offered in one tap wherever the piece shows (_sold_out.html). None when no other is in stock in his size.
     swap: Cand | None = None
     example_size: bool = False      # the sizes are still the example's (profile.sizes_unconfirmed): said with the size
+    outfits_in: int = 0             # how many of the outfits he said yes to wear this piece ("In 4 of your outfits")
+    kept: bool = False              # in his wardrobe on its own account: chosen by hand before version 9 (db.py)
+
+    @property
+    def mine(self) -> bool:
+        """Whether the piece is in his wardrobe: an outfit he said yes to wears it, he owns it, or he kept it."""
+        return self.outfits_in > 0 or self.state == "owned" or self.kept
+
+    @property
+    def in_outfits_words(self) -> str:
+        """'In 4 of your outfits', 'In 1 of your outfits', or 'In none of your outfits yet'."""
+        return f"In {self.outfits_in} of your outfits" if self.outfits_in else "In none of your outfits yet"
 
     @property
     def your_size(self) -> str:
@@ -242,6 +259,17 @@ class Wardrobe:
     stores: dict = field(default_factory=dict)   # per store: how the last refresh went
     note: str = ""               # something to say about the whole wardrobe (the budget cannot be met)
     example_sizes: bool = False  # the sizes are still the example's: "in the example size", not "in your size"
+    n_outfits: int = 0           # how many outfits he said yes to
+    budget_known: bool = True    # False until he gave a budget (profile.budget_known): then nothing is "left" or "over"
+    only_mine: bool = False      # this is `mine` already: the pieces of his wardrobe and nothing else
+
+    @cached_property
+    def mine(self) -> "Wardrobe":
+        """His wardrobe: the same thing with only the pieces that are in it (SlotView.mine). Every total, count and
+        list of things to buy is asked of this; the outfits are made from all the pieces."""
+        if self.only_mine:
+            return self
+        return replace(self, slots=[view for view in self.slots if view.mine], only_mine=True)
 
     @cached_property
     def levels(self) -> dict[str, float]:
@@ -257,7 +285,10 @@ class Wardrobe:
                 else:
                     cost += view.cost
             ladder[level] = round(cost, 2)
-        ladder["budget"] = self.total if self.mode == "budget" else _fit(self)[2]
+        if not self.budget_known:       # no budget to fit to yet: that level picks the cheapest options meanwhile
+            ladder["budget"] = ladder["cheapest"]
+        else:
+            ladder["budget"] = self.total if self.mode == "budget" else _fit(self)[2]
         return ladder
 
     @property
@@ -524,6 +555,9 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
     charts = sizes.load_charts()
     grouped = catalog_mod.by_slot(cat)
     example = profile_mod.sizes_unconfirmed(profile)     # said with every size until he says the sizes are his
+    yes = db.yes_sigs()                                   # the outfits he said yes to, as the pieces each combines
+    worn = Counter(slot_id for sig in yes for slot_id in set(sig.split("~")))
+    kept = set(db.get_setting("kept_pieces") or [])
 
     views: list[SlotView] = []
     for slot in db.list_slots():
@@ -533,7 +567,8 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         # In your size first, then sizes not checked, then sold out or not made in your size; each by price.
         cands.sort(key=lambda c: (c.size.rank, c.price, -c.score.total))
         view = SlotView(slot=slot, garment=GARMENTS[slot["category"]],
-                        colour=colours.get(slot["colour"]), cands=cands, example_size=example)
+                        colour=colours.get(slot["colour"]), cands=cands, example_size=example,
+                        outfits_in=worn.get(slot["id"], 0), kept=slot["id"] in kept)
 
         if slot["owned"]:
             view.state = "owned"
@@ -561,16 +596,25 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         source=cat.get("source", "empty"),
         collected=catalog_mod.collected_label(cat),
         stores=cat.get("stores", {}), example_sizes=example,
+        n_outfits=len(yes), budget_known=profile_mod.budget_known(profile),
     )
-    if mode == "budget":
-        picks, fits, _ = _fit(wardrobe)
-        for view in views:
+    if mode == "budget" and not wardrobe.budget_known:
+        # No budget to fit anything to yet: every piece shows its cheapest option that reaches the minimum quality.
+        wardrobe.note = ("“Best for budget” needs your budget: set one on the Profile page. Until then these are "
+                         "the cheapest options that reach your minimum quality.")
+    elif mode == "budget":
+        # The budget is for his wardrobe, so that is what is fitted to it. A piece that is not in it yet shows its
+        # cheapest option that reaches the minimum quality (choose, above), which is where the fitting starts too.
+        mine = wardrobe.mine
+        picks, fits, _ = _fit(mine)
+        for view in mine.slots:
             if view.slot["id"] in picks:
                 view.chosen = picks[view.slot["id"]]
         if not fits:
-            wardrobe.note = ("Even the cheapest options that reach your minimum quality come to more than your "
-                             "budget, so these are the cheapest. Lower the minimum quality, mark what you own, "
-                             "or raise the budget on the Profile page.")
+            mine.note = wardrobe.note = (
+                "Even the cheapest options that reach your minimum quality come to more than your "
+                "budget, so these are the cheapest. Lower the minimum quality, mark what you own, "
+                "or raise the budget on the Profile page.")
     return wardrobe
 
 

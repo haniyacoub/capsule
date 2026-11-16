@@ -18,8 +18,9 @@ from unittest import mock
 
 from wardrobe import catalog, config, db, mail, paths, selection, settings, shared
 from wardrobe.collect.browser import Session
-from wardrobe import profile as profile_mod
 from wardrobe.app import create_app, eur
+
+from . import having
 
 PASSWORD = "correct horse battery"
 HX = {"HX-Request": "true"}
@@ -339,6 +340,8 @@ class Accounts(ProductionCase):
 
     def test_logging_in_opens_the_outfits_and_never_another_site(self):
         self.member("ada@example.com")
+        with db.as_user(self.user_id("ada@example.com")):
+            db.set_setting("welcome", "done")       # she has been through the welcome (StartsWithAWelcome)
 
         def lands(**next_page) -> str:
             client = self.app.test_client()
@@ -575,11 +578,13 @@ class OutfitsIsHome(ProductionCase):
         ada = self.member("ada@example.com")
         with db.as_user(self.user_id("ada@example.com")):
             pieces = sum(s["qty"] for s in db.list_slots())     # a white tee ×2 is two pieces, as in the bar
-        self.assertIn(f'{pieces} pieces in your plan · <a href="/slots">Edit the plan</a>', ada.get("/").data.decode())
+            having.the_whole_plan()         # every piece of the plan is in her wardrobe
+        self.assertIn(f'{pieces} pieces in your wardrobe · {pieces} in the plan your outfits are made from · '
+                      '<a href="/slots">Edit the plan</a>', ada.get("/").data.decode())
         with db.as_user(self.user_id("ada@example.com")):
             db.replace_slots([])
         empty = ada.get("/").data.decode()
-        self.assertIn('No pieces in your plan yet. <a href="/slots">Edit the plan</a> to add some', empty)
+        self.assertIn('The plan your outfits are made from: <a href="/slots">Edit the plan</a>', empty)
         self.assertNotIn("in your plan ·", empty)
         for gone in self.GONE:
             self.assertNotIn(gone, empty)
@@ -613,12 +618,12 @@ class OutfitsIsHome(ProductionCase):
                 self.assertNotIn(gone, page)
 
 
-class StartsOnTheOutfits(ProductionCase):
-    """A new customer is shown the starter outfits on the model first, not a long form of someone else's values.
-    A banner over them says whose they are and leads to the Profile page, which has one note about the example
-    values; the first save there brings the budget bar back."""
+class StartsWithAWelcome(ProductionCase):
+    """A new customer is asked three short things first (his sizes; colours and budget; what he dresses for), each
+    of which he may skip, and then shown outfits. Nothing on the way looks like a total of his own: no budget bar
+    with figures, no "over budget", and no box of example values to make his. (What the welcome's steps save, and
+    what a yes to an outfit does, is tested in test_yes.py.)"""
 
-    STARTER = re.compile(r'<section class="starter"[^>]*>(.*?)</section>', re.S)
     EXAMPLE_FORM = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
                     "budget": "1500", "liked": "navy, grey, white, olive", "refused": "", "use": "both", "shoes": "on",
                     "outerwear": "on", "owned": ""}
@@ -629,68 +634,96 @@ class StartsOnTheOutfits(ProductionCase):
         main = page.split("<main>", 1)[1].split("</main>", 1)[0]
         return [text for text in (words(p) for p in re.findall(r"<p[^>]*>.*?</p>", main, re.S)) if "example" in text.lower()]
 
-    def test_signing_up_opens_the_starter_outfits_with_one_way_to_make_them_yours(self):
+    def test_signing_up_opens_the_welcome_and_then_the_outfits_with_no_total_of_someone_elses(self):
         ada = self.app.test_client()
         signed_up = self.post(ada, "/signup", email="ada@example.com", password=PASSWORD)
-        self.assertEqual((signed_up.status_code, signed_up.headers["Location"]), (302, "/outfits"))
+        self.assertEqual((signed_up.status_code, signed_up.headers["Location"]), (302, "/welcome"))
         with ada.session_transaction() as session:
-            self.assertNotIn("_flashes", session, "no welcome message to read before the outfits")
+            self.assertNotIn("_flashes", session, "no message to read before the welcome")
+        first = ada.get("/welcome").data.decode()
+        self.assertIn("Step 1 of 3", first)
+        self.assertEqual(re.findall(r"<h1[^>]*>([^<]*)</h1>", first), ["Your sizes"])
+        self.assertNotIn('id="summary"', first, "no budget bar in the welcome: he has not chosen anything yet")
+        self.assertNotIn("€", first)
+        # Skipped three times, he is on the outfits. The bar says his wardrobe is empty; nothing is his total.
+        for step in (1, 2, 3):
+            skipped = self.post(ada, "/welcome" if step == 1 else f"/welcome/{step}", skip="1")
+            self.assertEqual(skipped.headers["Location"], f"/welcome/{step + 1}" if step < 3 else "/outfits")
         page = ada.get("/outfits").data.decode()
-        starter = self.STARTER.search(page)
-        self.assertIsNotNone(starter, "no starter banner over a new customer's outfits")
-        self.assertEqual(words(starter.group(1)),
-                         "Starter outfits for a man of 180 cm, size M, who likes navy, grey, white and olive. Make them mine")
-        self.assertIn("180\xa0cm, size\xa0M,", starter.group(1), "'180 cm' and 'size M' split over two lines")
-        self.assertIn('<a class="btn ghost small" href="/profile">Make them mine</a>', starter.group(1))
-        self.assertLess(page.index('class="starter"'), page.index('class="toolbar"'), "the banner is above the outfits")
-        self.assertNotIn('id="summary"', page, "no budget bar for a budget the customer never set")
-        self.assertNotIn('class="flash"', page)
-        for url in ("/", "/list", "/profile"):          # only the outfits trade the bar for the banner
-            self.assertIn('id="summary"', ada.get(url).data.decode(), url)
-            self.assertNotIn('class="starter"', ada.get(url).data.decode(), url)
+        self.assertNotIn("Make them mine", page)
+        self.assertNotIn("Starter outfits", page)
+        self.assertNotIn('class="starter"', page)
+        bar = re.search(r'<section id="summary".*?</section>', page, re.S).group(0)
+        self.assertEqual(words(bar), "Your wardrobe: nothing yet . Add the outfits you like, and their pieces are counted here .")
+        self.assertNotIn("Over", bar)
+        self.assertNotIn("1,500", bar, "the budget every account starts with is not his: it is not shown as one")
+        for url in ("/", "/list", "/profile"):
+            bar = re.search(r'<section id="summary".*?</section>', ada.get(url).data.decode(), re.S).group(0)
+            self.assertIn("Your wardrobe: nothing yet", bar, url)
         again = ada.get("/signup")
         self.assertEqual((again.status_code, again.headers["Location"]), (302, "/outfits"), "already has an account")
 
-    def test_the_banner_is_said_from_the_example_values_never_typed(self):
+    def test_someone_who_left_the_welcome_is_offered_it_again_when_he_logs_in_and_not_after_it(self):
         ada = self.member("ada@example.com")
-        with mock.patch.dict(profile_mod.EXAMPLE, {"height_cm": 176, "top_size": "L", "liked": ["black", "stone"]}):
-            banner = words(self.STARTER.search(ada.get("/outfits").data.decode()).group(1))
-        self.assertTrue(banner.startswith("Starter outfits for a man of 176 cm, size L, who likes black and stone."), banner)
 
-    def test_the_first_profile_save_shows_the_outfits_with_the_budget_bar_back(self):
+        def lands() -> str:
+            client = self.app.test_client()
+            return self.post(client, "/login", email="ada@example.com", password=PASSWORD).headers["Location"]
+
+        self.assertEqual(lands(), "/welcome")
+        self.post(ada, "/welcome", skip="1")
+        self.assertEqual(lands(), "/welcome", "he is not through it yet")
+        self.post(ada, "/welcome/3", skip="1")
+        self.assertEqual(lands(), "/outfits")
+
+    def test_the_first_profile_save_shows_the_outfits_and_his_budget_is_his(self):
         ada = self.member("ada@example.com")
         saved = self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "budget": "900"})     # the budget alone, changed
-        self.assertEqual(saved.headers["Location"], "/outfits", "the note promised the outfits after saving")
+        self.assertEqual(saved.headers["Location"], "/outfits")
         page = ada.get("/outfits").data.decode()
-        self.assertNotIn('class="starter"', page, "the banner stays after the profile was saved")
-        self.assertIn('id="summary"', page)
-        self.assertIn(f"of </span><a href=\"/profile#budget\" title=\"Change your budget\"><b>{eur(900)}</b>", page)
         self.assertIn('<p class="flash" role="status">Profile saved.</p>', page)
+        self.assertIn("Your wardrobe: nothing yet", page, "a budget alone puts nothing into his wardrobe")
+        # With a piece in his wardrobe the bar counts it against the budget he gave.
+        with db.as_user(self.user_id("ada@example.com")):
+            having.the_whole_plan(budget=False)
+        page = ada.get("/outfits").data.decode()
+        self.assertIn(f"of </span><a href=\"/profile#budget\" title=\"Change your budget\"><b>{eur(900)}</b>", page)
         self.assertEqual(self.example_notes(ada.get("/profile").data.decode()), [], "no note about example values left")
 
-    def test_a_new_accounts_profile_has_one_note_about_the_example_values(self):
+    def test_a_new_accounts_profile_says_plainly_what_he_has_not_given_and_has_no_box_of_example_values(self):
         ada = self.member("ada@example.com")
-        self.assertEqual(self.example_notes(ada.get("/profile").data.decode()),
-                         ["These are example values. Change them to yours and save: your plan is rebuilt around them, "
-                          "then you see the outfits."])
-        # "These are my sizes" on Buy this outfit or the shopping list: the note no longer calls the sizes examples.
+        page = ada.get("/profile").data.decode()
+        self.assertNotIn('id="example-note"', page)
+        self.assertNotIn("These are example values", page)
+        said = [words(p) for p in re.findall(r'<p class="muted small not-given"[^>]*>.*?</p>', page, re.S)]
+        self.assertEqual(said, [
+            "You have not given your sizes yet. These are the sizes we start with; change them to yours and save.",
+            "You have not chosen colours yet. Until you do, your outfits start from navy, grey, white, olive.",
+            "You have not set a budget yet. With one, the bar at the top counts the pieces of the outfits you said "
+            "yes to against it, and an outfit that would take you over it says so before you add it."])
+        budget = re.search(r'<input [^>]*name="budget"[^>]*>', page).group(0)
+        self.assertIn('value=""', budget, "the budget field is empty until he gives one")
+        # "These are my sizes" on Buy this outfit or the shopping list: the line about the sizes goes.
         self.post(ada, "/profile/sizes-ok")
-        notes = self.example_notes(ada.get("/profile").data.decode())
-        self.assertEqual(len(notes), 1, notes)
-        self.assertTrue(notes[0].startswith("You said these sizes are yours; the rest are example values."), notes)
-        # A plan edited on the plan page is not rebuilt by a save: the note doesn't promise it, and leads to the plan.
+        page = ada.get("/profile").data.decode()
+        self.assertNotIn("You have not given your sizes yet", page)
+        self.assertIn("You have not chosen colours yet", page)
+        # A save of the form, with a budget typed: the colours and the budget are his now.
+        self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "budget": "900"})
+        page = ada.get("/profile").data.decode()
+        self.assertEqual(re.findall(r'class="muted small not-given"', page), [])
+        self.assertIn('value="900"', re.search(r'<input [^>]*name="budget"[^>]*>', page).group(0))
+
+    def test_a_plan_edited_by_hand_is_kept_by_a_save_of_the_profile(self):
+        ada = self.member("ada@example.com")
         with db.as_user(self.user_id("ada@example.com")):
             first = db.list_slots()[0]
         self.post(ada, f"/slots/{first['id']}/save", name="My own name", category=first["category"],
                   colour=first["colour"], qty=str(first["qty"]))
-        page = ada.get("/profile").data.decode()
-        notes = self.example_notes(page)
-        self.assertEqual(len(notes), 1, notes)
-        self.assertIn("Your plan stays as you edited it", notes[0])
-        self.assertNotIn("rebuilt around them", notes[0])
-        self.assertIn('on <a href="/slots">the plan page</a>.</p>', page)
         saved = self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "liked": "black, grey"})
-        self.assertEqual(saved.headers["Location"], "/profile", "the edited plan stays, as the note said")
+        self.assertEqual(saved.headers["Location"], "/profile", "the edited plan stays")
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(db.list_slots()[0]["name"], "My own name")
 
 
 class Isolation(ProductionCase):
@@ -731,8 +764,8 @@ class Isolation(ProductionCase):
 
         key = re.search(r'id="outfit-(\w+)"', ada.get("/outfits").data.decode()).group(1)
         self.assertEqual(self.post(ada, "/outfits/save", headers=HX, key=key).status_code, 200)
-        self.assertIn(b"Saved 1", ada.get("/outfits").data)
-        self.assertNotIn(b"Saved 1", bob.get("/outfits").data)
+        self.assertIn(b"My outfits 1", ada.get("/outfits").data)
+        self.assertNotIn(b"My outfits 1", bob.get("/outfits").data)
 
     def test_the_database_refuses_to_guess_whose_data_is_meant(self):
         with self.assertRaises(RuntimeError):
@@ -1287,6 +1320,8 @@ class SharedStoreCatalogue(ProductionCase):
     def test_new_customers_start_on_real_products(self):
         self.assertEqual(self.publish(), 4, "your own additions are not published")
         ada = self.member("ada@example.com")
+        with db.as_user(self.user_id("ada@example.com")):
+            having.the_whole_plan()         # the Wardrobe page shows the pieces of her wardrobe: here, all of the plan
         page = ada.get("/").data
         self.assertNotIn(b"Demo data", page)
         self.assertIn(b"Pullover aus Merinowolle", page)
@@ -1336,6 +1371,8 @@ class SharedStoreCatalogue(ProductionCase):
                 "budget": "1500", "liked": "black, white", "refused": "", "use": "both", "shoes": "on",
                 "outerwear": "on", "owned": "", **answers}
         self.assertEqual(self.post(client, "/profile", **form).headers["Location"], "/outfits")
+        with db.as_user(self.user_id(email)):
+            having.the_whole_plan()         # the Wardrobe page shows the pieces of his wardrobe: here, all of the plan
         return client
 
     @staticmethod
@@ -1416,6 +1453,8 @@ class SharedStoreCatalogue(ProductionCase):
                 con.execute("DELETE FROM settings WHERE user_id = ? AND key = 'plan_edited'", (db.uid(),))
             db.set_setting("slots_customised", True)
             self.assertIsNone(db.get_setting("plan_edited"), "an account from before plan_edited")
+            # None of the plan is in his wardrobe (a piece that is stays through a rebuild: test_yes.py).
+            db.set_setting("kept_pieces", [])
         self.assertEqual(self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy").status_code, 200)
         with db.as_user(self.user_id("ada@example.com")):
             self.assertEqual(db.get_slot("black-merino-jumper")["colour"], "navy")

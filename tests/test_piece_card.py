@@ -12,6 +12,7 @@ import unittest
 from wardrobe import catalog, composition, english, outfits, programmes, scoring, selection
 from wardrobe.app import eur
 
+from . import having
 from .test_app import HX, AppCase
 
 RULES = scoring.load_rules()
@@ -106,6 +107,7 @@ class FabricLine(unittest.TestCase):
 class SameCardEverywhere(AppCase):
     def setUp(self):
         super().setUp()
+        having.the_whole_plan()     # the coat is in his wardrobe: its card is on the Wardrobe page and the list
         w = selection.build()
         self.outfit = next(o for o in outfits.all_outfits(w) if any(p.layer == "outer" for p in o.pieces))
         self.piece = next(p for p in self.outfit.pieces if p.layer == "outer").view

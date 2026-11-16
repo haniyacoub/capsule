@@ -8,6 +8,8 @@ from wardrobe import catalog, db, export, outfits, paths, programmes, selection,
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app
 
+from . import having
+
 HX = {"HX-Request": "true"}
 CHARTS = sizes.load_charts()
 ME = {**profile_mod.EXAMPLE, "top_size": "M", "waist": 32, "length": 32, "shoe": "43",
@@ -124,6 +126,7 @@ class SizeCheckInTheApp(AppCase):
         cand = next(c for c in view.cands if c.data["fit"] == "oversized" and c.available)
         said = "Fit: oversized, runs large. Size down for a regular fit."
         self.assertIn(said, self.client.get(f"/slot/{view.slot['id']}").data.decode())
+        having.the_whole_plan()         # the piece is in his wardrobe, so its card is on the Wardrobe page
         self.client.post(f"/slot/{view.slot['id']}/pick", data={"candidate": cand.id}, headers=HX)
         self.assertIn(said, self.client.get("/").data.decode())
 
@@ -147,16 +150,16 @@ class SavedOutfits(AppCase):
         key, outfit = self.first_key()
         r = self.client.post("/outfits/save", data={"key": key}, headers=HX)
         self.assertEqual(r.status_code, 200)
-        self.assertIn('aria-pressed="true"', r.data.decode())
+        self.assertIn('<span>Take out of my wardrobe</span>', r.data.decode())
         self.assertEqual(db.saved_keys(), {key})
         page = self.client.get("/outfits?occasion=saved").data.decode()
         self.assertIn(f'id="outfit-{key}"', page)
-        self.assertIn("Saved 1", self.client.get("/outfits").data.decode())
+        self.assertIn("My outfits 1", self.client.get("/outfits").data.decode())
 
         r = self.client.post("/outfits/save", data={"key": key}, headers=HX)
-        self.assertIn('aria-pressed="false"', r.data.decode())
+        self.assertIn('<span>Add to my wardrobe</span>', r.data.decode())
         self.assertEqual(db.saved_keys(), set())
-        self.assertIn("Nothing saved yet", self.client.get("/outfits?occasion=saved").data.decode())
+        self.assertIn("No outfits in your wardrobe yet", self.client.get("/outfits?occasion=saved").data.decode())
 
     def test_the_heart_does_what_it_showed_also_on_a_page_out_of_date(self):
         # The heart's form says what it asks for. A filled heart asks to remove: on a page gone out of date (the outfit
@@ -169,22 +172,22 @@ class SavedOutfits(AppCase):
         self.assertIn('name="want" value="save"', form, "an empty heart asks to save")
         for _ in range(2):
             r = self.client.post("/outfits/save", data={"key": key, "want": "save"}, headers=HX)
-            self.assertIn('aria-pressed="true"', r.data.decode())
+            self.assertIn('<span>Take out of my wardrobe</span>', r.data.decode())
             self.assertIn('name="want" value="remove"', r.data.decode(), "a filled heart asks to remove")
             self.assertEqual(db.saved_keys(), {key})
         for _ in range(2):
             r = self.client.post("/outfits/save", data={"key": key, "want": "remove"}, headers=HX)
             self.assertEqual(r.status_code, 200)
-            self.assertIn('aria-pressed="false"', r.data.decode())
+            self.assertIn('<span>Add to my wardrobe</span>', r.data.decode())
             self.assertEqual(db.saved_keys(), set(), "a filled heart tapped twice saved the outfit again")
 
     def test_the_saved_chip_counts_at_once(self):
-        # With the heart's new state comes the Saved chip with its new number, to take the place of the one on the
-        # page (HTMX swaps it in for the chip that leads to Saved): "Saved 1" the moment an outfit is saved, "Saved"
-        # again when it is not.
+        # With the button's new state comes the "My outfits" chip with its new number, to take the place of the one
+        # on the page (HTMX swaps it in for the chip that leads there): "My outfits 1" the moment he says yes to an
+        # outfit, "My outfits" again when it is taken out.
         key, _ = self.first_key()
-        swapped_in = r"""<a class="chip-link" href="/outfits\?occasion=saved" hx-swap-oob="outerHTML:.chips a\[href\$='occasion=saved'\]">.*? Saved%s</a>"""
-        self.assertRegex(self.client.get("/outfits").data.decode(), r'<a class="chip-link" href="/outfits\?occasion=saved">.*? Saved</a>')
+        swapped_in = r"""<a class="chip-link" href="/outfits\?occasion=saved" hx-swap-oob="outerHTML:.chips a\[href\$='occasion=saved'\]">My outfits%s</a>"""
+        self.assertRegex(self.client.get("/outfits").data.decode(), r'<a class="chip-link" href="/outfits\?occasion=saved">My outfits</a>')
         saved = self.client.post("/outfits/save", data={"key": key, "want": "save"}, headers=HX).data.decode()
         self.assertRegex(saved, swapped_in % " 1")
         removed = self.client.post("/outfits/save", data={"key": key, "want": "remove"}, headers=HX).data.decode()
@@ -214,8 +217,8 @@ class SavedOutfits(AppCase):
         page = self.client.get(r.headers["Location"]).data.decode()
         self.assertNotIn(f'id="outfit-{key}"', page, "the outfit removed is still on the Saved page")
         self.assertIn(f'id="outfit-{boards[1].key}"', page)
-        self.assertIn("Saved 1</a>", page)
-        self.assertIn(f"Removed “{before['label']}” from your saved outfits.", page)
+        self.assertIn("My outfits 1</a>", page)
+        self.assertIn(f"Took “{before['label']}” out of your wardrobe.", page)
         self.assertIn('name="want" value="restore"', page)
         # (Asked again, by a second tap or Back: it stays removed, and nothing breaks.)
         self.assertEqual(self.client.post("/outfits/save", data={"key": key, "want": "remove", "on": "saved"}).status_code, 302)
@@ -226,7 +229,7 @@ class SavedOutfits(AppCase):
         self.assertEqual(next(fav for fav in db.list_saved() if fav["key"] == key), before)
         page = self.client.get(f"/outfits?occasion=saved&removed={key}").data.decode()      # Back to the page that said so
         self.assertIn(f'id="outfit-{key}"', page)
-        self.assertNotIn("from your saved outfits", page, "after Undo the page still says the outfit was removed")
+        self.assertNotIn("out of your wardrobe", page, "after Undo the page still says the outfit was removed")
         # Undo asked twice changes nothing; an outfit that was never removed and no longer exists is refused.
         self.assertEqual(self.client.post("/outfits/save", data={"key": key, "want": "restore", "on": "saved"}).status_code, 302)
         self.assertEqual(len(db.list_saved()), 2)
@@ -325,7 +328,7 @@ class ShoppingList(AppCase):
 
     def test_an_empty_wardrobe_still_gives_a_page(self):
         db.replace_slots([])
-        self.assertIn(b"Nothing to buy yet", self.client.get("/list").data)
+        self.assertIn(b"Nothing on your list yet", self.client.get("/list").data)
         self.assertEqual(self.client.get("/list.md").status_code, 200)
 
 

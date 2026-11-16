@@ -9,15 +9,7 @@
 {% set photo_part = model_menu or has_photo or get_flashed_messages(category_filter=['photo']) %}
 <div class="cc-head">
   <h1>About you</h1>
-  {% if profile.example %}
-  {# The one note about the example values every account starts with. It agrees with "These are my sizes" (Buy this
-     outfit, the shopping list) and with a plan edited on the plan page, which a save leaves as it is. #}
-  <p class="demo" id="example-note"><b>{{ 'You said these sizes are yours; the rest are example values.' if sizes_kept else 'These are example values.' }}</b>
-    {% if plan_kept %}Change them to yours and save. Your plan stays as you edited it: to rebuild it from your answers, use “Start over from my profile” on <a href="{{ url_for('slots_page') }}">the plan page</a>.
-    {%- else %}Change them to yours and save: your plan is rebuilt around them, then you see the outfits.{% endif %}</p>
-  {% else %}
-  <p class="muted">Your sizes decide what counts as in stock, your colours and what you dress for shape your plan, and the budget sets the bar at the top.</p>
-  {% endif %}
+  <p class="muted">Your sizes decide what counts as in stock, your colours and what you dress for shape the outfits you are offered, and the budget sets the bar at the top.</p>
 </div>
 
 {# One screen, like a game's character screen: the model in the middle, the tabs beside it (under it on a phone) and
@@ -135,6 +127,8 @@
         {% if model_menu %}
         <p class="muted small" data-body-sent>Your height, weight, chest and body waist also shape the model in your AI pictures. They go to {{ drawn_by }} with each picture as a few words about your body (such as “a little shorter than average, lean build”), never as numbers.{% if looks_on %} Described to the AI now as: “{{ model_words }}”.{% endif %}</p>
         {% endif %}
+        {# What he has not answered yet is said where it is asked, in a plain line under the fields (no box). #}
+        {% if not sizes_given %}<p class="muted small not-given" id="sizes-not-given">You have not given your sizes yet. These are the sizes we start with; change them to yours and save.</p>{% endif %}
       </section>
 
       <section class="cc-panel" id="panel-colours" data-tab="colours" aria-labelledby="tab-colours">
@@ -159,12 +153,14 @@
             <input type="text" name="refused" value="{{ colour_names(profile.refused) }}" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="e.g. yellow, pink"></label>
           <p class="muted small">Recognised: {% for c in COLOURS.values() %}<span class="mini"><i style="background:{{ c.hex }}"></i>{{ c.label|lower }}</span>{% endfor %}</p>
         </div>
+        {% if 'colours' not in answered %}<p class="muted small not-given" id="colours-not-given">You have not chosen colours yet. Until you do, your outfits start from {{ colour_names(profile.liked) }}.</p>{% endif %}
       </section>
 
       <section class="cc-panel" id="panel-budget" data-tab="budget" aria-labelledby="tab-budget">
         <h2 class="sec">Budget</h2>
         <label class="field"><span>For the whole wardrobe (EUR)</span>
-          <input type="number" id="budget" name="budget" min="0" inputmode="numeric" value="{{ profile.budget }}"></label>
+          <input type="number" id="budget" name="budget" min="0" inputmode="numeric" value="{{ profile.budget if 'budget' in answered else '' }}"></label>
+        <p class="muted small{% if 'budget' not in answered %} not-given{% endif %}" id="budget-says">{% if 'budget' in answered %}The bar at the top counts the pieces of the outfits you said yes to against this.{% else %}You have not set a budget yet. With one, the bar at the top counts the pieces of the outfits you said yes to against it, and an outfit that would take you over it says so before you add it.{% endif %}</p>
       </section>
 
       {# The Stores tab: every store customers are offered (programmes.offered), a row to tick each; his pieces are picked

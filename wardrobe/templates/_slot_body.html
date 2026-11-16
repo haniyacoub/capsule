@@ -34,6 +34,8 @@
     {# Any other note (a locked choice gone from the product list…); the one about the minimum is said just above. #}
     {% if note and s.chosen and s.state != 'owned' and not s.sold_out and not (under and note.startswith('Nothing reaches')) %}<span class="note">{{ note }}.</span>{% endif %}
   </p>
+  {# Whether the piece is in his wardrobe, and why: "In 4 of your outfits" (the outfits he said yes to). #}
+  <p class="in-outfits">{% if s.outfits_in %}{{ s.in_outfits_words }}.{% elif s.mine %}In your wardrobe, in none of your outfits yet.{% else %}Not in your wardrobe yet: it joins with the first outfit you add that wears it.{% endif %}</p>
   {# The locked product is sold out in his size: said here as wherever the piece shows, with the same one tap. #}
   {% if s.sold_out %}{% with back = 'slot', sig = '', qty = s.qty, pick_args = dict(view='slot', sort=sort, **way) %}{% include "_sold_out.html" %}{% endwith %}{% endif %}
   {# `plan_link`: a piece left out has one more way forward on its own page: the plan, where it can be recoloured or removed. #}

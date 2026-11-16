@@ -10,7 +10,8 @@
 <section class="card">
   <h1>Your plan</h1>
   <p class="muted">{% if pieces %}{{ pieces }} piece{{ '' if pieces == 1 else 's' }} in {{ colours }} colour{{ '' if colours == 1 else 's' }}, planned from your profile.
-    Change anything: rename, recolour, remove or add. Your wardrobe and outfits update straight away.
+    These are the pieces your outfits are made from. A piece is in your wardrobe, and in your total, once you add an outfit that wears it.
+    Change anything: rename, recolour, remove or add. Your outfits update straight away.
     {%- else %}No pieces in your plan yet. Add one below, or start over from your profile.{% endif %}</p>
   <div class="palette">
     {% for role, c in palette %}
@@ -18,7 +19,7 @@
     {% endfor %}
   </div>
   <p class="muted small">{{ uses.get(profile.use, '') }} Trousers and shoes stay neutral so nearly every top works with every pair of trousers; the accent colour appears on a top layer or two.</p>
-  <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, locked choices and pieces marked as yours are lost.">{{ csrf_field() }}
+  <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, locked choices and pieces marked as yours are lost. The pieces of the outfits you said yes to stay.">{{ csrf_field() }}
     <button class="btn ghost small">Start over from my profile</button>
   </form>
 </section>

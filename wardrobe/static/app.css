@@ -186,25 +186,6 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 /* A field scrolled into view brings its label, just above it, along. */
 .field > :is(input, select, textarea) { scroll-margin-top: calc(var(--t-s) * var(--lh-m) + var(--s-1)); }
 
-/* ── Starter banner (Outfits, until the profile is saved) ────────────────── */
-/* A new customer's outfits are the starter ones: this strip says whose they are and leads to the Profile page to make
-   them his. It stands where the budget bar would (a budget he never set says nothing yet), the same strip on the page's
-   ground with a hairline under it. Its height is --bar-h, which sizes the picture on a phone (see .stage): app.js sets
-   it to the banner's real height, whatever its words wrap to. Until then (and without JavaScript) these values hold:
-   three lines of words beside the button on a phone, one line on a computer. */
-:root:has(.starter) { --bar-h: calc(3 * var(--t-s) * var(--lh-s) + 2 * var(--s-2) + 1px); }
-.starter { background: var(--bg); border-bottom: 1px solid var(--line); }
-.starter-in {
-  display: flex; align-items: center; gap: var(--s-3); max-width: 1240px; margin: 0 auto;
-  padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l);
-}
-.starter p { flex: 0 1 auto; min-width: 0; font-size: var(--t-s); line-height: var(--lh-s); text-wrap: pretty; }
-.starter .btn { flex: none; white-space: nowrap; }
-@media (min-width: 760px) {
-  :root:has(.starter) { --bar-h: calc(40px + 2 * var(--s-2) + 1px); }   /* the button (.btn.small) sets the height */
-  .starter-in { gap: var(--s-4); }
-}
-
 /* ── Notices ─────────────────────────────────────────────────────────────── */
 .demo { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); background: var(--ok-bg); border-radius: var(--r-ui); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-3); }
 /* A status line: what just happened (saved, swapped, rebuilt). */
@@ -497,11 +478,12 @@ details.why summary::-webkit-details-marker { display: none; }
    where there are any. The picture is never under 240px wide; on a shorter screen it then ends just above the tab
    bar, and the outfit line follows below. Its width is kept as --stage-w, so that the arrows can be placed beside
    the picture (see .reel-nav). */
-.looks { --told: 0px; --least: 240px; --lead-more: 0px; }
-.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--shots-h) - var(--lead-more) - var(--told)) * 2 / 3))); }
+.looks { --told: 0px; --least: 240px; --lead-more: 0px; --yes-h: 0px; }
+.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--shots-h) - var(--lead-more) - var(--told) - var(--yes-h)) * 2 / 3))); }
 .looks { --shots-h: 0px; }
 .looks:has(.shots) { --shots-h: 40px; }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
+.looks.reusing { --lead-more: calc(var(--t-s) * var(--lh-s)); }   /* … and two once it says why the outfits are in this order */
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
    room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
    than 240px, so that the whole model still shows on the first screen of a short phone (390 x 664) under a message
@@ -937,10 +919,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
    a caution with the button that keeps them. */
 .your-sizes { display: grid; gap: var(--s-1); margin: 0 0 var(--s-3); padding: var(--s-2) var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
 .your-sizes a { padding: var(--s-1) 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
-.your-sizes.example { color: var(--ok); background: var(--ok-bg); }
-.your-sizes.example a { color: inherit; }
 .your-sizes form { margin-top: var(--s-1); }
-.your-sizes .btn { border-color: var(--ok); }   /* the caution's colour: 5.1:1 on its ground, where --field is 3.1:1 */
 .card.store-list { margin-bottom: 12px; padding: 0; }   /* its header and lines run to its edges, with their own padding */
 .store-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
 .store-head h2 { margin: 0; font-size: var(--t-l); }
@@ -985,7 +964,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
   .buy-product::after { content: " — " attr(href); font-size: var(--t-xs); color: #555; word-break: break-all; }
   .buy { grid-template-columns: minmax(0, 1fr); }
   .buy .pic { display: none; }      /* paper gets the words, not the photos */
-  .your-sizes, .your-sizes.example { padding: 0; background: none; }
+  .your-sizes { padding: 0; background: none; }
 }
 
 /* ── Slots editor and profile form ───────────────────────────────────────── */
@@ -1708,3 +1687,65 @@ details[open] > summary .edit { visibility: hidden; }
 @media (min-width: 1140px) {
   .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* ── The wardrobe is the outfits he said yes to (yes.py) ─────────────────── */
+/* The bar before any yes: one plain line where the figures would be. On a phone only its first words, which fit the
+   bar's one line (the rest is still read out). */
+.summary .empty-wardrobe { display: block; margin: 0; font-size: var(--t-s); color: var(--muted); }
+@media (max-width: 759.98px) {
+  .summary .empty-wardrobe .more { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+/* Under an outfit's price: what a yes would add ("2 new pieces 208.99 €, 3 already in your wardrobe"), and in the
+   caution's colour by how much it would take him over his budget. */
+.adds { margin: 0; padding: 0 2px; font-size: var(--t-m); line-height: var(--lh-m); }
+.adds.in { color: var(--muted); }
+.adds.over { color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }
+/* On a phone the first screen shows the whole model, the outfit's price and the two answers: the picture gives up
+   the room of the answers' row (--yes-h, see .looks), and the answers come before the line that says in full what
+   a yes adds. The button says the sum itself ("+ 59 €"). */
+@media (max-width: 759.98px) {
+  .looks:not(.saved) { --yes-h: 60px; }
+  .yes-box { display: flex; flex-direction: column-reverse; }
+  .yes-box .answer { margin: 0 0 var(--s-2); }
+  .yes-box .adds-lines { margin-bottom: var(--s-3); }
+}
+.btn.yes .plus { font-weight: 400; opacity: .85; white-space: nowrap; }
+/* The two answers: "Add to my wardrobe", the main button, and a quiet "Not for me" beside it. */
+.answer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); margin: var(--s-2) 0 var(--s-3); padding: 0 2px; }
+.answer .save { flex: 1 1 auto; }
+.answer .btn.yes { width: 100%; gap: var(--s-2); }
+.answer .btn.yes.on { width: auto; }
+.btn.yes { display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); }
+.quiet {
+  font: inherit; font-size: var(--t-s); color: var(--muted); background: none; border: 0; padding: 0 var(--s-1); min-height: 44px;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+}
+.quiet:hover { color: var(--ink); }
+.foot.declined { display: block; }
+.foot.declined .quiet { min-height: 24px; padding: var(--s-1) 0; }
+.saved-on a { display: inline-block; padding: var(--s-1) 0; text-underline-offset: 3px; }
+/* A piece's card, pop-up and page: "In 4 of your outfits". */
+.in-outfits { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.slot-head .in-outfits { margin-top: var(--s-1); }
+/* Before any yes, on Wardrobe and the Shopping list: said plainly, with the way to the outfits. */
+.first-yes { display: grid; gap: var(--s-3); justify-items: center; }
+.first-yes .small { font-size: var(--t-s); }
+.first-yes .small a { display: inline-block; padding: var(--s-1) 0; }
+/* Buy this outfit, for an outfit that is not in his wardrobe yet. */
+.not-yet { display: grid; gap: var(--s-2); margin: 0 0 var(--s-3); padding: var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
+.not-yet .save { justify-content: flex-start; }
+/* Said once to someone who was a customer before (_news.html). */
+.flash.news b { font-weight: 600; }
+/* What he has not answered yet, said on Profile where it is asked. */
+.not-given { margin: 0 0 var(--s-2); }
+/* The welcome: three short steps on a page of their own. */
+.welcome { max-width: 560px; margin: var(--s-5) auto 0; }
+.welcome-step { font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 var(--s-1); }
+.welcome .form { max-width: none; }
+.welcome-go { display: flex; align-items: center; gap: var(--s-4); margin-top: var(--s-2); }
+.pick-colours { border: 0; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: var(--s-1) var(--s-2); }
+.pick-colour { display: flex; align-items: center; gap: var(--s-2); min-height: 44px; cursor: pointer; }
+.pick-colour input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--ink); }
+.pick-colour i { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--field); }
+.welcome-use { margin: var(--s-1) 0; }
+.welcome-use span { display: block; text-align: center; padding: var(--s-3) var(--s-2); border-radius: var(--r-track); }

@@ -117,6 +117,32 @@ def sizes_unconfirmed(profile: dict) -> bool:
     return same_sizes(profile, EXAMPLE) and not db.get_setting("sizes_confirmed")
 
 
+# What a new customer is asked in the welcome besides his sizes (app.py, welcome). Until he answers one of them, or
+# saves the Profile page, the pages do not treat the starting value as his: no budget is "his" budget, and Profile
+# says which colours Stilsmith starts with.
+QUESTIONS = ("colours", "budget", "use")
+
+
+def answered(profile: dict | None = None) -> set[str]:
+    """Which of QUESTIONS the customer has answered. An account from before the welcome answered them all by
+    saving his Profile (then it no longer holds the example's values), or none."""
+    said = db.get_setting("answered")
+    if isinstance(said, list):
+        return set(said) & set(QUESTIONS)
+    profile = load() if profile is None else profile
+    return set() if profile.get("example") else set(QUESTIONS)
+
+
+def answer(*questions: str) -> None:
+    """Note that he answered these questions."""
+    db.set_setting("answered", sorted(answered() | (set(questions) & set(QUESTIONS))))
+
+
+def budget_known(profile: dict | None = None) -> bool:
+    """Whether the budget is one he gave. Until then the bar shows the total and nothing is "left" or "over"."""
+    return "budget" in answered(profile)
+
+
 def _int(value, default: int, lo: int, hi: int) -> int:
     try:
         return max(lo, min(hi, int(float(str(value).replace(",", ".")))))

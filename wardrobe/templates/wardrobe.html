@@ -6,9 +6,22 @@
 {% if said %}<div class="flash said" role="status">{% include "_changed.html" %}</div>{% endif %}
 {# Said once, the first time the page is opened after a store stopped being offered (shared.gone_message). #}
 {% if gone %}<p class="flash" role="status">{{ gone }}</p>{% endif %}
-{# The plan (/slots) has no tab of its own: this line leads to it. Pieces count like the bar's: a white tee ×2 is two. #}
+{% if news %}{% include "_news.html" %}{% endif %}
+{# After "Take out" on a piece he had kept (app.py, slot_keep): which, and the way back. #}
+{% if taken %}
+<div class="flash said short" role="status">
+  Took “{{ taken.slot.name }}” out of your wardrobe. Outfits are still made with it.
+  <form method="post" action="{{ url_for('slot_keep', slot_id=taken.slot.id) }}">{{ csrf_field() }}
+    <input type="hidden" name="want" value="in">
+    <button>Undo</button>
+  </form>
+</div>
+{% endif %}
+{# What the page lists: his wardrobe, the pieces of the outfits he said yes to (with what he owns and what he kept).
+   The plan (/slots), the pieces outfits are made from, has no tab of its own: this line leads to it. Pieces count
+   like the bar's: a white tee ×2 is two. #}
 {% set n_pieces = w.slots|sum(attribute='qty') %}
-{% if w.slots %}<p class="lead plan-line">{{ n_pieces }} {{ 'piece' if n_pieces == 1 else 'pieces' }} in your plan · <a href="{{ url_for('slots_page') }}">Edit the plan</a></p>{% endif %}
+{% if w.slots %}<p class="lead plan-line">{{ n_pieces }} {{ 'piece' if n_pieces == 1 else 'pieces' }} in your wardrobe{% if w.n_outfits %} · <a href="{{ url_for('outfits_page', occasion='saved') }}">{{ w.n_outfits }} {{ 'outfit' if w.n_outfits == 1 else 'outfits' }}</a> you said yes to{% endif %} · {{ n_plan }} in the plan your outfits are made from · <a href="{{ url_for('slots_page') }}">Edit the plan</a></p>{% endif %}
 {# The price level and the quality slider. Any change posts the form; the slot
    cards below are re-rendered and swapped in, and the summary bar and the
    level totals with them. hx-sync makes quick taps take turns, so the page

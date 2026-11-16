@@ -35,6 +35,7 @@ PENALTY_OUTER_MATCHES_BOTTOM = 5
 PENALTY_BROWN_SHOES_BLACK_TROUSERS = 30
 PENALTY_BLACK_SHOES_LIGHT_TROUSERS = 10
 BONUS_LIGHT_UNDER_DARK = 5        # a light top under a dark layer
+BONUS_REUSE = 10                  # per piece the customer already has in his wardrobe (generate)
 
 
 @dataclass
@@ -261,9 +262,16 @@ def all_outfits(w: Wardrobe) -> list[Outfit]:
     return found
 
 
-def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0) -> tuple[list[Outfit], int]:
-    """A varied selection of outfits, and how many valid combinations exist in total."""
-    pool = [o for o in all_outfits(w) if o.suits(occasion)]
+def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0,
+             skip: frozenset[str] | set[str] = frozenset(),
+             have: frozenset[str] | set[str] = frozenset()) -> tuple[list[Outfit], int]:
+    """A varied selection of outfits, and how many valid combinations exist in total.
+
+    `skip`: combinations (sigs) that are not offered: the ones he answered already (yes.py); they are not counted.
+    `have`: the pieces (slot ids) already in his wardrobe. An outfit that wears some of them is likelier to be
+    among the selection, and the selection is put in order of how many it wears, most first: the outfits that cost
+    him least come first."""
+    pool = [o for o in all_outfits(w) if o.suits(occasion) and o.sig not in skip]
     total = len(pool)
     rng = random.Random(seed)
     nudge = {o.key: rng.uniform(0, 8) for o in pool}   # "Shuffle" changes which near-ties win
@@ -283,7 +291,10 @@ def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0)
         value += 6 * sum(1 for p in o.pieces if not used[p.key])   # give every piece an outing
         if core(o) in pairs:
             value -= 25                                            # same top + trousers again
-        return value
+        return value + BONUS_REUSE * reused(o)
+
+    def reused(o: Outfit) -> int:
+        return sum(1 for slot_id in o.slots if slot_id in have)
 
     while pool and len(chosen) < limit:
         best = max(pool, key=appeal)
@@ -292,4 +303,6 @@ def generate(w: Wardrobe, occasion: str = "all", limit: int = 12, seed: int = 0)
         pairs.add(core(best))
         for p in best.pieces:
             used[p.key] += 1
+    if have:
+        chosen.sort(key=lambda o: -reused(o))      # (a stable sort: equals keep the varied order)
     return chosen, total

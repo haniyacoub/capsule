@@ -1,21 +1,25 @@
-{# The heart under an outfit. A tap saves the outfit; a tap on a filled heart takes it out of the saved ones again.
-   The form says which of the two it asks for (want), so a tap always does what the heart showed (app.py,
-   outfits_save). Among today's outfits, posting swaps this form for its other state, and the Saved chip for one with
-   the new number. The button keeps its id through the swap, so keyboard focus stays on it (HTMX puts focus back on
-   the element with the same id). Under Saved the form is sent as a plain form: the page comes back without the
-   outfit and says so, with Undo. A screen reader always hears "Save outfit", with pressed or not pressed for whether
-   it is saved (aria-pressed); the tooltip says what a tap does now. #}
+{# The yes under an outfit: "Add to my wardrobe". On an outfit that is in his wardrobe it is "Take out of my
+   wardrobe". (It was the heart that saved an outfit: the same answer, now with its consequence.) The form says which
+   of the two it asks for (want), so a tap always does what the button said (app.py, outfits_save), and where it was
+   pressed (on: among the outfits he said yes to, or on Buy this outfit), which is where the answer leads back to.
+   It is sent as a plain form: a yes changes the total, what every other outfit would add and their order, so the
+   whole page comes back, and says what was added or taken out, with Undo. The button keeps its id. #}
 {% from "_macros.html" import saved_chip %}
 {% set key = o.key if o is defined else key %}
 {% set is_saved = o.saved if o is defined else saved %}
-{% set under_saved = occasion is defined and occasion == 'saved' %}
-<form class="save" method="post" action="{{ url_for('outfits_save') }}"{% if not under_saved %} hx-post="{{ url_for('outfits_save') }}" hx-target="this" hx-swap="outerHTML"{% endif %}>{{ csrf_field() }}
+{% set its_sig = o.yes_sig if o is defined else (yes_sig if yes_sig is defined else '') %}
+{% set where = on if on is defined else ('saved' if occasion is defined and occasion == 'saved' else '') %}
+<form class="save" method="post" action="{{ url_for('outfits_save') }}">{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
+  <input type="hidden" name="sig" value="{{ its_sig }}">
   <input type="hidden" name="want" value="{{ 'remove' if is_saved else 'save' }}">
-  {% if under_saved %}<input type="hidden" name="on" value="saved">{% endif %}
-  <button class="heart{% if is_saved %} on{% endif %}" id="save-{{ key }}" aria-pressed="{{ 'true' if is_saved else 'false' }}" title="{{ 'Saved — tap to remove' if is_saved else 'Save this outfit' }}">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="{{ 'currentColor' if is_saved else 'none' }}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>
-    <span class="sr">Save outfit</span>
+  {% if where %}<input type="hidden" name="on" value="{{ where }}">{% endif %}
+  {% if occasion is defined and occasion != 'saved' %}<input type="hidden" name="occasion" value="{{ occasion }}">{% endif %}
+  <button class="btn yes{% if is_saved %} ghost small on{% endif %}" id="save-{{ key }}">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="{{ 'currentColor' if is_saved else 'none' }}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>
+    <span>{{ 'Take out of my wardrobe' if is_saved else 'Add to my wardrobe' }}</span>
+    {# What the yes adds to his wardrobe's total, where the page knows it (yes.adds). #}
+    {% if not is_saved and o is defined and o.adds %}<span class="plus">+ {{ o.adds.cost|eur }}</span>{% endif %}
   </button>
 </form>
 {% if chip is defined %}{{ saved_chip(chip, swap=true) }}{% endif %}

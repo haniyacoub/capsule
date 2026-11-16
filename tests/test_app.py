@@ -12,6 +12,7 @@ from wardrobe import capsule, catalog, colours, config, db, english, export, out
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app, eur, weblink
 
+from . import having
 from .test_production import ProductionCase
 from .test_production import words as page_words
 
@@ -110,6 +111,7 @@ class Selection(AppCase):
         self.assertTrue(all(s.warn for s in w.slots))
 
     def test_toggle_updates_cards_and_summary_together(self):
+        having.the_whole_plan()         # the cards are those of his wardrobe: here, every piece of the plan
         cheap = self.set_mode("cheapest", 0)
         cheap_total = selection.build().total
         good = self.set_mode("cheapest", 85)
@@ -300,11 +302,14 @@ class APiecesPageInPlainWords(AppCase):
         page = self.client.get("/slots").data.decode()
         text = html.unescape(page_words(page))
         self.assertNotIn("slot", text.lower())
-        self.assertIn(f"{pieces} pieces in {n_colours} colours, planned from your profile. Change anything: rename, "
-                      "recolour, remove or add. Your wardrobe and outfits update straight away.", text)
+        self.assertIn(f"{pieces} pieces in {n_colours} colours, planned from your profile. These are the pieces your "
+                      "outfits are made from. A piece is in your wardrobe, and in your total, once you add an outfit "
+                      "that wears it. Change anything: rename, recolour, remove or add. Your outfits update straight "
+                      "away.", text)
         self.assertIn("Planned for everyday and the office.", text)       # the example profile dresses for both
         self.assertIn('data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, '
-                      'locked choices and pieces marked as yours are lost."', page)
+                      'locked choices and pieces marked as yours are lost. The pieces of the outfits you said yes to '
+                      'stay."', page)
         self.assertEqual(text.count("Remove this piece"), len(slots))
         self.assertIn("Add a piece", text)
 
@@ -507,6 +512,7 @@ class SlotsAndProfile(AppCase):
                 "shoes": "on", "outerwear": "on", "owned": ""}
         self.client.post("/profile", data=form)
         self.assertEqual(selection.build().budget, 999)
+        having.the_whole_plan(budget=False)     # the bar says the budget beside a total: with pieces in his wardrobe
         self.assertIn(f"of {eur(999)}", BudgetBar.phone_line(self.client.get("/profile").data.decode()))
 
 
@@ -514,6 +520,10 @@ class BudgetBar(AppCase):
     """The bar at the top of the wardrobe's pages. A phone shows it as one line ("1,073.20 € of 1,500 € ·
     426.80 € left"); the labels Total, Budget and Left are hidden there but stay in the page, for screen
     readers and for the walk-through, which reads the figures by them."""
+
+    def setUp(self):
+        super().setUp()
+        having.the_whole_plan()     # pieces in his wardrobe and a budget he gave: the bar has figures to show
 
     @staticmethod
     def bar(page: str) -> str:
@@ -562,6 +572,7 @@ class BudgetBar(AppCase):
         # would then grow past the room kept for it (--bar-h). A phone shows the total; a screen reader hears it all.
         profile_mod.save({**profile_mod.load(), "shoe": "49", "refused": ["navy", "black", "grey"]})
         db.replace_slots(capsule.propose(profile_mod.load())[0])
+        having.the_whole_plan()         # the new plan's pieces are in his wardrobe too
         w = selection.build()
         self.assertEqual(len(w.unfilled_words), 2, w.unfilled_words)
         self.assertEqual(w.n_nothing_to_buy, w.n_missing + w.n_no_size)
@@ -722,9 +733,9 @@ class RebuildingThePlan(AppCase):
         self.assertEqual(self.messages("/profile"), 'Profile saved. <a href="/outfits">See your outfits</a>')
 
     def test_the_first_save_shows_the_outfits_even_when_only_sizes_or_budget_changed(self):
-        # The note on a new customer's Profile says: change the example values to yours and save, then you see the
-        # outfits. With the example's colours and use kept, the plan is already built from them: it stays as it is.
-        self.assertIn("then you see the outfits.", self.client.get("/profile").data.decode())
+        # A new customer's first save of his Profile leads to the outfits. With the colours and the use the plan
+        # started with kept, the plan is already built from them: it stays as it is.
+        self.assertTrue(profile_mod.load()["example"])
         self.post("/slot/white-oxford-shirt/lock")
         before = db.list_slots()
         saved = self.save_profile(budget="2000", top_size="L")
@@ -783,6 +794,7 @@ class PiecesWithNothingToBuy(AppCase):
                       "of your outfits and your total.", page)
         self.assertNotIn("Stilsmith has no knitwear", page)
         self.assertIn("python -m wardrobe refresh --slot black-jumper", page)
+        having.the_whole_plan()         # the Wardrobe page shows the pieces of his wardrobe: here, all of the plan
         self.assertIn("Stilsmith has no coats yet", html.unescape(self.client.get("/").data.decode()))
         self.assertEqual(self.client.post("/slot/black-jumper/colour", data={"colour": "grey"}).status_code, 409)
 
@@ -808,7 +820,13 @@ class BuyingInYourSizes(AppCase):
 
     profile_form = RebuildingThePlan.profile_form       # the Profile form as the page sends it
     EXAMPLE_SIZES = "Your sizes: Tops M · Trousers W32 L32 · Shoes 43 · Change"
-    WARNING = "These are our example sizes. Change them, or keep them if they're yours."
+    # Until he has given his sizes, the line says so plainly, with the sizes every line below is in.
+    WARNING = ("You have not given your sizes yet. Until you do, every size here is our example size: Tops M · "
+               "Trousers W32 L32 · Shoes 43 · Give your sizes")
+
+    def setUp(self):
+        super().setUp()
+        having.the_whole_plan()     # the shopping list is of his wardrobe: here, every piece of the plan
 
     def outfit(self):
         return outfits.generate(selection.build(), limit=1)[0][0]
@@ -824,10 +842,11 @@ class BuyingInYourSizes(AppCase):
     def test_a_new_account_is_told_its_sizes_are_the_examples(self):
         self.assertTrue(profile_mod.sizes_unconfirmed(profile_mod.load()))
         for name, page in self.both().items():
-            self.assertIn(self.EXAMPLE_SIZES, page, name)
+            self.assertNotIn("Your sizes:", page, name)       # nothing calls the example's sizes his
             self.assertIn(self.WARNING + " These are my sizes", page, name)
         buy = self.client.get("/outfits/buy", query_string={"at": self.outfit().sig}).data.decode()
-        self.assertIn('<a href="/profile#sizes">Change', buy)
+        self.assertIn('<a href="/profile#sizes">Give your sizes', buy)
+        self.assertNotIn('class="your-sizes example"', buy, "a plain line, not a coloured box")
         self.assertIn('<h2 class="sec" id="sizes">Sizes</h2>', self.client.get("/profile").data.decode(), "where Change leads")
 
     def test_a_profile_saved_with_only_new_colours_still_has_the_example_sizes(self):
@@ -835,7 +854,7 @@ class BuyingInYourSizes(AppCase):
         self.client.post("/profile", data=self.profile_form(liked="black, white"))
         self.assertFalse(profile_mod.load()["example"])
         for name, page in self.both().items():
-            self.assertIn(self.EXAMPLE_SIZES, page, name)
+            self.assertNotIn("Your sizes:", page, name)
             self.assertIn(self.WARNING, page, name)
 
     def test_these_are_my_sizes_takes_the_warning_away(self):
@@ -844,7 +863,7 @@ class BuyingInYourSizes(AppCase):
         self.assertIn("Sizes saved.", self.client.get(back.headers["Location"]).data.decode())
         for name, page in self.both().items():
             self.assertIn(self.EXAMPLE_SIZES, page, name)         # still said: they are his own now
-            self.assertNotIn("example sizes", page, name)
+            self.assertNotIn("example size", page, name)
             self.assertNotIn("These are my sizes", page, name)
         self.assertEqual(self.client.post("/profile/sizes-ok").headers["Location"], "/list", "pressed on the list")
 
@@ -852,11 +871,11 @@ class BuyingInYourSizes(AppCase):
         self.client.post("/profile", data=self.profile_form(top_size="L", waist="34", length="30", shoe="44"))
         for name, page in self.both().items():
             self.assertIn("Your sizes: Tops L · Trousers W34 L30 · Shoes 44 · Change", page, name)
-            self.assertNotIn("example sizes", page, name)
+            self.assertNotIn("example size", page, name)
         # Typed in by the customer, even the example's own sizes are his: the warning does not come back.
         self.client.post("/profile", data=self.profile_form(top_size="M", waist="32", length="32", shoe="43"))
         self.assertIn(self.EXAMPLE_SIZES, self.both()["list"])
-        self.assertNotIn("example sizes", self.both()["list"])
+        self.assertNotIn("example size", self.both()["list"])
 
     def test_one_size_written_two_ways_is_the_same_size(self):
         example = profile_mod.EXAMPLE
@@ -924,10 +943,13 @@ class BuyingInYourSizes(AppCase):
 class YourSizesForEachCustomer(ProductionCase):
     def test_keeping_the_example_sizes_needs_the_pages_token_and_is_for_that_customer_only(self):
         ada, bob = self.member("ada@example.com"), self.member("bob@example.com")
+        for email in ("ada@example.com", "bob@example.com"):
+            with db.as_user(self.user_id(email)):
+                having.the_whole_plan()         # each has pieces on his shopping list
         self.assertEqual(ada.post("/profile/sizes-ok").status_code, 400, "no token")
         self.assertEqual(self.post(ada, "/profile/sizes-ok").headers["Location"], "/list")
-        self.assertNotIn("These are our example sizes", html.unescape(ada.get("/list").data.decode()))
-        self.assertIn("These are our example sizes", html.unescape(bob.get("/list").data.decode()))
+        self.assertNotIn("You have not given your sizes yet", html.unescape(ada.get("/list").data.decode()))
+        self.assertIn("You have not given your sizes yet", html.unescape(bob.get("/list").data.decode()))
 
 
 class Outfits(AppCase):

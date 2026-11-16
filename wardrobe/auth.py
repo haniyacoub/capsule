@@ -171,9 +171,10 @@ def signup():
     assert user is not None
     start_session(user)
     ensure_setup()
-    # Straight to the starter outfits on the model, drawn already and shared, so they show at once. The banner at
-    # their top says whose they are and leads to the Profile page to make them his (outfits.html): no form first.
-    return redirect(url_for("outfits_page"))
+    # First the welcome: three short steps (his sizes, colours and budget, what he dresses for), each of which he
+    # may skip, then the outfits (app.py, welcome). Until he has been through it, logging in leads there again.
+    db.set_setting("welcome", "new")
+    return redirect(url_for("welcome"))
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -195,6 +196,8 @@ def login():
         return render_template("auth_login.html", email=email, next=request.form.get("next", "")), 401
     db.clear_failed_logins(email)
     start_session(user)
+    if not request.values.get("next") and db.get_setting("welcome") == "new":
+        return redirect(url_for("welcome"))     # he left the welcome before its end: it is offered once more
     return redirect(_next_page())
 
 

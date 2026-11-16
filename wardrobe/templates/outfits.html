@@ -1,18 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Outfits · {{ site_name }}{% endblock %}
-{# The starter banner: until a new customer saves his profile, it stands above the outfits where the budget bar would
-   (a budget he never set says nothing yet), says whose outfits these are and leads to the Profile page to make them
-   his. app.js sizes the picture from its real height (--bar-h, app.css "Starter banner"). #}
-{% block summary %}
-{% if starter %}
-<section class="starter" aria-label="Starter outfits">
-  <div class="starter-in">
-    <p>{{ starter }}</p>
-    <a class="btn ghost small" href="{{ url_for('profile_page') }}">Make them mine</a>
-  </div>
-</section>
-{% else %}{{ super() }}{% endif %}
-{% endblock %}
 {% block main %}
 {% from "_macros.html" import icon, pic, saved_chip %}
 <h1 class="sr">Outfits</h1>
@@ -30,15 +17,42 @@
   {% endif %}
 </div>
 {% endif %}
-{% if removed %}
-{# Under Saved, after the heart took an outfit out: which one, and the way back. Undo saves it again exactly as it
-   was (app.py, outfits_save). #}
+{% if news %}{% include "_news.html" %}{% endif %}
+{% if answer and answer.kind == 'yes' %}
+{# After "Add to my wardrobe": what was added, with Undo (it takes the outfit out again) and the way to buy it. #}
 <div class="flash said short" role="status">
-  Removed “{{ removed.label }}” from your saved outfits.
+  Added “{{ answer.label }}” to your wardrobe: {{ answer.words[0]|lower }}{{ answer.words[1:] }}.
+  <form method="post" action="{{ url_for('outfits_save') }}">{{ csrf_field() }}
+    <input type="hidden" name="key" value="{{ answer.key }}">
+    <input type="hidden" name="sig" value="{{ answer.sig }}">
+    <input type="hidden" name="want" value="remove">
+    <input type="hidden" name="occasion" value="{{ occasion }}">
+    <button>Undo</button>
+  </form>
+</div>
+{% elif answer %}
+{# After "Not for me": that it is not offered again, with Undo (it is shown again). #}
+<div class="flash said short" role="status">
+  “{{ answer.label }}” will not be offered again.
+  <form method="post" action="{{ url_for('outfits_no') }}">{{ csrf_field() }}
+    <input type="hidden" name="sig" value="{{ answer.sig }}">
+    <input type="hidden" name="want" value="undo">
+    <input type="hidden" name="occasion" value="{{ occasion }}">
+    <button>Undo</button>
+  </form>
+</div>
+{% endif %}
+{% if removed %}
+{# After an outfit was taken out of the wardrobe: which one, which pieces went with it (those no other outfit of his
+   wears; app.py, outfits_save), and the way back. Undo puts it back exactly as it was. #}
+<div class="flash said short" role="status">
+  Took “{{ removed.label }}” out of your wardrobe.
+  {% if removed.left %}With it went {{ removed.left }}: no other outfit of yours wears {{ 'them' if ' and ' in removed.left else 'it' }}.
+  {% elif removed.sig %}All its pieces stay: other outfits of yours wear them, or you own them.{% endif %}
   <form method="post" action="{{ url_for('outfits_save') }}">{{ csrf_field() }}
     <input type="hidden" name="key" value="{{ removed.key }}">
     <input type="hidden" name="want" value="restore">
-    <input type="hidden" name="on" value="saved">
+    {% if occasion == 'saved' %}<input type="hidden" name="on" value="saved">{% else %}<input type="hidden" name="occasion" value="{{ occasion }}">{% endif %}
     <button>Undo</button>
   </form>
 </div>
@@ -85,15 +99,17 @@
 {# One line: how many outfits, the day their prices were collected ("11 Nov" of "11 Nov 2026, 15:02"), and how
    to see the next one: swipe on a touch screen, the arrows or the arrow keys with a mouse (app.css shows one). #}
 <p class="lead">
-  {% if occasion == 'saved' %}Your saved outfits, as they were when you saved them. “Changed” marks a piece your wardrobe now fills with something else.
+  {% if occasion == 'saved' %}The outfits you said yes to, as they were when you added them. “Changed” marks a piece your wardrobe now fills with something else.
   {% else %}
   {{ '%d of ' % boards|length if boards|length < total }}{{ total }} {{ 'outfit' if total == 1 else 'outfits' }}
   {%- if w.collected != 'never' %} · prices of {{ w.collected.split(',')[0].rsplit(' ', 1)[0] }}{% endif %}
   {%- if boards|length > 1 or boards|length < total %}<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>{% endif %}
   {% endif %}
+  {# Why the outfits are in this order, once he has pieces: the ones that cost him least come first. #}
+  {% if reusing %}<span class="why-first"> · outfits that use pieces you already have come first</span>{% endif %}
 </p>
 
-<section class="looks{% if occasion == 'saved' %} saved{% endif %}" aria-label="Outfits, one at a time">
+<section class="looks{% if occasion == 'saved' %} saved{% endif %}{% if reusing %} reusing{% endif %}" aria-label="Outfits, one at a time">
   {# The arrows only where there is another slide to move to: none for a single outfit (Saved with one, say).
      They come before the outfits, so that the keyboard reaches Next in a few presses rather than after every
      outfit; app.css places them beside the outfit. The arrow keys work anywhere on the page (app.js). #}
@@ -155,10 +171,32 @@
           <div class="about-meta">
             <span class="count" aria-hidden="true">{{ loop.index }} / {{ boards|length }}</span>
             <b class="board-cost" title="{{ 'What the pieces of this outfit that can be bought cost together' if off.said else 'What the pieces in this outfit cost together' }}">{{ (o.cost - off.sum)|round(2)|eur }}</b>
-            {% include "_save_button.html" %}
           </div>
         </header>
         {% if off.said %}<p class="about-less">Not counted: {{ off.said|join('; ') }}</p>{% endif %}
+        {# What a yes would add to his wardrobe (yes.adds): "2 new pieces 208.99 €, 3 already in your wardrobe", and
+           by how much it would take him over his budget, said before he says yes. Then the two answers: "Add to my
+           wardrobe" (_save_button.html) and a quiet "Not for me", after which the outfit is not offered again. #}
+        {# On a phone the two answers come first, so that they are on the first screen under the picture, with what
+           the yes adds to his total on the button; the line that says it in full follows (app.css, .yes-box). #}
+        <div class="yes-box">
+        <div class="adds-lines">
+        {% if o.adds %}
+        <p class="adds{% if o.adds.in_wardrobe %} in{% endif %}">{{ o.adds.words }}</p>
+        {% if o.adds.over_words %}<p class="adds over">{{ o.adds.over_words }}</p>{% endif %}
+        {% endif %}
+        </div>
+        <div class="answer">
+          {% include "_save_button.html" %}
+          {% if o.sig and not o.saved %}
+          <form class="no" method="post" action="{{ url_for('outfits_no') }}">{{ csrf_field() }}
+            <input type="hidden" name="sig" value="{{ o.sig }}">
+            <input type="hidden" name="occasion" value="{{ occasion }}">
+            <button class="quiet" id="no-{{ o.key }}">Not for me</button>
+          </form>
+          {% endif %}
+        </div>
+        </div>
         <ul class="pieces">
           {% for p in o.pieces %}
           <li>
@@ -178,9 +216,13 @@
           </li>
           {% endfor %}
         </ul>
-        {% if o.saved_at %}<p class="saved-on">Saved {{ o.saved_at }}</p>{% endif %}
+        {% if o.saved_at %}<p class="saved-on">Added {{ o.saved_at }}</p>{% endif %}
         {% if o.sig %}
-        <p class="about-actions"><a class="btn" href="{{ url_for('outfits_buy', at=o.sig) }}">Buy this outfit</a></p>
+        <p class="about-actions"><a class="btn{{ ' ghost' if not o.saved }}" href="{{ url_for('outfits_buy', at=o.sig) }}">Buy this outfit</a></p>
+        {% elif o.live %}
+        {# One he said yes to, shown as it was then: the same pieces with today's products are one tap away. #}
+        <p class="about-actions"><a class="btn" href="{{ url_for('outfits_buy', at=o.live) }}">Buy this outfit</a></p>
+        <p class="saved-on"><a href="{{ url_for('outfits_page', at=o.live) }}">See it with today's products</a></p>
         {% endif %}
         {% if tryon_available and o.sig %}
         {# Extension point: appears once a provider is set in wardrobe/tryon.py #}
@@ -209,12 +251,27 @@
 </dialog>
 
 {% elif occasion == 'saved' %}
-<p class="empty">Nothing saved yet. Tap the heart on an outfit to keep it here.</p>
+<p class="empty">No outfits in your wardrobe yet. “Add to my wardrobe” on an outfit puts it here. <a href="{{ url_for('outfits_page') }}">See the outfits</a></p>
+{% elif n_declined or n_saved %}
+<p class="empty">
+  No more outfits to offer{% if occasion != 'all' %} for “{{ OCCASIONS[occasion]|lower }}”{% endif %}.
+  {% if n_saved %}The ones you added are under <a href="{{ url_for('outfits_page', occasion='saved') }}">My outfits</a>.{% endif %}
+  {% if occasion != 'all' %}Or try <a href="{{ url_for('outfits_page', occasion='all') }}">all occasions</a>.{% endif %}
+</p>
 {% else %}
 <p class="empty">
   No outfits to show{% if occasion != 'all' %} for “{{ OCCASIONS[occasion]|lower }}”{% endif %}.
   An outfit needs at least a top and trousers among your filled slots{% if occasion != 'all' %} — or try <a href="{{ url_for('outfits_page', occasion='all') }}">all occasions</a>{% endif %}.
 </p>
+{% endif %}
+
+{% if n_declined and occasion != 'saved' %}
+{# The outfits he said no to are not offered again; this brings all of them back. #}
+<form class="foot declined" method="post" action="{{ url_for('outfits_no') }}">{{ csrf_field() }}
+  <input type="hidden" name="want" value="all">
+  <input type="hidden" name="occasion" value="{{ occasion }}">
+  You said no to {{ n_declined }} {{ 'outfit' if n_declined == 1 else 'outfits' }}, so {{ 'it is' if n_declined == 1 else 'they are' }} not shown. <button class="quiet">Offer {{ 'it' if n_declined == 1 else 'them' }} again</button>
+</form>
 {% endif %}
 
 {% if not looks_on and not production %}

@@ -27,7 +27,7 @@ from markupsafe import Markup
 from werkzeug.exceptions import HTTPException, NotFound
 
 from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
-               owner, person, programmes, selection, shared, tryon)
+               owner, person, programmes, selection, shared, tryon, yes)
 from . import figure
 from . import videos
 from . import profile as profile_mod
@@ -126,7 +126,13 @@ def plan_edited(before: dict) -> bool:
 def rebuild_plan(profile: dict, before: dict) -> tuple[capsule.Rebuilt, bool]:
     """Rebuild the plan from the profile, keeping what was picked or marked as owned by hand, and
     bring the catalogue in step. Also returns whether real data now needs a refresh."""
-    plan = capsule.rebuild(profile, db.list_slots(), before.get("owned", ""))
+    old = db.list_slots()
+    plan = capsule.rebuild(profile, old, before.get("owned", ""))
+    fresh = len(plan.slots)
+    plan.slots = with_his_pieces(plan.slots, old, before)
+    plan.stayed = plan.slots[fresh:]
+    stayed = {slot["name"] for slot in plan.stayed}
+    plan.lost = [(name, why) for name, why in plan.lost if name not in stayed]      # (it was kept after all)
     db.replace_slots(plan.slots)
     needs_refresh = sync_catalog()
     # A kept piece has the same id, garment and colour, so its product is on offer again. Checked all
@@ -153,9 +159,24 @@ def rebuilt_message(plan: capsule.Rebuilt) -> str:
         words.append(f"Kept your {picked} hand-picked {pieces(picked)}.")
     elif owned:
         words.append(f"Kept the {owned} {pieces(owned)} you own.")
+    if plan.stayed:
+        n = len(plan.stayed)
+        words.append(f"Also kept, as {'it was' if n == 1 else 'they were'}: the {n} {pieces(n)} of your wardrobe "
+                     "that the new plan has no place for.")
     if plan.lost:
         words.append("Not kept: " + ", ".join(f"{name} ({why})" for name, why in plan.lost) + ".")
     return " ".join(words)
+
+
+def with_his_pieces(new: list[dict], old: list[dict], profile: dict | None = None) -> list[dict]:
+    """A plan made afresh (`new`), with the pieces of the plan before it (`old`) that are in his wardrobe and that
+    the new plan has no place for. A piece an outfit he said yes to wears, or one he kept, stays in the plan as it
+    is, whatever new answers propose: his outfits go on being made of it, and nothing leaves his wardrobe that he
+    did not take out himself. (What he owns follows its own rules: capsule.rebuild.) `profile`: the answers the
+    plan before was built from."""
+    mine = {view.slot["id"] for view in selection.build(profile=profile).slots if view.outfits_in or view.kept}
+    here = {slot["id"] for slot in new}
+    return new + [slot for slot in old if slot["id"] in mine and slot["id"] not in here]
 
 
 def recoloured_name(name: str, old: str, new: str) -> str:
@@ -166,19 +187,6 @@ def recoloured_name(name: str, old: str, new: str) -> str:
     if not name.lower().startswith(before.lower()) or rest[:1].isalpha():   # 'Blackwatch shirt' is no black shirt
         return name
     return ((after if name[:1].isupper() else after.lower()) + rest)[:60]
-
-
-def starter_line() -> str:
-    """Whose the starter outfits are, at the top of Outfits until the customer saves his profile: 'Starter outfits for
-    a man of 180 cm, size M, who likes navy, grey, white and olive.' Said from the example values every account
-    starts with (profile.EXAMPLE), so it changes with them."""
-    example = profile_mod.EXAMPLE
-    keys = example["liked"]
-    liked = [colours.get(key).label.lower() for key in keys] if isinstance(keys, list) else []
-    likes = ", ".join(liked[:-1]) + " and " + liked[-1] if len(liked) > 1 else "".join(liked)
-    nbsp = "\u00a0"         # "180 cm" and "size M" are never split over two lines
-    return (f"Starter outfits for a man of {example['height_cm']}{nbsp}cm, size{nbsp}{example['top_size']}"
-            + (f", who likes {likes}." if likes else "."))
 
 
 def eur(value) -> str:
@@ -481,6 +489,7 @@ def create_app() -> Flask:
         """An HTML fragment for HTMX, plus the refreshed summary bar."""
         extra = render_template("_summary.html", w=w, oob=True)
         if template == "_wardrobe_body.html":   # that page also shows what each price level would cost
+            w = w.mine                          # … for his wardrobe, which is what it lists
             extra += "".join(render_template("_level_total.html", w=w, key=key, oob=True) for key in selection.MODES)
             ctx.setdefault("example_sizes", profile_mod.sizes_unconfirmed(profile_mod.load()))   # its cards' notes
         return render_template(template, w=w, **ctx) + extra
@@ -595,6 +604,25 @@ def create_app() -> Flask:
 
     # ── Wardrobe ──────────────────────────────────────────────────────────────
 
+    def wardrobe_news(w: selection.Wardrobe) -> dict | None:
+        """Said once to someone who was a customer before the wardrobe became the outfits he said yes to (db.py,
+        version 9), the first time he opens Outfits or Wardrobe: what his wardrobe starts with, counted from what
+        it holds now, and that the rest of his plan was not deleted (_news.html). None for everyone else."""
+        if not db.get_setting("wardrobe_news"):
+            return None
+        if request.method == "GET":
+            db.set_setting("wardrobe_news", None)
+        mine = w.mine
+        return {"outfits": w.n_outfits, "kept": sum(1 for view in mine.slots if view.kept and view.state != "owned"),
+                "owned": mine.n_owned, "pieces": sum(view.qty for view in mine.slots),
+                "rest": sum(view.qty for view in w.slots if not view.mine)}
+
+    def piece_taken_out(w: selection.Wardrobe) -> selection.SlotView | None:
+        """After "Take out" on a piece he kept (slot_keep): that piece, for the line with Undo on the Wardrobe
+        page. None if the address names a piece that is in his wardrobe (again), or none of his."""
+        view = w.get(request.args.get("took", ""))
+        return view if view is not None and not view.mine else None
+
     @app.get("/")
     def wardrobe():
         if conf.PRODUCTION and g.user is None:
@@ -603,7 +631,9 @@ def create_app() -> Flask:
         # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
         gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
         w = selection.build()
-        return page("wardrobe.html", w=w, tab="wardrobe", gone=gone, said=change_said(w, None, "wardrobe"),
+        # The page shows his wardrobe (w.mine): the pieces of the outfits he said yes to, what he owns, what he kept.
+        return page("wardrobe.html", w=w.mine, tab="wardrobe", gone=gone, said=change_said(w, None, "wardrobe"),
+                    n_plan=sum(view.qty for view in w.slots), news=wardrobe_news(w), taken=piece_taken_out(w),
                     example_sizes=profile_mod.sizes_unconfirmed(profile_mod.load()))   # "in the example size"
 
     @app.post("/settings")
@@ -731,8 +761,30 @@ def create_app() -> Flask:
         slot = db.get_slot(slot_id)
         if slot is None:
             abort(404)
+        if slot["owned"]:
+            # "Owned" taken back on a piece no outfit of his wears: it stays in his wardrobe, now to buy, so that it
+            # does not vanish from the page under his finger. "Take out" on its card removes it.
+            view = selection.build().get(slot_id)
+            if view is not None and not view.outfits_in:
+                yes.keep(slot_id, True)
         db.update_slot(slot_id, owned=not slot["owned"])
         return after_slot_change(slot_id)
+
+    @app.post("/slot/<slot_id>/keep")
+    def slot_keep(slot_id: str):
+        """'Take out' on the Wardrobe card of a piece that is in his wardrobe on its own account (he chose it by
+        hand before the wardrobe was the outfits he said yes to) and in no outfit of his: it leaves the wardrobe,
+        and stays a piece outfits are made from, with the product he chose. The page says so, with Undo (want=in)."""
+        view = selection.build().get(slot_id)
+        if view is None:
+            abort(404)
+        if request.form.get("want") == "in":
+            yes.keep(slot_id, True)
+            return redirect(url_for("wardrobe") + f"#card-{slot_id}")
+        if view.outfits_in or view.state == "owned":
+            abort(409, "That piece is in one of your outfits, or you own it, so it stays in your wardrobe.")
+        yes.keep(slot_id, False)
+        return redirect(url_for("wardrobe", took=slot_id))
 
     @app.post("/slot/<slot_id>/colour")
     def slot_colour(slot_id: str):
@@ -888,17 +940,29 @@ def create_app() -> Flask:
             seed = int(request.args.get("seed", 0))
         except ValueError:
             n, seed = 12, 0
-        saved = db.saved_keys()
+        rows = db.list_saved()      # the outfits he said yes to
+        saved = {fav["key"] for fav in rows}
+        yes_sigs = {fav["sig"] for fav in rows if fav["sig"]}
         said = None             # what a change just made from an outfit did (change_said)
+        n_declined = 0
 
-        removed = None          # under Saved: the outfit just removed there, said with Undo (outfits_save)
+        # The outfit just taken out of the wardrobe (outfits_save): said with Undo, and which pieces went with it.
+        removed = None
+        kept = db.get_setting("removed_outfit")
+        if kept and kept["key"] == request.args.get("removed") and kept["key"] not in saved:
+            removed = kept
+        # The answer just given to an outfit, said with Undo: a yes (?added=<its key>) or a no (?declined=<its sig>).
+        answer = None
+        last = db.get_setting("last_answer") or {}
+        if last.get("kind") == "yes" and last.get("key") == request.args.get("added") and last["key"] in saved:
+            answer = last
+        elif last.get("kind") == "no" and last.get("sig") == request.args.get("declined") \
+                and last["sig"] in db.declined_sigs():
+            answer = last
         if occasion == "saved":
-            kept = db.get_setting("removed_outfit")
-            if kept and kept["key"] == request.args.get("removed") and kept["key"] not in saved:
-                removed = kept
             now_picked = {s.slot["id"]: (s.chosen.id if s.chosen and s.state != "owned" else None) for s in w.slots}
             boards = []
-            for fav in db.list_saved():
+            for fav in rows:
                 as_saved = [dict(piece) for piece in outfits.with_roles(fav["pieces"])]
                 for piece in fav["pieces"]:   # has the wardrobe moved on since this was saved?
                     piece["changed"] = (not piece["owned"]
@@ -906,31 +970,36 @@ def create_app() -> Flask:
                     if not piece["owned"] and piece.get("store") and not programmes.is_offered(piece["store"]):
                         outfits.no_longer_offered(piece)
                 same_today = outfits.find(w, fav["key"])       # still one of today's outfits, product for product
+                # The same pieces as today's products make them: where "Buy this outfit" and "See it today" lead.
+                live = outfits.find_by_sig(w, fav["sig"]) if fav["sig"] else None
                 boards.append({"key": fav["key"], "sig": "", "label": fav["label"],
                                "pieces": outfits.with_roles(fav["pieces"]),
                                # Its picture is the one "See it worn" would draw: of today's pieces if it still exists,
                                # else of the pieces as they were saved (also where a store has gone since).
                                "look_pieces": outfits.snapshot(same_today) if same_today else as_saved,
                                "cost": round(sum(p["price"] for p in fav["pieces"]), 2),
+                               "yes_sig": fav["sig"], "live": live.sig if live else "",
                                "saved": True, "saved_at": catalog.collected_label({"collected_at": fav["saved_at"]})})
             total = len(boards)
             said = change_said(w, None, "saved")       # the swap for a sold-out product, made under Saved
         else:
-            chosen, total = outfits.generate(w, occasion=occasion, limit=n, seed=seed)
+            # The outfits he has not answered yet; those that wear pieces he already has come first (yes.offer).
+            chosen, total, n_declined = yes.offer(w, occasion, n, seed)
             at = request.args.get("at", "")
             first = None
             if at:      # one particular combination, shown first: after a swap, or "wear something else here"
                 first = outfits.find_by_sig(w, at)
                 if first:
-                    if not first.suits(occasion):
-                        total += 1              # shown although it is not of this occasion: count it
+                    if not first.suits(occasion) or first.sig in yes_sigs or first.sig in db.declined_sigs():
+                        total += 1              # shown although it is not among those on offer: count it
                     chosen = [first] + [o for o in chosen if o.key != first.key]
                 else:
                     flash("With that change the combination no longer passes the outfit rules, "
                           "so it is not shown. These do.")
             said = change_said(w, first)
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
-                       "saved": o.key in saved} for o in chosen]
+                       "saved": o.sig in yes_sigs, "yes_sig": o.sig, "adds": yes.adds(w, o, yes_sigs)}
+                      for o in chosen]
         # A small picture tapped without JavaScript (outfits_look): that outfit shows that picture large.
         for board in boards:
             if board["key"] == request.args.get("shot_of"):
@@ -938,14 +1007,14 @@ def create_app() -> Flask:
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
         videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved), removed=removed,
+                    answer=answer, n_declined=n_declined, news=wardrobe_news(w),
+                    reusing=bool(yes_sigs) and any(b.get("adds") and b["adds"].have and not b["adds"].in_wardrobe
+                                                   for b in boards),
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
                     # Pieces whose chosen product is sold out in his size: said under the piece, with the swap.
                     sold={s.slot["id"]: s for s in w.slots if s.sold_out},
                     looks_on=looks_on, videos_on=videos_on, turn_seconds=(videos.rules() or {}).get("turn_seconds", 6),
                     allowance=looks.allowance_words() if looks_on else "",    # said beside "More photos"
-                    # Until the profile is saved, the starter banner stands where the budget bar would: a budget
-                    # the customer never set says nothing yet. Saving the profile brings the bar back.
-                    starter=starter_line() if prof["example"] else "",
                     said=said,      # what a change just made from an outfit did, over the outfits (change_said)
                     auto=looks_on and looks.load_rules()["pictures"]["auto"] and not looks.held_off())
 
@@ -977,6 +1046,7 @@ def create_app() -> Flask:
         if outfit is None:
             abort(404)
         return page("buy.html", w=w, tab="outfits", outfit=outfit, sl=export.build(w, only=outfit.slots),
+                    adds=yes.adds(w, outfit),       # whether it is in his wardrobe yet, and what it would add
                     said=change_said(w, outfit, "buy"), **your_sizes())
 
     # ── AI pictures of outfits (looks.py) ─────────────────────────────────────
@@ -1148,46 +1218,102 @@ def create_app() -> Flask:
 
     @app.post("/outfits/save")
     def outfits_save():
-        """The heart under an outfit: save it as a favourite, or take it out of the saved ones again.
+        """'Add to my wardrobe' under an outfit (a yes), and 'Take out' again. The heart that saved an outfit was the
+        same thing, and this is still its address.
 
-        The button says which of the two it asks for ("want": save or remove), so a tap always does what the heart
-        showed, also on a page that has gone out of date (the outfit removed meanwhile under Saved, on another
-        device, by a second quick tap): asked twice, the same thing is simply true twice. A form without it (an
-        older page) switches the outfit over, as the heart always did.
+        The button says which of the two it asks for ("want": save or remove), so a tap always does what the button
+        said, also on a page that has gone out of date: asked twice, the same thing is simply true twice. A form
+        without it (an older page) switches the outfit over.
 
-        Under Saved (the form says on=saved) a removed outfit leaves the page at once, the page says so, and its Undo
-        ("want": restore) puts back exactly what was removed: the pieces and prices as they were saved, which today's
-        wardrobe may no longer make. The last outfit removed is kept for that (the setting "removed_outfit").
+        A yes stores the outfit as it is now and which pieces it combines (db.save_outfit); from then on its pieces
+        are in his wardrobe (selection.SlotView.mine). Taking it out removes from the wardrobe only the pieces no
+        other outfit of his wears: the page it leads back to names them, and its Undo ("want": restore) puts back
+        exactly what was removed. The last outfit taken out is kept for that (the setting "removed_outfit").
+
+        Where it leads back to: the outfits he said yes to (the form says on=saved), Buy this outfit (on=buy), or
+        the outfits on offer, where the next ones now reuse what he has.
         """
         key = request.form.get("key", "")
+        sig = request.form.get("sig", "")[:400]
         want = request.form.get("want", "")
-        on_saved = request.form.get("on") == "saved"
+        where = request.form.get("on", "")
+        occasion = request.form.get("occasion", "")
+        occasion = occasion if occasion in outfits.OCCASIONS else None
         earlier = db.list_saved()
-        keys = [fav["key"] for fav in earlier]
+        # The outfit by its key, or (its product changed since he said yes) by the pieces it combines.
+        rows = [fav for fav in earlier if fav["key"] == key] or [fav for fav in earlier if sig and fav["sig"] == sig]
         if want not in ("save", "remove", "restore"):
-            want = "remove" if key in keys else "save"
+            want = "remove" if rows else "save"
+        w = selection.build()
         if want == "remove":
-            if key in keys:
-                db.set_setting("removed_outfit", earlier[keys.index(key)])
-                db.unsave_outfit(key)
-        elif key not in keys:
+            if rows:
+                key, sig = rows[0]["key"], rows[0]["sig"]
+                # (Saved twice before version 9, with different products: the same pieces are still his through
+                # the other one, so nothing goes with this one.)
+                twice = any(fav["sig"] == sig and fav not in rows for fav in earlier)
+                left = yes.leaving(w, sig) if sig and not twice else []
+                db.set_setting("removed_outfit", {**rows[0], "more": rows[1:], "left": yes.names(left)})
+                for fav in rows:
+                    db.unsave_outfit(fav["key"])
+        elif not rows:
             removed = db.get_setting("removed_outfit")
             if want == "restore" and removed and removed["key"] == key:
-                db.save_outfit(key, removed["saved_at"], removed["label"], removed["pieces"])
+                for fav in [removed] + list(removed.get("more") or []):
+                    db.save_outfit(fav["key"], fav["saved_at"], fav["label"], fav["pieces"], fav.get("sig"))
+                sig = removed.get("sig") or ""
                 db.set_setting("removed_outfit", None)
             else:
-                outfit = outfits.find(selection.build(), key)
+                outfit = outfits.find(w, key)
                 if outfit is None:   # the wardrobe changed under the page
                     abort(409, "That outfit no longer exists — reload the page.")
-                db.save_outfit(key, catalog.now_iso(), outfit.label, outfits.snapshot(outfit))
-        if on_saved:
-            if want == "remove":        # the page from its top, where it says what was removed, with Undo
+                added = yes.adds(w, outfit)
+                sig = outfit.sig
+                db.save_outfit(key, catalog.now_iso(), outfit.label, outfits.snapshot(outfit), sig)
+                db.undecline_outfit(sig)        # (a yes to something he had said no to: the yes counts)
+                db.set_setting("last_answer", {"kind": "yes", "key": key, "sig": sig, "label": outfit.label,
+                                               "words": added.words})
+        if request.headers.get("HX-Request"):
+            # A page from before the button was a plain form: its new state and the chip with its new number.
+            return render_template("_save_button.html", key=key, saved=want != "remove", yes_sig=sig,
+                                   chip=len(db.saved_keys()))
+        if where == "saved":
+            if want == "remove":        # the page from its top, where it says what was taken out, with Undo
                 return redirect(url_for("outfits_page", occasion="saved", removed=key))
             return redirect(url_for("outfits_page", occasion="saved", _anchor=f"outfit-{key}"))     # shown again
-        if not request.headers.get("HX-Request"):
-            return redirect(request.referrer or url_for("outfits_page"))
-        # The heart's new state and, beside it, the Saved chip with its new number (it is swapped in where it stands).
-        return render_template("_save_button.html", key=key, saved=want != "remove", chip=len(db.saved_keys()))
+        if where == "buy" and sig and outfits.find_by_sig(selection.build(), sig) is not None:
+            return redirect(url_for("outfits_buy", at=sig))
+        if want == "save":              # the outfits still on offer, those that reuse his pieces first
+            return redirect(url_for("outfits_page", occasion=occasion, added=key))
+        if want == "remove":            # that outfit again, on offer as before
+            return redirect(url_for("outfits_page", occasion=occasion, at=sig or None, removed=key))
+        return redirect(url_for("outfits_page", occasion=occasion, at=sig or None))
+
+    @app.post("/outfits/no")
+    def outfits_no():
+        """'Not for me' under an outfit: that combination of pieces is not offered again (db.decline_outfit). The
+        page it leads back to says so, with Undo (want=undo), which shows the outfit again. "Offer them again" at the
+        foot of Outfits (want=all) brings back every outfit he said no to."""
+        sig = request.form.get("sig", "")[:400]
+        want = request.form.get("want", "")
+        occasion = request.form.get("occasion", "")
+        occasion = occasion if occasion in outfits.OCCASIONS else None
+        if want == "all":
+            n = db.undecline_outfit()
+            if n:
+                flash(f"The {n} {'outfit' if n == 1 else 'outfits'} you said no to {'is' if n == 1 else 'are'} "
+                      "offered again.")
+            return redirect(url_for("outfits_page", occasion=occasion))
+        if want == "undo":
+            db.undecline_outfit(sig)
+            return redirect(url_for("outfits_page", occasion=occasion, at=sig or None))
+        outfit = outfits.find_by_sig(selection.build(), sig)
+        if outfit is None:
+            abort(409, "That outfit no longer exists — reload the page.")
+        if sig in db.yes_sigs():
+            abort(409, "That outfit is in your wardrobe. Take it out first.")
+        db.decline_outfit(sig)
+        db.set_setting("last_answer", {"kind": "no", "sig": sig, "label": outfit.label})
+        return redirect(url_for("outfits_page", occasion=occasion, declined=sig))
 
     # ── Shopping list ─────────────────────────────────────────────────────────
 
@@ -1200,18 +1326,19 @@ def create_app() -> Flask:
     @app.get("/list")
     def list_page():
         w = selection.build()
-        return page("list.html", w=w, tab="list", sl=export.build(w), said=change_said(w, None, "list"),
+        # The list is of his wardrobe (w.mine): the pieces of the outfits he said yes to.
+        return page("list.html", w=w, tab="list", sl=export.build(w.mine), said=change_said(w, None, "list"),
                     **your_sizes())
 
     @app.get("/list.md")
     def list_markdown():
-        text = export.to_markdown(export.build(selection.build()))
+        text = export.to_markdown(export.build(selection.build().mine))
         return Response(text, mimetype="text/markdown; charset=utf-8",
                         headers={"Content-Disposition": "attachment; filename=shopping-list.md"})
 
     @app.get("/list.csv")
     def list_csv():
-        text = export.to_csv(export.build(selection.build()))
+        text = export.to_csv(export.build(selection.build().mine))
         return Response("\ufeff" + text, mimetype="text/csv; charset=utf-8",   # BOM: Excel reads the € sign
                         headers={"Content-Disposition": "attachment; filename=shopping-list.csv"})
 
@@ -1300,6 +1427,7 @@ def create_app() -> Flask:
     @app.post("/slots/repropose")
     def slots_repropose():
         slots, unmatched = capsule.propose(profile_mod.load())
+        slots = with_his_pieces(slots, db.list_slots())     # … but for the pieces of the outfits he said yes to
         db.replace_slots(slots)
         db.set_setting("plan_edited", False)    # from scratch: profile changes rebuild it again
         needs_refresh = sync_catalog()
@@ -1332,10 +1460,10 @@ def create_app() -> Flask:
                         photos=rules["pictures"]["photos"], has_photo=person.photo() is not None,
                         store_rows=store_rows(current),
                         photo_added=catalog.collected_label({"collected_at": db.get_setting("photo_added")}),
-                        # The one note while the answers are still the example's: the sizes may already be his
-                        # ("These are my sizes"), and a plan edited on the plan page is not rebuilt by a save.
-                        sizes_kept=current["example"] and not profile_mod.sizes_unconfirmed(current),
-                        plan_kept=current["example"] and plan_edited(current))
+                        # What he has not answered yet is said where it is asked, in a plain line: his sizes,
+                        # his colours (the plan starts with Stilsmith's), his budget (its field stays empty).
+                        sizes_given=not profile_mod.sizes_unconfirmed(current),
+                        answered=profile_mod.answered(current))
 
         new, notes = profile_mod.from_form(request.form, current)
         # The model's choices (the Body tab) are sent with the same form, where the menu is shown. A save that changed
@@ -1354,6 +1482,10 @@ def create_app() -> Flask:
             flash("Your model now follows your new measurements. Pictures drawn from now on show it.")
         # Stores unticked on the Stores tab: their pieces are picked again, his own choices among them (shared.py).
         stores_line = shared.stores_unticked(current, new)
+        # The whole form was in front of him: its colours and what he dresses for are his answers now. The budget
+        # only if he typed one, or had given one before (its field is empty until then).
+        typed_budget = bool(request.form.get("budget", "").strip())
+        profile_mod.answer("colours", "use", *(["budget"] if typed_budget else []))
         profile_mod.save(new)
         for note in notes:
             flash(note)
@@ -1444,6 +1576,92 @@ def create_app() -> Flask:
         flash("Sizes saved.")
         at = request.form.get("at", "")[:400]       # pressed on one outfit's Buy page
         return redirect(url_for("outfits_buy", at=at) if at else url_for("list_page"))
+
+    # ── The welcome: three short steps for a new customer, each of which he may skip ─────────────
+
+    WELCOME = {1: "Your sizes", 2: "Colours and budget", 3: "What you dress for"}
+
+    def as_sent(profile: dict) -> dict:
+        """A saved profile as the Profile form would send it, so that one step's answers can be read with the same
+        care as that form's (profile.from_form), everything else staying as it is."""
+        def names(keys) -> str:
+            return ", ".join(colours.get(key).label.lower() for key in keys or [])
+        sent = {key: str(profile[key]) for key in ("top_size", "waist", "length", "shoe", "height_cm", "weight_kg",
+                                                   "budget", "use", "owned")}
+        sent.update(chest_cm=str(profile.get("chest_cm") or ""), waist_cm=str(profile.get("waist_cm") or ""),
+                    liked=names(profile.get("liked")), refused=names(profile.get("refused")))
+        for box in ("shoes", "outerwear"):
+            if profile.get(box):
+                sent[box] = "on"
+        return sent
+
+    @app.route("/welcome", defaults={"step": 1}, methods=["GET", "POST"])
+    @app.route("/welcome/<int:step>", methods=["GET", "POST"])
+    def welcome(step: int):
+        """Sizes; colours and budget; what he dresses for. Each step saves what he answered to his profile, as the
+        Profile page would, and leaves the rest unanswered; "Skip" answers nothing. Then the outfits. No total and
+        no budget bar here: he has not chosen anything yet."""
+        if step not in WELCOME:
+            abort(404)
+        current = profile_mod.load()
+
+        def onwards():
+            if step < len(WELCOME):
+                return redirect(url_for("welcome", step=step + 1))
+            db.set_setting("welcome", "done")
+            return redirect(url_for("outfits_page"))
+
+        if request.method in ("GET", "HEAD"):
+            return render_template("welcome.html", step=step, steps=WELCOME, profile=current, plain=True,
+                                   sizes_given=not profile_mod.sizes_unconfirmed(current),
+                                   answered=profile_mod.answered(current), given=None)
+        form = request.form
+        if form.get("skip") == "1":
+            return onwards()
+        profile_mod.answer()        # from here on what he answered is noted one by one (profile.answered)
+        sent = as_sent(current)
+        questions: list[str] = []
+        given: dict[str, str] = {}
+        if step == 1:
+            given = {key: form.get(key, "").strip() for key in profile_mod.SIZES}
+            if any(given.values()) and not all(given.values()):
+                flash("Give all four sizes, or skip this step.")
+                return render_template("welcome.html", step=step, steps=WELCOME, profile=current, plain=True,
+                                       sizes_given=False, answered=profile_mod.answered(current), given=given), 400
+            if not any(given.values()):
+                return onwards()
+            sent.update(given)
+        elif step == 2:
+            liked = [key for key in form.getlist("liked") if key in colours.COLOURS]
+            if liked:
+                sent["liked"] = ", ".join(colours.get(key).label.lower() for key in liked)
+                sent["refused"] = ", ".join(colours.get(key).label.lower() for key in current.get("refused") or []
+                                            if key not in liked)
+                questions.append("colours")
+            if form.get("budget", "").strip():
+                sent["budget"] = form["budget"]
+                questions.append("budget")
+        else:
+            if form.get("use") in profile_mod.USES:
+                sent["use"] = form["use"]
+                questions.append("use")
+        new, notes = profile_mod.from_form(sent, current)
+        for note in notes:
+            flash(note)
+        if step == 1:
+            if profile_mod.same_sizes(new, {**current, **given}):
+                profile_mod.confirm_sizes()     # he typed them, also where they are the sizes pages start with
+            else:
+                flash("One of those sizes is not one we know, so your sizes were not saved. You can give them "
+                      "on the Profile page.")
+                new = current
+        profile_mod.answer(*questions)
+        if not profile_mod.same_answers(new, current):
+            profile_mod.save(new)
+            shapes_plan = ("liked", "refused", "use")
+            if any(current[key] != new[key] for key in shapes_plan) and not plan_edited(current):
+                rebuild_plan(new, current)
+        return onwards()
 
     # ── The model in the AI pictures: a description, or your own photo (person.py) ──
 

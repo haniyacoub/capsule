@@ -1,7 +1,12 @@
 {% from "_macros.html" import by, fabric_fit, icon, pic %}
 {% if w.note %}<p class="demo" role="status">{{ w.note }}</p>{% endif %}
 {% if not w.slots %}
-<p class="empty">No pieces in your plan yet. <a href="{{ url_for('slots_page') }}">Edit the plan</a> to add some, or to rebuild it from your profile.</p>
+{# Before any yes: said plainly, with the way to the outfits. #}
+<div class="empty first-yes">
+  <p>Your wardrobe is empty. It holds the pieces of the outfits you say yes to.</p>
+  <p><a class="btn" href="{{ url_for('outfits_page') }}">See the outfits</a></p>
+  <p class="small">The plan your outfits are made from: <a href="{{ url_for('slots_page') }}">Edit the plan</a></p>
+</div>
 {% endif %}
 {% for section, items in w.sections %}
 <h2 class="sec">{{ section }}</h2>
@@ -27,6 +32,7 @@
         </span>
         {% if s.state == 'owned' %}
           <span class="item">You already own this</span>
+          {% if s.outfits_in %}<span class="in-outfits">{{ s.in_outfits_words }}</span>{% endif %}
         {% elif c %}
           {# What every card says, in the same order (_macros.html): the store and the quality, the product's name in
              English where every word is known (english.py) with the store's own under it, the fabric, the fit; then
@@ -37,6 +43,13 @@
           <span class="item{{ ' orig' if en }}" lang="de">{{ c.data.name }}</span>
           {{ fabric_fit(c, 'span') }}
           {% if c.check.notes %}<span class="hint">{{ icon('flag') }} {{ c.check.notes[0] }}{% if c.check.notes|length > 1 %} <b>+{{ c.check.notes|length - 1 }}</b>{% endif %}</span>{% endif %}
+          {# Why it is in his wardrobe: "In 4 of your outfits" (one price, four outfits), or, for a piece he chose
+             himself that no outfit of his wears yet, that, with "Take out" among the buttons below. #}
+          <span class="in-outfits">{{ s.in_outfits_words }}{% if not s.outfits_in %} · you chose it yourself{% endif %}</span>
+        {% elif not s.outfits_in %}
+          <span class="in-outfits">{{ s.in_outfits_words }} · you chose it yourself</span>
+        {% else %}
+          <span class="in-outfits">{{ s.in_outfits_words }}</span>
         {% endif %}
         {# selection.choose says "in your size"; while the sizes are the example's it is the example size, as on the
            piece's page. #}
@@ -55,6 +68,13 @@
         <button id="own-{{ s.slot.id }}" class="act{% if owned %} on{% endif %}" aria-pressed="{{ 'true' if owned else 'false' }}"
                 title="{{ 'Marked as already owned. Tap to undo.' if owned else 'I already own this (costs nothing)' }}">{{ icon('hanger') }}<span>{{ 'Owned' if owned else 'Own it' }}</span></button>
       </form>
+      {% if s.kept and not s.outfits_in and not owned %}
+      {# In his wardrobe only because he chose it himself, before the wardrobe was the outfits he said yes to. #}
+      <form method="post" action="{{ url_for('slot_keep', slot_id=s.slot.id) }}">{{ csrf_field() }}
+        <input type="hidden" name="want" value="out">
+        <button id="out-{{ s.slot.id }}" class="act" title="Take this piece out of your wardrobe. Outfits are still made with it.">{{ icon('back') }}<span>Take out</span></button>
+      </form>
+      {% endif %}
     </div>
     {% if s.offers or s.left_out %}{% include "_colour_offer.html" %}{% endif %}
     {% if gone %}{% with back = 'wardrobe', sig = '', note_id = 'note-' ~ s.slot.id, qty = s.qty %}{% include "_sold_out.html" %}{% endwith %}{% endif %}

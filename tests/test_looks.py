@@ -31,6 +31,7 @@ from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
 from wardrobe.app import PHOTO_CONSENT, eur
 
+from . import having
 from . import test_production as production
 from .test_app import HX, AppCase
 from .test_production import PASSWORD, ProductionCase
@@ -187,6 +188,10 @@ class PriceLevels(AppCase):
 class BestForBudget(AppCase):
     """The sixth choice: not a price level but the whole wardrobe, fitted to the budget."""
 
+    def setUp(self):
+        super().setUp()
+        having.the_whole_plan()     # the budget is for his wardrobe: here it holds every piece, and he gave a budget
+
     def fitted(self, budget, threshold=60):
         profile_mod.save({**profile_mod.load(), "budget": budget})
         self.set_mode("budget", threshold)
@@ -300,12 +305,12 @@ class Viewer(AppCase):
         self.assertIn('<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>', lead)
         self.post("/outfits/save", key=some_outfits(1)[0].key)
         saved = self.client.get("/outfits?occasion=saved").data.decode()
-        self.assertIn("Your saved outfits, as they were when you saved them. “Changed” marks a piece your wardrobe "
-                      "now fills with something else.", saved)
-        self.assertNotIn("by-touch", saved, "under Saved the line says what saved outfits are, in the words above only")
+        self.assertIn("The outfits you said yes to, as they were when you added them. “Changed” marks a piece your "
+                      "wardrobe now fills with something else.", saved)
+        self.assertNotIn("by-touch", saved, "under My outfits the line says what they are, in the words above only")
 
     def test_the_chip_that_is_on_is_marked_and_the_others_are_one_group(self):
-        for occasion, name in (("all", "All"), ("office", "Office"), ("everyday", "Everyday"), ("saved", "Saved")):
+        for occasion, name in (("all", "All"), ("office", "Office"), ("everyday", "Everyday"), ("saved", "My outfits")):
             page = self.client.get(f"/outfits?occasion={occasion}").data.decode()
             self.assertIn('<div class="chips" role="group" aria-label="Which outfits">', page)
             marked = re.findall(r'<a class="chip-link( on)?" href="[^"]*"( aria-current="page")?>(.*?)</a>', page, re.S)
@@ -327,9 +332,11 @@ class Viewer(AppCase):
             if occasion != "all":
                 self.assertNotIn("Smart casual", [title for title, _ in titles], f"under {occasion} a title says only 'Smart casual'")
 
-    def test_buy_this_outfit_is_the_main_button_and_product_names_are_marked_german(self):
+    def test_add_to_my_wardrobe_is_the_main_button_with_buy_this_outfit_and_product_names_are_marked_german(self):
+        # The yes is the one filled button of an outfit he has not answered; "Buy this outfit" is there, outlined.
         page = self.client.get("/outfits").data.decode()
-        self.assertEqual(len(re.findall(r'<a class="btn" href="/outfits/buy\?at=[^"]+">Buy this outfit</a>', page)), 12)
+        self.assertEqual(len(re.findall(r'<button class="btn yes" id="save-\w+">', page)), 12)
+        self.assertEqual(len(re.findall(r'<a class="btn ghost" href="/outfits/buy\?at=[^"]+">Buy this outfit</a>', page)), 12)
         for p in outfits.snapshot(some_outfits(1)[0]):
             if not p["owned"]:
                 self.assertIn(f'<span lang="de">{escape(p["name"])}</span>', page, "the store's own words, in German")
@@ -346,7 +353,8 @@ class Viewer(AppCase):
         self.assertIn(others[0].data["name"], html)
         self.assertIn(f"Leave the {coat.view.garment.label.lower()} off", html)
         self.assertIn("Open at", html)
-        self.assertRegex(html, r"In \d+ of the \d+ outfits your pieces make")
+        self.assertRegex(html, r"Not in your wardrobe yet: it joins with the first outfit you add that wears it.\s+"
+                               r"It could be worn in \d+ of the \d+ outfits your plan makes\.")
 
         gone = self.client.get("/outfits/piece", query_string={"at": "no~such~outfit", "slot": "x"}, headers=HX)
         self.assertEqual(gone.status_code, 409)
@@ -409,6 +417,7 @@ class Viewer(AppCase):
         self.assertEqual(self.client.get("/outfits/buy", query_string={"at": "nope"}).status_code, 404)
 
     def test_a_stores_pages_open_one_by_one_from_a_plain_link(self):
+        having.the_whole_plan()         # the shopping list is of his wardrobe: here, every piece of the plan
         # "Open all 2 at COS" opened one tab and lost the rest: a browser allows a site one new tab per tap. The
         # button under a store is now an ordinary link to that store's first product page (app.js moves it on to
         # the next after each tap), which no pop-up blocker holds back and which works without JavaScript.
@@ -493,7 +502,9 @@ class Viewer(AppCase):
         page = self.client.get("/outfits?occasion=saved").data.decode()
         self.assertIn(f'id="outfit-{outfit.key}"', page)
         self.assertIn("1 / 1", page)
-        self.assertNotIn("Buy this outfit", page)       # a saved outfit is a snapshot, not today's selection
+        # It is shown as it was when he added it; the same pieces with today's products are one tap away, to buy.
+        self.assertIn(f'<a class="btn" href="/outfits/buy?at={outfit.sig}">Buy this outfit</a>', page)
+        self.assertIn(f'<a href="/outfits?at={outfit.sig}">See it with today\'s products</a>', page)
 
 
 # ── a change made from an outfit, said in words, with Undo ───────────────────
@@ -541,6 +552,7 @@ class SaidWithUndo(AppCase):
         return self.client.post(form.group(1), data=dict(re.findall(r'name="(\w+)" value="([^"]*)"', form.group(2))))
 
     def test_choose_says_the_piece_the_product_its_price_and_the_old_price_and_undo_makes_it_automatic_again(self):
+        having.the_whole_plan()         # the piece is in his wardrobe, so its card is on the Wardrobe page
         outfit, sid, before, other = self.piece_with_options()
         self.assertEqual(self.view(sid).state, "auto")
         sent, where = self.choose(outfit, sid, other)
@@ -565,6 +577,7 @@ class SaidWithUndo(AppCase):
         self.assertIn('<button id="lock-%s" class="act" aria-pressed="false"' % sid, self.client.get("/").data.decode())
 
     def test_undo_puts_back_a_locked_choice_locked(self):
+        having.the_whole_plan()         # the piece is in his wardrobe, so its card is on the Wardrobe page
         outfit, sid, before, other = self.piece_with_options()
         self.post(f"/slot/{sid}/lock")                      # "Lock this choice" on the Wardrobe page
         self.assertEqual((self.view(sid).state, self.view(sid).chosen.id), ("locked", before.id))
@@ -844,7 +857,7 @@ class PicturesOff(AppCase):
                              [("index", "looks_made_from_front"), ("index", "sqlite_autoindex_looks_made_from_1"),
                               ("table", "looks_made_from")])
             self.assertEqual(con.execute("SELECT key, file FROM looks").fetchall(), [("k1", "k1.jpg")], "the pictures stay")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
 
     def test_a_database_from_before_the_pictures_gains_their_tables(self):
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
@@ -1279,7 +1292,9 @@ class Pictures(WithPictures, AppCase):
         self.post("/outfits/look", key=outfit.key)
         self.assertEqual(len(self.drawn), 1)
         self.assertEqual(self.client.get("/outfits?occasion=saved").data.decode().count("look-pic"), 1)
-        self.assertEqual(self.client.get("/outfits").data.decode().count("look-pic"), 1)
+        # He answered it, so it is not among the outfits on offer; "See it with today's products" shows it there.
+        self.assertEqual(self.client.get("/outfits").data.decode().count("look-pic"), 0)
+        self.assertEqual(self.client.get(f"/outfits?at={outfit.sig}").data.decode().count("look-pic"), 1)
 
     def test_the_limit_is_checked_and_counted_in_one_step(self):
         since = looks.time.time() - 3600
