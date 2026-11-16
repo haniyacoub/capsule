@@ -981,7 +981,7 @@ class Pictures(WithPictures, AppCase):
         for shown in (self.post("/outfits/look", key=outfit.key, again="1").data.decode(),      # the answer to the tap
                       self.client.get("/outfits").data.decode()):                               # and the page, reloaded
             box = shown[shown.index(f'id="look-{outfit.key}"'):] if "<html" in shown else shown
-            box = box[:box.index("</form>")]                        # up to the end of the box's row of scenes
+            box = box[:box.index('class="shots"')]                  # up to the box's row of small pictures
             self.assertIn("Drawing this outfit on the model", box)
             kept = re.search(r'<div class="look-pic kept">.*?</div>', box, re.S)
             self.assertTrue(kept, "the picture there was is not under the band while the new one is drawn")
