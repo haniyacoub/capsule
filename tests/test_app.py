@@ -912,14 +912,14 @@ class BuyingInYourSizes(AppCase):
                 self.assertIn(swatch, html_line)
                 if line.image_url:
                     self.assertIn(f'<img src="{escape(line.image_url)}"', html_line)
-                # The link is the product's name in English where every word is known, the store's own (German)
-                # under it in small print; otherwise the store's own.
+                # The link is the product's name in one language: English where every word is known, otherwise the
+                # store's own (German). The store's own words beside an English name are on the piece's card only.
                 said = english.name(line.product)
                 self.assertIn(f'<a class="buy-product" href="{escape(weblink(line.url))}" target="_blank" '
                               f'rel="noopener noreferrer"><span lang="{"en" if said else "de"}">'
                               f'{escape(said or line.product)}</span>', html_line)
                 if said:
-                    self.assertIn(f'<span class="orig" lang="de">{escape(line.product)}</span>', html_line)
+                    self.assertNotIn(f'>{escape(line.product)}<', html_line, "one language per name on a row")
                 self.assertIn(f'Colour: <span lang="de">{escape(line.colour)}</span> · Size: <b>{escape(line.size)}</b>',
                               html_line)
         # Both kinds were checked: the demo data has products with a photo and one without (the Weekday chinos).

@@ -110,7 +110,8 @@ class Cand:
         runs large or sits close ("Fit: oversized, runs large. Size down for a regular fit."), then what the store's
         chart and the label say against his measurements (sizecheck.check). Not "Sizes not checked at COS": that is
         true of the whole store, the last of the notes where it applies, and said once for it (said_once)."""
-        notes = self.check.notes if self.size.known else self.check.notes[:-1]
+        store_wide = sizes.not_checked(self.data.get("store", "")) + "."
+        notes = [note for note in self.check.notes if note != store_wide]
         return ([f"Fit: {self.check.fit}"] if self.check.fit and self.check.fit_flag else []) + list(notes)
 
     @property
@@ -323,15 +324,17 @@ def said_once(cands: list[Cand]) -> list[StoreSaid]:
         said = StoreSaid(store=store, label=name or "Other")
 
         def of_them(n: int) -> str:
-            return "this product" if m == 1 else f"all {m} products here" if n == m else f"{n} of the {m} products here"
+            if n == m:
+                return "this product" if m == 1 else "both products here" if m == 2 else f"all {m} products here"
+            return f"{n} of the {m} products here"
 
         unchecked = sum(1 for c in products if not c.size.known)
         if unchecked == m:
             said.sizes = sizes.not_checked(store) + "."
         elif unchecked:
-            at = f" at {name}" if name else ""
+            at, where = (f" at {name}", "its page") if name else ("", "the store's page")
             said.sizes = (f"Sizes not checked for {unchecked} of the {m} products here{at}, marked “check”: "
-                          f"look on {'its' if name else 'the store\'s'} page before you buy.")
+                          f"look on {where} before you buy.")
         estimated = sum(1 for c in products if c.score.fabric_source in ("name", "assumed"))
         unstated = sum(1 for c in products if c.score.fabric_source == "none")
         if estimated and unstated:

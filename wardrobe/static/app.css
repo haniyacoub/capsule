@@ -39,7 +39,7 @@
      amber for a size to check before buying, red for money over budget and a size that is sold out or not made.
      Everything else, good news included, is said in ink. */
   --ok: #8a5a00;          /* a size to check (the cut runs large, between sizes, sizes not checked): 5.4:1 / 5.9:1 */
-  --poor: #a8322a;        /* over budget, sold out or not made in your size: 5.6:1 / 6.1:1 */
+  --poor: #a8322a;        /* over budget, sold out or not made in your size: 6.1:1 / 6.7:1 */
   --photo: #ecebe7;       /* behind every product photo and the AI picture. Photos are shot on
                              light grounds, so this stays light in dark mode too */
   /* Spacing, on a 4px grid, and the gutter: the space between the screen's edge and the content. */
@@ -809,6 +809,8 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .vid-bar.ask { margin-bottom: max(0px, var(--shots-h, 40px) - 40px); }
 .vid-bar.ask > span, .vid-bar.ask > .check { grid-column: 1 / -1; }
 .vid-bar.ask .link { display: inline-flex; align-items: center; min-height: 40px; padding: 0; }
+.vid-bar.ask .btn.small { min-height: 40px; }   /* as before: the offer keeps to the room of the line and the small
+   pictures it replaces (80px on a short phone), so its button stays 40px tall here, beside 'Not now' */
 .vid-bar .check { gap: var(--s-2); min-height: 40px; }
 .spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--ink); animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -1347,7 +1349,7 @@ details[open] > summary .edit { visibility: hidden; }
   .cc[data-tabs] .cc-words { padding: var(--s-1) var(--s-3) var(--s-2); }
   .cc[data-tabs] .cc-tabs {             /* one row that scrolls sideways when the tabs are wider than the phone */
     display: flex; gap: var(--s-4); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
-    margin: 0 calc(-1 * var(--side-r)) var(--s-3) calc(-1 * var(--side-l)); padding: var(--s-1) var(--side-r) var(--s-1) var(--side-l);
+    margin: 0 calc(-1 * var(--side-r)) var(--s-3) calc(-1 * var(--side-l)); padding: 6px var(--side-r) 6px var(--side-l);   /* 57px tall in all: the 57px below */
     background: var(--bg); border-bottom: 1px solid var(--line);
   }
   .cc-tabs::-webkit-scrollbar { display: none; }
@@ -1376,7 +1378,7 @@ details[open] > summary .edit { visibility: hidden; }
 @media (min-width: 760px) {
   .cc-stage { --fig-line: 1.15px; }
   .cc-fig { height: 520px; }
-  .cc-switch { flex-direction: row; }
+  .cc-switch { flex-direction: row; gap: var(--s-4); }
   .cc[data-tabs] { grid-template-columns: 124px minmax(240px, 1fr) minmax(0, 420px); gap: var(--s-5); align-items: start; }
   .cc[data-tabs] .cc-tabs {
     grid-column: 1; grid-row: 1; display: flex; flex-direction: column; gap: 0;
@@ -1794,8 +1796,6 @@ details[open] > summary .edit { visibility: hidden; }
      small pictures under it, as a store's product page does. Never under 260px wide. */
   .looks { --stage-w: max(260px, min(50cqw - 60px, calc((100svh - var(--s-5)) * 2 / 3))); }
   .looks { --pair: calc(var(--stage-w) + var(--s-6) + 420px); }   /* the picture, the gap and the list: the slide's columns */
-  /* The arrows: level with the middle of the part of the picture that shows on the first screen. */
-  .reel-nav { top: calc(min(var(--stage-w) * 3 / 4, 50svh - var(--bar-h)) - 44px / 2); }
   .stage { margin: 0; }
   .about { margin: 0; }
   .sheet { --sheet-t: var(--s-3); --sheet-x: var(--s-5); margin: auto; padding: var(--sheet-t) var(--sheet-x) var(--s-5); }

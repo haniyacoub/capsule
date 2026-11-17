@@ -25,7 +25,7 @@ from unittest import mock
 
 from markupsafe import escape
 
-from wardrobe import catalog, config, db, imagegen, looks, outfits, paths, person, selection, settings, shared
+from wardrobe import catalog, config, db, english, imagegen, looks, outfits, paths, person, selection, settings, shared
 from wardrobe import videos
 from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
@@ -294,11 +294,16 @@ class Viewer(AppCase):
         self.assertEqual(page.count("Buy this outfit"), 12)
         self.assertIn('<dialog class="sheet" id="piece"', page)
 
-    def test_one_line_over_the_outfits_says_how_many_the_day_of_the_prices_and_how_to_see_the_next(self):
+    def test_one_quiet_line_under_the_outfits_says_how_many_the_day_of_the_prices_and_how_to_see_the_next(self):
+        # The picture is the page: right under the row of words comes the picture, and the line is under the outfits.
         page = self.client.get("/outfits").data.decode()
         total = outfits.generate(selection.build(), limit=12)[1]
         day = " ".join(selection.build().collected.split()[:2])        # "12 Nov" of "12 Nov 2026, 15:02"
-        lead = re.search(r'<p class="lead">(.*?)</p>', page, re.S).group(1)
+        self.assertEqual(page.count('<p class="lead'), 1, "one line, not one over the picture as well")
+        self.assertLess(page.index('<div class="toolbar">'), page.index('class="reel"'))
+        self.assertGreater(page.index('<p class="lead below">'), page.index('class="reel"'), "it is under the outfits")
+        self.assertNotRegex(page[page.index('<div class="toolbar">'):page.index('class="reel"')], r"\d+ of \d+ outfits")
+        lead = re.search(r'<p class="lead below">(.*?)</p>', page, re.S).group(1)
         self.assertEqual(" ".join(re.sub(r"<span class=\"by-mouse\">.*?</span>|<[^>]+>", "", lead).split()),
                          f"12 of {total} outfits · prices of {day} · swipe for more")
         # The ending is chosen by the device: swipe on a touch screen, the arrows with a mouse (app.css shows one).
@@ -332,14 +337,29 @@ class Viewer(AppCase):
             if occasion != "all":
                 self.assertNotIn("Smart casual", [title for title, _ in titles], f"under {occasion} a title says only 'Smart casual'")
 
-    def test_add_to_my_wardrobe_is_the_main_button_with_buy_this_outfit_and_product_names_are_marked_german(self):
+    def test_add_to_my_wardrobe_is_the_main_button_with_buy_this_outfit_and_product_names_in_one_language(self):
         # The yes is the one filled button of an outfit he has not answered; "Buy this outfit" is there, outlined.
         page = self.client.get("/outfits").data.decode()
         self.assertEqual(len(re.findall(r'<button class="btn yes" id="save-\w+">', page)), 12)
         self.assertEqual(len(re.findall(r'<a class="btn ghost" href="/outfits/buy\?at=[^"]+">Buy this outfit</a>', page)), 12)
-        for p in outfits.snapshot(some_outfits(1)[0]):
-            if not p["owned"]:
-                self.assertIn(f'<span lang="de">{escape(p["name"])}</span>', page, "the store's own words, in German")
+        # Each product's name in one language in the list beside the picture: English where every word is known
+        # (english.py), marked so; else the store's own words, marked German. The store's own words are on the card.
+        outfit = some_outfits(1)[0]
+        slide = page[page.index(f'id="outfit-{outfit.key}"'):]
+        slide = slide[:slide.index('class="slide"', 10) if 'class="slide"' in slide[10:] else len(slide)]
+        rows = re.findall(r'<span class="row-product">(.*?)</span></span>', slide, re.S)
+        named = [p for p in outfits.snapshot(outfit) if not p["owned"]]
+        self.assertEqual(len(rows), len(named))
+        english_seen = 0
+        for p in named:
+            en = english.name(p["store_name"])
+            if en:
+                english_seen += 1
+                self.assertIn(f'<span lang="en">{escape(en)}</span>', slide, "in English where every word is known")
+                self.assertNotIn(f'>{escape(p["store_name"])}<', slide, "and not the store's own words beside it")
+            else:
+                self.assertIn(f'<span lang="de">{escape(p["store_name"])}</span>', slide, "the store's own, in German")
+        self.assertTrue(english_seen, "the demo outfit has a product with an English name")
 
     def test_tapping_a_piece_shows_it_and_what_could_replace_it(self):
         outfit = next(o for o in outfits.all_outfits(selection.build()) if o.pieces[0].layer == "outer")
@@ -450,7 +470,7 @@ class Viewer(AppCase):
                 cand["price"] = 0
         catalog.save(data)
         popup = self.client.get("/outfits/piece", query_string={"at": outfit.sig, "slot": sid}, headers=HX).data.decode()
-        self.assertIn(other.data["name"], popup)
+        self.assertIn(html_mod.escape(english.name(other.data["name"]) or other.data["name"], quote=False), popup)
         self.assertIn("Add its price", popup)
         self.assertNotIn(f'value="{other.id}"', popup)
         before = selection.build().total

@@ -475,8 +475,8 @@ def run(base: str) -> None:
             mark = page.evaluate("""() => { const el = document.querySelector('.brand'), s = getComputedStyle(el);
                 return {family: s.fontFamily, stretch: s.fontStretch, weight: s.fontWeight, caps: s.textTransform,
                         typed: el.textContent.trim(), shown: el.innerText.trim()}; }""")
-            assert mark["family"].startswith("Archivo") and mark["stretch"] == "125%" and mark["weight"] == "700", \
-                f"the wordmark is not wide, bold Archivo: {mark}"
+            assert mark["family"].startswith("Archivo") and mark["stretch"] == "125%" and mark["weight"] == "600", \
+                f"the wordmark is not wide Archivo in the one heavier weight (600): {mark}"
             assert mark["caps"] == "uppercase" and mark["typed"] != mark["typed"].upper() \
                 and mark["shown"] == mark["typed"].upper(), f"the wordmark is not the site's name put in capitals: {mark}"
             title = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('main h1'));
@@ -1982,10 +1982,10 @@ def run(base: str) -> None:
             # what the outfit's list of pieces shows.
             wanted = page.locator("#piece-body .swap li:not(.out)").nth(0).locator("[lang=de]").first.inner_text()
             swapped.update(choose.nth(0).evaluate("b => ({slot: b.form.getAttribute('action').split('/')[2], "
-                                                  "product: b.closest('li').querySelector('[lang=de]').textContent.trim()})"))
+                                                  "product: b.closest('li').querySelector('b[lang]').textContent.trim()})"))   # its name, in one language
             was = page.evaluate("""() => { const body = document.querySelector('#piece-body'), text = el => el.textContent.trim();
                 const option = body.querySelector('.swap li:not(.out) form').closest('li');
-                return {piece: text(body.querySelector('#piece-title')), name: text(body.querySelector('.piece-facts [lang=de]')),
+                return {piece: text(body.querySelector('#piece-title')), name: text(body.querySelector('.piece-facts [lang=de]')), shown: text(body.querySelector('.piece-facts .en')),
                         price: text(body.querySelector('.sheet-price')), locked: !!body.querySelector('.piece-state'),
                         new_price: option.querySelector('.swap-price').firstChild.textContent.trim()}; }""")
             was = {key: value.replace("\xa0", " ") if isinstance(value, str) else value for key, value in was.items()}
@@ -2035,7 +2035,8 @@ def run(base: str) -> None:
                 page.locator("main > .said button", has_text="Undo").click()
             page.wait_for_load_state("networkidle")
             names = page.locator(f"{first} .piece-text span").all_inner_texts()
-            assert was["name"] in names, f"after Undo the outfit shows {names}, not {was['name']!r}"
+            # The row beside the picture names the product in one language: the card's first name line (.en).
+            assert was["shown"] in names, f"after Undo the outfit shows {names}, not {was['shown']!r}"
             again = page.evaluate("s => { const i = document.querySelector(s); return i && i.getAttribute('src'); }",
                                   f"{first} .look-pic img")
             assert not earlier or again == earlier, f"after Undo the outfit's picture is {again}, not its own {earlier}"
@@ -2241,15 +2242,16 @@ def run(base: str) -> None:
             motion_ended(other)
 
         def a_pieces_card_reads_the_same_everywhere():
-            # A piece's card says the same lines in the same order in the pop-up, on its Wardrobe card, on its own page
-            # and on Buy: the store and 'Quality 73/100', the store's name for the product in English (lang=en) with its
-            # own words under it (lang=de, smaller, or on a card where the English is already 13px, greyer), 'Fabric: …'
-            # and 'Fit: …'. Every line inside its card, on a phone (light) and a computer (dark). The piece: the first
-            # of the first outfit whose name the word list knows and whose cut is said.
+            # A piece's card says the same lines in the same order in the pop-up and on its own page: the store and
+            # 'Quality 73/100', the store's name for the product in English (lang=en) with its own words under it
+            # (lang=de, smaller, or on a card where the English is already 13px, greyer), 'Fabric: …' and 'Fit: …'.
+            # Its row in a list (the Wardrobe, Buy) is short: the same English name and the cut to act on, nothing
+            # more. Every line inside its card, on a phone (light) and a computer (dark). The piece: the first of the
+            # first outfit whose name the word list knows and whose cut is said.
             LINES = """root => {
                 const box = root.getBoundingClientRect(), lines = {};
                 const found = {by: root.querySelector('.by'), en: root.querySelector('[lang=en]'),
-                               orig: root.querySelector('[lang=de]:not(.colour-name)'),
+                               orig: root.querySelector('[lang=de]:not(.colour-name, .buy-meta [lang=de])'),
                                fabric: root.querySelector('.fabric'), fit: root.querySelector('.fit')};
                 for (const [kind, el] of Object.entries(found)) {
                     if (!el) { lines[kind] = null; continue; }
@@ -2258,7 +2260,9 @@ def run(base: str) -> None:
                                    size: parseFloat(cs.fontSize), colour: cs.color, shown: r.width > 0 && r.height > 0,
                                    inside: r.left >= box.left - 1 && r.right <= box.right + 1};
                 }
-                return {lines, wide: document.documentElement.scrollWidth};
+                const fit = [...root.querySelectorAll('.row-caution')].find(e => e.textContent.includes('Fit:'));
+                return {lines, wide: document.documentElement.scrollWidth,
+                        caution: fit ? fit.textContent.replace(/\\s+/g, ' ').trim() : null};
             }"""
             ORDER = ["by", "en", "orig", "fabric", "fit"]
             for width, height, scheme in ((390, 844, "light"), (1280, 800, "dark")):
@@ -2289,10 +2293,19 @@ def run(base: str) -> None:
                 assert line.count() == 1, f"{name!r} is not one line on Buy"
                 place["Buy"] = line.locator(".buy-main").evaluate(LINES)
                 context.close()
-                said = {}
+                said, rows_said = {}, {}
                 for where, seen in place.items():
                     assert seen["wide"] <= width + 1, f"at {width}px the {where} is wider than the screen"
                     lines = seen["lines"]
+                    if where in ("Wardrobe", "Buy"):
+                        # A row in a list: the product's name in one language (the card's first name line), and of
+                        # the rest only the cut to act on, as a caution; the quality, the store's own words and the
+                        # fabric are on the card.
+                        assert lines["en"] and lines["en"]["shown"] and lines["en"]["inside"], f"at {width}px the {where} row has no name: {lines}"
+                        assert not (lines["by"] or lines["orig"] or lines["fabric"]), f"at {width}px the {where} row repeats the card: {lines}"
+                        rows_said.setdefault("en", {})[where] = lines["en"]["text"]
+                        rows_said.setdefault("fit", {})[where] = seen["caution"]
+                        continue
                     assert all(lines[k] and lines[k]["shown"] for k in ORDER), f"at {width}px the {where} leaves out a line: {lines}"
                     tops = [lines[k]["top"] for k in ORDER]
                     assert tops == sorted(tops) and len(set(tops)) == len(tops), \
@@ -2304,7 +2317,10 @@ def run(base: str) -> None:
                     for k in ORDER:
                         said.setdefault(k, {})[where] = lines[k]["text"]
                 for k in ORDER:
-                    assert len(set(said[k].values())) == 1, f"at {width}px the four places say the {k} line differently: {said[k]}"
+                    assert len(set(said[k].values())) == 1, f"at {width}px the two cards say the {k} line differently: {said[k]}"
+                for where in ("Wardrobe", "Buy"):
+                    assert rows_said["en"][where] == said["en"]["pop-up"], f"at {width}px the {where} row names it otherwise: {rows_said}"
+                    assert rows_said["fit"][where] == said["fit"]["pop-up"], f"at {width}px the {where} row does not say the cut: {rows_said}"
 
         def a_pieces_words_tidy_at_320():
             # On the smallest phone (320px), a card's lines stay tidy. The dot between the store and its quality never
@@ -2368,8 +2384,9 @@ def run(base: str) -> None:
                 assert other.locator(".slot-text .each").count(), "no card for two of a piece on the Wardrobe"
                 seen = other.locator("#wardrobe-body").evaluate(DOTS)
                 tidy(seen, "Wardrobe")
-                assert seen["hidden"] and seen["seen"] + seen["hidden"] == other.locator("#wardrobe-body .by").count(), \
-                    f"at 320px no card puts its quality on a line of its own: {seen}"
+                # A row on the Wardrobe leaves the quality to the piece's card (its own page, the pop-up), which
+                # the loop below measures at 320px.
+                assert not other.locator("#wardrobe-body .by").count(), "a Wardrobe row repeats the card's quality"
                 slots = sorted({h.split("?")[0] for h in other.eval_on_selector_all(
                     "#wardrobe-body a.slot-main", "els => els.map(e => e.getAttribute('href'))")})
                 for path in slots:
@@ -2456,18 +2473,26 @@ def run(base: str) -> None:
                 other.click("button:has-text('Create account')")
                 a_customer_from_before(other)
                 other.goto(base + "/", wait_until="networkidle")
-                estimated = other.locator("#wardrobe-body .est")
-                assert estimated.count(), "the jeans with no fabric on their label are not 'estimated'"
+                # What is true of the store's products is said once over the rows, not on each: the jeans' fabric
+                # is estimated and the jumper's not stated, in plain grey; COS's sizes were not checked, in amber.
+                once = " ".join(other.locator("#wardrobe-body .once").all_inner_texts())
+                assert "Fabric is estimated for 1 of the 2 products here and not stated for 1" in once, \
+                    f"the Wardrobe does not say once what is known of the fabrics: {once!r}"
+                assert not other.locator("#wardrobe-body .slot-text .fabric, #wardrobe-body .slot-text .est").count(), \
+                    "a Wardrobe row repeats its fabric"
                 tidy(other.locator("#wardrobe-body").evaluate(DOTS), "Wardrobe with the published jeans")
                 other.goto(base + "/list", wait_until="networkidle")
                 tidy(other.locator("main").evaluate(DOTS), "shopping list")
-                caution = other.locator(".buy-main .fabric.caution")
-                assert caution.count() == 1 and caution.inner_text().strip() == "Fabric not stated: check the product page", \
-                    f"the jumper with no fabric says {[t.strip() for t in caution.all_inner_texts()]}"
-                amber = other.evaluate("() => getComputedStyle(document.querySelector('.buy-main .fabric.caution')).color")
-                ok = other.evaluate("() => { const e = document.createElement('i'); e.style.color = 'var(--ok)'; document.body.append(e);"
-                                    " const c = getComputedStyle(e).color; e.remove(); return c; }")
-                assert amber == ok, f"'Fabric not stated' is {amber}, not the amber of a caution ({ok})"
+                assert not other.locator(".buy-main .fabric").count(), "a shopping list row repeats its fabric"
+                said = other.locator(".store-list .once .fabric-once")
+                assert said.count() == 1 and "not stated for 1" in said.inner_text(), \
+                    f"the shopping list does not say once that a fabric is not stated: {said.all_inner_texts()}"
+                colours = other.evaluate("""() => { const c = s => getComputedStyle(document.querySelector(s)).color;
+                    const e = document.createElement('i'); document.body.append(e); const of = v => { e.style.color = v;
+                    return getComputedStyle(e).color; }; const out = {fabric: c('.once .fabric-once'), sizes: c('.once .sizes'),
+                    muted: of('var(--muted)'), ok: of('var(--ok)')}; e.remove(); return out; }""")
+                assert colours["fabric"] == colours["muted"] and colours["sizes"] == colours["ok"], \
+                    f"amber is for a size to check only, the fabric is plain grey: {colours}"
             finally:
                 listed.unlink(missing_ok=True)
                 context.close()
@@ -3937,7 +3962,7 @@ def run(base: str) -> None:
             if lock.count():            # the new plan has the swapped piece: its product and lock stay
                 assert "Kept your 1 hand-picked piece" in said, f"the message does not count the kept piece: {said!r}"
                 assert lock.get_attribute("aria-pressed") == "true", "the kept piece is no longer locked"
-                card = page.locator(f"#card-{swapped['slot']} .item[lang=de]").inner_text()   # the store's own words
+                card = page.locator(f"#card-{swapped['slot']} .row-product [lang]").inner_text()   # its name, in one language
                 assert swapped["product"] in card, f"the kept piece shows {card!r}, not {swapped['product']!r}"
             else:
                 assert "Not kept: " in said, f"the swapped piece is gone and the message does not say so: {said!r}"

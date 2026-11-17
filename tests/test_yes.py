@@ -506,7 +506,7 @@ class RemovingAPieceFromThePlan(YesCase):
         self.assertEqual(mine.count('<article class="slide"'), 2)
         self.assertEqual(read(mine).count(f"“{name}” is no longer in your plan, so it is not in your wardrobe or your total, "
                                           "and this outfit can no longer be bought as one."), 2)
-        self.assertEqual(mine.count("· removed</small>"), 2)
+        self.assertEqual(mine.count("<small>removed</small>"), 2)
         self.assertNotIn("Buy this outfit", mine)
         self.assertEqual(selection.build().n_outfits, 2)
 
@@ -964,7 +964,8 @@ class TheBudget(YesCase):
         said = f"With it your wardrobe comes to {eur(first + second)}: {eur(over)} over your budget."
         self.assertEqual(adds.over_words, said)
         page = self.page("/outfits", at=b.sig)
-        self.assertIn(f'<p class="adds over">{html.escape(said)}</p>', page)
+        # In red, as plain words with the small flag before them: money over budget.
+        self.assertRegex(page, rf'<p class="adds over"><svg class="ic"[^>]*>.*?</svg> {re.escape(html.escape(said))}</p>')
         # … in the outfit's own box, above the button: on a phone the whole box is what stands over the tab bar
         # (the walk-through measures where it shows).
         box = re.search(rf'<article class="slide" id="outfit-{b.key}".*?<div class="yes-box" data-answer>(.*?)<ul class="pieces">',
