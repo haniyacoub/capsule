@@ -1,4 +1,4 @@
-{% from "_macros.html" import by, fabric_fit, icon, pic %}
+{% from "_macros.html" import icon, once, pic, row_cautions, row_product %}
 {% if w.note %}<p class="demo" role="status">{{ w.note }}</p>{% endif %}
 {% if not w.slots %}
 {# Before any yes: said plainly, with the way to the outfits. #}
@@ -8,6 +8,10 @@
   <p class="small">The plan your outfits are made from: <a href="{{ url_for('slots_page') }}">Edit the plan</a></p>
 </div>
 {% endif %}
+{# What is true of a whole store's products, said once here instead of on every row (selection.said_once): that
+   its sizes were not checked, and for how many of its products the fabric is an estimate. Each piece's own page
+   says it in full. #}
+{{ once(w.said_once, named=true) }}
 {% for section, items in w.sections %}
 <h2 class="sec">{{ section }}</h2>
 <div class="grid">
@@ -20,7 +24,7 @@
   <article class="slot is-{{ s.state }}{% if s.warn %} has-warn{% endif %}" id="card-{{ s.slot.id }}">
     <a class="slot-main" href="{{ url_for('slot_page', slot_id=s.slot.id) }}" aria-label="{{ s.slot.name }}: see all options"{% if noted %} aria-describedby="note-{{ s.slot.id }}"{% endif %}{% if focus == s.slot.id %} autofocus{% endif %}>
       {% if c and s.state != 'owned' %}
-        {{ pic(c.data.image_url, c.colour_hex, c.data.name) }}
+        {{ pic(c.data.image_url, c.colour_hex, c.data.name|english or c.data.name) }}
       {% else %}
         {{ pic('', s.colour.hex) }}
       {% endif %}
@@ -34,15 +38,13 @@
           <span class="item">You already own this</span>
           {% if s.outfits_in %}<span class="in-outfits">{{ s.in_outfits_words }}</span>{% endif %}
         {% elif c %}
-          {# What every card says, in the same order (_macros.html): the store and the quality, the product's name in
-             English where every word is known (english.py) with the store's own under it, the fabric, the fit; then
-             the first thing to check about the size, and how many more there are on the piece's page. #}
-          <span class="by">{{ by(c.data.store, c.score) }}</span>
-          {% set en = c.data.name|english %}
-          {% if en %}<span class="item" lang="en">{{ en }}</span>{% endif %}
-          <span class="item{{ ' orig' if en }}" lang="de">{{ c.data.name }}</span>
-          {{ fabric_fit(c, 'span') }}
-          {% if c.check.notes %}<span class="hint">{{ icon('flag') }} {{ c.check.notes[0] }}{% if c.check.notes|length > 1 %} <b>+{{ c.check.notes|length - 1 }}</b>{% endif %}</span>{% endif %}
+          {# A row, as on the Shopping list and Buy this outfit (_macros.html): the store and the product's name in
+             one language (English where every word is known, english.py, else the store's own), the size, and only
+             where there is something, what to act on about this product's size. Its fabric, fit and quality, and
+             the store's own name for it, are on the piece's page, which the row leads to. #}
+          {{ row_product(c) }}
+          <span class="row-size">Size: <b>{{ c.size_to_order }}</b>{% if example_sizes %} (example size){% endif %}</span>
+          {{ row_cautions(c.size_cautions) }}
           {# Why it is in his wardrobe: "In 4 of your outfits" (one price, four outfits), or, for a piece he chose
              himself that no outfit of his wears yet, that, with "Take out" among the buttons below. #}
           <span class="in-outfits">{{ s.in_outfits_words }}{% if not s.outfits_in %} · you chose it yourself{% endif %}</span>

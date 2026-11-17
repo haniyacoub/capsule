@@ -1329,7 +1329,7 @@ class SharedStoreCatalogue(ProductionCase):
             having.the_whole_plan()         # the Wardrobe page shows the pieces of her wardrobe: here, all of the plan
         page = ada.get("/").data
         self.assertNotIn(b"Demo data", page)
-        self.assertIn(b"Pullover aus Merinowolle", page)
+        self.assertIn(b"Jumper, merino wool", page, "the real product, by its name in English (english.py)")
         self.assertEqual(sorted(self.knit("ada@example.com")), ["cos-2", "weekday-1"], "grey ones only, from both stores")
         self.assertEqual(self.knit("ada@example.com", "white-tee"), ["weekday-4"])
         with db.as_user(self.user_id("ada@example.com")):
@@ -1431,7 +1431,7 @@ class SharedStoreCatalogue(ProductionCase):
         fragment = html.unescape(answer.data.decode())
         card = re.search(r'<article [^>]*id="card-black-merino-jumper">.*?</article>', fragment, re.S).group(0)
         self.assertIn("Navy merino jumper", card)
-        self.assertIn("Pullover", card, "the navy jumper on the list fills it")
+        self.assertIn('<span lang="en">Jumper</span>', card, "the navy jumper on the list (Pullover) fills it")
         self.assertIn(eur(29.95), card)
         self.assertIn("autofocus", card, "the button pressed is gone: focus goes to the piece")
         self.assertNotIn("/colour", card)

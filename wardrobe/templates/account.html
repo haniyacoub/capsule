@@ -45,7 +45,7 @@
   <form class="form" method="post" action="{{ url_for('auth.delete_account') }}" data-confirm="Delete your account and everything in it? You can't undo this.">{{ csrf_field() }}
     <label class="field"><span>Your password, to confirm</span>
       <input type="password" name="current" autocomplete="current-password" required></label>
-    <button class="btn small danger">Delete my account</button>
+    <button class="btn small">Delete my account</button>
   </form>
 </section>
 {% endblock %}

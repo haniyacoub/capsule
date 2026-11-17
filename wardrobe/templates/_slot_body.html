@@ -114,8 +114,8 @@
       {% if c.size.known %}{# sizes not checked: said once, by the size note below #}
       <p class="sizeline">
         {% if c.available %}<span class="yes">Your size: {{ c.size.text }}</span>
-        {% elif c.size.label %}<span class="no">Your size: {{ c.size.text }}</span>
-        {% else %}<span class="no">{{ c.size.text }}</span>{% endif %}
+        {% elif c.size.label %}<span class="no">{{ icon('flag') }} Your size: {{ c.size.text }}</span>
+        {% else %}<span class="no">{{ icon('flag') }} {{ c.size.text }}</span>{% endif %}
       </p>
       {% endif %}
       {% if c.check.notes %}
@@ -180,7 +180,7 @@
         {% if c.manual %}
         <form method="post" action="{{ url_for('slot_remove', slot_id=sid, **way) }}" data-confirm="Remove “{{ d.name }}” from this piece's options?">{{ csrf_field() }}
           <input type="hidden" name="candidate" value="{{ c.id }}">
-          <button class="link danger">Remove</button>
+          <button class="link">Remove</button>
         </form>
         {% endif %}
       </div>

@@ -75,11 +75,12 @@ class TheDots(WithPictures, AppCase):
         page = self.client.get("/outfits").data.decode()
         first = page[page.index("<article"):page.index("</article>")]
         spots = re.findall(r'<a class="spot(?: low)?"[^>]*>', first)     # (low: the shoes', clear of the 'AI picture' label)
-        rows = re.findall(r'<a class="piece-row"[^>]*title="([^"]+)"[^>]*>.*?<span class="piece-price">([^<]+)<small>([^<·]+)',
-                          first, re.S)
+        # A row says its store before the product's name ("WEEKDAY · Single-breasted oversized coat"), then the price.
+        rows = re.findall(r'<a class="piece-row"[^>]*title="([^"]+)"[^>]*>.*?<span class="row-product"><span '
+                          r'class="store">([^<]+)</span>.*?<span class="piece-price">([^<]+)', first, re.S)
         self.assertGreaterEqual(len(spots), 3)
         self.assertEqual(len(spots), len(rows))
-        for spot, (name, price, store) in zip(spots, rows):
+        for spot, (name, store, price) in zip(spots, rows):
             self.assertNotIn("title=", spot)
             self.assertIn(f'aria-label="{name}, {store.strip()}, {price.strip()}"', spot)
         self.assertEqual(len(re.findall(r'<a class="tile" href="[^"]+" title="', first)), len(spots))
