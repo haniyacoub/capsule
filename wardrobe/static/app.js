@@ -919,9 +919,11 @@ document.body.addEventListener('htmx:beforeRequest', (e) => {
     chatHeard(wait.textContent);
   });
 });
-// The answer and the field on the screen together: the page moves up until the field and Send are above whatever
-// stands at the bottom of the screen (the Save bar, the tab bar, a phone's keyboard), but never so far that the
-// first line of the answer leaves at the top, under the tabs that stick there. A long answer is read first.
+// The answer and the field on the screen together: the page moves until the field and Send are above whatever
+// stands at the bottom of the screen (the Save bar, the tab bar, a phone's keyboard), with as much of the answer as
+// fits above them, its first line where the screen has room for it all. The field and Send come first: he is about
+// to type, and a long answer is read out first and can be scrolled back to. Profile's tabs are the top only where
+// they lie across the page above the chat (a phone); on a wider screen they are a column on the left, beside it.
 const chatInView = (chat, said, field) => {
   const gap = 8;
   const view = window.visualViewport;
@@ -931,12 +933,20 @@ const chatInView = (chat, said, field) => {
     if (box.height && box.top > window.innerHeight / 2) floor = Math.min(floor, box.top);
   });
   const tabs = document.querySelector('.cc-tabs');
-  const ceiling = tabs ? Math.max(0, tabs.getBoundingClientRect().bottom) : 0;
+  const area = chat.getBoundingClientRect();
+  const across = tabs && (() => {
+    const box = tabs.getBoundingClientRect();
+    return box.height && box.right > area.left && box.left < area.right && box.top < window.innerHeight / 2;
+  })();
+  const ceiling = across ? Math.max(0, tabs.getBoundingClientRect().bottom) : 0;
   const button = chat.querySelector('.chat-say button');
   const lowest = Math.max(field.getBoundingClientRect().bottom, button ? button.getBoundingClientRect().bottom : 0);
+  const need = lowest + gap - floor;                                   // how far the field and Send are below the floor
   const first = said.getBoundingClientRect().top - gap - ceiling;      // how far the answer's start is below the top
-  const by = first < 0 ? first : Math.min(lowest + gap - floor, first);
-  if (by > 0 || first < 0) window.scrollBy({ top: by, behavior: 'auto' });      // at once: he is about to type
+  let by = 0;
+  if (need > 0) by = need;                          // the field and Send into sight, whatever else
+  else if (first < 0) by = Math.max(first, need);   // the answer's start into sight, the field staying in sight
+  if (by) window.scrollBy({ top: by, behavior: 'auto' });      // at once: he is about to type
 };
 document.body.addEventListener('htmx:afterSwap', (e) => {
   const was = e.detail.target;

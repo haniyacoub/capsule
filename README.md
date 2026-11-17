@@ -480,6 +480,20 @@ key. Each message costs about a tenth of a cent.
     words, and the note beside the chat names the right number.
 13. The privacy page's operator blanks for Google (location, agreement)
     before anyone but the owner uses the chat.
+14. On his phone, Outfits with a brief in use: is the line that says why an
+    outfit fits (under its name, above the picture) on the first screen, and
+    not behind the bar with the two answers? Also in Safari with its bars
+    showing (390 x 664).
+15. "Smart casual": does the model send it as a style (`smart_casual`) and
+    not as the formality level ("In between" is `smart`)? Do the outfits
+    titled Smart casual then say "Smart casual: …"?
+16. Bomber jackets: a jacket counts as street only when the store's name for
+    it says it is a bomber ("Bomberjacke", "Bomber"). On the collected
+    catalogue, are the bombers named so, and is no other jacket called street?
+17. Which word the model sends for leather: "leather" also finds "Leder",
+    suede and nubuck (config/style.toml, `[not_wanted]`), and so does the
+    plan's own name for a piece ("White leather sneakers"); a word that is not
+    listed there (say "Leder") is looked for only as it is written.
 
 ## Store feeds (licensed product data)
 

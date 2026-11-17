@@ -457,6 +457,41 @@ def made_from_front(pieces: list[dict]) -> int:
     return sum(1 for photo in photos[1:] if photo.look and photo.look.status in ("ready", "working"))
 
 
+def videos_from_front(photos: list[Photo] | None) -> int:
+    """How many videos go when an outfit's front picture is drawn again: its own and those of the photos made from
+    it, made or being made (forget_made_from removes them with it). 0 while the front picture is not there."""
+    from . import videos
+    if not photos or not photos[0].look or photos[0].look.status != "ready":
+        return 0
+    found = (videos.of(photo.look, photo.name) for photo in photos if photo.look and photo.look.status == "ready")
+    return sum(1 for video in found if video is not None and video.status in ("ready", "working"))
+
+
+def redraw_words(photos: list[Photo] | None) -> tuple[str, int]:
+    """What "Draw again" on a front picture asks first, and how many things it would remove: the other photos made
+    from it, and the videos of it and of them. ("", 0) when it would remove nothing: then it is not asked."""
+    photos = photos or []
+    others = sum(1 for photo in photos[1:] if photo.look and photo.look.status in ("ready", "working"))
+    if not photos or not photos[0].look or photos[0].look.status != "ready":
+        others = 0
+    n_videos = videos_from_front(photos)
+    if not others and not n_videos:
+        return "", 0
+    said = "Draw the front picture again? "
+    if others:
+        said += ("The other photo of this outfit is made from it, so it" if others == 1 else
+                 f"The other {others} photos of this outfit are made from it, so they") + " will be removed"
+        if n_videos:
+            said += (", and with them the video" if n_videos == 1 else f", and with them the {n_videos} videos") + \
+                " made from these pictures"
+        said += f". “More photos” draws {'it' if others == 1 else 'them'} again."
+    else:
+        said += ("Its video" if n_videos == 1 else f"Its {n_videos} videos") + " will be removed."
+    if n_videos:
+        said += f" “See it move” makes a new {'one' if n_videos == 1 else 'video'}, as one of your videos for the day."
+    return said, others + n_videos
+
+
 # ── a picture of the customer's own photo: his yes before it goes out again ──
 
 # From this date on, the words a customer agrees to when he adds his photo (the box on Profile: their date is

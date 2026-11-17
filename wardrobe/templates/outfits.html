@@ -204,7 +204,7 @@
            the box stays here. #}
         <div class="yes-box" data-answer>
         {% if o.adds %}
-        <p class="adds{% if o.adds.in_wardrobe %} in{% endif %}">{{ o.adds.words }}</p>
+        <p class="adds{% if o.adds.in_wardrobe %} in{% endif %}">{{ o.adds.words }}{% if o.adds.over_short %}<span class="over-short"> · {{ o.adds.over_short }}</span>{% endif %}</p>
         {% if o.adds.over_words %}<p class="adds over">{{ o.adds.over_words }}</p>{% endif %}
         {% endif %}
         <div class="answer">
@@ -265,10 +265,11 @@
       </div>
     </article>
     {% endfor %}
+    {# "Show more outfits" keeps every outfit he has seen in its place (front): the new ones come behind them. #}
     {% if occasion != 'saved' and boards|length < total %}
     <article class="slide more-slide" data-slide>
       <p class="muted">That was {{ boards|length }} of {{ total }}.</p>
-      <a class="btn" href="{{ url_for('outfits_page', occasion=occasion, n=n + 12, seed=seed, front=front|join('.') or none) }}#outfit-{{ boards[-1].key }}">Show more outfits</a>
+      <a class="btn" href="{{ url_for('outfits_page', occasion=occasion, n=n + 12, seed=seed, front=boards|map(attribute='key')|join('.')) }}#outfit-{{ boards[-1].key }}">Show more outfits</a>
     </article>
     {% endif %}
   </div>

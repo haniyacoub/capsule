@@ -173,7 +173,7 @@
         <h2 class="sec">Budget</h2>
         <label class="field"><span>For the whole wardrobe (EUR)</span>
           <input type="number" id="budget" name="budget" min="0" inputmode="numeric" value="{{ profile.budget if 'budget' in answered else '' }}"></label>
-        <p class="muted small{% if 'budget' not in answered %} not-given{% endif %}" id="budget-says">{% if 'budget' in answered %}The bar at the top counts the pieces of the outfits you said yes to against this.{% else %}You have not set a budget yet. With one, the bar at the top counts the pieces of the outfits you said yes to against it, and an outfit that would take you over it says so before you add it.{% endif %}</p>
+        <p class="muted small{% if 'budget' not in answered %} not-given{% endif %}" id="budget-says">{% if 'budget' in answered %}The bar at the top counts the pieces of the outfits you said yes to against this. To have no budget, empty the field and save.{% else %}You have not set a budget yet. With one, the bar at the top counts the pieces of the outfits you said yes to against it, and an outfit that would take you over it says so before you add it.{% endif %}</p>
       </section>
 
       {# The Stores tab: every store customers are offered (programmes.offered), a row to tick each; his pieces are picked

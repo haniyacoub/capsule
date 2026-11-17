@@ -392,8 +392,8 @@ def run(base: str) -> None:
             # On a phone the two answers are always in reach: what a yes adds, "Add to my wardrobe" and "Not for me"
             # stand in a bar above the tab bar, for the outfit that is showing (app.js 17a), whole on the first screen
             # of six phones, the short ones included (a phone's browser with its own bars showing leaves 640 to 664px).
-            # The whole picture, its lowest dot included, ends above that bar, and so do the outfit's title and price
-            # where the screen is tall enough (800px and more). The bar follows the outfit on screen, and the page
+            # The outfit's title and price (above the picture on a phone) are above that bar, and so is the whole
+            # picture, its lowest dot included, where the screen is 740px high or more. The bar follows the outfit on screen, and the page
             # still ends below it: its last line can be scrolled clear of the bar.
             for width, height in ((390, 844), (375, 667), (360, 740), (390, 664), (360, 640), (412, 785)):
                 context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=True, has_touch=True)
@@ -434,10 +434,10 @@ def run(base: str) -> None:
                 assert seen["slide"] == f"outfit-{seen['key']}" and not seen["left_in_outfit"], \
                     f"{size} the bar's answers are not those of the outfit on screen, or they are there twice: {seen}"
                 assert seen["wide"] <= width, f"{size} the page is {seen['wide']}px wide"
-                if height >= 640:
+                if height >= 740:       # (on the shortest phones the bar may cover the picture's foot until he scrolls)
                     assert seen["bottom"] <= seen["dock"][0] + 1, \
                         f"{size} the picture ends at {seen['bottom']:.0f}px, under the bar with the answers at {seen['dock'][0]:.0f}px"
-                if height >= 800:
+                if height >= 640:       # the name and price stand above the picture on a phone: never under the bar
                     assert seen["line"] <= seen["dock"][0] + 1, \
                         f"{size} the outfit's title and price end at {seen['line']:.0f}px, under the bar with the answers at {seen['dock'][0]:.0f}px"
                 # Swipe to the next outfit: the bar now holds that outfit's answers, and the first one's are back in it.
@@ -886,7 +886,12 @@ def run(base: str) -> None:
 
             def swipe(session, other, selector: str, distance: int = -250) -> None:
                 """A sideways swipe by touch that starts on `selector` in the first outfit (at its right end when
-                swiping left)."""
+                swiping left). On a phone it is first scrolled clear of the bar with the answers, if that covers it
+                (the line under the picture and the small pictures may be under it on the first screen)."""
+                other.evaluate("""s => { const el = document.querySelector(s), dock = document.getElementById('dock');
+                    if (!el || !dock || dock.hidden) return;
+                    const below = el.getBoundingClientRect().bottom + 8 - dock.getBoundingClientRect().top;
+                    if (below > 0) window.scrollBy({top: below, behavior: 'instant'}); }""", f"{first} {selector}")
                 box = other.locator(f"{first} {selector}").bounding_box()
                 session.send("Input.synthesizeScrollGesture", {
                     "x": int(box["x"] + (box["width"] - 30 if distance < 0 else 30)), "y": int(box["y"] + box["height"] / 2),
@@ -1920,8 +1925,11 @@ def run(base: str) -> None:
             page.click(f"{first} .look-line button:has-text('Draw again')")
             page.wait_for_selector(f"{first} .look-ask")
             said_first = page.inner_text(f"{first} .look-ask p")
-            assert said_first == ("Draw the front picture again? The other 5 photos of this outfit are made from it, so "
-                                  "they will be removed. “More photos” draws them again."), \
+            # (Videos were made of these pictures earlier in the walk-through: they go too, and that is said as well.)
+            assert re.fullmatch(r"Draw the front picture again\? The other 5 photos of this outfit are made from it, so they "
+                                r"will be removed(, and with them the (video|\d videos) made from these pictures)?\. “More photos” "
+                                r"draws them again\.( “See it move” makes a new (one|video), as one of your videos for the day\.)?",
+                                said_first), \
                 f"'Draw again' on the front picture did not say first that the other five go: {said_first!r}"
             page.click(f"{first} .look-ask button:has-text('Draw again')")
             page.wait_for_selector(f"{first} .look-bar.wait")
@@ -3999,7 +4007,8 @@ def run(base: str) -> None:
                             return slides.filter(s => box(s) && box(s).querySelector('form.no')).map(slide => ({
                                 pieces: box(slide).querySelector('form.save input[name=sig]').value.split('~'),
                                 cost: slide.querySelector('.board-cost').textContent.trim(),
-                                adds: [...box(slide).querySelectorAll('.adds')].map(p => p.textContent.trim()),
+                                adds: [...box(slide).querySelectorAll('.adds')].map(p => { const c = p.cloneNode(true);
+                                    c.querySelectorAll('.over-short').forEach(x => x.remove()); return c.textContent.trim(); }),   // (its short form in the bar aside)
                                 plus: box(slide).querySelector('.btn.yes .plus').textContent.trim()})); }""")
 
                     def answer(what: str, index: int = 0) -> str:
@@ -4908,14 +4917,22 @@ def run(base: str) -> None:
                     }""", [f"{first} {what}", f"#dock {what}"])
                     assert ring["shown"] and not ring["cut"], f"{where}: the focus ring of {what} is cut off at {ring['cut']}"
 
+            # On a phone the outfit's name and price (and the line that says why it fits his brief) stand above the
+            # picture, so the bar with the two answers never covers them. At 390 x 844 the picture is at least as large
+            # as before that bar came (287px), the whole model above the bar, and the 'AI picture' label on one line.
             context, other = opened(390, 844, True)
             seen = screen(other)
             extra = other.locator("#summary").bounding_box()["height"] - 48     # the bar's second line, if pieces have nothing to buy
-            # (… and the second line over the outfits, once it says why they are in this order: the picture gives up its room.)
-            extra += max(0, other.locator("p.lead").bounding_box()["height"] - 22)
-            assert seen["top"] <= 210 + max(0, extra), f"at 390 x 844 the picture starts {seen['top']:.0f}px down"
-            assert seen["line"] <= seen["dock"] + 1 <= seen["tabs"] + 1, \
-                f"at 390 x 844 the outfit's title and price end at {seen['line']:.0f}px, under the bar with the answers at {seen['dock']:.0f}px"
+            extra += max(0, other.locator("p.lead").bounding_box()["height"] - 22)     # a second line over the outfits
+            wide = other.locator(f"{first} .look-pic").bounding_box()["width"]
+            name = other.locator(f"{first} .about-head").bounding_box()
+            assert name["y"] <= 210 + max(0, extra), f"at 390 x 844 the outfit's name starts {name['y']:.0f}px down"
+            assert seen["line"] <= seen["top"], f"at 390 x 844 the outfit's name and price are not above the picture: {seen}"
+            assert wide >= 287, f"at 390 x 844 the picture is only {wide:.0f}px wide (287px before the bar with the answers came)"
+            assert seen["bottom"] <= seen["dock"] + 1 <= seen["tabs"] + 1, \
+                f"at 390 x 844 the picture ends at {seen['bottom']:.0f}px, under the bar with the answers at {seen['dock']:.0f}px"
+            chip = other.locator(f"{first} .look-pic .ai-chip").bounding_box()
+            assert chip["height"] <= 26, f"at 390 x 844 the 'AI picture' label is {chip['height']:.0f}px high: two lines"
             row = other.evaluate("""() => {
                 const chips = document.querySelector('.toolbar .chips'), items = [...chips.children, document.querySelector('.toolbar .shuffle')];
                 const boxes = items.map(el => el.getBoundingClientRect()), shuffle = boxes[boxes.length - 1];
@@ -4942,60 +4959,49 @@ def run(base: str) -> None:
             assert "Smart casual" not in heads["titles"], f"under Office an outfit is titled only 'Smart casual': {heads['titles']}"
             context.close()
 
-            # Shorter phones (360 x 740, 393 x 760: a phone with the browser's bars showing). The picture keeps its
-            # smallest width (198px on a phone, where the bar with the two answers stands over the tab bar and takes
-            # 88px; 186px once the line over the outfits is two lines, as it is after his first yes: the picture
-            # gives up that line's room), and the row of small pictures is the small one (40px, no names), so that
-            # the row is whole above that bar and the outfit's name begins above it; at 393 x 760 the name and the
-            # price are whole above it. 'Add to my wardrobe' (where the heart was) is whole on the screen, above the
-            # tab bar. All as it was before the small pictures had names, and the same before and after his first yes.
-            for width, height in ((360, 740), (393, 760)):
+            # Shorter phones (360 x 740, 393 x 760, 390 x 664, 375 x 667, 360 x 640: a phone with the browser's bars
+            # showing). The outfit's name, its price and why it fits are whole above the bar with the two answers, the
+            # bar is compact (one line of what a yes adds, then the answers), 'Add to my wardrobe' is whole in it above
+            # the tab bar, the picture is at least 198px wide (as large as fits above the bars: 234px at 360 x 740)
+            # with its label on one line, and the chips all show beside Shuffle.
+            for width, height in ((360, 740), (393, 760), (390, 664), (375, 667), (360, 640)):
                 context, other = opened(width, height, True)
                 seen = other.evaluate("""() => {
                     const slide = document.querySelector('#reel .slide:first-child'), box = el => el.getBoundingClientRect();
+                    const why = slide.querySelector('.about-why');
                     return {picture: box(slide.querySelector('.look-pic')).width,
-                            lead: box(document.querySelector('p.lead')).height,
-                            row: box(slide.querySelector('.shots')).bottom,
-                            cells: Math.max(...[...slide.querySelectorAll('.shots-row button[aria-pressed]')].map(el => box(el).bottom)),
+                            bottom: box(slide.querySelector('.look-pic')).bottom,
                             name: [box(slide.querySelector('.about-head h2')).top, box(slide.querySelector('.about-head h2')).bottom],
                             price: box(slide.querySelector('.board-cost')).bottom,
+                            why: why ? box(why).bottom : 0,
+                            chip: box(slide.querySelector('.look-pic .ai-chip')).height,
                             yes: [box(document.querySelector('#dock .btn.yes')).top, box(document.querySelector('#dock .btn.yes')).bottom],
                             answers: box(document.getElementById('dock')).top,
+                            bar: box(document.getElementById('dock')).height,
                             chips: [document.querySelector('.toolbar .chips').scrollWidth, document.querySelector('.toolbar .chips').clientWidth],
                             last_chip: [...document.querySelectorAll('.toolbar .chip-link')].pop().textContent.trim().replace(/\\s+/g, ' '),
                             tabs: box(document.querySelector('nav.tabs')).top}; }""")
                 context.close()
                 where = f"at {width} x {height}"
-                # The chips over the outfits all show beside Shuffle, the number on "My outfits 3" included: on a phone
-                # 360px wide the last chip is not cut off (the chips are a little closer cut there to fit).
                 assert seen["last_chip"].startswith("My outfits") and seen["chips"][0] <= seen["chips"][1], \
                     f"{where} the chip {seen['last_chip']!r} is cut off beside Shuffle: the chips need {seen['chips'][0]}px and have {seen['chips'][1]}px"
-                least = 186 if seen["lead"] > 22 else 198       # the line over the outfits: two lines, or one
-                assert seen["picture"] >= least, f"{where} the picture is only {seen['picture']:.0f}px wide, under {least}px"
+                assert seen["picture"] >= 198, f"{where} the picture is only {seen['picture']:.0f}px wide, under 198px"
+                if height >= 740:
+                    assert seen["bottom"] <= seen["answers"] + 1, f"{where} the picture ends under the bar with the answers: {seen}"
+                assert seen["chip"] <= 26, f"{where} the 'AI picture' label is on two lines: {seen}"
                 assert seen["answers"] <= seen["tabs"] + 1 and seen["answers"] <= seen["yes"][0] and seen["yes"][1] <= seen["tabs"], \
                     f"{where} 'Add to my wardrobe' is not whole in its bar above the tab bar: {seen}"
-                assert seen["row"] <= seen["answers"] and seen["cells"] <= seen["answers"], \
-                    f"{where} the small pictures are cut by the bar with the two answers: {seen}"
-                assert seen["name"][0] < seen["answers"], f"{where} the outfit's name begins under the bar with the two answers: {seen}"
-                if height >= 760:
-                    assert seen["name"][1] <= seen["answers"] and seen["price"] <= seen["answers"], \
-                        f"{where} the outfit's name or price ends under the bar with the two answers: {seen}"
+                assert seen["bar"] <= 100, f"{where} the bar with the answers is {seen['bar']:.0f}px high: not compact"
+                assert max(seen["name"][1], seen["price"], seen["why"]) <= seen["answers"], \
+                    f"{where} the outfit's name, price or why-line ends under the bar with the two answers: {seen}"
 
-            for path, where in (("/outfits", "390 x 664"), ("/outfits?at=no~such~outfit", "390 x 664 under a message")):
-                context, other = opened(390, 664, True, path)
-                seen = screen(other)
-                if "at=" not in path:
-                    # On this shortest screen the picture gives up nothing for a second line over the outfits: the
-                    # outfit's name is under the bar with the answers either way, and the picture keeps its 198px.
-                    wide = other.locator(f"{first} .look-pic").bounding_box()["width"]
-                    assert wide >= 198, f"at {where} the picture is only {wide:.0f}px wide"
-                assert seen["bottom"] <= seen["dock"] + 1 <= seen["tabs"] + 1, \
-                    f"at {where} the picture ends at {seen['bottom']:.0f}px, under the bar with the answers at {seen['dock']:.0f}px"
-                if "at=" in path:
-                    message = other.locator("main > .flash").first.bounding_box()
-                    assert message and 0 <= message["y"] and message["y"] + message["height"] <= seen["dock"], \
-                        f"the message at the top of the outfits is not whole on the first screen: {message}"
-                context.close()
+            context, other = opened(390, 664, True, "/outfits?at=no~such~outfit")
+            seen = screen(other)
+            message = other.locator("main > .flash").first.bounding_box()
+            assert message and 0 <= message["y"] and message["y"] + message["height"] <= seen["dock"], \
+                f"the message at the top of the outfits is not whole on the first screen: {message}"
+            assert seen["line"] <= seen["dock"], f"under a message the outfit's name is under the bar with the answers: {seen}"
+            context.close()
 
             context, other = opened(360, 800, True)
             narrow = other.evaluate("""() => {
@@ -5536,6 +5542,13 @@ def run(base: str) -> None:
                     view.wait_for_url(base + "/welcome")
                     for step in (1, 2):
                         assert not view.get_by_text(words).count(), f"{where}: the welcome's step {step} offers the style chat"
+                        if step == 2 and "has_touch" in more:
+                            # The budget is on the first screen, above the colours: not below all 25 of them.
+                            budget = view.evaluate("""() => { const b = document.querySelector('input[name=budget]').getBoundingClientRect();
+                                return {bottom: b.bottom, colours: document.querySelector('.pick-colour').getBoundingClientRect().top,
+                                        screen: innerHeight}; }""")
+                            assert budget["bottom"] <= min(budget["colours"], budget["screen"]), \
+                                f"{where}: the welcome's budget is under the colours or off the first screen: {budget}"
                         view.click("button:has-text('Skip')")
                         view.wait_for_load_state("networkidle")
                     view.wait_for_url(base + "/welcome/3")
@@ -5913,12 +5926,34 @@ def run(base: str) -> None:
                 plain.click("button:has-text('Remove brief')")
                 plain.wait_for_load_state("networkidle")
                 assert plain.locator("[data-brief]").count() == 0, "Remove brief left a brief on the page"
-                sentence = said_on_screen(plain, "Style brief removed.", "/outfits", "Remove brief without JavaScript")
-                expected = f"Style brief removed. {change(before, bought(plain), 'Removing it', 'That changed none of your pieces.')} See your outfits"
+                sentence = said_on_screen(plain, "Style brief removed", "/outfits", "Remove brief without JavaScript")
+                expected = f"Style brief removed, and the conversation with it. {change(before, bought(plain), 'Removing it', 'That changed none of your pieces.')} See your outfits"
                 assert sentence == expected, f"after Remove brief the page says {sentence!r}, and the shopping list says {expected!r}"
                 plain.goto(base + "/outfits", wait_until="networkidle")
                 assert plain.locator("[data-why]").count() == 0, "without a brief an outfit still says why it fits one"
                 context.close()
+                # After an answer the message field and Send are on the screen, above the Save bar and the tab bar: on
+                # short phones (360 x 740, 375 x 667) too, and in a laptop's short window (1366 x 650), where Profile's
+                # tabs are a column beside the chat, not a bar above it (the page moved the wrong way there).
+                for size, touch in (((360, 740), True), ((375, 667), True), ((1366, 650), False), ((844, 390), True)):
+                    context = browser.new_context(viewport={"width": size[0], "height": size[1]}, is_mobile=touch, has_touch=touch)
+                    view = context.new_page()
+                    view.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                    log_in(view)
+                    view.goto(base + "/profile#style", wait_until="networkidle")
+                    view.fill("#style-chat .chat-say textarea", "street style, Berlin vibe")
+                    send = view.locator("#style-chat .chat-say button")
+                    with view.expect_response("**/profile/style/say"):
+                        send.tap() if touch else send.click()
+                    view.wait_for_selector("#style-chat [data-chat-new], #style-chat [data-chat-said]")
+                    view.wait_for_timeout(300)      # (the page moves once the answer is in: app.js 13d)
+                    hidden = view.evaluate("""() => { const shows = el => { const r = el.getBoundingClientRect();
+                        return r.height > 0 && [[r.left + 4, r.top + 4], [r.right - 4, r.bottom - 4]].every(([x, y]) => {
+                            const at = document.elementFromPoint(x, y); return !!at && el.contains(at); }); };
+                        const chat = document.getElementById('style-chat');
+                        return ['.chat-say textarea', '.chat-say button'].filter(s => !shows(chat.querySelector(s))); }""")
+                    assert not hidden, f"at {size[0]} x {size[1]}, after an answer, not on the screen: {hidden}"
+                    context.close()
                 # And on a phone, "Start again" and "Remove brief" are said on the screen the page comes back to as well.
                 context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
                 phone = context.new_page()

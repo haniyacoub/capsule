@@ -132,6 +132,9 @@ class WhoAProductIsFor(unittest.TestCase):
                 ("https://www.otto.de/p/beispielmarke-girls-wool-coat-C9000087/", "girls", "children"),
                 ("https://www.otto.de/p/beispielmarke-junior-steppjacke-C9000088/", "junior", "children"),
                 ("https://www.otto.de/p/kids-only-jeans-C9000089/", "kids", "children"),
+                # (these were kept without a question)
+                ("https://www.otto.de/p/beispielmarke-jugend-jacke-C9000102/", "jugend", "children"),
+                ("https://www.otto.de/p/beispielmarke-youth-hoodie-C9000103/", "youth", "children"),
                 # a word for one person counts right before the clothes
                 ("https://www.otto.de/p/beispielmarke-teen-jacke-C9000090/", "teen", "children"),
                 ("https://www.otto.de/p/beispielmarke-girl-jacket-C9000091/", "girl", "children"),
@@ -474,9 +477,19 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         self.assertEqual(self.add_anyway(band), ["Added “Beastie boys shirt”: only the link could be read — add the "
                                                  "price, fabric and sizes under “Add details”."])
         self.assertEqual(manual_ids(), ["hirmer-9000001", "otto-9000075"])
+        # The other question of that paste is asked again after the tap, not dropped without a word: its button
+        # carries it along. (It vanished: the girls' jacket was neither added nor asked about any more.)
+        answer = self.client.post(f"/slot/{self.sid}/import", data={"urls": f"{girls}\n{kids}"})
+        page = self.client.get(f"/slot/{self.sid}").get_data(as_text=True)
+        kids_form = re.search(r'<form class="flash ask"[^>]*>(?:(?!</form>).)*?name="urls" value="' + re.escape(kids)
+                              + r'".*?</form>', page, re.S).group(0)
+        self.assertIn(f'<input type="hidden" name="still" value="{html.escape(girls)}">', kids_form)
+        self.client.post(f"/slot/{self.sid}/import", data={"urls": kids, "anyway": "1", "still": girls})
+        self.assertIn("bergfreunde-9000081", manual_ids())
+        self.assertEqual([link for _, link in self.asked()], [girls], "the other question vanished")
         # He is not asked twice: pasting the link again, once it is on this piece, adds it as before.
         self.assertRegex(self.add(band)[0], "^Added “Beastie boys shirt”")
-        self.assertRegex(self.add(kids)[0], "Add it anyway\\?$", "another link is still asked about")
+        self.assertRegex(self.add(girls)[0], "Add it anyway\\?$", "another link is still asked about")
 
     def test_the_question_never_opens_what_the_store_says_plainly(self):
         # A women's or children's folder, or the saved page's own word, is refused, with the answer yes too.

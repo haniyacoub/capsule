@@ -1599,11 +1599,25 @@ class Photos(WithPictures, AppCase):
             self.ask(outfit, again="1", sure="1")
         self.assertEqual(len(self.drawn), 8)
         self.assertEqual(self.cells(self.ask(outfit)), [("front", "true", "picture")])
+        # With no picture left today it is not asked: nothing would be drawn or removed, and the box says why.
+        self.more(outfit)
+        self.assertEqual(len(self.drawn), 13)
+        self.time_passes()
+        with mock.patch.object(looks.time, "time", lambda: 2_000_000_050.0):
+            self.with_rules(per_day=db.look_requests(looks.time.time() - 24 * 3600))     # all of today's are used
+            self.assertEqual(looks.left(), 0)
+            box = html_mod.unescape(self.ask(outfit, again="1"))
+        self.assertNotIn('class="look-ask"', box, "it promised a removal that does not happen")
+        self.assertIn("Today's pictures are used up.", box)
+        self.assertEqual((len(self.drawn), len(self.cells(self.ask(outfit)))), (13, 6), "nothing drawn, nothing removed")
+        self.with_rules(per_day=100)
+        self.ask(outfit, again="1", sure="1")
+        self.assertEqual(len(self.drawn), 14)
         # A front picture with no other photos is drawn again at once.
         self.time_passes()
         with mock.patch.object(looks.time, "time", lambda: 2_000_000_100.0):
             self.assertNotIn('class="look-ask"', self.ask(outfit, again="1"))
-        self.assertEqual(len(self.drawn), 9)
+        self.assertEqual(len(self.drawn), 15)
 
     def test_more_photos_makes_five_pictures_from_the_front_picture(self):
         outfit = some_outfits(1)[0]

@@ -64,7 +64,7 @@ _LINK_WOMEN = {"damen", "dames", "women", "womens", "frauen", "ladies", "female"
 _LINK_ONE_WOMAN = {"woman", "frau", "lady", "dame"}
 _LINK_CHILDREN = {"kinder", "mädchen", "maedchen", "children", "childrens", "toddler", "toddlers", "enfant",
                   "enfants", "infant", "infants", "newborn", "kids", "boys", "girls", "jungen", "jungs", "junior",
-                  "juniors", "teens"}
+                  "juniors", "teens", "jugend", "youth"}
 _LINK_ONE_CHILD = {"kid", "boy", "girl", "teen", "baby", "babys", "babies", "junge", "child"}
 _LINK_JOINED = {"women": ("damen", "womens", "women", "frauen", "ladies"),
                 "children": ("kinder", "mädchen", "maedchen", "jungen", "kids", "boys", "girls", "baby", "teen")}

@@ -248,6 +248,36 @@ class TheBrief(AppCase):
         self.assertIsNone(style.outfit_style([yellow_tee, jeans, sneakers], 2.0, mustard))
         self.assertEqual(style.outfit_style([tee, jeans, sneakers], 2.0, street), ("street", [tee, jeans, sneakers]))
 
+    def test_the_plans_own_name_for_a_piece_is_read_against_the_brief(self):
+        # (With "no leather" an outfit wearing the plan's "White leather sneakers" still said "Street: …": the
+        # product picked for it is canvas, but he reads the piece's name.)
+        street = style.clean({"styles": ["street"], "not_wanted": ["leather"]})
+        tee, jeans = piece("tee"), piece("jeans")
+        canvas = {**piece("sneakers", "Turnschuhe aus Canvas"), "slot_name": "White leather sneakers"}
+        self.assertFalse(style.against(canvas, "sneakers", street), "the product itself is not leather")
+        self.assertTrue(style.name_against("White leather sneakers", street))
+        self.assertFalse(style.name_against("White canvas sneakers", street))
+        self.assertFalse(style.name_against("White leather sneakers", None))
+        self.assertEqual(style.why([tee, jeans, canvas], 2.0, street), "")
+        self.assertEqual(style.why([tee, jeans, {**canvas, "slot_name": "White sneakers"}], 2.0, street),
+                         "Street: t-shirt, jeans, sneakers")
+        # The brief's other words for it count too: "no wool" and the plan's "Navy wool blazer" made of jersey.
+        self.assertTrue(style.name_against("Navy wool blazer", style.clean({"not_wanted": ["wool"]})))
+
+    def test_the_line_says_nothing_of_an_outfit_that_is_not_as_formal_as_the_brief(self):
+        # (A brief of casual and relaxed fits said "Your brief: relaxed jumper, …" under an Office outfit.)
+        relaxed = style.clean({"fits": ["relaxed"]})
+        knit, shirt = piece("knit", fit="relaxed"), piece("shirt", fit="relaxed")
+        trousers = piece("trousers", fit="relaxed")
+        office = [knit, shirt, trousers]
+        self.assertTrue(style.why(office, 4.0, relaxed).startswith("Your brief: relaxed"))
+        self.assertEqual(style.why(office, 4.0, {**relaxed, "formality": "casual"}), "")
+        self.assertTrue(style.why(office, 2.0, {**relaxed, "formality": "casual"}).startswith("Your brief: relaxed"))
+        minimal = style.clean({"styles": ["tailored"], "formality": "casual"})
+        tailored = [piece("shirt", store="cos"), piece("trousers", store="cos"), piece("shoes", store="cos")]
+        self.assertTrue(style.why(tailored, 4.0, {**minimal, "formality": ""}).startswith("Tailored:"))
+        self.assertEqual(style.why(tailored, 4.0, minimal), "")
+
     def test_a_piece_the_brief_speaks_against_is_never_counted_or_named_whatever_else_it_earns(self):
         # The case that went wrong: he says "tailored, no leather". The shoes are a tailored garment, their name holds
         # a tailored word ("schmal") and their store is a tailored one, so they earn more points than "leather"
@@ -1202,7 +1232,9 @@ class Chat(NoNetwork, AppCase):
         self.client.post("/profile/style/brief", data={"do": "forget"})
         self.assertEqual(style_rows(), ["style_brief"], "Start again: the conversation's row is gone, not emptied")
         self.say("office, navy, no logos")
-        self.client.post("/profile/style/brief", data={"do": "remove"})
+        page = self.client.post("/profile/style/brief", data={"do": "remove"}, follow_redirects=True).get_data(as_text=True)
+        self.assertIn("Style brief removed, and the conversation with it.", words(page),
+                      "Remove brief deletes the conversation too, and must say so")
         self.assertEqual(style_rows(), [], "Remove brief: both rows are gone")
         self.assertEqual((db.get_setting(style.SETTING, "gone"), db.get_setting(stylechat.SETTING, "gone")), ("gone", "gone"))
         self.assertFalse({"style_brief", "style_chat"} & set(db.export_user()["settings"]), "nor in the copy of his data")

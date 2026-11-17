@@ -71,6 +71,11 @@ class Adds:
         return said
 
     @property
+    def over_short(self) -> str:
+        """The same, in short, for the bar with the answers on a phone: '74.95 € over your budget'."""
+        return f"{eur(self.over_by)} over your budget" if self.over_words else ""
+
+    @property
     def over_words(self) -> str:
         """Said before he says yes, when the outfit would take the wardrobe over his budget."""
         if self.in_wardrobe or self.over_by <= 0 or self.cost <= 0:
@@ -150,3 +155,14 @@ def keep(slot_id: str, kept: bool) -> None:
     """Put a piece into the wardrobe on its own account, or take it out of that again (the setting "kept_pieces")."""
     now = [key for key in (db.get_setting("kept_pieces") or []) if key != slot_id]
     db.set_setting("kept_pieces", now + [slot_id] if kept else now)
+
+
+def owned_from_outside(slot_id: str) -> bool:
+    """Whether he said he owns this piece while it was not in his wardrobe (the setting "owned_from_outside"): taking
+    "Owned" back then returns it to where it was, outside his wardrobe (app.py, slot_own)."""
+    return slot_id in (db.get_setting("owned_from_outside") or [])
+
+
+def remember_outside(slot_id: str, outside: bool) -> None:
+    now = [key for key in (db.get_setting("owned_from_outside") or []) if key != slot_id]
+    db.set_setting("owned_from_outside", now + [slot_id] if outside else now)

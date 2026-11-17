@@ -31,6 +31,10 @@
         <input type="number" name="length" min="28" max="38" inputmode="numeric" placeholder="e.g. 32" value="{{ typed.length if given else (profile.length if sizes_given else '') }}"></label>
     </div>
     {% elif step == 2 %}
+    {# The budget first: on a phone it would otherwise be below all the colours, reached only by scrolling past them. #}
+    <label class="field"><span>Your budget for the whole wardrobe <small>(EUR, optional)</small></span>
+      <input type="number" name="budget" min="0" inputmode="numeric" placeholder="e.g. 1000" value="{{ profile.budget if 'budget' in answered else '' }}"></label>
+    <p class="muted small">Nothing is counted against it until you add an outfit to your wardrobe.</p>
     <p class="muted">Tick the colours you like to wear. Your outfits are built around them, with neutral trousers and shoes.</p>
     <fieldset class="pick-colours">
       <legend class="sr">Colours you like</legend>
@@ -38,9 +42,6 @@
       <label class="pick-colour"><input type="checkbox" name="liked" value="{{ c.key }}"{% if 'colours' in answered and c.key in profile.liked %} checked{% endif %}><i style="background:{{ c.hex }}"></i><span>{{ c.label }}</span></label>
       {% endfor %}
     </fieldset>
-    <label class="field"><span>Your budget for the whole wardrobe <small>(EUR, optional)</small></span>
-      <input type="number" name="budget" min="0" inputmode="numeric" placeholder="e.g. 1000" value="{{ profile.budget if 'budget' in answered else '' }}"></label>
-    <p class="muted small">Nothing is counted against it until you add an outfit to your wardrobe.</p>
     {% else %}
     <p class="muted">The pieces your outfits are made from are planned for this. You can change it later on your Profile.</p>
     <div class="seg welcome-use" role="radiogroup" aria-label="What you dress for">

@@ -113,6 +113,11 @@ class TheStorePicker(ProductionCase):
     def test_the_foot_says_not_affiliated_only_while_no_programme_has_accepted(self):
         foot = lambda: re.search(r'<footer class="site-foot">.*?</footer>', self.ada.get("/profile").get_data(as_text=True), re.S).group(0)   # noqa: E731
         self.assertIn("Not affiliated with any retailer.", foot())
+        # An invented sample store marked approved (for trying the importers) is no partner: the line stays.
+        db.save_store("kleiderwerk", {"label": "Kleiderwerk (sample)", "network": "awin", "programme_id": "900001",
+                                      "feed_format": None, "feed_location": None, "delivery_note": None,
+                                      "disclaimer": None, "rules": {"sample": True}, "status": "approved"})
+        self.assertIn("Not affiliated with any retailer.", foot(), "it vanished for a sample store")
         db.save_store("cos", {"label": "COS", "network": "rakuten", "programme_id": None, "feed_format": None,
                               "feed_location": None, "delivery_note": None, "disclaimer": None, "rules": {},
                               "status": "approved"})
