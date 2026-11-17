@@ -82,6 +82,17 @@ class NothingMovesForLessMotion(unittest.TestCase):
         self.assertIn("less.matches) return;", motion)
         self.assertIn("matchMedia('(prefers-reduced-motion: reduce)')", motion)
 
+    def test_nothing_is_left_of_the_heart(self):
+        # The heart was a round button of its own that saved an outfit and grew into place. A yes is the button "Add
+        # to my wardrobe" now, which draws the small heart beside its words itself (_save_button.html) and is styled
+        # as a button (.btn.yes). So no rule styles `.heart`, no script waits for one, and nothing in the templates
+        # asks for it by that name: the shared icons (_macros.html, icon) hold no drawing nobody uses.
+        self.assertNotRegex(without_comments(CSS), r"\.heart\b|heart-pop|heart-ring")
+        self.assertNotRegex(re.sub(r"//[^\n]*", "", JS), r"heart")
+        templates = Path(__file__).resolve().parent.parent / "wardrobe" / "templates"
+        for page in sorted(templates.glob("*.html")):
+            self.assertNotRegex(re.sub(r"\{#.*?#\}", "", page.read_text(), flags=re.S), r"heart", page.name)
+
     def test_the_script_takes_its_times_from_the_stylesheet(self):
         motion = JS[JS.index("// 16. Motion"):]
         self.assertIn("ms('--dur-slow')", motion)

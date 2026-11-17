@@ -30,7 +30,7 @@ from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 10
 LOCAL_USER_ID = 1
 
 SCHEMA = """
@@ -67,6 +67,7 @@ CREATE TABLE saved_outfits (
     saved_at  TEXT NOT NULL,
     label     TEXT NOT NULL,
     pieces    TEXT NOT NULL,            -- JSON snapshot, so a favourite survives a refresh
+    sig       TEXT NOT NULL DEFAULT '', -- version 9: which pieces of the plan it combines (see SCHEMA_YES)
     PRIMARY KEY (user_id, key)
 );
 CREATE TABLE catalogs (                 -- production: each customer's candidates (JSON)
@@ -215,6 +216,40 @@ CREATE TABLE IF NOT EXISTS pro (        -- `python -m wardrobe pro add | remove 
 """
 
 
+# Added in version 9: the wardrobe is the outfits a customer said yes to (yes.py). A yes is a row of saved_outfits
+# (the heart's "Saved" was the same thing), which gains the column `sig`: the ids of the pieces it combines, top to
+# bottom, joined by "~". A no ("Not for me") is a row here, and that combination is not offered again.
+# Whether a database has had this upgrade is not read from its number: it is read from the database itself, which
+# has the column `sig` once it did (_migrate). The style chat was built at the same time on a branch of its own and
+# also called its upgrade version 9 there. Joined, this one is version 9 and the chat is version 10 (SCHEMA_CHAT), so
+# a database numbered 9 may hold either of the two: one that carries only the chat's table still gets this upgrade,
+# once, and one that has had it never gets it twice.
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_YES = """
+CREATE TABLE IF NOT EXISTS outfits_declined (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    sig     TEXT NOT NULL,              -- the pieces combined, as in saved_outfits.sig
+    at      TEXT NOT NULL,
+    PRIMARY KEY (user_id, sig)
+);
+"""
+
+
+# Added in version 10: the style chat (stylechat.py). When a message was sent to the text model, for the daily
+# limits, as with the pictures: an entry outlives its account, with no name on it. A database from before gains this
+# table and nothing else changes. (On its own branch this was called version 9: a database numbered 9 that already
+# has the table keeps it as it is, and one that has only the wardrobe's version 9 gains it.)
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_CHAT = """
+CREATE TABLE IF NOT EXISTS chat_requests (   -- when the style chat was asked: the daily limits
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    at      REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_requests_at ON chat_requests (at);
+"""
+
+
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -279,6 +314,12 @@ def _migrate() -> None:
         version = con.execute("PRAGMA user_version").fetchone()[0]    # read again, now that nobody else can write
         if version >= SCHEMA_VERSION:
             return
+        # Whether the people in this database still need the start version 9 gives them (_wardrobe_from_yes): they
+        # do if it holds saved outfits without the column `sig`. Asked of the database, not of its number, and
+        # before anything below adds that column.
+        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        before_yes = "saved_outfits" in tables and "sig" not in {
+            row[1] for row in con.execute("PRAGMA table_info(saved_outfits)")}
         if version < 2:                                # a new database, or the single-user layout of version 1
             _add_accounts(con)
         if version == 3:                               # look_requests in its first shape: set it aside
@@ -302,7 +343,61 @@ def _migrate() -> None:
         for statement in SCHEMA_VIDEOS.split(";"):     # new in version 7, safe to repeat
             if statement.strip():
                 con.execute(statement)
+        for statement in SCHEMA_YES.split(";"):        # new in version 9, safe to repeat
+            if statement.strip():
+                con.execute(statement)
+        if before_yes:                                 # once: never again for a database that has had it
+            _wardrobe_from_yes(con)
+        for statement in SCHEMA_CHAT.split(";"):       # new in version 10, safe to repeat
+            if statement.strip():
+                con.execute(statement)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+
+def _wardrobe_from_yes(con: sqlite3.Connection) -> None:
+    """Version 9, for everyone who was a customer before it: what they had becomes a truthful start (yes.py).
+    Run once for a database (_migrate): a second run would put back pieces a customer has taken out since.
+
+    * Every saved outfit is an outfit they said yes to: it gets its `sig` from the pieces it was saved with.
+    * Every piece whose product they chose or locked by hand is in their wardrobe on its own account: its id goes
+      into their setting "kept_pieces". (Pieces they own are in the wardrobe as they are.)
+    * A piece the plan has twice (two white tees) counted twice in what they had. Where it is in their wardrobe
+      now it still does: its id goes into their setting "spares", and the piece's card says "One of the 2 is a
+      spare", with "Take the spare out" (yes.spare).
+    * The setting "wardrobe_news" notes that the pages should say so once (app.py, wardrobe_news).
+    * Whoever is on "Best for budget" keeps it as it was fitted: for the whole plan, to the budget shown to him, also
+      where that is the budget his account started with (the setting "budget_as_before", selection.build). From now
+      on that level waits for a budget the customer gave himself, and would otherwise fall back to the cheapest
+      products for him.
+    Nothing is deleted: the other pieces of the plan stay what outfits are made from, with the same products.
+    """
+    columns = {row[1] for row in con.execute("PRAGMA table_info(saved_outfits)")}
+    if "sig" not in columns:
+        con.execute("ALTER TABLE saved_outfits ADD COLUMN sig TEXT NOT NULL DEFAULT ''")
+    for row in con.execute("SELECT user_id, key, pieces FROM saved_outfits WHERE sig = ''").fetchall():
+        try:
+            pieces = json.loads(row[2])
+            sig = "~".join(str(piece["slot_id"]) for piece in pieces)
+        except (ValueError, TypeError, KeyError):
+            continue                                   # a row that cannot be read stays as it is, shown as saved
+        con.execute("UPDATE saved_outfits SET sig = ? WHERE user_id = ? AND key = ?", (sig, row[0], row[1]))
+    put = ("INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?) "
+           "ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value")
+    for (user_id,) in con.execute("SELECT DISTINCT user_id FROM slots").fetchall():
+        kept = [r[0] for r in con.execute(
+            "SELECT id FROM slots WHERE user_id = ? AND locked = 1 AND pick IS NOT NULL AND owned = 0 "
+            "ORDER BY position", (user_id,))]
+        worn = {slot_id for (sig,) in con.execute("SELECT sig FROM saved_outfits WHERE user_id = ?", (user_id,))
+                for slot_id in sig.split("~")}
+        spares = [r[0] for r in con.execute(
+            "SELECT id FROM slots WHERE user_id = ? AND qty > 1 AND owned = 0 ORDER BY position", (user_id,))
+            if r[0] in worn or r[0] in kept]
+        con.execute(put, (user_id, "kept_pieces", json.dumps(kept)))
+        con.execute(put, (user_id, "spares", json.dumps(spares)))
+        con.execute(put, (user_id, "wardrobe_news", json.dumps(True)))
+        level = con.execute("SELECT value FROM settings WHERE user_id = ? AND key = 'mode'", (user_id,)).fetchone()
+        if level and level[0] == json.dumps("budget"):
+            con.execute(put, (user_id, "budget_as_before", json.dumps(True)))
 
 
 def _copy_before_accounts(con: sqlite3.Connection) -> None:
@@ -331,8 +426,8 @@ def _add_accounts(con: sqlite3.Connection) -> None:
             con.execute("INSERT INTO slots SELECT ?, id, position, name, category, colour, keywords, "
                         "qty, owned, locked, pick FROM slots_v1", (LOCAL_USER_ID,))
         if "saved_outfits" in old:
-            con.execute("INSERT INTO saved_outfits SELECT ?, key, saved_at, label, pieces "
-                        "FROM saved_outfits_v1", (LOCAL_USER_ID,))
+            con.execute("INSERT INTO saved_outfits (user_id, key, saved_at, label, pieces) "
+                        "SELECT ?, key, saved_at, label, pieces FROM saved_outfits_v1", (LOCAL_USER_ID,))
         for table in old:
             con.execute(f"DROP TABLE {table}_v1")
 
@@ -459,6 +554,7 @@ def export_user() -> dict:
         owner = con.execute("SELECT added_at FROM owners WHERE user_id = ?", (user_id,)).fetchone()
         videos = con.execute("SELECT at FROM video_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
         pro = con.execute("SELECT added_at FROM pro WHERE user_id = ?", (user_id,)).fetchone()
+        chats = con.execute("SELECT at FROM chat_requests WHERE user_id = ? ORDER BY at", (user_id,)).fetchall()
     account = dict(user) if user else {}
     if owner:       # only on the copy of someone who runs Stilsmith (owner.py)
         account["owner_since"] = owner["added_at"]
@@ -469,12 +565,15 @@ def export_user() -> dict:
         "settings": {r["key"]: json.loads(r["value"]) for r in prefs},
         "slots": list_slots(),
         "saved_outfits": list_saved(),
+        "outfits_you_said_no_to": sorted(declined_sigs()),
         "items_you_added": [c for c in json.loads(catalogue["data"]).get("candidates", [])
                             if c.get("source") == "manual" or c.get("manual")] if catalogue else [],
         "ai_pictures_asked_for_at": [datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="seconds")
                                      for r in asked],
         "ai_videos_asked_for_at": [datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="seconds")
                                    for r in videos],
+        "style_chat_asked_at": [datetime.fromtimestamp(r["at"]).astimezone().isoformat(timespec="seconds")
+                                for r in chats],
     }
 
 
@@ -549,6 +648,12 @@ def set_setting(key: str, value) -> None:
         )
 
 
+def delete_setting(key: str) -> None:
+    """Forget a setting altogether: its row goes, so nothing is kept of it and get_setting gives the default."""
+    with connect() as con:
+        con.execute("DELETE FROM settings WHERE user_id = ? AND key = ?", (uid(), key))
+
+
 # ── slots ─────────────────────────────────────────────────────────────────────
 
 def _slot(row: sqlite3.Row) -> dict:
@@ -620,10 +725,28 @@ def delete_slot(slot_id: str) -> None:
 # ── saved outfits ─────────────────────────────────────────────────────────────
 
 def list_saved() -> list[dict]:
+    """The outfits the customer said yes to, newest first: the pieces as they were then, and `sig`, which pieces of
+    the plan it combines ("" only for a row that could not be read when version 9 arrived)."""
     with connect() as con:
-        rows = con.execute("SELECT key, saved_at, label, pieces FROM saved_outfits WHERE user_id = ? "
+        rows = con.execute("SELECT key, saved_at, label, pieces, sig FROM saved_outfits WHERE user_id = ? "
                            "ORDER BY saved_at DESC", (uid(),)).fetchall()
     return [{**dict(r), "pieces": json.loads(r["pieces"])} for r in rows]
+
+
+def yes_sigs() -> list[str]:
+    """Which pieces each outfit he said yes to combines ("coat~tee~jeans~sneakers"), one for each outfit, newest
+    first. (The same combination is there twice only for someone who saved it twice before version 9, with
+    different products: those are two outfits under My outfits, and are counted as two everywhere.)"""
+    with connect() as con:
+        rows = con.execute("SELECT sig FROM saved_outfits WHERE user_id = ? AND sig != '' ORDER BY saved_at DESC, key",
+                           (uid(),))
+        return [r["sig"] for r in rows]
+
+
+def count_saved() -> int:
+    """How many outfits he said yes to: what the "My outfits" chip, the bar and the Wardrobe page all say."""
+    with connect() as con:
+        return con.execute("SELECT COUNT(*) FROM saved_outfits WHERE user_id = ?", (uid(),)).fetchone()[0]
 
 
 def saved_keys() -> set[str]:
@@ -631,19 +754,43 @@ def saved_keys() -> set[str]:
         return {r["key"] for r in con.execute("SELECT key FROM saved_outfits WHERE user_id = ?", (uid(),))}
 
 
-def save_outfit(key: str, saved_at: str, label: str, pieces: list[dict]) -> None:
+def save_outfit(key: str, saved_at: str, label: str, pieces: list[dict], sig: str | None = None) -> None:
+    """Say yes to an outfit. Without `sig` it is read from the pieces, top to bottom."""
+    if sig is None:
+        sig = "~".join(str(piece.get("slot_id", "")) for piece in pieces)
     with connect() as con:
         con.execute(
-            "INSERT INTO saved_outfits (user_id, key, saved_at, label, pieces) VALUES (?, ?, ?, ?, ?) "
+            "INSERT INTO saved_outfits (user_id, key, saved_at, label, pieces, sig) VALUES (?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(user_id, key) DO UPDATE SET saved_at = excluded.saved_at, label = excluded.label, "
-            "pieces = excluded.pieces",
-            (uid(), key, saved_at, label, json.dumps(pieces, ensure_ascii=False)),
+            "pieces = excluded.pieces, sig = excluded.sig",
+            (uid(), key, saved_at, label, json.dumps(pieces, ensure_ascii=False), sig),
         )
 
 
 def unsave_outfit(key: str) -> None:
     with connect() as con:
         con.execute("DELETE FROM saved_outfits WHERE user_id = ? AND key = ?", (uid(), key))
+
+
+# ── outfits answered with "Not for me" ───────────────────────────────────────
+
+def declined_sigs() -> set[str]:
+    with connect() as con:
+        return {r["sig"] for r in con.execute("SELECT sig FROM outfits_declined WHERE user_id = ?", (uid(),))}
+
+
+def decline_outfit(sig: str) -> None:
+    with connect() as con:
+        con.execute("INSERT OR IGNORE INTO outfits_declined (user_id, sig, at) VALUES (?, ?, ?)",
+                    (uid(), sig, now_iso()))
+
+
+def undecline_outfit(sig: str | None = None) -> int:
+    """Offer one combination again, or with no `sig` all of them. Returns how many."""
+    with connect() as con:
+        if sig is None:
+            return con.execute("DELETE FROM outfits_declined WHERE user_id = ?", (uid(),)).rowcount
+        return con.execute("DELETE FROM outfits_declined WHERE user_id = ? AND sig = ?", (uid(), sig)).rowcount
 
 
 # ── each customer's catalogue (production) ────────────────────────────────────
@@ -773,6 +920,10 @@ _TICKETS = {
                        "SELECT COUNT(*) FROM video_requests WHERE user_id = ? AND at > ?",
                        "SELECT COUNT(*) FROM video_requests WHERE at > ?",
                        "INSERT INTO video_requests (user_id, at) VALUES (?, ?)"),
+    "chat_requests": ("DELETE FROM chat_requests WHERE at < ?",
+                      "SELECT COUNT(*) FROM chat_requests WHERE user_id = ? AND at > ?",
+                      "SELECT COUNT(*) FROM chat_requests WHERE at > ?",
+                      "INSERT INTO chat_requests (user_id, at) VALUES (?, ?)"),
 }
 
 
@@ -804,6 +955,28 @@ def look_requests(since: float, mine: bool = False) -> int:
             return con.execute("SELECT COUNT(*) FROM look_requests WHERE user_id = ? AND at > ?",
                                (uid(), since)).fetchone()[0]
         return con.execute("SELECT COUNT(*) FROM look_requests WHERE at > ?", (since,)).fetchone()[0]
+
+
+# ── the style chat (stylechat.py) ─────────────────────────────────────────────
+
+def take_chat_ticket(since: float, per_day: int, per_user: int | None) -> tuple[int, str]:
+    """Count one message to the style chat for the current user, if the limits leave room (see take_look_ticket)."""
+    return _take_ticket("chat_requests", since, per_day, per_user)
+
+
+def drop_chat_request(ticket: int) -> None:
+    """Give a ticket back: a message that certainly cost nothing does not count towards the day's limits."""
+    with connect() as con:
+        con.execute("DELETE FROM chat_requests WHERE id = ?", (ticket,))
+
+
+def chat_requests(since: float, mine: bool = False) -> int:
+    """How many messages to the style chat were counted since then: the current user's, or everyone's."""
+    with connect() as con:
+        if mine:
+            return con.execute("SELECT COUNT(*) FROM chat_requests WHERE user_id = ? AND at > ?",
+                               (uid(), since)).fetchone()[0]
+        return con.execute("SELECT COUNT(*) FROM chat_requests WHERE at > ?", (since,)).fetchone()[0]
 
 
 # ── AI videos of outfits (videos.py) ──────────────────────────────────────────

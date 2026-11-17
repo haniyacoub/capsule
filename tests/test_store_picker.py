@@ -20,6 +20,7 @@ from wardrobe import catalog, db, paths, programmes, selection, shared
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app
 
+from . import having
 from .test_production import ProductionCase, words
 from .test_programmes import PASTE_ONLY, PUBLISHED, STORES, shaped
 
@@ -98,10 +99,35 @@ class TheStorePicker(ProductionCase):
         page = self.ada.get(response.headers["Location"]).get_data(as_text=True)
         return " | ".join(words(m) for m in re.findall(r'<p class="flash"[^>]*>(.*?)</p>', page, re.S))
 
+    def test_a_store_is_called_a_partner_only_once_its_programme_has_accepted_stilsmith(self):
+        settings = {"label": "COS", "network": "rakuten", "programme_id": None, "feed_format": None,
+                    "feed_location": None, "delivery_note": None, "disclaimer": None, "rules": {}}
+        for status in ("none", "applied", "refused", "ended"):
+            db.save_store("cos", {**settings, "status": status})
+            self.assertEqual(rows(self.ada.get("/profile").get_data(as_text=True)),
+                             [("cos", True, "COS"), ("weekday", True, "Weekday")], status)
+        db.save_store("cos", {**settings, "status": "approved"})
+        self.assertEqual(rows(self.ada.get("/profile").get_data(as_text=True)),
+                         [("cos", True, "COS · Rakuten partner"), ("weekday", True, "Weekday")])
+
+    def test_the_foot_says_not_affiliated_only_while_no_programme_has_accepted(self):
+        foot = lambda: re.search(r'<footer class="site-foot">.*?</footer>', self.ada.get("/profile").get_data(as_text=True), re.S).group(0)   # noqa: E731
+        self.assertIn("Not affiliated with any retailer.", foot())
+        db.save_store("cos", {"label": "COS", "network": "rakuten", "programme_id": None, "feed_format": None,
+                              "feed_location": None, "delivery_note": None, "disclaimer": None, "rules": {},
+                              "status": "approved"})
+        self.assertNotIn("affiliated", foot(), "a partner on the Stores tab and 'not affiliated' below it would contradict")
+        self.assertIn("Impressum", foot())
+
     def test_the_tab_lists_every_store_offered_all_ticked_with_its_programme(self):
         page = self.ada.get("/profile").get_data(as_text=True)
         self.assertIn('<button type="button" role="tab" id="tab-stores" aria-controls="panel-stores"', page)
-        self.assertEqual(rows(page), [("cos", True, "COS · Rakuten partner"), ("weekday", True, "Weekday · Rakuten partner")])
+        # No programme has accepted Stilsmith yet (nothing is "approved" in the owner's registry): the stores are
+        # named, and nothing calls them partners. The page's foot says "Not affiliated with any retailer".
+        self.assertEqual(rows(page), [("cos", True, "COS"), ("weekday", True, "Weekday")])
+        self.assertNotIn("partner", words(panel(page)).lower())
+        self.assertIn("Menswear only. More stores will join.", words(panel(page)))
+        self.assertIn("Not affiliated with any retailer.", page)
         self.assertNotIn("zara", panel(page).lower(), "a store without a programme is never listed")
         self.assertIn("Your pieces are picked only from the stores you tick. At least one store with products stays "
                       "ticked.", words(panel(page)))
@@ -140,7 +166,9 @@ class TheStorePicker(ProductionCase):
             "charcoal-wool-coat": ("auto", None, []),
         })
         self.assertEqual(rows(self.ada.get("/profile").get_data(as_text=True)),
-                         [("cos", True, "COS · Rakuten partner"), ("weekday", False, "Weekday · Rakuten partner")])
+                         [("cos", True, "COS"), ("weekday", False, "Weekday")])
+        with self.as_ada():
+            having.the_whole_plan()     # every piece is in his wardrobe, so the Wardrobe and the list show them all
         # Outfits, its pop-ups and Buy pages, Wardrobe, the pieces' pages and the shopping list: no Weekday anywhere.
         outfits_page = self.ada.get("/outfits").get_data(as_text=True)
         found = [html.unescape(url) for url in re.findall(r'(?:hx-get|href)="(/outfits/(?:piece|buy)\?[^"]+)"', outfits_page)]
@@ -300,14 +328,14 @@ class TheStorePicker(ProductionCase):
         with mock.patch.object(programmes, "_stores", return_value=more):
             page = self.ada.get("/profile").get_data(as_text=True)
             # Musterhaus has no products yet either: it joins the stores shown apart, ticked like them.
-            self.assertEqual(rows(page), [("cos", True, "COS · Rakuten partner"), ("weekday", False, "Weekday · Rakuten partner")])
+            self.assertEqual(rows(page), [("cos", True, "COS"), ("weekday", False, "Weekday")])
             self.assertEqual(empty_rows(page)[-1], ("musterhaus", True, "Musterhaus"))
             with self.as_ada():
                 self.assertEqual(profile_mod.stores(), ["cos", *SIX, "musterhaus"])
         # Weekday stops being offered while he has it unticked, he saves, and it is offered again: still unticked.
         without = {**real, "weekday": {**real["weekday"], "programme": "none"}}
         with mock.patch.object(programmes, "_stores", return_value=without):
-            self.assertEqual(rows(self.ada.get("/profile").get_data(as_text=True)), [("cos", True, "COS · Rakuten partner")])
+            self.assertEqual(rows(self.ada.get("/profile").get_data(as_text=True)), [("cos", True, "COS")])
             self.save(stores=["cos"], stores_shown="1")
         with self.as_ada():
             self.assertEqual(profile_mod.stores(), ["cos", *SIX])

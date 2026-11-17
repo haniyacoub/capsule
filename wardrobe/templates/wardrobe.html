@@ -6,9 +6,40 @@
 {% if said %}<div class="flash said" role="status">{% include "_changed.html" %}</div>{% endif %}
 {# Said once, the first time the page is opened after a store stopped being offered (shared.gone_message). #}
 {% if gone %}<p class="flash" role="status">{{ gone }}</p>{% endif %}
-{# The plan (/slots) has no tab of its own: this line leads to it. Pieces count like the bar's: a white tee ×2 is two. #}
+{% if news %}{% include "_news.html" %}{% endif %}
+{# After "Take out" on a piece he had kept (app.py, slot_keep): which, and the way back. #}
+{% if taken %}
+{% set with_spare = request.args.get('with_spare') == '1' and taken.n_spare %}
+<div class="flash said short" role="status">
+  Took “{{ taken.slot.name }}”{% if with_spare %} with its {{ 'spare' if taken.n_spare == 1 else 'spares' }}{% endif %} out of your wardrobe. Outfits are still made with it.
+  <form method="post" action="{{ url_for('slot_keep', slot_id=taken.slot.id) }}">{{ csrf_field() }}
+    <input type="hidden" name="want" value="in">
+    {% if with_spare %}<input type="hidden" name="spare" value="1">{% endif %}
+    <button>Undo</button>
+  </form>
+</div>
+{% endif %}
+{# After "Add a spare" or "Take the spare out" on a piece's card (app.py, slot_spare): what was done, what the spare
+   costs, and the way back. A spare is the second of a piece the plan has twice: an outfit wears one. #}
+{% if spared %}
+{% set one = spared.n == 1 %}
+<div class="flash said short" role="status">
+  {% if spared.did == 'in' %}
+  Added {{ 'a spare' if one else spared.n ~ ' spares of' }} “{{ spared.view.slot.name }}” to your wardrobe{% if spared.cost %}: {{ spared.cost|eur }}{% endif %}.
+  {% else %}
+  Took the {{ 'spare' if one else spared.n ~ ' spares of' }} “{{ spared.view.slot.name }}” out of your wardrobe{% if spared.cost %}: {{ spared.cost|eur }} less{% endif %}.
+  {% endif %}
+  <form method="post" action="{{ url_for('slot_spare', slot_id=spared.view.slot.id) }}">{{ csrf_field() }}
+    <input type="hidden" name="want" value="{{ 'out' if spared.did == 'in' else 'in' }}">
+    <button>Undo</button>
+  </form>
+</div>
+{% endif %}
+{# What the page lists: his wardrobe, the pieces of the outfits he said yes to (with what he owns and what he kept).
+   The plan (/slots), the pieces outfits are made from, has no tab of its own: this line leads to it. Pieces count
+   like the bar's: a white tee with its spare is two. #}
 {% set n_pieces = w.slots|sum(attribute='qty') %}
-{% if w.slots %}<p class="lead plan-line">{{ n_pieces }} {{ 'piece' if n_pieces == 1 else 'pieces' }} in your plan · <a href="{{ url_for('slots_page') }}">Edit the plan</a></p>{% endif %}
+{% if w.slots %}<p class="lead plan-line">{{ n_pieces }} {{ 'piece' if n_pieces == 1 else 'pieces' }} in your wardrobe{% if w.n_outfits %} · <a href="{{ url_for('outfits_page', occasion='saved') }}">{{ w.n_outfits }} {{ 'outfit' if w.n_outfits == 1 else 'outfits' }}</a> you said yes to{% endif %} · {{ n_plan }} in the plan your outfits are made from · <a href="{{ url_for('slots_page') }}">Edit the plan</a></p>{% endif %}
 {# The price level and the quality slider. Any change posts the form; the slot
    cards below are re-rendered and swapped in, and the summary bar and the
    level totals with them. hx-sync makes quick taps take turns, so the page
@@ -19,7 +50,7 @@
       hx-trigger="change, input delay:150ms from:#threshold">{{ csrf_field() }}
   <div class="seg levels" role="radiogroup" aria-label="Which option fills each piece: a price level, or the best your budget buys">
     {% for key, label in MODES.items() %}
-    <label title="{{ level_hints[key] }}"{% if key == 'budget' %} class="wide"{% endif %}><input type="radio" name="mode" value="{{ key }}"{% if w.mode == key %} checked{% endif %}><span>{{ label }}{% include "_level_total.html" %}</span></label>
+    <label title="{{ level_hints[key] }}{% if w.styled %}. Your style comes first: each piece is chosen among the options that suit it best{% endif %}"{% if key == 'budget' %} class="wide"{% endif %}><input type="radio" name="mode" value="{{ key }}"{% if w.mode == key %} checked{% endif %}><span>{{ label }}{% include "_level_total.html" %}</span></label>
     {% endfor %}
   </div>
   <label class="thr" for="threshold">

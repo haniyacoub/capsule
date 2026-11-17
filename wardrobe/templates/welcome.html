@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Welcome · {{ site_name }}{% endblock %}
+{# The welcome a new customer gets after signing up (app.py, welcome): three short steps, each of which he may skip,
+   then the outfits. No tabs, no budget bar and no total: he has not chosen anything yet. What he answers is saved
+   to his profile, where he can change it later; what he skips stays unanswered, and the pages say so where it
+   matters. #}
+{% block nav %}{% endblock %}
+{% block summary %}{% endblock %}
+{% block notices %}{% endblock %}
+{% block main %}
+<section class="card welcome">
+  <p class="welcome-step">Step {{ step }} of {{ steps|length }}</p>
+  <h1>{{ steps[step] }}</h1>
+  <form class="form" method="post" action="{{ url_for('welcome', step=step) }}">{{ csrf_field() }}
+    {% if step == 1 %}
+    <p class="muted">Your sizes decide which products count as in stock for you. You can change them later on your Profile.</p>
+    {% set typed = given or {} %}
+    <div class="row">
+      <label class="field"><span>Tops</span>
+        <select name="top_size">
+          <option value="">Choose</option>
+          {% for size in ALPHA %}<option{% if (typed.top_size if given else (profile.top_size if sizes_given else '')) == size %} selected{% endif %}>{{ size }}</option>{% endfor %}
+        </select></label>
+      <label class="field"><span>Shoes <small>(EU)</small></span>
+        <input type="text" name="shoe" inputmode="decimal" autocomplete="off" placeholder="e.g. 43" value="{{ typed.shoe if given else (profile.shoe if sizes_given else '') }}"></label>
+    </div>
+    <div class="row">
+      <label class="field"><span>Trousers: waist <small>(inches)</small></span>
+        <input type="number" name="waist" min="26" max="46" inputmode="numeric" placeholder="e.g. 32" value="{{ typed.waist if given else (profile.waist if sizes_given else '') }}"></label>
+      <label class="field"><span>Trousers: length <small>(inches)</small></span>
+        <input type="number" name="length" min="28" max="38" inputmode="numeric" placeholder="e.g. 32" value="{{ typed.length if given else (profile.length if sizes_given else '') }}"></label>
+    </div>
+    {% elif step == 2 %}
+    <p class="muted">Tick the colours you like to wear. Your outfits are built around them, with neutral trousers and shoes.</p>
+    <fieldset class="pick-colours">
+      <legend class="sr">Colours you like</legend>
+      {% for c in COLOURS.values() %}
+      <label class="pick-colour"><input type="checkbox" name="liked" value="{{ c.key }}"{% if 'colours' in answered and c.key in profile.liked %} checked{% endif %}><i style="background:{{ c.hex }}"></i><span>{{ c.label }}</span></label>
+      {% endfor %}
+    </fieldset>
+    <label class="field"><span>Your budget for the whole wardrobe <small>(EUR, optional)</small></span>
+      <input type="number" name="budget" min="0" inputmode="numeric" placeholder="e.g. 1000" value="{{ profile.budget if 'budget' in answered else '' }}"></label>
+    <p class="muted small">Nothing is counted against it until you add an outfit to your wardrobe.</p>
+    {% else %}
+    <p class="muted">The pieces your outfits are made from are planned for this. You can change it later on your Profile.</p>
+    <div class="seg welcome-use" role="radiogroup" aria-label="What you dress for">
+      {% for key, label in USES.items() %}
+      <label><input type="radio" name="use" value="{{ key }}"{% if 'use' in answered and profile.use == key %} checked{% endif %}><span>{{ label }}</span></label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="welcome-go">
+      <button class="btn">{{ 'Continue' if step < steps|length else 'Show me outfits' }}</button>
+      <button class="quiet" name="skip" value="1" formnovalidate>Skip</button>
+    </div>
+    {# The other way to answer the last step, only where the style chat is on (`chat_on`: a key for the text model is
+       set, stylechat.available): the chat on Profile, where he says it in his own words. It reads as a plain link
+       and is a button of this form, so that what he ticked above is saved and the welcome is over, exactly as with
+       "Show me outfits": a link alone would leave the welcome unfinished, and logging in would lead back here. It
+       comes after the two buttons above, so that Enter in the form still means "Show me outfits". #}
+    {% if step == steps|length and chat_on %}
+    <p class="welcome-or"><button class="quiet" name="then" value="style">Or describe your style in your own words</button></p>
+    {% endif %}
+  </form>
+</section>
+{% endblock %}

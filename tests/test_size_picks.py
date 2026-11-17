@@ -21,6 +21,7 @@ from dataclasses import replace
 from wardrobe import catalog, db, scoring, selection, sizecheck, sizes
 from wardrobe import profile as profile_mod
 
+from . import having
 from .test_app import AppCase
 from .test_production import words as page_words
 
@@ -247,6 +248,7 @@ class AWardrobeInTheShapesOf11Nov(AppCase):
         # The note on a Wardrobe card (selection.choose: "Nothing reaches 95 — this is the best in your size") says
         # "in the example size" while the sizes are the example's, as the piece's page does, on the page and in the
         # part HTMX puts back after a change; "in your size" once they are yours.
+        having.the_whole_plan()         # the cards are those of his wardrobe: here, every piece of the plan
         fragment = html.unescape(page_words(self.set_mode("cheapest", 95).data.decode()))
         noted = [v for v in selection.build().slots if v.note and "best in your size" in v.note]
         self.assertTrue(noted, "no piece whose best option in your size is under 95")

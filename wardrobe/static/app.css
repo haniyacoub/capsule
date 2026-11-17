@@ -186,25 +186,6 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 /* A field scrolled into view brings its label, just above it, along. */
 .field > :is(input, select, textarea) { scroll-margin-top: calc(var(--t-s) * var(--lh-m) + var(--s-1)); }
 
-/* ── Starter banner (Outfits, until the profile is saved) ────────────────── */
-/* A new customer's outfits are the starter ones: this strip says whose they are and leads to the Profile page to make
-   them his. It stands where the budget bar would (a budget he never set says nothing yet), the same strip on the page's
-   ground with a hairline under it. Its height is --bar-h, which sizes the picture on a phone (see .stage): app.js sets
-   it to the banner's real height, whatever its words wrap to. Until then (and without JavaScript) these values hold:
-   three lines of words beside the button on a phone, one line on a computer. */
-:root:has(.starter) { --bar-h: calc(3 * var(--t-s) * var(--lh-s) + 2 * var(--s-2) + 1px); }
-.starter { background: var(--bg); border-bottom: 1px solid var(--line); }
-.starter-in {
-  display: flex; align-items: center; gap: var(--s-3); max-width: 1240px; margin: 0 auto;
-  padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l);
-}
-.starter p { flex: 0 1 auto; min-width: 0; font-size: var(--t-s); line-height: var(--lh-s); text-wrap: pretty; }
-.starter .btn { flex: none; white-space: nowrap; }
-@media (min-width: 760px) {
-  :root:has(.starter) { --bar-h: calc(40px + 2 * var(--s-2) + 1px); }   /* the button (.btn.small) sets the height */
-  .starter-in { gap: var(--s-4); }
-}
-
 /* ── Notices ─────────────────────────────────────────────────────────────── */
 .demo { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); background: var(--ok-bg); border-radius: var(--r-ui); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-3); }
 /* A status line: what just happened (saved, swapped, rebuilt). */
@@ -214,9 +195,11 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
    line, kept whole on the line, and reaches 44px tall and a little wider than its words, without making the line
    taller. */
 .said form { display: inline; }
-.said button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-.said button, .said a { display: inline-block; position: relative; }
-.said button::after, .said a::after { content: ""; position: absolute; inset: calc((var(--t-m) * var(--lh-m) - 44px) / 2) calc(-1 * var(--s-2)); }
+.said button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+/* 24px tall at least (the line alone is 22.5px): 2px of padding above and below, taken back by the margin, so the
+   line is no taller for it. */
+.said button, .said a { display: inline-block; position: relative; padding: 2px 0; margin: -2px 0; min-height: 24px; box-sizing: border-box; }
+.said button::after, .said a::after { content: ""; position: absolute; inset: calc((100% - 44px) / 2) calc(-1 * var(--s-2)); }
 .empty { color: var(--muted); padding: 28px 8px; text-align: center; }
 .foot { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); margin-top: 24px; }
 .foot ul { margin: 6px 0 0; padding-left: 16px; display: grid; gap: 3px; }
@@ -362,6 +345,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .offer .dot { width: 14px; height: 14px; }
 .left-out { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .slot .offer { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
+/* A piece the plan has twice (two white tees): an outfit wears one, and the card offers the other as a spare, in a
+   row under the piece and its buttons: what is so, and "Add a spare" with its price, or "Take the spare out". */
+.slot .spare {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-1) var(--s-3);
+  padding: var(--s-2) var(--s-3); border-top: 1px solid var(--line); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted);
+}
+.slot .spare .btn .plus { font-weight: 400; opacity: .85; white-space: nowrap; }
 /* A chosen product that is sold out in his size (_sold_out.html): the fact in the colour of a size that is not
    there (as .sizeline .no), then one button, "Swap for <the next best in his size>, +10 €", whose words wrap
    inside it rather than widen the page, and one quiet line about what the tap does. The same block under a piece
@@ -376,6 +366,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .soldout .btn { display: block; min-height: 44px; padding: var(--s-2) var(--s-3); text-align: left; overflow-wrap: anywhere; }
 .soldout-more { color: var(--muted); }
 .about-less { margin: 0; color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }
+.about-why { margin: 0; color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }   /* why the outfit fits his style brief */
 @media screen { .print-only { display: none !important; } }     /* on paper the button is gone: its product is named */
 .soldout-more a { display: inline-block; padding: var(--s-1) 0; color: var(--ink); text-underline-offset: 3px; }
 .slot .soldout { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
@@ -459,6 +450,10 @@ details.why summary::-webkit-details-marker { display: none; }
 }
 .toolbar .chips::-webkit-scrollbar { display: none; }
 .toolbar .chip-link { flex: none; white-space: nowrap; }
+/* On a phone under 380px wide (360px: many Android phones) the four chips with 12px of padding each side were
+   24px wider than their row, and the number on "My outfits 3" was cut off beside Shuffle until the row was scrolled.
+   With 8px each side they fit, a two-figure number too. Narrower still (320px) the row scrolls, as said above. */
+@media (max-width: 379.98px) { .toolbar .chip-link { padding: 0 var(--s-2); } }
 /* Shuffle: a 44px icon on a phone, its name hidden but still read out (as .sr); with its name on a computer. */
 .shuffle { position: relative; flex: none; width: 44px; min-height: 44px; padding: 0; }
 .shuffle span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -475,9 +470,8 @@ details.why summary::-webkit-details-marker { display: none; }
   display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
   overscroll-behavior-x: contain; scrollbar-width: none;
   /* The row cuts off whatever reaches past it, focus rings too. So it reaches past its outfits, by the gutter at
-     the sides and 16px above and below, and each slide pads that back: nothing moves, and the ring around the
-     heart (44px, centred on the title's line, so its ring reaches 12.2px above it) or 'Buy this outfit' at the
-     row's edge shows whole. */
+     the sides and 16px above and below, and each slide pads that back: nothing moves, and the ring around
+     'Add to my wardrobe' or 'Buy this outfit' at the row's edge shows whole. */
   margin: calc(-1 * var(--s-4)) calc(-1 * var(--gutter));
 }
 .reel::-webkit-scrollbar { display: none; }
@@ -490,18 +484,39 @@ details.why summary::-webkit-details-marker { display: none; }
    slide pads back, around the whole outfit. */
 .slide:focus-visible { outline: 2px solid var(--field); outline-offset: calc(-1 * var(--s-2)); border-radius: var(--r-ui); }
 /* The stage: the outfit as a picture, 2 wide by 3 high, without a border. Square corners on a phone; on computers
-   the photo radius (see "Wider screens"). On a phone the first screen shows the whole model, its price and the
-   heart: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
+   the photo radius (see "Wider screens"). On a phone the first screen shows the whole model and its
+   price: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
    the budget bar (--bar-h) and 302px: the header, the chips and the lead line above the picture (150px), the line
-   under it (40px), the outfit line and the tab bar below; and --shots-h, the small pictures under the line (see .shots),
+   under it (40px), the outfit line and the tab bar below; and --shots-h, the small pictures under the line (84px, see .shots),
    where there are any. The picture is never under 240px wide; on a shorter screen it then ends just above the tab
    bar, and the outfit line follows below. Its width is kept as --stage-w, so that the arrows can be placed beside
    the picture (see .reel-nav). */
-.looks { --told: 0px; --least: 240px; --lead-more: 0px; }
-.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--shots-h) - var(--lead-more) - var(--told)) * 2 / 3))); }
+.looks { --told: 0px; --least: 240px; --lead-more: 0px; --yes-h: 0px; }
+.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--shots-h) - var(--why-h) - var(--lead-more) - var(--told) - var(--yes-h)) * 2 / 3))); }
 .looks { --shots-h: 0px; }
-.looks:has(.shots) { --shots-h: 40px; }
+.looks:has(.shots) { --shots-h: 84px; }
+/* With a style brief, an outfit that fits it says so in a line under its name (.about-why, up to two lines on a
+   phone): the picture gives up that room (it may be 208px wide for it; on a phone, where the bar with the two
+   answers stands over the tab bar, 198px: see .dock), so that on a phone of 390 x 844 the line is on the first
+   screen, above both bars, not behind them. On a shorter phone the picture is at its smallest already, and the line
+   is reached by scrolling, like the outfit's name there. */
+.looks { --why-h: 0px; }
+.looks:has(.about-why) { --why-h: calc(2 * var(--t-s) * var(--lh-s)); --least: 208px; }
 .looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
+.looks.reusing { --lead-more: calc(var(--t-s) * var(--lh-s)); }   /* … and two once it says why the outfits are in this order */
+/* A short phone (under 820px of height while the browser's own bars show: most phones in a browser, 390 x 664,
+   360 x 740, 393 x 760). There the picture is already at its smallest, so an 84px row would push the outfit's name
+   and price off the first screen: the row is 40px there, its pictures smaller and without their names (see
+   .shots), and everything on the first screen is where it was before the pictures had names.
+   --tall says which it is: 0px on a short phone, 1px on a tall one and on a computer, so that a size can be written
+   as "40px, and 44px more where it is tall". It is worked out from 100svh, the height with the browser's bars
+   showing, like the picture's own size: that height stays the same while the bars hide during a scroll. (A media
+   query's height does not on an iPhone: the row would grow and shrink under the thumb.) */
+.looks { --tall: 1px; }
+@media (max-width: 759.98px) {
+  .looks { --tall: clamp(0px, (100svh - 819.98px) * 1000, 1px); }
+  .looks:has(.shots) { --shots-h: calc(40px + var(--tall) * 44); }
+}
 /* A message at the top of the page (after a profile save that rebuilt the plan, say), or the demo-data notice, takes
    room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
    than 240px, so that the whole model still shows on the first screen of a short phone (390 x 664) under a message
@@ -517,8 +532,9 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 @media (max-width: 759.98px) {
   main:has(> .said) .looks { --told: var(--said-h, calc(4 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 150px; }
   main:has(> .said.short) .looks { --told: var(--said-h, calc(2 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 170px; }
-  /* With the small pictures under the picture as well (40px more), the smallest width gives up the same 40px of height (a
-     third less width, 2:3), so the whole model still ends above the tab bar on that 390 x 664 phone. */
+  /* With the small pictures under the picture as well (40px more on a short phone), the smallest width gives up the
+     same 40px of height (a third less width, 2:3), so the whole model, the line under it and the row of small
+     pictures still end above the tab bar on that 390 x 664 phone. */
   main:has(> .said) .looks:has(.shots) { --least: 124px; }
   main:has(> .said.short) .looks:has(.shots) { --least: 144px; }
 }
@@ -566,14 +582,20 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
   font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
 }
 /* The label and the dots never meet. A dot low on the picture (.spot.low, outfits.html: the shoes') keeps to the right
-   of the label: its centre at least --chip-clear from the picture's left edge, the label's width (about 89px: 'AI
-   PICTURE', 8px in), 4px of space and room for the dot and the ring round it (13px). That moves it only on a picture under about 200px wide,
-   where the shoe is that near the corner (under a message on a short phone); there the label also takes two lines,
-   'AI' over 'PICTURE', 4px in from the corner (about 64px wide), so the dot moves as little as it can: not at all
-   down to 152px, by about 16px on the narrowest picture (124px). */
+   of the label: its centre at least --chip-clear from the picture's left edge, the label's width (about 90px: 'AI
+   PICTURE', 8px in), 4px of space and room for the dot and the ring round it (13px). On a picture under 200px wide
+   (most phones in a browser: 198px, and 186px after his first yes) the label is 4px in from the corner with 4px of
+   padding, still on one line (about 82px wide), and the shoe's dot (108px in on a picture of 186px) stays where it
+   is. Only on a picture under 186px wide (under a message on a short phone) does the label take two lines, 'AI' over
+   'PICTURE' (about 64px wide), so the dot moves as little as it can: not at all down to 152px, by about 16px on the
+   narrowest picture (124px). */
 .spots { --chip-clear: 114px; }
 @container (max-width: 199.98px) {   /* the stage's width */
-  .ai-chip { left: var(--s-1); bottom: var(--s-1); width: min-content; padding: var(--s-1); border-radius: var(--r-ui); }
+  .ai-chip { left: var(--s-1); bottom: var(--s-1); padding: var(--s-1); border-radius: var(--r-ui); white-space: nowrap; }
+  .spots { --chip-clear: 104px; }
+}
+@container (max-width: 185.98px) {
+  .ai-chip { width: min-content; white-space: normal; }
   .spots { --chip-clear: 88px; }
 }
 /* What is being done about the picture (asked for, drawing, waiting its turn, failed) is said in a band across the top
@@ -622,31 +644,69 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .look-msg { color: var(--ok); }
 /* Why a new version was not drawn: right under the line with "Draw again", as wide as it, above the small pictures. */
 p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var(--s-2); font-size: var(--t-s); line-height: var(--lh-s); }
+/* A question asked before anything is drawn (_look_ask.html: "Draw again" on a front picture that other photos
+   were made from; a photo made from the AI picture of a customer who has not agreed to that yet): the question, as
+   wide as the line, and under it its two answers. What is below moves down while it is asked. */
+.look-ask { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var(--s-2); }
+.look-ask p.look-msg { width: auto; margin: 0 0 var(--s-2); color: var(--ink); }
+.look-ask-btns { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 /* The outfit's small pictures under the line (_shots.html): the front picture, then "More photos" with what it
    costs beside it, or, once that was tapped, a cell for each of the other pictures (a spinner until it arrives, a
-   plus where it was not drawn). One row, as wide as the line above it and 40px tall in every state, empty until
-   the front picture is there (--shots-h gives the picture's room for it). Each cell is 30 by 40px, the top of its
-   picture (the head and the chest; in a surrounding, the place too): a finger can hit it, and six of them with
-   their gaps fit the narrowest row (272px). */
-.shots { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2); }
-.shots-row { display: flex; align-items: center; gap: var(--s-2); height: 40px; }
+   plus where it was not drawn). One row, 84px tall in every state, empty until the front picture is there
+   (--shots-h gives the picture's room for it). Each cell is 48 by 64px (--cell is its width; it is 3 wide by 4
+   high), the top of its picture (the head and the chest; in a surrounding, the place too), large enough to tell the
+   six apart, with its name under it. The six with their gaps are 328px: the row is as wide as the line above it,
+   on a phone wider where the screen has the room (never under 272px), and on a computer up to 8px wider at each
+   side (in a window of 1280 x 860 the picture is 317px wide, now that the bar at the top has a line more, "6 pieces
+   to buy · 1 outfit": the six still fit). Its 3px of padding, taken back by its margin,
+   is the room for a cell's focus ring (flow-root: that margin stays inside .shots, which is then 84px tall, right
+   under the line).
+   The six are never cut off and the row never scrolls sideways (a mouse cannot scroll that way, and on a phone a
+   sideways swipe that starts on the row moves to the next outfit, like a swipe anywhere else on the outfit). Where
+   six of 48px do not fit, each is a sixth of the row less the gaps (100cqw is the picture's width, .stage):
+     a computer's window under about 850px high (most laptops), a tall phone under 360px wide:
+                        38 by 51px at the least (a 272px row on a phone; 39 by 52px in a 276px row on a
+                        computer), where "Walking" still fits under it
+     a short phone (--tall is 0px, see .looks): the row as it was before the pictures had names, 40px tall, each
+                        picture 30 by 40px, which a finger can still hit, and no names shown (a screen reader hears
+                        them all the same): under the pictures they would push the outfit's name and price off the
+                        first screen */
+.shots {
+  --row: 272px; --cell: min(30px + var(--tall) * 18, (max(100cqw, var(--row)) - 5 * var(--s-2)) / 6);
+  display: flow-root; width: max(100%, var(--row)); margin: 0 min(0px, (100% - var(--row)) / 2);
+}
+@media (max-width: 759.98px) { .shots { --row: max(272px, min(272px + var(--tall) * 56, 100vw - 2 * var(--gutter))); } }
+@media (min-width: 760px) { .shots { --row: clamp(272px, 100cqw + 2 * var(--s-2), 328px); } }
+.shots-row {
+  display: flex; align-items: flex-start; gap: var(--s-2); box-sizing: border-box; height: calc(46px + var(--tall) * 44); padding: 3px; margin: -3px;
+}
 .shots-row form { display: contents; }
 .shots-row button[aria-pressed] {
-  position: relative; flex: none; display: grid; place-items: center; width: 30px; height: 40px; padding: 0;
-  border: 0; border-radius: 4px; overflow: hidden; background: var(--soft); color: var(--muted); cursor: pointer;
+  flex: none; display: grid; justify-items: center; gap: calc(var(--tall) * 2); width: var(--cell); padding: 0;
+  border: 0; border-radius: 4px; background: none; color: var(--muted); font: inherit; cursor: pointer;
 }
-.shots-row img { display: block; width: 30px; height: 40px; object-fit: cover; object-position: 50% 15%; }
+.shot-pic { position: relative; display: grid; place-items: center; width: var(--cell); height: calc(var(--cell) * 4 / 3); border-radius: 4px; overflow: hidden; background: var(--soft); }
+.shots-row img { display: block; width: var(--cell); height: calc(var(--cell) * 4 / 3); object-fit: cover; object-position: 50% 15%; }
+/* The picture's name under it, on one line: "Walking", the longest, fits the cell. On a short phone the line has
+   no height, so the name does not show. */
+.shot-name { height: calc(var(--tall) * 16); overflow: hidden; font-size: var(--t-xs); line-height: 16px; white-space: nowrap; }
+.shots-row [aria-pressed="true"] .shot-name { color: var(--ink); font-weight: 600; }
 /* A hairline round each cell, over its picture: a white studio picture has an edge on a light page too. */
-.shots-row button[aria-pressed]::before { content: ""; position: absolute; inset: 0; border: 1px solid var(--line); border-radius: inherit; pointer-events: none; }
+.shot-pic::before { content: ""; position: absolute; inset: 0; border: 1px solid var(--line); border-radius: inherit; pointer-events: none; }
 .shots-row [aria-pressed="true"] { cursor: default; }
 /* The one shown: an ink frame, and inside it a ring in the page's colour, so the frame stands clear of a white
    picture on a dark page and of a dark one on a light page. */
-.shots-row [aria-pressed="true"]::after { content: ""; position: absolute; inset: 0; border: 2px solid var(--ink); border-radius: inherit; box-shadow: inset 0 0 0 2px var(--bg); pointer-events: none; }
+.shots-row [aria-pressed="true"] .shot-pic::after { content: ""; position: absolute; inset: 0; border: 2px solid var(--ink); border-radius: inherit; box-shadow: inset 0 0 0 2px var(--bg); pointer-events: none; }
 .shots-row [aria-pressed="false"]:hover { color: var(--ink); }
 .shots-row .plus { font-size: var(--t-l, 18px); line-height: 1; }
-.shots-row .btn { flex: none; }
-.shots-note { min-width: 0; font-size: var(--t-s); line-height: 1.25; color: var(--muted); }
+/* "More photos" (40px tall) and what it costs stand beside the front picture, level with its middle. */
+.shots-row .btn { flex: none; margin-top: calc((var(--cell) * 4 / 3 - 40px) / 2); }
+.shots-note { min-width: 0; min-height: calc(var(--cell) * 4 / 3); display: flex; align-items: center; font-size: var(--t-s); line-height: 1.25; color: var(--muted); }
+/* Why "More photos" did not draw them all, with OK to put it away (a link in the line, 44px tall to a finger). */
+.shots-said { margin: 0; }
 .shots p.look-msg { margin-top: var(--s-1); }
+.shots-said .link { position: relative; display: inline-block; padding: 4px 0; margin: -4px 0 -4px var(--s-1); font-size: inherit; }   /* 24px tall at least */
+.shots-said .link::after { content: ""; position: absolute; inset: calc((100% - 44px) / 2) calc(-1 * var(--s-2)); }
 /* The dots are placed for the front picture's pose: over any of the other pictures there are none. */
 .stage:has(.look-pic.more) .spots { display: none; }
 /* "See it move" (_video.html, app.js 15): the outfit's AI video, over its picture.
@@ -709,14 +769,14 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
   display: none; width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2);
   font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); white-space: nowrap;
 }
-.vid.on .vid-line { display: block; }
+.vid.on .vid-line { display: block; min-height: calc(40px + var(--shots-h, 40px)); }   /* the room of the line and the small pictures it replaces */
 .vid-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); height: 40px; }
 .vid-hint { display: inline-flex; align-items: center; min-width: 0; }
 .vid-line .ic { width: 16px; height: 16px; margin-right: 2px; }
 /* The offer under the picture ("See it move" tapped; also why a video was not made, or that none are left today): in
    place of the picture's line and the small pictures, so the picture stays whole while the customer decides. Its words on
-   one or two lines, as tall as the line they replace (40px); its two buttons side by side under them, as tall as the
-   small pictures (40px): nothing below moves. A box to tick (a picture of the customer's own photo, once) or a longer reason
+   one or two lines, as tall as the line they replace (40px); its two buttons side by side under them (40px), and
+   under those the rest of the small pictures' room (--shots-h), left empty: nothing below moves. A box to tick (a picture of the customer's own photo, once) or a longer reason
    adds lines between the two. On a short phone that place is below the tab bar: app.js (15, bringUp) then moves the
    page up until the whole offer shows above it. */
 .look:has(.vid-bar.ask) > :is(.look-line, .shots) { display: none; }
@@ -725,6 +785,7 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
   column-gap: var(--s-4); width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2);
   font-size: var(--t-s); line-height: var(--lh-s);
 }
+.vid-bar.ask { margin-bottom: max(0px, var(--shots-h, 40px) - 40px); }
 .vid-bar.ask > span, .vid-bar.ask > .check { grid-column: 1 / -1; }
 .vid-bar.ask .link { display: inline-flex; align-items: center; min-height: 40px; padding: 0; }
 .vid-bar b { font-weight: 600; }
@@ -774,7 +835,7 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .looks.hush .spot .tip { display: none; }   /* Escape hides them, until the next dot pointed at or focused (app.js, 6c) */
 /* Beside (or under) the stage: what the outfit is made of. */
 .about { width: min(100%, 460px); margin: 0 auto; }
-/* The outfit line: the title in the wide cut, then "1 / 12", the price and the heart, which go under the title together
+/* The outfit line: the title in the wide cut, then "1 / 12" and the price, which go under the title together
    when they do not fit beside it ("Everyday, smart casual" on a 375px phone). Under 360px the title always has a
    line of its own. */
 .about-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) 10px; padding: 0 2px 8px; }
@@ -827,9 +888,6 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .reel-nav[aria-disabled="true"]:not(:focus-visible) { opacity: .3; }
 .reel-nav[aria-disabled="true"]:focus-visible .ic { opacity: .3; }
 .save { display: flex; }
-/* The heart: a 44px target that takes no more room in the line than its 24px; its icon lines up with the list's edge. */
-.heart { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin: -10px -10px -10px 0; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 50%; }
-.heart.on { color: var(--ink); }   /* saved: filled with ink */
 .saved-on { font-size: var(--t-s); color: var(--muted); padding: 8px 2px 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .chip-link .ic { width: 14px; height: 14px; margin-right: 4px; }
@@ -937,10 +995,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
    a caution with the button that keeps them. */
 .your-sizes { display: grid; gap: var(--s-1); margin: 0 0 var(--s-3); padding: var(--s-2) var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
 .your-sizes a { padding: var(--s-1) 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
-.your-sizes.example { color: var(--ok); background: var(--ok-bg); }
-.your-sizes.example a { color: inherit; }
 .your-sizes form { margin-top: var(--s-1); }
-.your-sizes .btn { border-color: var(--ok); }   /* the caution's colour: 5.1:1 on its ground, where --field is 3.1:1 */
 .card.store-list { margin-bottom: 12px; padding: 0; }   /* its header and lines run to its edges, with their own padding */
 .store-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
 .store-head h2 { margin: 0; font-size: var(--t-l); }
@@ -985,7 +1040,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
   .buy-product::after { content: " — " attr(href); font-size: var(--t-xs); color: #555; word-break: break-all; }
   .buy { grid-template-columns: minmax(0, 1fr); }
   .buy .pic { display: none; }      /* paper gets the words, not the photos */
-  .your-sizes, .your-sizes.example { padding: 0; background: none; }
+  .your-sizes { padding: 0; background: none; }
 }
 
 /* ── Slots editor and profile form ───────────────────────────────────────── */
@@ -994,6 +1049,8 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .card h2 { font-size: var(--t-l); margin-bottom: 10px; }
 .card.add { margin-top: 22px; }
 .card.add .flash { overflow-wrap: anywhere; }   /* what pasted links came to (a piece's page): a long link wraps, never widens the page */
+/* A link not added yet because its name says "kids" or "damen": the question, and under it the button that adds it. */
+.card.add .flash.ask p { margin: 0 0 var(--s-2); }
 /* A piece's page: what you added from a store no longer offered (_set_aside.html), each with its store, name and
    price, and Remove at the end of its line (44px tall to tap). */
 .card.set-aside { margin-top: var(--s-5); }
@@ -1213,6 +1270,28 @@ details[open] > summary .edit { visibility: hidden; }
 #model h2 { margin: 0; }
 .cc-save { margin-top: var(--s-5); }
 .cc-photo { margin-top: var(--s-5); padding-top: var(--s-5); border-top: 1px solid var(--line); }
+/* "Describe your style" (Profile): the style chat and the style brief start a new part of the card, like the photo.
+   His own lines stand to the right on a soft ground, the assistant's to the left with a line beside them; the
+   question it asks back is in ink. Nothing here is wider than a form. */
+.cc-style { margin-top: var(--s-5); padding-top: var(--s-5); border-top: 1px solid var(--line); }
+.style-chat { display: grid; gap: var(--s-3); min-width: 0; max-width: var(--form-w); }
+.style-chat p, .style-chat h3 { margin: 0; }
+.chat-lines { display: grid; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.chat-lines li { max-width: 88%; padding: var(--s-2) var(--s-3); font-size: var(--t-m); line-height: var(--lh-m); overflow-wrap: anywhere; }
+.chat-lines .me { justify-self: end; background: var(--soft); border-radius: var(--r-ui); }
+.chat-lines .it { justify-self: start; border-left: 2px solid var(--ink); }
+.chat-q { display: block; margin-top: var(--s-1); font-weight: 500; }
+/* The message field with Send beside it, so that the answer above and the field fit on a phone's screen together
+   (the figure and the tabs keep the top of it). While a message is on its way the button is pale and says
+   "Sending…", and a line under the field says the answer can take a few seconds (app.js, 13d). */
+.chat-say { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s-2); align-items: end; }
+.chat-say .field { min-width: 0; }
+.chat-say button:disabled { opacity: .55; cursor: progress; }
+.chat-say .chat-wait { grid-column: 1 / -1; }
+.chat-say .chat-wait[hidden] { display: none; }
+.brief { padding: var(--s-4); border: 1px solid var(--field); border-radius: var(--r-ui); }
+.brief-head { font-size: var(--t-l); line-height: var(--lh-l); }
+.brief-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); }
 .cc[data-tabs] .cc-save {     /* stuck to the bottom of the screen while the controls go on under it */
   position: sticky; bottom: 0; z-index: 3; margin: var(--s-5) calc(-1 * var(--s-4)) calc(-1 * var(--s-4));
   padding: var(--s-3) var(--s-4); background: var(--surface); border-top: 1px solid var(--line); border-radius: 0 0 var(--r-ui) var(--r-ui);
@@ -1366,7 +1445,7 @@ details[open] > summary .edit { visibility: hidden; }
    out of sight for longer than it takes to arrive. For people who ask their device for less motion
    (prefers-reduced-motion: reduce) nothing here moves: everything that moves is inside the one @media block below,
    and the rules outside it only decide what shows, not how it moves. app.js (16) does the rest: which way a page
-   slides, the AI picture that develops in, the heart, and the budget bar's line. Other sections can use these tokens
+   slides, the AI picture that develops in, and the budget bar's line. Other sections can use these tokens
    for their own motion (tests/test_motion.py holds every transition and animation in this file to 300ms). */
 :root {
   --dur-press: 100ms;      /* a button giving under a finger */
@@ -1478,24 +1557,17 @@ details[open] > summary .edit { visibility: hidden; }
 
   /* Buttons, chips and choices answer a tap: they give a little under the finger, and a choice fills with ink rather
      than switching at once. (Profile's own controls move as its section says.) */
-  :is(.btn, .chip-link, .act, .reel-nav, .heart, .vid-pill, .shots-row button[aria-pressed], .sheet-close, .piece-row, .tile, .tabs a, .seg span) {
+  :is(.btn, .chip-link, .act, .reel-nav, .vid-pill, .shots-row button[aria-pressed], .sheet-close, .piece-row, .tile, .tabs a, .seg span) {
     transition: background-color var(--dur-quick) var(--ease-out), border-color var(--dur-quick) var(--ease-out),
                 color var(--dur-quick) var(--ease-out), opacity var(--dur-quick) var(--ease-out),
                 transform var(--dur-press) var(--ease-out);
   }
-  :is(.btn, .chip-link, .reel-nav, .heart, .vid-pill, .shots-row button[aria-pressed="false"], .sheet-close):active:not(:disabled, [aria-disabled="true"]),
+  :is(.btn, .chip-link, .reel-nav, .vid-pill, .shots-row button[aria-pressed="false"], .sheet-close):active:not(:disabled, [aria-disabled="true"]),
   .act:active:not(:disabled), .tabs a:active, .seg label:active span { transform: scale(.96); }
   /* The dots come and go with a short fade as the pointer reaches or leaves the picture or the list. */
   .spot { transition: opacity var(--dur-quick) var(--ease-out), box-shadow var(--dur-quick) var(--ease-out), transform var(--dur-press) var(--ease-out); }
   .spot:active { transform: scale(.88); }
   .piece-row:active, .tile:active { opacity: .85; }
-  /* The heart, as an outfit is saved (app.js 16c): it grows into its place, and a ring goes out from it. */
-  .heart.pop { position: relative; }
-  .heart.pop svg { animation: heart-pop var(--dur-slow) var(--ease-out); }
-  .heart.pop::after {
-    content: ""; position: absolute; inset: var(--s-1); border-radius: 50%; border: 2px solid currentColor; pointer-events: none;
-    animation: heart-ring var(--dur-slow) var(--ease-out) both;
-  }
 
   /* A message (saved, changed, with its Undo) slides in where it stands. */
   .flash { animation: say-in var(--dur-fade) var(--ease-out) both; }
@@ -1526,8 +1598,6 @@ details[open] > summary .edit { visibility: hidden; }
 @keyframes dot-in { from { opacity: 0; transform: scale(.4); } }
 @keyframes sheen { from { background-position: 100% 0; } to { background-position: 0 0; } }
 @keyframes pending { 50% { opacity: .35; transform: scale(.6); } }
-@keyframes heart-pop { from { transform: scale(.5); } }
-@keyframes heart-ring { from { opacity: .6; transform: scale(.5); } to { opacity: 0; transform: scale(1.25); } }
 @keyframes say-in { from { opacity: 0; transform: translateY(calc(-1 * var(--s-2))); } }
 
 /* ── The owner's store catalogues ────────────────────────────────────────── */
@@ -1708,3 +1778,109 @@ details[open] > summary .edit { visibility: hidden; }
 @media (min-width: 1140px) {
   .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* ── The wardrobe is the outfits he said yes to (yes.py) ─────────────────── */
+/* The bar before any yes: one plain line where the figures would be. On a phone only its first words, which fit the
+   bar's one line (the rest is still read out). */
+.summary .empty-wardrobe { display: block; margin: 0; font-size: var(--t-s); color: var(--muted); }
+@media (max-width: 759.98px) {
+  .summary .empty-wardrobe .more { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
+/* Under an outfit's price: what a yes would add ("2 new pieces 208.99 €, 3 already in your wardrobe"), then, in the
+   caution's colour, by how much it would take him over his budget, then the two answers: the warning is always
+   above the yes. */
+.adds { margin: 0; padding: 0 2px; font-size: var(--t-m); line-height: var(--lh-m); }
+.adds.in { color: var(--muted); }
+.adds.over { color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }
+.btn.yes .plus { font-weight: 400; opacity: .85; white-space: nowrap; }
+/* The two answers: "Add to my wardrobe", the main button, and a quiet "Not for me" beside it. */
+.answer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); margin: var(--s-2) 0 var(--s-3); padding: 0 2px; }
+.answer .save { flex: 1 1 auto; }
+.answer .btn.yes { width: 100%; gap: var(--s-2); }
+.answer .btn.yes.on { width: auto; }
+/* On a phone: what a yes adds and the two answers, for the outfit that is showing, in a bar that stays above the tab
+   bar (56px high, see .tabs), so they are in reach on every phone and wherever the page is scrolled to. app.js (17a)
+   moves the outfit's box in here and tells the page the bar's height (--dock-h), which the page's foot and the
+   picture make room for: the first screen shows the whole model above the bar (--yes-h, see .looks; on a short
+   phone the picture may be a little narrower for it, --least). The button does not repeat the sum: the line right
+   above it says it. Never on a computer, where the box is beside the picture. */
+.dock { display: none; }
+@media (max-width: 759.98px) {
+  .looks:not(.saved) { --yes-h: 88px; --least: 198px; }
+  /* Once the line over the outfits is two lines (it says why they are in this order, .reusing) the picture gives up
+     that line's room on a short phone too, 12px of its width: what is under it stays where it was before his first
+     yes. So at 393 x 760 the outfit's name and price are still whole above this bar, and at 360 x 740 the name
+     still begins above it. Not on a screen under 732px high (390 x 664): there the name is under this bar either
+     way, and the picture keeps its 198px. */
+  @media (min-height: 732px) { .looks.reusing:not(.saved) { --least: 186px; } }
+  /* Under a message at the top of the page (a profile save, say) the picture may be narrower still, so that the
+     whole model shows above the bar on a short phone (390 x 664) then too. */
+  main:has(> .flash:not(.said), > .demo) .looks:not(.saved) { --least: 150px; }
+  /* … and narrower again where the line over the outfits is two lines as well (it says why they are in this order). */
+  main:has(> .flash:not(.said), > .demo) .looks.reusing:not(.saved) { --least: 138px; }
+  /* An outfit that would take him over his budget says so in the bar, in up to two more lines. Then every picture
+     of the row gives up that room too (not only that outfit's: the pictures stay one size while he swipes). */
+  main:has(.adds.over) .looks:not(.saved) { --yes-h: 126px; --least: 172px; }
+  /* Right after an answer the page says what was done, above the outfits, and the picture already gives up room
+     for that line (--told): it does not give up the bar's room as well. The whole model still shows above the
+     bar; the outfit's title under the picture is then behind it until the page is scrolled. */
+  main:has(> .said[data-answered]) .looks:not(.saved) { --yes-h: 0px; }      /* (also where an outfit has a warning) */
+  main:has(> .said.short[data-answered]) .looks:not(.saved) { --least: 138px; }
+  .dock:not([hidden]) {
+    display: block; position: fixed; left: 0; right: 0; bottom: calc(56px + env(safe-area-inset-bottom)); z-index: 39;
+    padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l); background: var(--surface); border-top: 1px solid var(--line);
+  }
+  .dock .adds { padding: 0; font-size: var(--t-s); line-height: var(--lh-s); }
+  .dock .adds.over { margin-top: 2px; }
+  .dock .answer { flex-wrap: nowrap; margin: var(--s-1) 0 0; padding: 0; }
+  .dock .btn.yes .plus { display: none; }
+  .dock .quiet { white-space: nowrap; }
+  body:has(.dock:not([hidden])) { padding-bottom: calc(64px + var(--dock-h, 84px) + env(safe-area-inset-bottom)); }
+  html:has(.dock:not([hidden])) { scroll-padding-bottom: calc(72px + var(--dock-h, 84px) + env(safe-area-inset-bottom)); }
+}
+/* After an answer the page comes back scrolled to where it was (app.js 17b). If the line that says what was done,
+   with Undo, is then above the screen, it stays in sight at the top of the screen while he is scrolled down. */
+main > .said.in-sight { position: sticky; top: var(--s-2); z-index: 38; box-shadow: 0 1px 0 var(--line), 0 6px 18px rgb(0 0 0 / .12); }
+/* The address of an outfit ("#outfit-…": after "Not for me", "Show more outfits", Back) moves the row to it and
+   leaves the page where it is, at its top: without this the browser would also scroll the page down to the outfit,
+   under the bar that sticks to the top, and whatever the page says above the outfits would be out of sight. */
+.slide { scroll-margin-top: 100vh; }
+.btn.yes { display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); }
+.quiet {
+  font: inherit; font-size: var(--t-s); color: var(--muted); background: none; border: 0; padding: 0 var(--s-1); min-height: 44px;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
+}
+.quiet:hover { color: var(--ink); }
+.foot.declined { display: block; }
+.foot.declined .quiet { min-height: 24px; padding: var(--s-1) 0; }
+.saved-on a { display: inline-block; padding: var(--s-1) 0; text-underline-offset: 3px; }
+.saved-on.gone-piece { color: var(--poor); }   /* under My outfits: a piece of the outfit is no longer in his plan */
+/* A piece's card, pop-up and page: "In 4 of your outfits". */
+.in-outfits { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.slot-head .in-outfits { margin-top: var(--s-1); }
+/* Before any yes, on Wardrobe and the Shopping list: said plainly, with the way to the outfits. */
+.first-yes { display: grid; gap: var(--s-3); justify-items: center; }
+.first-yes .small { font-size: var(--t-s); }
+.first-yes .small a { display: inline-block; padding: var(--s-1) 0; }
+/* Buy this outfit, for an outfit that is not in his wardrobe yet. */
+.not-yet { display: grid; gap: var(--s-2); margin: 0 0 var(--s-3); padding: var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
+.not-yet .save { justify-content: flex-start; }
+/* Said once to someone who was a customer before (_news.html). */
+.flash.news b { font-weight: 600; }
+/* What he has not answered yet, said on Profile where it is asked. */
+.not-given { margin: 0 0 var(--s-2); }
+/* The welcome: three short steps on a page of their own. */
+.welcome { max-width: 560px; margin: var(--s-5) auto 0; }
+.welcome-step { font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 var(--s-1); }
+.welcome .form { max-width: none; }
+.welcome-go { display: flex; align-items: center; gap: var(--s-4); margin-top: var(--s-2); }
+/* "Or describe your style in your own words", under the last step where the style chat is on: a plain line that
+   reads as a link, 44px to tap, starting at the card's edge like the button above it. */
+.welcome-or { margin: var(--s-2) 0 0; }
+.welcome-or .quiet { padding: 0; text-align: left; }
+.pick-colours { border: 0; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: var(--s-1) var(--s-2); }
+.pick-colour { display: flex; align-items: center; gap: var(--s-2); min-height: 44px; cursor: pointer; }
+.pick-colour input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--ink); }
+.pick-colour i { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--field); }
+.welcome-use { margin: var(--s-1) 0; }
+.welcome-use span { display: block; text-align: center; padding: var(--s-3) var(--s-2); border-radius: var(--r-track); }

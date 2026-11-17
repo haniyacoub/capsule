@@ -16,6 +16,9 @@ Module map (each file does one job):
     person.py       who the model in those pictures is: a few choices, or your photo
     figure.py       the drawn figure on Profile that takes those choices at once (no AI)
     imagegen.py     talks to the image services (OpenAI, Google) that draw them
+    style.py        the style brief: styles, colours, fits; how it steers stores, products and outfits (config/style.toml)
+    stylechat.py    the style chat on Profile: Google's text model suggests a brief from his own words
+    mockchat.py     a stand-in for that model, for tests and previews
     videos.py       "See it move": a short AI video of an outfit's picture, its limits and Pro accounts
     videogen.py     talks to Google's video model that makes those videos
     export.py       the shopping list (page, Markdown, CSV), for the wardrobe or one outfit

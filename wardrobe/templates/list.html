@@ -6,7 +6,7 @@
 {% if said %}<div class="flash said" role="status">{% include "_changed.html" %}</div>{% endif %}
 {# Not the Outfits toolbar, which keeps its chips in one row that scrolls sideways: here the buttons wrap. #}
 <div class="list-tools">
-  <p class="lead">What your wardrobe selects right now, grouped by store. Prices and stock as of {{ sl.collected }}.</p>
+  <p class="lead">The pieces of the outfits you said yes to, grouped by store. Prices and stock as of {{ sl.collected }}.</p>
   <div class="chips no-print">
     <a class="btn ghost small" href="{{ url_for('list_csv') }}">Download for a spreadsheet (.csv)</a>
     <a class="btn ghost small" href="{{ url_for('list_markdown') }}">Download as text (.md)</a>
@@ -18,8 +18,16 @@
 {% include "_your_sizes.html" %}
 {% elif sl.sold_out %}
 <p class="empty">Nothing to buy right now: what you chose is {{ sl.gone_words }}.</p>
+{% elif not w.mine.slots %}
+{# Before any yes: said plainly, with the way to the outfits. #}
+<div class="empty first-yes">
+  <p>Nothing on your list yet. It lists the pieces of the outfits you say yes to.</p>
+  <p><a class="btn" href="{{ url_for('outfits_page') }}">See the outfits</a></p>
+</div>
+{% elif sl.owned and not sl.missing %}
+<p class="empty">Nothing to buy: you own every piece in your wardrobe.</p>
 {% else %}
-<p class="empty">Nothing to buy yet: no piece has a product chosen.</p>
+<p class="empty">Nothing to buy yet: no piece in your wardrobe has a product chosen.</p>
 {% endif %}
 
 {% include "_buy_groups.html" %}
@@ -29,8 +37,12 @@
   <div class="grand-row"><span>Total for {{ sl.pieces }} {{ 'piece' if sl.pieces == 1 else 'pieces' }}{{ ' you can buy' if sl.sold_out }}</span><b>{{ sl.total|eur }}</b></div>
   {# Never counted as if it could be bought: said in the total itself. #}
   {% if sl.sold_out %}<div class="grand-row muted"><span>{{ sl.gone_words|capitalize }}</span><span>{{ sl.pieces_sold_out }} {{ 'piece' if sl.pieces_sold_out == 1 else 'pieces' }}, not counted</span></div>{% endif %}
+  {% if w.budget_known %}
   <div class="grand-row muted"><span>Budget</span><span>{{ sl.budget|eur }}</span></div>
   <div class="grand-row {{ 'neg' if sl.remaining < 0 else 'pos' }}"><span>{{ 'Over budget' if sl.remaining < 0 else 'Left' }}</span><b>{{ sl.remaining|abs|eur }}</b></div>
+  {% else %}
+  <div class="grand-row muted"><span>Budget</span><span><a href="{{ url_for('profile_page') }}#budget">Set a budget</a></span></div>
+  {% endif %}
 </section>
 {% endif %}
 

@@ -3,14 +3,17 @@
 {% block main %}
 {% from "_macros.html" import icon, slot_fields %}
 <p class="crumb"><a href="{{ url_for('wardrobe') }}">{{ icon('back') }} Wardrobe</a></p>
-{# Counted as the budget bar and the Wardrobe page count: a white tee ×2 is two pieces. #}
-{% set pieces = w.slots|sum(attribute='qty') %}
+{# Counted as the plan has them: a white tee ×2 is two pieces. (His wardrobe counts one of them, and the second
+   only once he added it as a spare on the piece's card: selection.SlotView.qty.) #}
+{% set pieces = w.slots|sum(attribute='planned') %}
 {% set colours = w.slots|map(attribute='slot.colour')|unique|list|length %}
 {% set uses = {'everyday': 'Planned for everyday wear.', 'office': 'Planned for the office.', 'both': 'Planned for everyday and the office.'} %}
 <section class="card">
   <h1>Your plan</h1>
   <p class="muted">{% if pieces %}{{ pieces }} piece{{ '' if pieces == 1 else 's' }} in {{ colours }} colour{{ '' if colours == 1 else 's' }}, planned from your profile.
-    Change anything: rename, recolour, remove or add. Your wardrobe and outfits update straight away.
+    These are the pieces your outfits are made from. A piece is in your wardrobe, and in your total, once you add an outfit that wears it.
+    {% if w.slots|selectattr('n_spare')|list %}Where the plan has a piece twice (×2), an outfit adds one; the second is a spare you can add on the piece's card in your Wardrobe.{% endif %}
+    Change anything: rename, recolour, remove or add. Your outfits update straight away.
     {%- else %}No pieces in your plan yet. Add one below, or start over from your profile.{% endif %}</p>
   <div class="palette">
     {% for role, c in palette %}
@@ -18,7 +21,7 @@
     {% endfor %}
   </div>
   <p class="muted small">{{ uses.get(profile.use, '') }} Trousers and shoes stay neutral so nearly every top works with every pair of trousers; the accent colour appears on a top layer or two.</p>
-  <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, locked choices and pieces marked as yours are lost.">{{ csrf_field() }}
+  <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, locked choices and pieces marked as yours are lost. The pieces of the outfits you said yes to stay.">{{ csrf_field() }}
     <button class="btn ghost small">Start over from my profile</button>
   </form>
 </section>
@@ -31,7 +34,7 @@
     <details>
       <summary>
         <i class="dot" style="background:{{ s.colour.hex }}"></i>
-        <span class="nm">{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</span>
+        <span class="nm">{{ s.slot.name }}{% if s.planned > 1 %} <span class="qty">×{{ s.planned }}</span>{% endif %}</span>
         <span class="kind">{{ s.garment.label }}{% if s.state == 'owned' %} · owned{% endif %}</span>
         <span class="edit">Edit</span>
       </summary>
@@ -40,7 +43,10 @@
           {{ slot_fields(s.slot) }}
           <button class="btn small">Save</button>
         </form>
-        <form method="post" action="{{ url_for('slots_delete', slot_id=s.slot.id) }}" data-confirm="Remove “{{ s.slot.name }}” from your plan?">{{ csrf_field() }}
+        {# A piece that is in his wardrobe leaves it with the plan: the question says so before he answers it, and
+           what it means for the outfits of his that wear it (app.py, slots_delete, says it again afterwards). #}
+        {% set leaves %}{% if s.mine %} It is in your wardrobe{% if s.outfits_in %}, in {{ s.outfits_in }} of your outfits{% endif %}: it leaves your wardrobe{% if s.state != 'owned' %}, your total and your shopping list{% endif %} too{% if s.outfits_in %}, and {{ 'that outfit' if s.outfits_in == 1 else 'those outfits' }} can no longer be bought as {{ 'an outfit' if s.outfits_in == 1 else 'outfits' }}{% endif %}.{% endif %}{% endset %}
+        <form method="post" action="{{ url_for('slots_delete', slot_id=s.slot.id) }}" data-confirm="Remove “{{ s.slot.name }}” from your plan?{{ leaves }}">{{ csrf_field() }}
           <button class="link danger">Remove this piece</button>
         </form>
       </div>

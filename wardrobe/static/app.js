@@ -126,7 +126,7 @@ if (reel) {
   //     into the outfit being moved to. So Tab from Next leads into the outfit you moved to, and Shift+Tab from
   //     below the row back into it, never into outfit 1, which the browser would scroll back to. The other outfits
   //     are not made inert: swiping, and a screen reader reading the whole row, work as before. What HTMX puts in
-  //     (a picture, the heart) is sorted the same way once it is in.
+  //     (a picture) is sorted the same way once it is in.
   const pressable = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [tabindex]';
   const tabInto = (current) => slides.forEach((slide) => slide.querySelectorAll(pressable).forEach((el) => {
     if (slide === current) {
@@ -206,7 +206,13 @@ if (reel) {
   document.body.addEventListener('htmx:beforeSwap', (e) => {
     const box = e.detail.target;
     if (isBox(box) && box.closest('.stage').contains(document.activeElement)) box.dataset.focus = 'in';
-    if (isRow(box)) rowFocus = box.contains(document.activeElement);
+    if (isRow(box)) {
+      // … or on the answer to a question asked under the picture before the photos are drawn (_look_ask.html):
+      // the question goes when the row comes.
+      const here = document.activeElement;
+      const asked = box.closest('.look') && box.closest('.look').querySelector('.look-ask-at');
+      rowFocus = box.contains(here) || !!(asked && asked.contains(here));
+    }
   });
   document.body.addEventListener('htmx:afterSwap', (e) => {
     const was = e.detail.target;
@@ -224,6 +230,34 @@ if (reel) {
       if (shown) shown.focus({ preventScroll: true });
     }
     rowFocus = false;
+  });
+  // A question asked before anything is drawn (_look_ask.html: 'Draw again' on a front picture, whose other photos
+  // would go with it; a photo made from the AI picture of a customer who has not yet agreed to that) is put into its
+  // own place under the picture. It is said, it is brought above the tab bar where a short phone would hide it, and
+  // keyboard focus goes to its first answer. When the other answer ('Keep them', 'Not now') takes the question
+  // away, focus goes back to what was pressed ('More photos', a small picture), or to 'Draw again' in the line above.
+  let askedFrom = '';       // the id of what was pressed when the question came
+  document.body.addEventListener('htmx:afterSwap', (e) => {
+    const place = e.detail.target;
+    if (!(place instanceof Element) || !place.matches('.look-ask-at')) return;
+    const answer = place.querySelector('button');
+    if (answer) {
+      const sent = e.detail.requestConfig && e.detail.requestConfig.triggeringEvent;
+      askedFrom = (sent && sent.submitter && sent.submitter.id) || '';
+      say(place.querySelector('.look-msg').textContent.trim());
+      if (place.closest('[data-slide]') === onScreen()) {
+        const room = innerHeight - (parseFloat(getComputedStyle(document.documentElement).scrollPaddingBottom) || 0);
+        const { top, bottom } = place.getBoundingClientRect();
+        const by = Math.min(bottom - room, top);
+        if (by > 0) window.scrollBy({ top: by, behavior: motion.matches ? 'auto' : 'smooth' });
+      }
+      answer.focus({ preventScroll: true });
+    } else {
+      const here = document.activeElement;
+      const back = (askedFrom && document.getElementById(askedFrom)) || place.closest('.look').querySelector('.look-line button');
+      askedFrom = '';
+      if (back && (!here || here === document.body)) back.focus({ preventScroll: true });
+    }
   });
   document.body.addEventListener('htmx:afterSwap', (e) => {
     const box = e.detail.target;
@@ -478,16 +512,6 @@ document.body.addEventListener('htmx:responseError', (e) => {
   if (e.detail.xhr.status === 409) window.location.reload();
 });
 
-// 12. The starter banner on Outfits (a new customer's, until he saves his profile) stands where the budget bar would.
-//     The picture on a phone is sized from that bar's height (--bar-h, see app.css), so here it is the banner's
-//     real height, whatever its words wrap to on this screen.
-const starter = document.querySelector('.starter');
-if (starter && 'ResizeObserver' in window) {
-  new ResizeObserver(() => {
-    document.documentElement.style.setProperty('--bar-h', `${starter.getBoundingClientRect().height}px`);
-  }).observe(starter);
-}
-
 // 12a. The line over the outfits that says what a change made from an outfit did (Choose, Undo, leaving a piece off)
 //      is one to four lines on a phone, by the length of the product's name. The picture gives up room for it (--told,
 //      see app.css): the longest line's until this runs. Here it is the room the line really takes, its height and
@@ -538,7 +562,7 @@ if (aboutYou) {
 // 13a. Profile: the tabs, a real tablist. One tab is open at a time; the arrow keys (and Home and End) move between the
 //      tabs and open them, and Tab goes from the open tab into its controls. The address keeps the open tab
 //      (/profile#colours), so a link to a place on the page opens its tab: #budget (the budget bar), #sizes ("Change"
-//      by Your sizes), #model (where "Model saved" is said), #photo (where the photo's messages are said). The form
+//      by Your sizes), #model (where "Model saved" is said), #photo (where the photo's messages are said), #style (the style chat). The form
 //      carries the open tab, so that a save comes back to it. Over the middle, a switch shows the drawn figure or
 //      "Your model" (the AI picture); changing a choice that the figure shows brings the figure back.
 const profileCreator = document.querySelector('[data-cc]');
@@ -549,7 +573,7 @@ if (profileCreator) {
   const panelsOf = (name) => [...profileCreator.querySelectorAll(`.cc-panel[data-tab="${name}"]`)];
   const tabField = profileCreator.querySelector('[data-cc-tab-field]');
   const tabOf = (hash) => {
-    const name = { model: 'body', photo: 'you' }[hash] || hash;
+    const name = { model: 'body', photo: 'you', style: 'you' }[hash] || hash;
     return names.includes(name) ? name : null;
   };
   // The top of the controls' card, brought back into view when the page was scrolled past it (on a phone it then
@@ -846,6 +870,94 @@ if (storePick) {
   });
 }
 
+// 13d. Profile: the style chat (_style_chat.html). While a message is on its way to the server (and from there to
+//      Google, which can take some seconds), the page says so: the button, which HTMX switches off, reads
+//      "Sending…", a line under the field says the answer can take a few seconds, and the live region reads it out.
+//      After it, HTMX puts the whole chat in again, with the answer and the brief it suggests. The keyboard stays
+//      in the message field (the new one, in place of the one that was typed in), so the next message can be
+//      written at once; the page moves so that the answer and the field are on the screen together; and the new
+//      answer, or what went wrong, is read out by the page's one live region (base.html), which was on the page
+//      before the answer came. A message that no answer came back for (the connection was cut, or the server
+//      answered with an error) is said under the field, with his words still in it. It does not say whether the
+//      message was counted: from here that cannot be known.
+const chatHeard = (words) => {
+  const announce = document.getElementById('announce');
+  if (announce) announce.textContent = announce.textContent === words ? `${words}\u00a0` : words;   // the same words again are read again
+};
+const chatForm = (e) => {
+  const form = e.detail.elt;
+  return form instanceof Element && form.matches('#style-chat .chat-say') ? form : null;
+};
+document.body.addEventListener('htmx:beforeRequest', (e) => {
+  const form = chatForm(e);
+  if (!form) return;
+  const button = form.querySelector('button');
+  const wait = form.querySelector('[data-chat-wait]');
+  if (button) button.textContent = 'Sending…';
+  if (wait) {
+    wait.textContent = 'Sending your message. The answer can take a few seconds.';
+    wait.classList.remove('flash', 'bad');
+    wait.hidden = false;
+    chatHeard(wait.textContent);
+  }
+  form.setAttribute('aria-busy', 'true');
+});
+['htmx:sendError', 'htmx:timeout', 'htmx:responseError'].forEach((name) => {
+  document.body.addEventListener(name, (e) => {
+    const form = chatForm(e);
+    if (!form || (e.detail.xhr && e.detail.xhr.status === 409)) return;      // 409: the page is reloaded (11)
+    const button = form.querySelector('button');
+    const wait = form.querySelector('[data-chat-wait]');
+    if (button) button.textContent = 'Send';
+    form.removeAttribute('aria-busy');
+    if (!wait) return;
+    wait.textContent = name === 'htmx:responseError'
+      ? 'Something went wrong with that message. Load the page again and try once more.'
+      : 'No answer came back. Check your connection and send it again.';
+    wait.classList.add('flash', 'bad');
+    wait.hidden = false;
+    chatHeard(wait.textContent);
+  });
+});
+// The answer and the field on the screen together: the page moves up until the field and Send are above whatever
+// stands at the bottom of the screen (the Save bar, the tab bar, a phone's keyboard), but never so far that the
+// first line of the answer leaves at the top, under the tabs that stick there. A long answer is read first.
+const chatInView = (chat, said, field) => {
+  const gap = 8;
+  const view = window.visualViewport;
+  let floor = view ? view.offsetTop + view.height : window.innerHeight;
+  document.querySelectorAll('.cc-save, nav.tabs').forEach((bar) => {
+    const box = bar.getBoundingClientRect();
+    if (box.height && box.top > window.innerHeight / 2) floor = Math.min(floor, box.top);
+  });
+  const tabs = document.querySelector('.cc-tabs');
+  const ceiling = tabs ? Math.max(0, tabs.getBoundingClientRect().bottom) : 0;
+  const button = chat.querySelector('.chat-say button');
+  const lowest = Math.max(field.getBoundingClientRect().bottom, button ? button.getBoundingClientRect().bottom : 0);
+  const first = said.getBoundingClientRect().top - gap - ceiling;      // how far the answer's start is below the top
+  const by = first < 0 ? first : Math.min(lowest + gap - floor, first);
+  if (by > 0 || first < 0) window.scrollBy({ top: by, behavior: 'auto' });      // at once: he is about to type
+};
+document.body.addEventListener('htmx:afterSwap', (e) => {
+  const was = e.detail.target;
+  if (!(was instanceof Element) || was.id !== 'style-chat') return;
+  const chat = document.getElementById('style-chat');
+  if (!chat) return;
+  const field = chat.querySelector('.chat-say textarea');
+  if (field) {
+    field.focus({ preventScroll: true });
+    field.setSelectionRange(field.value.length, field.value.length);     // after his words, when they came back unsent
+  }
+  const said = chat.querySelector('[data-chat-said]') || chat.querySelector('[data-chat-new]');
+  if (!said) return;
+  if (field) chatInView(chat, said, field);
+  let words = said.textContent.replace(/\s+/g, ' ').trim();
+  if (!said.matches('[data-chat-said]') && chat.querySelector('[data-brief="suggested"]')) {
+    words += ' A suggested style brief is below. It is not in use yet.';
+  }
+  chatHeard(words);
+});
+
 // 14. Profile: the colours as swatches to tap. Once: a colour you like, numbered in the order you tapped it (1 counts
 //     most, which is how the plan reads "most important first"). Twice: a colour to avoid. Three times: neither.
 //     The swatches only fill in About you's two text fields ("Colours you like", "Colours to avoid") with the colours'
@@ -1117,10 +1229,128 @@ if (swatchGrid) {
   });
 }
 
+// 17. The wardrobe is the outfits he said yes to (yes.py): the two answers under an outfit, "Add to my wardrobe" and
+//     "Not for me". Each is a plain form, and the whole page comes back after it (the total, what every other outfit
+//     would add and their order change with a yes).
+// 17a. On a phone the answers are not under the outfit, where a short screen hides them below the tab bar: what a yes
+//      adds, the warning if it would take him over his budget, and the two answers stand in a bar that stays above
+//      the tab bar (#dock, app.css), for the outfit that is showing. The outfit's own box (.yes-box, outfits.html)
+//      is moved in there, and back to its outfit when another one shows or the window becomes a computer's: the same
+//      forms and buttons, in one place at a time. The page is told the bar's height (--dock-h), so its foot and the
+//      picture leave room for it. Without JavaScript the box simply stays under its outfit.
+const dock = document.getElementById('dock');
+const answerOnScreen = () => {     // the box with the answers of the outfit on screen, wherever it stands now
+  const row = document.getElementById('reel');
+  if (!row) return null;
+  const slide = row.querySelectorAll('[data-slide]')[Math.round(row.scrollLeft / row.clientWidth)];
+  return (dock && dock.querySelector('[data-answer]')) || (slide && slide.querySelector('[data-answer]')) || null;
+};
+if (dock && document.getElementById('reel')) {
+  const row = document.getElementById('reel');
+  const phone = window.matchMedia('(max-width: 759.98px)');
+  const all = [...row.querySelectorAll('[data-slide]')];
+  // Each outfit's box, and a mark that keeps its place in the outfit while it is in the bar.
+  const boxes = new Map();
+  all.forEach((slide) => {
+    const box = slide.querySelector('[data-answer]');
+    if (box) boxes.set(slide, { box, home: document.createComment('its answers are in the bar above the tabs') });
+  });
+  let inDock = null;
+  const measure = () => document.documentElement.style.setProperty('--dock-h', `${dock.hidden ? 0 : dock.offsetHeight}px`);
+  const sync = () => {
+    const want = (phone.matches && boxes.get(all[Math.round(row.scrollLeft / row.clientWidth)])) || null;
+    if (want === inDock) return;
+    const held = inDock && inDock.box.contains(document.activeElement) ? document.activeElement : null;
+    if (inDock) inDock.home.replaceWith(inDock.box);
+    inDock = want;
+    if (want) {
+      want.box.replaceWith(want.home);
+      dock.append(want.box);
+      // The buttons of an outfit that was not on screen were out of the Tab order (6a): these are the ones to press now.
+      want.box.querySelectorAll('[data-tab]').forEach((el) => {
+        if (el.dataset.tab) el.setAttribute('tabindex', el.dataset.tab);
+        else el.removeAttribute('tabindex');
+        delete el.dataset.tab;
+      });
+      // Keyboard focus that was on an answer stays on the same answer, now of the outfit that shows.
+      const twin = held && want.box.querySelector(held.matches('.quiet') ? '.quiet' : '.btn.yes');
+      if (held) (twin || want.box.querySelector('button')).focus({ preventScroll: true });
+    }
+    dock.hidden = !want;
+    measure();
+  };
+  row.addEventListener('scroll', sync, { passive: true });
+  phone.addEventListener('change', sync);
+  if ('ResizeObserver' in window) new ResizeObserver(measure).observe(dock);
+  sync();
+}
+
+// 17b. After an answer the page has come back (on the next outfit in line: its address names it, app.py). It is
+//      scrolled to where it was when he answered, so he goes on from there and need not scroll down again for every
+//      outfit. If the line that says what was done ("Added the outfit with … Undo") is then above the screen, it
+//      stays in sight at the screen's top while he is scrolled down (app.css, .said.in-sight).
+//      After an answer given with the keyboard, the keyboard would be at the page's top, some twenty presses of Tab
+//      from the next answer. So it is put where the answering goes on: on "Add to my wardrobe" of the outfit now
+//      showing. Under My outfits, where the next button would take another outfit out, it goes to Undo in the line
+//      that says what was done. That line is read out to a screen reader, as it was there before the page finished
+//      loading. Only after the keyboard gave the answer: after a tap or a click the keyboard is given nothing (a
+//      button that had it would say yes at the next press of the space bar, meant to scroll).
+//      Both are noted while the form is sent, kept for this tab only and forgotten at once.
+document.addEventListener('submit', (e) => {
+  const form = e.target instanceof HTMLFormElement ? e.target : null;
+  if (!form || !form.matches('form.save, form.no, [data-answered] form')) return;
+  const by = e.submitter || document.activeElement;
+  try {
+    if (document.getElementById('reel')) window.sessionStorage.setItem('answered-at', String(Math.round(window.scrollY)));
+    if (by instanceof Element && by.matches(':focus-visible')) window.sessionStorage.setItem('answered-by-keyboard', '1');
+  } catch (err) { /* no storage (private mode): the page comes back at its top, the keyboard with it, as without this */ }
+});
+(() => {
+  let byKeyboard = false;
+  let scrolledTo = null;
+  try {
+    byKeyboard = window.sessionStorage.getItem('answered-by-keyboard') === '1';
+    scrolledTo = window.sessionStorage.getItem('answered-at');
+    window.sessionStorage.removeItem('answered-by-keyboard');
+    window.sessionStorage.removeItem('answered-at');
+  } catch (err) { /* as above */ }
+  const said = document.querySelector('[data-answered]');
+  if (!said && !(byKeyboard && document.getElementById('reel'))) return;
+  const put = () => {
+    if (said && scrolledTo !== null && document.getElementById('reel')) {
+      const top = Math.max(0, Math.min(parseInt(scrolledTo, 10) || 0, document.documentElement.scrollHeight - window.innerHeight));
+      window.scrollTo({ top, behavior: 'instant' });
+      if (said.getBoundingClientRect().bottom < 8) said.classList.add('in-sight');
+    }
+    if (!byKeyboard) {
+      // After a tap or a click: the address the page came back to names the outfit to show ("#outfit-…"), and the
+      // browser gives that outfit the keyboard, with a ring around all of it. Nobody is using the keyboard: no ring.
+      const here = document.activeElement;
+      if (here instanceof HTMLElement && here.matches('[data-slide]')) here.blur();
+      return;
+    }
+    const undo = said && said.querySelector('button');
+    const box = answerOnScreen();
+    const next = (document.querySelector('.looks.saved') || !box) ? undo : (box.querySelector('.btn.yes') || undo);
+    if (next) next.focus({ preventScroll: true });
+    const announce = document.getElementById('announce');
+    if (said && announce) {
+      const words = [...said.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent).join(' ');
+      // A moment later: a screen reader reads a live region only when it changes after the page has been read in.
+      setTimeout(() => {
+        announce.textContent = `${words.replace(/\s+/g, ' ').trim()}${undo && next !== undo ? ' Undo is at the top of the page.' : ''}`;
+      }, 300);
+    }
+  };
+  // Once the page has loaded and the browser has gone to the outfit its address names: that step moves the keyboard too.
+  if (document.readyState === 'complete') setTimeout(put, 0);
+  else window.addEventListener('load', () => setTimeout(put, 0));
+})();
+
 // 16. Motion (app.css "Motion" says how things move, and that nothing does for people who ask their device for less
 //     motion). Here: which way a page slides in, and a tap while it does (16a), the AI picture that develops in once
-//     its file has arrived (16b), the heart as an outfit is saved (16c), and the budget bar's line going to its new
-//     length (16d). How long each takes is read from app.css's tokens, never set here.
+//     its file has arrived (16b), and the budget bar's line going to its new length (16d; 16c was the heart that
+//     saved an outfit, gone since a yes is "Add to my wardrobe"). How long each takes is read from app.css's tokens, never set here.
 {
   const less = window.matchMedia('(prefers-reduced-motion: reduce)');
   const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -1246,21 +1476,6 @@ if (swatchGrid) {
       if (img && index !== here && !img.complete) develop(img.closest('.look-pic'), null);
     });
   }
-
-  // 16c. The heart, as an outfit is saved: HTMX puts in the heart's new state, which grows into its place (app.css).
-  let hearted = null;
-  document.addEventListener('click', (e) => {
-    const heart = e.target instanceof Element && e.target.closest('.heart');
-    if (heart) hearted = heart.id;
-  }, true);
-  document.body.addEventListener('htmx:load', (e) => {
-    const heart = hearted && document.getElementById(hearted);
-    if (!heart || !e.target.contains(heart)) return;
-    hearted = null;
-    if (!heart.classList.contains('on')) return;
-    heart.classList.add('pop');
-    setTimeout(() => heart.classList.remove('pop'), ms('--dur-slow') + 50);
-  });
 
   // 16d. The budget bar's line, when the total changes (a price level, a lock): it goes from its old length to the new
   //      one rather than jumping there. Only drawn differently (transform), so nothing on the page moves.

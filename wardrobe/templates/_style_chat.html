@@ -1,0 +1,107 @@
+{# Profile, "Describe your style": the style chat and the style brief (stylechat.py, style.py). HTMX swaps this whole
+   block after a message was sent; "Use this brief", "Remove brief" and "Start again" load the page again, so that the
+   styles ticked under "What do you dress for?" show what was saved.
+
+   `chat_on`: a key for Google's text model is set. Without it there is no chat; a brief that is in use is still
+   shown, to change by hand or remove. `chat`: the conversation (turns, the question asked back, and `draft`, the brief
+   the model suggested). `brief_shown`: the brief the editor shows: the suggestion while there is one, else the brief
+   in use. Only "Use this brief" puts a brief in use. Everything the model wrote is shown as plain text (escaped).
+
+   What "Use this brief", "Remove brief" and "Start again" just did is said first, with its link to the outfits: the
+   page comes back to the top of this part (#style), so the sentence is on the screen without scrolling, on a phone
+   too. A message that could not be sent without JavaScript is said there as well (kind "style-bad").
+
+   While a message is on its way (HTMX), app.js (13d) says so: the button reads "Sending…", the line under the field
+   (data-chat-wait) is shown, and the live region reads it out. After it, app.js keeps the keyboard in the message
+   field, brings the answer and the field onto the screen together where they fit (the field stands right under the
+   conversation for that, with Send beside it), and has the new answer, or what went wrong, read out by the page's
+   one live region (#announce, base.html): `data-chat-new` marks it. Without JavaScript the browser loads the page
+   again, and a message that was not sent is back in the field (`chat_kept`). #}
+<div class="style-chat" id="style-chat">
+  {% for kind, message in get_flashed_messages(with_categories=true, category_filter=['style', 'style-bad']) %}
+  <p class="flash{{ ' bad' if kind == 'style-bad' }}" role="status" data-style-said>{{ message }}</p>
+  {% endfor %}
+  {% if chat_on %}
+  <h2 class="sec" id="style-title">Describe your style</h2>
+  <p class="muted small">Say in your own words how you want to dress, such as “street style, Berlin vibe”. An AI model answers and suggests a style brief. Nothing changes until you press “Use this brief”.</p>
+  {% if chat.turns %}
+  <ol class="chat-lines" aria-label="Your conversation with the style assistant">
+    {% for turn in chat.turns %}
+    <li class="{{ 'me' if turn.who == 'you' else 'it' }}"{% if loop.last and turn.who != 'you' %} data-chat-new{% endif %}><span class="sr">{{ 'You' if turn.who == 'you' else 'Style assistant' }}: </span>{{ turn.text }}{% if loop.last and turn.who != 'you' and chat.question %} <b class="chat-q">{{ chat.question }}</b>{% endif %}</li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+  {# What went wrong with the message just sent; his words are back in the field, to send again. #}
+  {% if chat_said %}<p class="flash bad" data-chat-said>{{ chat_said }}</p>{% endif %}
+  <form class="chat-say" method="post" action="{{ url_for('profile_style_say') }}" hx-post="{{ url_for('profile_style_say') }}" hx-target="#style-chat" hx-swap="outerHTML" hx-disabled-elt="find button">{{ csrf_field() }}
+    <label class="field"><span>{{ 'Your answer, or something else to change' if chat.turns else 'How do you want to dress?' }}</span>
+      <textarea name="message" rows="2" maxlength="{{ chat_max }}" required>{{ chat_kept }}</textarea></label>
+    <button class="btn small">Send</button>
+    <p class="muted small chat-wait" data-chat-wait hidden>Sending your message. The answer can take a few seconds.</p>
+  </form>
+  {% if chat.turns %}<p class="muted small chat-ai">The answers are written by AI and can be wrong. Only the brief below changes your picks.</p>{% endif %}
+  {# What leaves this site, said beside the chat (stylechat.sent_text). #}
+  <p class="muted small" data-chat-sent>What you write here goes to Google, whose AI model writes the answer, together with the last lines of this conversation and your style brief. Your name, email address, sizes, budget and photo are not sent. Up to {{ chat_allowance }} messages a day. <a href="{{ url_for('legal_page', name='privacy') }}">Privacy policy</a></p>
+  {% else %}
+  {# A message sent from a page that still showed the chat, after the chat was switched off. #}
+  {% if chat_said %}<p class="flash bad" data-chat-said>{{ chat_said }}</p>{% endif %}
+  {% if brief_shown %}<h2 class="sec" id="style-title">Your style brief</h2>{% endif %}
+  {% endif %}
+
+  {% if brief_shown %}
+  {% set b = brief_shown %}
+  <form class="form brief" method="post" action="{{ url_for('profile_style_brief') }}" data-brief="{{ 'suggested' if chat.draft else 'in-use' }}">{{ csrf_field() }}
+    {% if chat.draft %}
+    <h3 class="brief-head">Suggested style brief</h3>
+    <p class="demo"><b>Not in use yet.</b> This is what the assistant understood. Change what is wrong, then press “Use this brief”.{% if brief_in_use %} In use now: {% for what, value in brief_words %}{{ what|lower }} {{ value }}{{ '; ' if not loop.last }}{% endfor %}.{% endif %}</p>
+    {% else %}
+    <h3 class="brief-head">{{ 'Your style brief' if chat_on else 'What it says' }}</h3>
+    <p class="muted small">In use. Among each piece's products at your price level, the ones that fit this brief are picked first. Outfits that fit it are moved up, and an outfit that fits it as a whole says so under its name.</p>
+    {% endif %}
+    <fieldset class="pick">
+      <legend>Styles</legend>
+      {% for key, label in STYLES.items() %}
+      <label><input type="checkbox" name="styles" value="{{ key }}"{% if key in b.styles %} checked{% endif %}><span>{{ label }}</span></label>
+      {% endfor %}
+    </fieldset>
+    <fieldset class="pick">
+      <legend>How formal</legend>
+      <label><input type="radio" name="formality" value=""{% if not b.formality %} checked{% endif %}><span>Any</span></label>
+      {% for key, label in FORMALITIES.items() %}
+      <label><input type="radio" name="formality" value="{{ key }}"{% if b.formality == key %} checked{% endif %}><span>{{ label }}</span></label>
+      {% endfor %}
+    </fieldset>
+    <label class="field"><span>Colours to favour <small>(separated by commas)</small></span>
+      <input type="text" name="colours_like" value="{% for k in b.colours_like %}{{ COLOURS[k].label|lower }}{{ ', ' if not loop.last }}{% endfor %}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+    <label class="field"><span>Colours to avoid</span>
+      <input type="text" name="colours_avoid" value="{% for k in b.colours_avoid %}{{ COLOURS[k].label|lower }}{{ ', ' if not loop.last }}{% endfor %}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+    <fieldset class="pick">
+      <legend>Fits</legend>
+      {% for key, label in STYLE_FITS.items() %}
+      <label><input type="checkbox" name="fits" value="{{ key }}"{% if key in b.fits %} checked{% endif %}><span>{{ label }}</span></label>
+      {% endfor %}
+    </fieldset>
+    <fieldset class="pick">
+      <legend>Price feeling</legend>
+      <label><input type="radio" name="price" value=""{% if not b.price %} checked{% endif %}><span>Any</span></label>
+      {% for key, label in PRICE_FEELINGS.items() %}
+      <label><input type="radio" name="price" value="{{ key }}"{% if b.price == key %} checked{% endif %}><span>{{ label }}</span></label>
+      {% endfor %}
+    </fieldset>
+    <label class="field"><span>Not wanted <small>(single words, separated by commas, e.g. “logo, leather”)</small></span>
+      <input type="text" name="not_wanted" value="{{ b.not_wanted|join(', ') }}" autocapitalize="off"></label>
+    {# The stores are never the model's choice: they are ranked here from the brief's styles and price feeling by
+       each store's lines in config/stores.toml, among the stores ticked on the Stores tab. #}
+    <p class="muted small" data-brief-stores>{% if brief_stores %}Stores that suit this brief, best first: {% for s in brief_stores %}{{ s.label }}{{ ' (no products yet)' if s.empty }}{{ ', ' if not loop.last }}{% endfor %}. Where a piece has products that fit the brief, these stores' products count for more.{% else %}None of your stores stands out for this brief, so it is the products' own names, fits and colours that count.{% endif %}</p>
+    <p class="brief-acts">
+      <button class="btn small" name="do" value="use">{{ 'Use this brief' if chat.draft else 'Save brief' }}</button>
+      {% if brief_in_use %}<button class="link danger" name="do" value="remove">Remove brief</button>{% endif %}
+    </p>
+  </form>
+  {% endif %}
+  {% if chat_on and chat.turns %}
+  <form method="post" action="{{ url_for('profile_style_brief') }}">{{ csrf_field() }}
+    <button class="link" name="do" value="forget">Start again: delete this conversation</button>
+  </form>
+  {% endif %}
+</div>

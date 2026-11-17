@@ -31,6 +31,7 @@ from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
 from wardrobe.app import PHOTO_CONSENT, eur
 
+from . import having
 from . import test_production as production
 from .test_app import HX, AppCase
 from .test_production import PASSWORD, ProductionCase
@@ -187,6 +188,10 @@ class PriceLevels(AppCase):
 class BestForBudget(AppCase):
     """The sixth choice: not a price level but the whole wardrobe, fitted to the budget."""
 
+    def setUp(self):
+        super().setUp()
+        having.the_whole_plan()     # the budget is for his wardrobe: here it holds every piece, and he gave a budget
+
     def fitted(self, budget, threshold=60):
         profile_mod.save({**profile_mod.load(), "budget": budget})
         self.set_mode("budget", threshold)
@@ -300,12 +305,12 @@ class Viewer(AppCase):
         self.assertIn('<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>', lead)
         self.post("/outfits/save", key=some_outfits(1)[0].key)
         saved = self.client.get("/outfits?occasion=saved").data.decode()
-        self.assertIn("Your saved outfits, as they were when you saved them. “Changed” marks a piece your wardrobe "
-                      "now fills with something else.", saved)
-        self.assertNotIn("by-touch", saved, "under Saved the line says what saved outfits are, in the words above only")
+        self.assertIn("The outfits you said yes to, as they were when you added them. “Changed” marks a piece your "
+                      "wardrobe now fills with something else.", saved)
+        self.assertNotIn("by-touch", saved, "under My outfits the line says what they are, in the words above only")
 
     def test_the_chip_that_is_on_is_marked_and_the_others_are_one_group(self):
-        for occasion, name in (("all", "All"), ("office", "Office"), ("everyday", "Everyday"), ("saved", "Saved")):
+        for occasion, name in (("all", "All"), ("office", "Office"), ("everyday", "Everyday"), ("saved", "My outfits")):
             page = self.client.get(f"/outfits?occasion={occasion}").data.decode()
             self.assertIn('<div class="chips" role="group" aria-label="Which outfits">', page)
             marked = re.findall(r'<a class="chip-link( on)?" href="[^"]*"( aria-current="page")?>(.*?)</a>', page, re.S)
@@ -327,9 +332,11 @@ class Viewer(AppCase):
             if occasion != "all":
                 self.assertNotIn("Smart casual", [title for title, _ in titles], f"under {occasion} a title says only 'Smart casual'")
 
-    def test_buy_this_outfit_is_the_main_button_and_product_names_are_marked_german(self):
+    def test_add_to_my_wardrobe_is_the_main_button_with_buy_this_outfit_and_product_names_are_marked_german(self):
+        # The yes is the one filled button of an outfit he has not answered; "Buy this outfit" is there, outlined.
         page = self.client.get("/outfits").data.decode()
-        self.assertEqual(len(re.findall(r'<a class="btn" href="/outfits/buy\?at=[^"]+">Buy this outfit</a>', page)), 12)
+        self.assertEqual(len(re.findall(r'<button class="btn yes" id="save-\w+">', page)), 12)
+        self.assertEqual(len(re.findall(r'<a class="btn ghost" href="/outfits/buy\?at=[^"]+">Buy this outfit</a>', page)), 12)
         for p in outfits.snapshot(some_outfits(1)[0]):
             if not p["owned"]:
                 self.assertIn(f'<span lang="de">{escape(p["name"])}</span>', page, "the store's own words, in German")
@@ -346,7 +353,8 @@ class Viewer(AppCase):
         self.assertIn(others[0].data["name"], html)
         self.assertIn(f"Leave the {coat.view.garment.label.lower()} off", html)
         self.assertIn("Open at", html)
-        self.assertRegex(html, r"In \d+ of the \d+ outfits your pieces make")
+        self.assertRegex(html, r"Not in your wardrobe yet: it joins with the first outfit you add that wears it.\s+"
+                               r"It could be worn in \d+ of the \d+ outfits your plan makes\.")
 
         gone = self.client.get("/outfits/piece", query_string={"at": "no~such~outfit", "slot": "x"}, headers=HX)
         self.assertEqual(gone.status_code, 409)
@@ -409,6 +417,7 @@ class Viewer(AppCase):
         self.assertEqual(self.client.get("/outfits/buy", query_string={"at": "nope"}).status_code, 404)
 
     def test_a_stores_pages_open_one_by_one_from_a_plain_link(self):
+        having.the_whole_plan()         # the shopping list is of his wardrobe: here, every piece of the plan
         # "Open all 2 at COS" opened one tab and lost the rest: a browser allows a site one new tab per tap. The
         # button under a store is now an ordinary link to that store's first product page (app.js moves it on to
         # the next after each tap), which no pop-up blocker holds back and which works without JavaScript.
@@ -493,7 +502,9 @@ class Viewer(AppCase):
         page = self.client.get("/outfits?occasion=saved").data.decode()
         self.assertIn(f'id="outfit-{outfit.key}"', page)
         self.assertIn("1 / 1", page)
-        self.assertNotIn("Buy this outfit", page)       # a saved outfit is a snapshot, not today's selection
+        # It is shown as it was when he added it; the same pieces with today's products are one tap away, to buy.
+        self.assertIn(f'<a class="btn" href="/outfits/buy?at={outfit.sig}">Buy this outfit</a>', page)
+        self.assertIn(f'<a href="/outfits?at={outfit.sig}">See it with today\'s products</a>', page)
 
 
 # ── a change made from an outfit, said in words, with Undo ───────────────────
@@ -541,6 +552,7 @@ class SaidWithUndo(AppCase):
         return self.client.post(form.group(1), data=dict(re.findall(r'name="(\w+)" value="([^"]*)"', form.group(2))))
 
     def test_choose_says_the_piece_the_product_its_price_and_the_old_price_and_undo_makes_it_automatic_again(self):
+        having.the_whole_plan()         # the piece is in his wardrobe, so its card is on the Wardrobe page
         outfit, sid, before, other = self.piece_with_options()
         self.assertEqual(self.view(sid).state, "auto")
         sent, where = self.choose(outfit, sid, other)
@@ -565,6 +577,7 @@ class SaidWithUndo(AppCase):
         self.assertIn('<button id="lock-%s" class="act" aria-pressed="false"' % sid, self.client.get("/").data.decode())
 
     def test_undo_puts_back_a_locked_choice_locked(self):
+        having.the_whole_plan()         # the piece is in his wardrobe, so its card is on the Wardrobe page
         outfit, sid, before, other = self.piece_with_options()
         self.post(f"/slot/{sid}/lock")                      # "Lock this choice" on the Wardrobe page
         self.assertEqual((self.view(sid).state, self.view(sid).chosen.id), ("locked", before.id))
@@ -844,7 +857,7 @@ class PicturesOff(AppCase):
                              [("index", "looks_made_from_front"), ("index", "sqlite_autoindex_looks_made_from_1"),
                               ("table", "looks_made_from")])
             self.assertEqual(con.execute("SELECT key, file FROM looks").fetchall(), [("k1", "k1.jpg")], "the pictures stay")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 8)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], db.SCHEMA_VERSION)
 
     def test_a_database_from_before_the_pictures_gains_their_tables(self):
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
@@ -1279,7 +1292,9 @@ class Pictures(WithPictures, AppCase):
         self.post("/outfits/look", key=outfit.key)
         self.assertEqual(len(self.drawn), 1)
         self.assertEqual(self.client.get("/outfits?occasion=saved").data.decode().count("look-pic"), 1)
-        self.assertEqual(self.client.get("/outfits").data.decode().count("look-pic"), 1)
+        # He answered it, so it is not among the outfits on offer; "See it with today's products" shows it there.
+        self.assertEqual(self.client.get("/outfits").data.decode().count("look-pic"), 0)
+        self.assertEqual(self.client.get(f"/outfits?at={outfit.sig}").data.decode().count("look-pic"), 1)
 
     def test_the_limit_is_checked_and_counted_in_one_step(self):
         since = looks.time.time() - 3600
@@ -1477,6 +1492,119 @@ class Photos(WithPictures, AppCase):
         self.assertEqual(len(self.drawn), 1, "nothing more is drawn until it is tapped")
         self.assertEqual(self.client.get("/outfits").data.decode().count("More photos"), 1, "only under a front picture that is there")
 
+    def test_more_photos_says_how_many_pictures_are_really_left_today(self):
+        self.with_rules(per_day=4)
+        outfit = some_outfits(1)[0]
+        front = self.ask(outfit)                                    # one of the day's four: three are left
+        note = html_mod.unescape(re.search(r'<span class="shots-note" id="more-said-\w+">([^<]+)</span>', front).group(1))
+        self.assertEqual(note, "Only 3 of the 5: 3 pictures left today")
+        self.assertNotIn("5 pictures", note)
+        self.assertIn(">More photos</button>", front)
+        self.assertEqual(looks.left(), 3)
+        row = self.more(outfit)
+        self.assertEqual([shows for _, _, shows in self.cells(row)], ["picture"] * 4 + ["plus"] * 2, "three were drawn")
+        self.assertEqual((len(self.drawn), looks.left()), (4, 0))
+
+    def test_with_no_pictures_left_today_more_photos_says_so_and_has_no_button(self):
+        self.with_rules(per_day=1)
+        outfit = some_outfits(1)[0]
+        front = self.ask(outfit)
+        self.assertIn('<span class="shots-note" id="more-said-%s">No pictures left today: more tomorrow</span>' % outfit.key, front)
+        self.assertNotIn(">More photos</button>", front, "a button that could draw nothing")
+        self.assertEqual(self.cells(front), [("front", "true", "picture")])
+
+    def test_why_more_photos_stopped_part_way_stays_until_ok_is_tapped(self):
+        self.with_rules(per_day=3)
+        outfit = some_outfits(1)[0]
+        self.ask(outfit)
+        why = "Today's pictures are used up."
+        row = html_mod.unescape(self.more(outfit))
+        self.assertIn(why, row)
+        self.assertEqual([shows for _, _, shows in self.cells(row)], ["picture"] * 3 + ["plus"] * 3)
+        # The row asks again by itself while pictures arrive, the box is replaced when a small picture is tapped,
+        # and the page may be reloaded: the reason is still there each time.
+        asked_again = html_mod.unescape(self.client.get(f"/outfits/photos?outfit={outfit.key}").data.decode())
+        tapped = html_mod.unescape(self.ask(outfit, shot="walking"))
+        page = html_mod.unescape(self.client.get("/outfits").data.decode())
+        for where, shown in (("the row asking again", asked_again), ("a small picture tapped", tapped), ("the page reloaded", page)):
+            self.assertEqual(shown.count(why), 1, where)
+        ok = re.search(r'<form class="shots-said" method="post" action="/outfits/look"[^>]*hx-target="closest .shots"[^>]*>(.*?)</form>',
+                       asked_again, re.S)
+        self.assertIsNotNone(ok, "no way to put the reason away")
+        self.assertIn('aria-label="OK: hide this message">OK</button>', ok.group(1))
+        sent = dict(re.findall(r'name="(\w+)" value="([^"]*)"', ok.group(1)))
+        self.assertEqual((sent["key"], sent["read"]), (outfit.key, "1"))
+        gone = html_mod.unescape(self.post("/outfits/look", **sent).data.decode())
+        self.assertNotIn(why, gone)
+        self.assertEqual([shows for _, _, shows in self.cells(gone)], ["picture"] * 3 + ["plus"] * 3, "the row is as it was")
+        self.assertNotIn(why, html_mod.unescape(self.client.get("/outfits").data.decode()), "and it stays away")
+        self.assertEqual(len(self.drawn), 3, "OK draws nothing")
+        # Without JavaScript the same: the reason is on the page it comes back to, once, under the row.
+        other = some_outfits(2)[1]
+        self.with_rules(per_day=5)
+        self.ask(other)
+        self.client.post("/outfits/look", data={"key": other.key, "more": "1", "shown": "front"})
+        page = html_mod.unescape(self.client.get("/outfits").data.decode())
+        self.assertEqual(page.count(why), 1)
+        self.assertLess(page.index(f'id="shots-{other.key}"'), page.index(why))
+
+    def test_draw_again_on_the_front_picture_says_first_that_the_other_photos_go(self):
+        outfit = some_outfits(1)[0]
+        question = ("Draw the front picture again? The other 5 photos of this outfit are made from it, so they will "
+                    "be removed. “More photos” draws them again.")
+        self.ask(outfit)
+        # The box as it is on the page right after "More photos" (which answers only the row): it knows of no other
+        # photos, and its "Draw again" sends what it always sends. The server asks first all the same.
+        box = self.ask(outfit)
+        self.assertNotIn('class="look-ask"', box)
+        self.assertNotIn("hx-confirm", box, "not the browser's own question, which only JavaScript can ask")
+        self.more(outfit)
+        self.time_passes()
+        with mock.patch.object(looks.time, "time", lambda: 2_000_000_000.0):   # a later second: a new file name
+            asked = html_mod.unescape(self.ask(outfit, again="1"))
+            self.assertIn(question, asked)
+            self.assertIn('<input type="hidden" name="sure" value="1">', asked)
+            self.assertIn('<input type="hidden" name="again" value="1">', asked)
+            self.assertIn(f'<button class="btn small" aria-describedby="ask-{outfit.key}">Draw again</button>', asked)
+            self.assertIn('<button class="btn ghost small" name="keep" value="1">Keep them</button>', asked)
+            self.assertEqual(len(self.drawn), 6, "nothing is drawn before he answers")
+            # Only the question is answered, into its own place: the picture above it is not sent again.
+            self.assertNotIn("look-pic", asked)
+            answer = self.post("/outfits/look", key=outfit.key, again="1")
+            self.assertEqual((answer.headers["HX-Retarget"], answer.headers["HX-Reswap"]), (f"#ask-at-{outfit.key}", "innerHTML"))
+            # "Keep them": the question goes, everything as it was.
+            kept = self.post("/outfits/look", key=outfit.key, sure="1", keep="1")
+            self.assertEqual((kept.data, kept.headers["HX-Retarget"]), (b"", f"#ask-at-{outfit.key}"))
+            box = self.ask(outfit)
+            self.assertIn(f'<div class="look-ask-at" id="ask-at-{outfit.key}"></div>', box)
+            self.assertEqual((len(self.drawn), len(self.cells(box))), (6, 6), "and nothing was removed")
+            # Another picture drawn again takes nothing with it: it is not asked about.
+            self.assertNotIn('class="look-ask"', self.ask(outfit, "street", again="1"))
+            self.assertEqual(len(self.drawn), 7)
+            # Without JavaScript: the page it comes back to asks, under that outfit's picture, and nowhere else.
+            back = self.client.post("/outfits/look", data={"key": outfit.key, "again": "1"})
+            self.assertTrue(back.headers["Location"].endswith(f"/outfits?ask=again&ask_of={outfit.key}#outfit-{outfit.key}"),
+                            back.headers["Location"])
+            confirm = html_mod.unescape(self.client.get(back.headers["Location"]).data.decode())
+            self.assertEqual((confirm.count(question), confirm.count('class="look-ask"')), (1, 1))
+            self.assertNotIn(question, html_mod.unescape(self.client.get("/outfits").data.decode()))
+            self.assertEqual(len(self.drawn), 7, "the page that asks draws nothing")
+            # … "Keep them" there leads back to the outfit, the question gone.
+            kept = self.client.post("/outfits/look", data={"key": outfit.key, "again": "1", "sure": "1", "keep": "1"},
+                                    headers={"Referer": "http://localhost" + back.headers["Location"]})
+            self.assertTrue(kept.headers["Location"].endswith(f"/outfits#outfit-{outfit.key}"), kept.headers["Location"])
+            self.assertEqual(len(self.drawn), 7)
+            # "Draw again" under the question: what it says is what happens. The new front picture takes the five
+            # made from the old one with it.
+            self.ask(outfit, again="1", sure="1")
+        self.assertEqual(len(self.drawn), 8)
+        self.assertEqual(self.cells(self.ask(outfit)), [("front", "true", "picture")])
+        # A front picture with no other photos is drawn again at once.
+        self.time_passes()
+        with mock.patch.object(looks.time, "time", lambda: 2_000_000_100.0):
+            self.assertNotIn('class="look-ask"', self.ask(outfit, again="1"))
+        self.assertEqual(len(self.drawn), 9)
+
     def test_more_photos_makes_five_pictures_from_the_front_picture(self):
         outfit = some_outfits(1)[0]
         self.ask(outfit)
@@ -1602,7 +1730,7 @@ class Photos(WithPictures, AppCase):
         self.more(outfit)
         self.assertEqual(len(self.pictures_on_disk()), 6)
         with mock.patch.object(looks.time, "time", lambda: 2_000_000_000.0):   # a later second: a new file name
-            again = self.ask(outfit, again="1")
+            again = self.ask(outfit, again="1", sure="1")           # "Draw again", and again under its question
         self.assertEqual(len(self.drawn), 7)
         self.assertEqual(self.drawn[6]["references"], [])
         self.assertEqual(len(self.pictures_on_disk()), 1, "the five showed the man of the old front picture: they are deleted")
@@ -1619,14 +1747,23 @@ class Photos(WithPictures, AppCase):
         self.assertEqual(len(self.drawn), 3, "the front picture and two more: the day's three")
         self.assertEqual([what for _, _, what in self.cells(row)], ["picture"] * 3 + ["plus"] * 3)
         self.assertIn('<p class="look-msg" role="status">Today&#39;s pictures are used up.', row)
-        self.assertIn('aria-label="Draw the Street photo: 1 picture of the day&#39;s 3"', row)
-        refused = self.ask(outfit, "street")                         # a cell without a picture, tapped
-        self.assertIn("pictures are used up", refused)
+        # With none left today a cell not drawn says so to a screen reader, not what drawing it would cost.
+        self.assertIn('aria-label="Street: not drawn. No pictures left today: more tomorrow"', row)
+        self.assertNotIn("Draw the Street photo", row)
+        # A cell without a picture, tapped: the front picture stays large (not the pieces' photos under a band),
+        # and the reason is said once, under the row.
+        refused = html_mod.unescape(self.ask(outfit, "street"))
+        self.assertEqual(refused.count("Today's pictures are used up."), 1)
+        self.assertIn('<div class="look-pic">', refused)
+        self.assertNotIn("look-bar band", refused)
+        self.assertLess(refused.index('class="shots-row"'), refused.index("Today's pictures are used up."))
         self.assertEqual((len(self.drawn), db.look_requests(0)), (3, 3))
         self.with_rules(per_day=4)                                   # tomorrow
         street = self.ask(outfit, "street")
         self.assertIn('<div class="look-pic more">', street)
         self.assertEqual([what for _, _, what in self.cells(street)], ["picture"] * 4 + ["plus"] * 2)
+        self.with_rules(per_day=5)                                   # one more left: a cell says what it costs
+        self.assertIn('aria-label="Draw the Café photo: 1 picture of the day&#39;s 5"', self.ask(outfit))
         self.assertEqual(len(self.drawn), 4)
 
     def test_a_further_picture_asked_for_before_the_front_one_asks_for_the_front_one(self):
@@ -1754,6 +1891,145 @@ class Photos(WithPictures, AppCase):
         between = refused[refused.index("</form>", line) + len("</form>"):message]
         self.assertEqual(between.strip(), "", "something stands between the line with Draw again and the reason")
         self.assertNotIn("More photos", refused.replace("More photos</button>", "", 1), "offered once")
+
+
+class PhotosOfHisOwnPhoto(WithPictures, AppCase):
+    """An outfit's further photos are made from the AI picture of the customer, which goes to the image service
+    again. The box he ticks when he adds his photo says so since 15 Nov 2026 (looks.SENT_AGAIN_SAID). Whoever added
+    his photo before is asked once, under the picture, before the first such photo is made."""
+
+    ASKS = ("These photos are made from the AI picture of you, which goes to OpenAI again. Is that OK from now on, "
+            "for all your outfits?")
+
+    def setUp(self):
+        super().setUp()
+        self.switch_on()
+        self.client.post("/profile/photo", data={"photo": (io.BytesIO(PHOTO), "me.jpg"), "agree": "on"},
+                         content_type="multipart/form-data")
+        self.outfit, self.another = some_outfits(2)
+
+    def under_the_older_words(self):
+        db.set_setting("photo_consent", "2026-11-12")      # as stored with a photo added before 15 Nov 2026
+
+    def ask(self, outfit, **fields):
+        return self.post("/outfits/look", key=outfit.key, **fields)
+
+    def test_a_photo_added_under_the_older_words_is_asked_about_once_before_more_photos(self):
+        self.under_the_older_words()
+        self.ask(self.outfit)                                       # the front picture: his photo goes, as agreed
+        self.assertEqual(self.drawn[0]["photo"], person.tidy(PHOTO)[0])
+        answer = self.ask(self.outfit, more="1", shown="front")     # "More photos"
+        asked = html_mod.unescape(answer.data.decode())
+        self.assertEqual(len(self.drawn), 1, "nothing is sent before he answers")
+        self.assertEqual(asked.count(self.ASKS), 1)
+        self.assertEqual((answer.headers["HX-Retarget"], answer.headers["HX-Reswap"]),
+                         (f"#ask-at-{self.outfit.key}", "innerHTML"), "only the question is put on the page")
+        for field in ('name="more" value="1"', 'name="agree" value="1"', 'name="shown" value="front"'):
+            self.assertIn(f'<input type="hidden" {field}>', asked)
+        self.assertIn(f'<button class="btn small" aria-describedby="ask-{self.outfit.key}">Yes, draw them</button>', asked)
+        self.assertIn('<button class="btn ghost small" name="keep" value="1">Not now</button>', asked)
+        self.assertIn(f'hx-target="#shots-{self.outfit.key}" hx-swap="outerHTML"', asked, "the answer yes brings the row")
+        # "Not now": the question goes, nothing is sent, nothing is kept. He is asked again the next time.
+        gone = self.ask(self.outfit, more="1", shown="front", agree="1", keep="1")
+        self.assertEqual((gone.data, gone.headers["HX-Retarget"]), (b"", f"#ask-at-{self.outfit.key}"))
+        self.assertEqual((len(self.drawn), db.get_setting("more_photos_consent")), (1, None))
+        self.assertIn(self.ASKS, html_mod.unescape(self.ask(self.outfit, more="1", shown="front").data.decode()))
+        # "Yes, draw them": the five are made from the picture of him (not from his photo again), and his yes is
+        # kept, with the photo it is about, in his copy of his data too.
+        row = self.ask(self.outfit, more="1", shown="front", agree="1").data.decode()
+        self.assertEqual(len(self.drawn), 6)
+        front = (looks.folder() / looks.gallery(outfits.snapshot(self.outfit))[0].look.file).read_bytes()
+        for sent in self.drawn[1:]:
+            self.assertEqual((sent["photo"], sent["references"]), (None, [front]))
+        self.assertIn(f'<div class="shots" id="shots-{self.outfit.key}"', row)
+        self.assertIn(f'<div class="look-ask-at" id="ask-at-{self.outfit.key}" hx-swap-oob="true"></div>', row,
+                      "the question goes with the answer")
+        kept = db.export_user()["settings"]["more_photos_consent"]
+        self.assertEqual((kept["words"], kept["photo_added"]), ("2026-11-15", db.get_setting("photo_added")))
+        # Once: the next outfit's photos are drawn without a question.
+        self.ask(self.another)
+        again = self.ask(self.another, more="1", shown="front").data.decode()
+        self.assertNotIn("look-ask", again)
+        self.assertEqual(len(self.drawn), 12)
+
+    def test_a_photo_added_under_the_words_that_say_so_is_not_asked_again(self):
+        self.assertEqual(db.get_setting("photo_consent"), PHOTO_CONSENT)
+        self.assertGreaterEqual(PHOTO_CONSENT, looks.SENT_AGAIN_SAID)
+        self.ask(self.outfit)
+        row = self.ask(self.outfit, more="1", shown="front").data.decode()
+        self.assertNotIn("look-ask", row)
+        self.assertEqual(len(self.drawn), 6)
+        self.assertIsNone(db.get_setting("more_photos_consent"), "the box he ticked with the photo is his yes")
+
+    def test_a_yes_is_for_the_photo_it_was_given_for(self):
+        self.under_the_older_words()
+        self.ask(self.outfit)
+        self.ask(self.outfit, more="1", shown="front", agree="1")
+        self.assertFalse(looks.needs_ok(outfits.snapshot(self.outfit)))
+        # The same yes beside another photo's date (a photo put back by hand, say) does not count for that photo.
+        db.set_setting("photo_added", "2026-11-01T10:00:00+01:00")
+        self.assertTrue(looks.needs_ok(outfits.snapshot(self.outfit)))
+        # A photo added now is added under the words that say it: nothing to ask.
+        self.client.post("/profile/photo", data={"photo": (io.BytesIO(OTHER_PHOTO), "me.png"), "agree": "on"},
+                         content_type="multipart/form-data")
+        self.ask(self.outfit)
+        self.assertFalse(looks.needs_ok(outfits.snapshot(self.outfit)))
+
+    def test_the_model_from_the_menu_is_never_asked_about(self):
+        self.under_the_older_words()
+        self.client.post("/profile/photo", data={"remove": "1"})
+        self.ask(self.outfit)
+        self.assertIsNone(self.drawn[0]["photo"])
+        self.assertNotIn("look-ask", self.ask(self.outfit, more="1", shown="front").data.decode())
+        self.assertEqual(len(self.drawn), 6)
+
+    def test_one_photo_drawn_or_drawn_again_asks_the_same_question_first(self):
+        one = self.ASKS.replace("These photos are", "This photo is")
+        self.with_rules(per_day=3)
+        self.ask(self.outfit)
+        self.ask(self.outfit, more="1", shown="front")              # two of the five, then the day's pictures are used up
+        self.assertEqual(len(self.drawn), 3)
+        self.under_the_older_words()                                # (as for a photo and photos from before 15 Nov)
+        self.with_rules(per_day=30)
+        # A cell not drawn yet, tapped: asked first; "Yes, draw it" sends that picture's name with the yes.
+        answer = self.ask(self.outfit, shot="street")
+        asked = html_mod.unescape(answer.data.decode())
+        self.assertEqual((asked.count(one), len(self.drawn)), (1, 3))
+        self.assertEqual(answer.headers["HX-Retarget"], f"#ask-at-{self.outfit.key}")
+        self.assertIn('<input type="hidden" name="shot" value="street">', asked)
+        self.assertNotIn('name="again"', asked)
+        self.assertNotIn("hx-target", asked, "the answer yes brings the whole picture box, as the tap would have")
+        self.assertIn(">Yes, draw it</button>", asked)
+        # A picture that is there, tapped, is only shown: nothing is sent, nothing is asked.
+        self.assertNotIn("look-ask", self.ask(self.outfit, shot="walking").data.decode().replace("look-ask-at", ""))
+        # "Draw again" on it would send the picture of him again: asked first, and the yes draws it again.
+        again = html_mod.unescape(self.ask(self.outfit, shot="walking", again="1").data.decode())
+        self.assertEqual(again.count(one), 1)
+        self.assertIn('<input type="hidden" name="shot" value="walking"><input type="hidden" name="again" value="1">', again)
+        self.assertEqual(len(self.drawn), 3)
+        box = self.ask(self.outfit, shot="street", agree="1").data.decode()
+        self.assertEqual(len(self.drawn), 4)
+        self.assertIn('<div class="look-pic more">', box)
+        self.assertIsNotNone(db.get_setting("more_photos_consent"))
+        with mock.patch.object(looks.time, "time", lambda: 2_000_000_000.0):   # a later second: a new file name
+            self.assertNotIn(one, html_mod.unescape(self.ask(self.outfit, shot="walking", again="1").data.decode()))
+        self.assertEqual(len(self.drawn), 5, "he said yes once: not asked again")
+
+    def test_without_javascript_the_page_comes_back_with_the_question(self):
+        self.under_the_older_words()
+        self.ask(self.outfit)
+        back = self.client.post("/outfits/look", data={"key": self.outfit.key, "more": "1", "shown": "front"})
+        self.assertTrue(back.headers["Location"].endswith(
+            f"/outfits?ask=more&ask_of={self.outfit.key}#outfit-{self.outfit.key}"), back.headers["Location"])
+        page = html_mod.unescape(self.client.get(back.headers["Location"]).data.decode())
+        self.assertEqual((page.count(self.ASKS), page.count('class="look-ask"'), len(self.drawn)), (1, 1, 1))
+        self.assertNotIn(self.ASKS, html_mod.unescape(self.client.get("/outfits").data.decode()))
+        done = self.client.post("/outfits/look", data={"key": self.outfit.key, "more": "1", "shown": "front", "agree": "1"})
+        self.assertTrue(done.headers["Location"].endswith(f"/outfits#outfit-{self.outfit.key}"), done.headers["Location"])
+        self.assertEqual(len(self.drawn), 6)
+        self.assertNotIn(self.ASKS, html_mod.unescape(self.client.get("/outfits").data.decode()))
+        # The address of the question, opened again after his yes: it is no longer true for him, and is not asked.
+        self.assertNotIn(self.ASKS, html_mod.unescape(self.client.get(back.headers["Location"]).data.decode()))
 
 
 class TheModel(WithPictures, AppCase):
@@ -1903,7 +2179,11 @@ class TheModel(WithPictures, AppCase):
         self.upload(agree="on")
         self.assertEqual(db.get_setting("photo_consent"), PHOTO_CONSENT)
         self.assertIsNone(videos.service(), "videos are off here: the box's words say nothing of them")
-        self.assertEqual(PHOTO_CONSENT, "2026-11-12", "the date of the box's words on Profile (with videos: test_videos)")
+        # The words changed on 15 Nov 2026 (the AI picture of him goes to the service again for "More photos"), so
+        # their date did: a photo added from then on is known to have been added under the new words.
+        self.assertEqual(PHOTO_CONSENT, "2026-11-15", "the date of the box's words on Profile (the videos' words: test_videos)")
+        self.assertGreater(PHOTO_CONSENT, "2026-11-12", "the date the words had before “More photos” was in them")
+        self.assertIn("(“More photos”) are made from that picture of you", self.parts()[2], "the words the date is of")
         self.assertIsNotNone(db.get_setting("photo_added"), "beside when the photo was added")
         self.assertEqual(db.export_user()["settings"]["photo_consent"], PHOTO_CONSENT, "in his copy of his data too")
 
@@ -2405,7 +2685,8 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         key = self.outfit_keys(ada)[0]
         front = self.ask(ada, key).data.decode()
         self.assertIn("look-pic", front)
-        self.assertIn("5 pictures of your 3 a day", front, "the limit is said beside More photos, before the tap")
+        self.assertNotIn("5 pictures of your 3 a day", front, "five were promised of three")
+        self.assertIn("Only 2 of the 5: 2 pictures left today", front, "what is really left is said beside More photos, before the tap")
         row = self.ask(ada, key, more="1", shown="front").data.decode()
         self.assertIn("That&#39;s your 3 pictures for today. More tomorrow.", row)
         self.assertNotIn("config/", row)
@@ -2571,7 +2852,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         visitor = self.app.test_client()
         page = visitor.get("/").get_data(as_text=True)
         self.assertIn("every outfit they make, worn by a model — or by you.", words(page))
-        self.assertIn("See every outfit on a model", words(page))
+        self.assertIn("See the outfits one at a time, each drawn by AI on a model.", words(page))    # the second step
         self.assertIn("price level", words(page))
         self.assertIn("every outfit shown on a model", description(page))
         self.with_rules(photos=False)

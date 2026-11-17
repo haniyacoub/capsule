@@ -2,14 +2,20 @@
    `photos`: the outfit's pictures, the front one first; `shot`: the one shown large; `key`: the outfit.
 
    Until the front picture is there the row is empty (it keeps its height, so nothing moves when it fills). Then
-   it shows the front picture, small, and "More photos", with what that costs said beside it before it is tapped:
-   "5 pictures of your 30 a day". Tapping it starts the other pictures, all made from the front picture; the row
+   it shows the front picture, small (48 by 64px, its name under it: Front, Walking, Turned, Street, Café, Library;
+   narrower where six of those do not fit, and on a short phone 30 by 40px without the name, which a screen reader
+   still hears: app.css, .shots),
+   and "More photos", with what that costs said beside it before it is tapped: "5 pictures of your 30 a day", or,
+   with fewer left today, how many will really be drawn (looks.more_words); with none left there is no button.
+   Tapping it starts the other pictures, all made from the front picture; the row
    then has a cell for each, which shows a spinner until its picture arrives (the row asks every few seconds, on
    its own, so the large picture is not touched). Tapping a small picture shows it large; the one shown is pressed.
-   A cell whose picture was not drawn (the day's pictures ran out, or it failed) is a button that draws that one.
+   A cell whose picture was not drawn (the day's pictures ran out, or it failed) is a button that draws that one;
+   if it cannot be drawn now, the picture shown large stays and the reason is said under the row (app.outfits_look).
    Each button keeps its id when the row or the box is replaced, so keyboard focus stays where it was.
 
-   `said`: why "More photos" did not start every picture, under the row. #}
+   `said`: why "More photos" did not start every picture, under the row. It stays there, through every later
+   answer and a reload (app.photos_said keeps it), while a picture is still missing, until "OK" is tapped. #}
 {% set front = photos[0].look if photos else none %}
 {% set ns = namespace(working=false, started=false, todo=0) %}
 {% for p in photos[1:] %}
@@ -17,6 +23,9 @@
   {% if p.look and p.look.status == 'working' %}{% set ns.working = true %}{% endif %}
   {% if not p.look or p.look.status not in ('ready', 'working') %}{% set ns.todo = ns.todo + 1 %}{% endif %}
 {% endfor %}
+{# What drawing one more would cost, said to a screen reader on a cell not drawn: "1 picture of your 30 a day", or
+   that none are left today (looks.more_words). #}
+{% set one = more_words(1) if ns.todo and ns.started else '' %}
 {# While the picture shown large is itself being drawn, the whole box asks (the band in _look.html), not the row. #}
 {% set asks = ns.working and not (look and look.status == 'working') %}
 <div class="shots" id="shots-{{ key }}"{% if asks %} hx-get="{{ url_for('outfits_photos', outfit=key, shot=shot if shot != 'front' else None) }}" hx-trigger="load delay:3s" hx-target="this" hx-swap="outerHTML"{% endif %}>
@@ -28,10 +37,10 @@
       {% set state = p.look.status if p.look else '' %}
       <button id="shot-{{ key }}-{{ p.name }}" title="{{ p.label }}"
         {%- if p.name == shot %} type="button" aria-pressed="true"{% else %} name="shot" value="{{ p.name }}" aria-pressed="false"{% endif %}
-        {%- if state == 'ready' %} aria-label="{{ p.label }}"><img src="{{ url_for('look_image', name=p.look.file) }}" alt="" width="30" height="40" loading="lazy" decoding="async">
-        {%- elif state == 'working' %} aria-label="{{ p.label }}: being drawn"><span class="spin" aria-hidden="true"></span>
-        {%- else %} aria-label="Draw the {{ p.label }} photo: 1 picture {{ allowance }}"><span class="plus" aria-hidden="true">+</span>
-        {%- endif %}</button>
+        {%- if state == 'ready' %} aria-label="{{ p.label }}"><span class="shot-pic"><img src="{{ url_for('look_image', name=p.look.file) }}" alt="" width="48" height="64" loading="lazy" decoding="async"></span>
+        {%- elif state == 'working' %} aria-label="{{ p.label }}: being drawn"><span class="shot-pic"><span class="spin" aria-hidden="true"></span></span>
+        {%- else %} aria-label="{{ (p.label ~ ': not drawn. ' ~ one) if one.startswith('No pictures left') else ('Draw the ' ~ p.label ~ ' photo: ' ~ one) }}"><span class="shot-pic"><span class="plus" aria-hidden="true">+</span></span>
+        {%- endif %}<span class="shot-name" aria-hidden="true">{{ p.label }}</span></button>
       {% endif %}{% endfor %}
     </form>
     {% if ns.todo and not ns.started %}
@@ -39,11 +48,20 @@
       <input type="hidden" name="key" value="{{ key }}">
       <input type="hidden" name="more" value="1">
       <input type="hidden" name="shown" value="{{ shot }}">
-      <button class="btn ghost small" id="more-{{ key }}" aria-describedby="more-said-{{ key }}">More photos</button>
-      <span class="shots-note" id="more-said-{{ key }}">{{ ns.todo }} {{ 'picture' if ns.todo == 1 else 'pictures' }} {{ allowance }}</span>
+      {% set costs = more_words(ns.todo) %}
+      {% if not costs.startswith('No pictures left') %}<button class="btn ghost small" id="more-{{ key }}" aria-describedby="more-said-{{ key }}">More photos</button>{% endif %}
+      <span class="shots-note" id="more-said-{{ key }}">{{ costs }}</span>
     </form>
     {% endif %}
     {% endif %}
   </div>
-  {% if said %}<p class="look-msg" role="status">{{ said }}</p>{% endif %}
+  {% set why = (said or photos_said(key)) if ns.todo else '' %}
+  {% if why %}
+  <form class="shots-said" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-target="closest .shots" hx-swap="outerHTML">{{ csrf_field() }}
+    <input type="hidden" name="key" value="{{ key }}">
+    <input type="hidden" name="read" value="1">
+    <input type="hidden" name="shown" value="{{ shot }}">
+    <p class="look-msg" role="status">{{ why }} <button class="link" id="read-{{ key }}" aria-label="OK: hide this message">OK</button></p>
+  </form>
+  {% endif %}
 </div>
