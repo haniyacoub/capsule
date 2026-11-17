@@ -40,7 +40,9 @@ logs in again and lands on the outfits, puts a model together on Profile's chara
 in the middle that follows every height, build, skin and hair choice at once, by mouse, keyboard and links, on a phone,
 a computer and without JavaScript, and "Your model" drawn by AI there), uploads a photo, sees Profile ask before
 changes not saved would be lost, unticks a store on Profile's Stores tab (its pieces picked again, said in one line;
-the last store with products stays ticked, and the six with none yet are listed apart) and ticks it again, ticks a
+the last store with products stays ticked, and the six with none yet are listed apart) and ticks it again, sees a
+new customer go from the welcome's last step to the style chat by "Or describe your style in your own words" (what he
+ticked saved, the welcome over, the message field on the screen, no sum said to someone with an empty wardrobe), ticks a
 style and describes his style to the style chat (a stand-in answers, the keyboard stays in the message field and a
 screen reader hears the answer; the brief it suggests changes nothing until he presses "Use this brief"; then the
 outfits that are his style as a whole say so and the others say nothing, never "Street" on an Office outfit; what the
@@ -4936,33 +4938,46 @@ def run(base: str) -> None:
             context.close()
 
             # Shorter phones (360 x 740, 393 x 760: a phone with the browser's bars showing). The picture keeps its
-            # smallest width, 240px, and the row of small pictures is the small one (40px, no names), so that the row
-            # is whole above the tab bar and the outfit's name begins above it; at 393 x 760 the name and the price
-            # are whole above it. All as it was before the small pictures had names.
+            # smallest width (198px on a phone, where the bar with the two answers stands over the tab bar and takes
+            # 88px; 186px once the line over the outfits is two lines, as it is after his first yes: the picture
+            # gives up that line's room), and the row of small pictures is the small one (40px, no names), so that
+            # the row is whole above that bar and the outfit's name begins above it; at 393 x 760 the name and the
+            # price are whole above it. 'Add to my wardrobe' (where the heart was) is whole on the screen, above the
+            # tab bar. All as it was before the small pictures had names, and the same before and after his first yes.
             for width, height in ((360, 740), (393, 760)):
                 context, other = opened(width, height, True)
                 seen = other.evaluate("""() => {
                     const slide = document.querySelector('#reel .slide:first-child'), box = el => el.getBoundingClientRect();
                     return {picture: box(slide.querySelector('.look-pic')).width,
+                            lead: box(document.querySelector('p.lead')).height,
                             row: box(slide.querySelector('.shots')).bottom,
                             cells: Math.max(...[...slide.querySelectorAll('.shots-row button[aria-pressed]')].map(el => box(el).bottom)),
                             name: [box(slide.querySelector('.about-head h2')).top, box(slide.querySelector('.about-head h2')).bottom],
-                            price: box(slide.querySelector('.board-cost')).bottom, heart: box(slide.querySelector('.heart')).top,
+                            price: box(slide.querySelector('.board-cost')).bottom,
+                            yes: [box(document.querySelector('#dock .btn.yes')).top, box(document.querySelector('#dock .btn.yes')).bottom],
+                            answers: box(document.getElementById('dock')).top,
                             tabs: box(document.querySelector('nav.tabs')).top}; }""")
                 context.close()
                 where = f"at {width} x {height}"
-                assert seen["picture"] >= 240, f"{where} the picture is only {seen['picture']:.0f}px wide"
-                assert seen["row"] <= seen["tabs"] and seen["cells"] <= seen["tabs"], \
-                    f"{where} the small pictures are cut by the tab bar: {seen}"
-                assert seen["name"][0] < seen["tabs"] and seen["heart"] < seen["tabs"], \
-                    f"{where} the outfit's name and heart begin under the tab bar: {seen}"
+                least = 186 if seen["lead"] > 22 else 198       # the line over the outfits: two lines, or one
+                assert seen["picture"] >= least, f"{where} the picture is only {seen['picture']:.0f}px wide, under {least}px"
+                assert seen["answers"] <= seen["tabs"] + 1 and seen["answers"] <= seen["yes"][0] and seen["yes"][1] <= seen["tabs"], \
+                    f"{where} 'Add to my wardrobe' is not whole in its bar above the tab bar: {seen}"
+                assert seen["row"] <= seen["answers"] and seen["cells"] <= seen["answers"], \
+                    f"{where} the small pictures are cut by the bar with the two answers: {seen}"
+                assert seen["name"][0] < seen["answers"], f"{where} the outfit's name begins under the bar with the two answers: {seen}"
                 if height >= 760:
-                    assert seen["name"][1] <= seen["tabs"] and seen["price"] <= seen["tabs"], \
-                        f"{where} the outfit's name or price ends under the tab bar: {seen}"
+                    assert seen["name"][1] <= seen["answers"] and seen["price"] <= seen["answers"], \
+                        f"{where} the outfit's name or price ends under the bar with the two answers: {seen}"
 
             for path, where in (("/outfits", "390 x 664"), ("/outfits?at=no~such~outfit", "390 x 664 under a message")):
                 context, other = opened(390, 664, True, path)
                 seen = screen(other)
+                if "at=" not in path:
+                    # On this shortest screen the picture gives up nothing for a second line over the outfits: the
+                    # outfit's name is under the bar with the answers either way, and the picture keeps its 198px.
+                    wide = other.locator(f"{first} .look-pic").bounding_box()["width"]
+                    assert wide >= 198, f"at {where} the picture is only {wide:.0f}px wide"
                 assert seen["bottom"] <= seen["dock"] + 1 <= seen["tabs"] + 1, \
                     f"at {where} the picture ends at {seen['bottom']:.0f}px, under the bar with the answers at {seen['dock']:.0f}px"
                 if "at=" in path:
@@ -5484,6 +5499,96 @@ def run(base: str) -> None:
             finally:
                 db.remove_owner(EMAIL)
 
+        def the_welcome_leads_to_the_style_chat():
+            # Under the welcome's last step, "What you dress for", a plain line: "Or describe your style in your own
+            # words" (the style chat is on here; a stand-in answers). It reads as a link, is large enough to tap, and
+            # comes after "Show me outfits" and "Skip". Pressing it saves what he ticked, ends the welcome and opens
+            # Profile at the chat, its message field on the screen: on a phone, on a computer and with JavaScript
+            # off. Logging in later opens the outfits, not the welcome again. He has said yes to nothing, so when he
+            # then uses a brief the page speaks of the pieces his outfits are made from and of no sum, and the bar at
+            # the top still says his wardrobe is empty. Each customer is the step's own, deleted when it ends.
+            words = "Or describe your style in your own words"
+            for where, size, more in (("on a phone", (390, 844), {"is_mobile": True, "has_touch": True}),
+                                      ("on a computer", (1280, 860), {}),
+                                      ("without JavaScript", (390, 844), {"java_script_enabled": False})):
+                who = f"welcome-chat-{size[0]}-{'plain' if 'java_script_enabled' in more else 'js'}-" + EMAIL
+                context = browser.new_context(viewport={"width": size[0], "height": size[1]}, **more)
+                try:
+                    view = context.new_page()
+                    view.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                    view.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                            if r.status >= 400 and r.url.startswith(base) else None)
+                    view.goto(base + "/signup", wait_until="networkidle")
+                    view.fill("input[name=email]", who)
+                    view.fill("input[name=password]", PASSWORD)
+                    view.click("button:has-text('Create account')")
+                    view.wait_for_url(base + "/welcome")
+                    for step in (1, 2):
+                        assert not view.get_by_text(words).count(), f"{where}: the welcome's step {step} offers the style chat"
+                        view.click("button:has-text('Skip')")
+                        view.wait_for_load_state("networkidle")
+                    view.wait_for_url(base + "/welcome/3")
+                    line = view.get_by_role("button", name=words)
+                    assert line.count() == 1, f"{where}: the welcome's last step does not offer the style chat"
+                    seen = line.evaluate("""el => { const r = el.getBoundingClientRect(), style = getComputedStyle(el);
+                        const go = document.querySelector('.welcome-go').getBoundingClientRect();
+                        return {height: r.height, underlined: style.textDecorationLine.includes('underline'),
+                                plain: style.backgroundColor === 'rgba(0, 0, 0, 0)' && style.borderTopWidth === '0px',
+                                after: r.top >= go.bottom - 1, on_screen: r.top >= 0 && r.bottom <= innerHeight,
+                                inside: r.left >= 0 && r.right <= innerWidth, wide: document.documentElement.scrollWidth}; }""")
+                    assert seen["height"] >= 44, f"{where}: the line is {seen['height']:.0f}px high to tap"
+                    assert seen["underlined"] and seen["plain"], f"{where}: the line does not read as a plain link: {seen}"
+                    assert seen["after"] and seen["on_screen"] and seen["inside"] and seen["wide"] <= size[0], \
+                        f"{where}: the line is not under the two buttons, whole on the first screen: {seen}"
+                    assert "€" not in view.locator("body").inner_text(), f"{where}: a price on the welcome's last step"
+                    view.locator("label:has(input[name=use][value=office])").click()
+                    line.click()
+                    view.wait_for_load_state("networkidle")
+                    assert view.url == base + "/profile#style", f"{where}: the line leads to {view.url}"
+                    field = view.locator("#style-chat .chat-say textarea")
+                    expect(field).to_be_visible()
+                    if "java_script_enabled" not in more:
+                        expect(view.locator("#tab-you")).to_have_attribute("aria-selected", "true")
+                        motion_ended(view)
+                    at = field.evaluate("""el => { const r = el.getBoundingClientRect();
+                        const over = document.elementFromPoint((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+                        return {top: Math.round(r.top), bottom: Math.round(r.bottom), screen: innerHeight,
+                                reached: !!over && (over === el || el.contains(over))}; }""")
+                    assert 0 <= at["top"] and at["bottom"] <= at["screen"] and at["reached"], \
+                        f"{where}: the chat's message field is not on the screen he lands on, or something is over it: {at}"
+                    assert view.locator("input[name=use][value=office]").is_checked(), f"{where}: what he ticked in the welcome was not saved"
+                    bar = top_bar(view)["words"]
+                    assert bar.startswith("Your wardrobe: nothing yet"), f"{where}: the bar on Profile reads {bar!r}"
+                    if where == "on a phone":
+                        # He describes his style and uses the brief. Nothing is in his wardrobe: no sum is said.
+                        field.fill("street style, Berlin vibe")
+                        view.locator("#style-chat .chat-say button").tap()
+                        view.wait_for_selector("[data-brief=suggested]")
+                        with view.expect_navigation(wait_until="networkidle"):
+                            view.locator("button:has-text('Use this brief')").tap()
+                        said = view.locator("#style-chat [data-style-said]").inner_text().replace("\xa0", " ")
+                        assert re.fullmatch(r"Style brief saved\. Your brief changed \d+ of the pieces your outfits are made from\. "
+                                            r"Your wardrobe is as it was\. See your outfits", " ".join(said.split())), \
+                            f"a new customer who uses a brief is told: {said!r}"
+                        assert "€" not in said, f"a sum for a customer with nothing in his wardrobe: {said!r}"
+                        bar = top_bar(view)["words"]
+                        assert bar.startswith("Your wardrobe: nothing yet"), f"after the brief the bar reads {bar!r}"
+                    # The welcome is over: logging in again opens the outfits.
+                    again = browser.new_context(viewport={"width": size[0], "height": size[1]})
+                    try:
+                        back = again.new_page()
+                        back.goto(base + "/login", wait_until="networkidle")
+                        back.fill("input[name=email]", who)
+                        back.fill("input[name=password]", PASSWORD)
+                        back.click("button:has-text('Log in')")
+                        back.wait_for_load_state("networkidle")
+                        assert back.url == base + "/outfits", f"{where}: after the line, logging in leads to {back.url}"
+                    finally:
+                        again.close()
+                finally:
+                    context.close()
+                    delete_a_steps_customer(who)
+
         def the_style_chat():
             # Profile, "What do you dress for?": six styles to tick beside Everyday/Office/Both. Below, "Describe your
             # style": he writes in his own words, the assistant (a stand-in here) answers with one question back and a
@@ -5568,6 +5673,10 @@ def run(base: str) -> None:
                 phone.fill("input[name=email]", who)
                 phone.fill("input[name=password]", PASSWORD)
                 phone.click("button:has-text('Create account')")
+                # (Every piece of his plan is in his wardrobe, so the shopping list holds them all and what the page
+                # says a brief did to his pieces and his total can be worked out from it. What a new customer with
+                # an empty wardrobe is told is walked by the step before this one.)
+                a_customer_from_before(phone)
                 phone.wait_for_url(base + "/outfits")
                 assert phone.evaluate(whys) == [], "an outfit says why it fits a brief nobody gave"
                 # The styles: six choices to tap, any number of them, beside the three that were there.
@@ -5696,15 +5805,20 @@ def run(base: str) -> None:
                 assert shown[0]["why"], f"with the brief in use the first outfit is not a street one: {shown[:3]}"
                 assert all(board["title"] == "Everyday" for board in shown if board["why"]), f"street is said of a formal outfit: {shown}"
                 assert any("relaxed" in line for line in now), f"no outfit names a relaxed piece: {now}"
-                # The line of the first outfit is on the phone's first screen, above the tab bar, not behind it. (The
+                # The line of the first outfit is on the phone's first screen, above the tab bar and above the bar
+                # with the two answers that stands over it, not behind them. (The
                 # "Demo data" notice over this page is not on the live site. The picture gives up room for it, so it is
                 # taken away here: without it the picture is as large as it gets, and the line stood behind the bar.)
                 phone.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
                 line = phone.evaluate("""() => { const r = document.querySelector('#reel [data-slide] [data-why]').getBoundingClientRect();
+                    const dock = document.querySelector('#dock:not([hidden])');
                     return {top: Math.round(r.top), bottom: Math.round(r.bottom), scrolled: Math.round(scrollY),
-                            bar: Math.round(document.querySelector('nav.tabs').getBoundingClientRect().top)}; }""")
+                            bar: Math.round(document.querySelector('nav.tabs').getBoundingClientRect().top),
+                            answers: dock ? Math.round(dock.getBoundingClientRect().top) : null}; }""")
                 assert line["scrolled"] == 0 and line["top"] >= 0 and line["bottom"] <= line["bar"], \
                     f"on a phone the line under the outfit's name is not above the tab bar on the first screen: {line}"
+                assert line["answers"] is not None and line["bottom"] <= line["answers"] <= line["bar"], \
+                    f"on a phone the line under the outfit's name is behind the bar with the two answers: {line}"
                 assert phone.evaluate("document.documentElement.scrollWidth") <= 391, "the outfits are wider than a phone"
             finally:
                 context.close()
@@ -5862,6 +5976,7 @@ def run(base: str) -> None:
                  ("Profile asks before unsaved changes are lost", unsaved_changes_are_not_lost_silently),
                  ("Profile is a character screen", profile_is_a_character_screen),
                  ("the store picker: only the stores ticked", the_store_picker),
+                 ("the welcome's last step leads to the style chat", the_welcome_leads_to_the_style_chat),
                  ("the style chat: his words, a brief he confirms", the_style_chat),
                  ("colours picked by tapping swatches", colours_by_tapping_swatches),
                  ("one tap fills a piece the list has nothing for", one_tap_colour),

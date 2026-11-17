@@ -53,6 +53,14 @@
       <button class="btn">{{ 'Continue' if step < steps|length else 'Show me outfits' }}</button>
       <button class="quiet" name="skip" value="1" formnovalidate>Skip</button>
     </div>
+    {# The other way to answer the last step, only where the style chat is on (`chat_on`: a key for the text model is
+       set, stylechat.available): the chat on Profile, where he says it in his own words. It reads as a plain link
+       and is a button of this form, so that what he ticked above is saved and the welcome is over, exactly as with
+       "Show me outfits": a link alone would leave the welcome unfinished, and logging in would lead back here. It
+       comes after the two buttons above, so that Enter in the form still means "Show me outfits". #}
+    {% if step == steps|length and chat_on %}
+    <p class="welcome-or"><button class="quiet" name="then" value="style">Or describe your style in your own words</button></p>
+    {% endif %}
   </form>
 </section>
 {% endblock %}

@@ -206,16 +206,29 @@ def eur(value) -> str:
 
 
 def brief_changed(before: tuple[dict, float], after: tuple[dict, float], what: str) -> Markup | str:
-    """What a change of the style brief did to his picks, in one sentence: "Your brief changed 1 piece: +4 €."
-    (the pieces that now have another product, and what that does to the wardrobe's total), or "" when every piece
-    kept its product. `before` and `after`: each piece's product and how many of it the plan has ({piece: (product,
-    how many)}), and the total, from before and after the change (picks_of in create_app). `what` did it: "Your
-    brief", "Removing it", "Your styles"."""
+    """What a change of the style brief did to his picks, in one sentence, or "" when every piece kept its product.
+    `before` and `after`: each piece's product, how many of it count, and whether the piece is in his wardrobe
+    ({piece: (product, how many, in his wardrobe)}), and his wardrobe's total, the one the bar at the top shows, from
+    before and after the change (picks_of in create_app). `what` did it: "Your brief", "Removing it", "Your styles".
+
+    His wardrobe is the pieces of the outfits he said yes to (yes.py), and only those count in his total. So the
+    sentence says of how many pieces the product changed, and what that did to his total only where a piece of his
+    is among them:
+
+        every changed piece is his      "Your brief changed 2 pieces: +4 €."   (or "… Your total is the same.")
+        some of them are his            "Your brief changed 5 pieces, 2 of them in your wardrobe: +4 €."
+        none is his (a new customer)    "Your brief changed 5 of the pieces your outfits are made from. Your
+                                         wardrobe is as it was."
+    """
     (was, total_was), (now, total_now) = before, after
-    n = sum(qty for slot_id, (product, qty) in now.items() if was.get(slot_id, (None, 0))[0] != product)
+    changed = [(qty, mine) for slot_id, (product, qty, mine) in now.items()
+               if was.get(slot_id, (None, 0, False))[0] != product]
+    n, his = sum(qty for qty, _ in changed), sum(qty for qty, mine in changed if mine)
     if not n:
         return ""
-    pieces = f"{n} {'piece' if n == 1 else 'pieces'}"
+    if not his:
+        return Markup("%s changed %s of the pieces your outfits are made from. Your wardrobe is as it was.") % (what, n)
+    pieces = f"{n} {'piece' if n == 1 else 'pieces'}" + (f", {his} of them in your wardrobe" if his < n else "")
     cents = round(total_now * 100) - round(total_was * 100)
     if not cents:
         return Markup("%s changed %s. Your total is the same.") % (what, pieces)
@@ -1847,10 +1860,13 @@ def create_app() -> Flask:
                 "brief_stores": [{"label": programmes.label(key), "empty": key not in stocked}
                                  for key in (style.stores_that_suit(shown, mine) if shown else [])]}
 
-    def picks_of(w: selection.Wardrobe) -> tuple[dict[str, tuple[str | None, int]], float]:
-        """Each piece's product as it is picked in a wardrobe (and how many of it the plan has), and the wardrobe's
-        total: taken before and after a change of the style brief, to say what the change did (brief_changed)."""
-        return {view.slot["id"]: (view.chosen.id if view.chosen else None, view.qty) for view in w.slots}, w.total
+    def picks_of(w: selection.Wardrobe) -> tuple[dict[str, tuple[str | None, int, bool]], float]:
+        """Each piece's product as it is picked now (how many of it count, and whether the piece is in his
+        wardrobe), and his wardrobe's total, the one the bar at the top shows: taken before and after a change of
+        the style brief, to say what the change did (brief_changed). The pieces are all the plan's, since outfits
+        are made from all of them; the total is that of the pieces of the outfits he said yes to (w.mine)."""
+        return ({view.slot["id"]: (view.chosen.id if view.chosen else None, view.qty, view.mine) for view in w.slots},
+                w.mine.total)
 
     def still_against(w: selection.Wardrobe) -> Markup | str:
         """The pieces whose product the brief in use speaks against (a colour he avoids, something he does not
@@ -1997,8 +2013,9 @@ def create_app() -> Flask:
     @app.route("/welcome/<int:step>", methods=["GET", "POST"])
     def welcome(step: int):
         """Sizes; colours and budget; what he dresses for. Each step saves what he answered to his profile, as the
-        Profile page would, and leaves the rest unanswered; "Skip" answers nothing. Then the outfits. No total and
-        no budget bar here: he has not chosen anything yet."""
+        Profile page would, and leaves the rest unanswered; "Skip" answers nothing. Then the outfits, or, from the
+        last step where the style chat is on, the chat on Profile ("Or describe your style in your own words"). No
+        total and no budget bar here: he has not chosen anything yet."""
         if step not in WELCOME:
             abort(404)
         current = profile_mod.load()
@@ -2007,12 +2024,18 @@ def create_app() -> Flask:
             if step < len(WELCOME):
                 return redirect(url_for("welcome", step=step + 1))
             db.set_setting("welcome", "done")
+            # "Or describe your style in your own words", under the last step where the style chat is on: the
+            # welcome ends as it does with "Show me outfits" (what he ticked is saved, logging in no longer leads
+            # here), and he is on Profile, at the chat.
+            if request.form.get("then") == "style" and stylechat.available():
+                return redirect(url_for("profile_page") + "#style")
             return redirect(url_for("outfits_page"))
 
         if request.method in ("GET", "HEAD"):
             return render_template("welcome.html", step=step, steps=WELCOME, profile=current, plain=True,
                                    sizes_given=not profile_mod.sizes_unconfirmed(current),
-                                   answered=profile_mod.answered(current), given=None)
+                                   answered=profile_mod.answered(current), given=None,
+                                   chat_on=stylechat.available())
         form = request.form
         if form.get("skip") == "1":
             return onwards()

@@ -126,7 +126,7 @@ if (reel) {
   //     into the outfit being moved to. So Tab from Next leads into the outfit you moved to, and Shift+Tab from
   //     below the row back into it, never into outfit 1, which the browser would scroll back to. The other outfits
   //     are not made inert: swiping, and a screen reader reading the whole row, work as before. What HTMX puts in
-  //     (a picture, the heart) is sorted the same way once it is in.
+  //     (a picture) is sorted the same way once it is in.
   const pressable = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [tabindex]';
   const tabInto = (current) => slides.forEach((slide) => slide.querySelectorAll(pressable).forEach((el) => {
     if (slide === current) {
@@ -1349,8 +1349,8 @@ document.addEventListener('submit', (e) => {
 
 // 16. Motion (app.css "Motion" says how things move, and that nothing does for people who ask their device for less
 //     motion). Here: which way a page slides in, and a tap while it does (16a), the AI picture that develops in once
-//     its file has arrived (16b), the heart as an outfit is saved (16c), and the budget bar's line going to its new
-//     length (16d). How long each takes is read from app.css's tokens, never set here.
+//     its file has arrived (16b), and the budget bar's line going to its new length (16d; 16c was the heart that
+//     saved an outfit, gone since a yes is "Add to my wardrobe"). How long each takes is read from app.css's tokens, never set here.
 {
   const less = window.matchMedia('(prefers-reduced-motion: reduce)');
   const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -1476,21 +1476,6 @@ document.addEventListener('submit', (e) => {
       if (img && index !== here && !img.complete) develop(img.closest('.look-pic'), null);
     });
   }
-
-  // 16c. The heart, as an outfit is saved: HTMX puts in the heart's new state, which grows into its place (app.css).
-  let hearted = null;
-  document.addEventListener('click', (e) => {
-    const heart = e.target instanceof Element && e.target.closest('.heart');
-    if (heart) hearted = heart.id;
-  }, true);
-  document.body.addEventListener('htmx:load', (e) => {
-    const heart = hearted && document.getElementById(hearted);
-    if (!heart || !e.target.contains(heart)) return;
-    hearted = null;
-    if (!heart.classList.contains('on')) return;
-    heart.classList.add('pop');
-    setTimeout(() => heart.classList.remove('pop'), ms('--dur-slow') + 50);
-  });
 
   // 16d. The budget bar's line, when the total changes (a price level, a lock): it goes from its old length to the new
   //      one rather than jumping there. Only drawn differently (transform), so nothing on the page moves.

@@ -15,11 +15,13 @@ from contextlib import redirect_stdout
 from unittest import mock
 
 from wardrobe import config, db, imagegen, mockchat, outfits, paths, programmes, selection, settings, style, stylechat
+from wardrobe import yes
 from wardrobe.__main__ import main
 from wardrobe.app import brief_changed, eur
 from wardrobe.garments import GARMENTS
 from wardrobe.imagegen import DrawError
 
+from . import having
 from .test_app import HX, AppCase
 from .test_production import ProductionCase, words
 
@@ -51,10 +53,18 @@ def level_of(pieces: list[dict]) -> float:
 
 
 def changed_between(before, after) -> tuple[int, float]:
-    """How many pieces have another product in the second wardrobe than in the first, and the change of the total."""
+    """How many pieces have another product in the second wardrobe than in the first, and the change of the total
+    of all the plan's pieces. (For a customer who has every piece of his plan in his wardrobe, having.the_whole_plan,
+    that total is his wardrobe's, the one the bar at the top shows.)"""
     pieces = sum(now.qty for was, now in zip(before.slots, after.slots)
                  if (was.chosen.id if was.chosen else None) != (now.chosen.id if now.chosen else None))
     return pieces, round(after.total - before.total, 2)
+
+
+def ids_changed_between(before, after) -> list[str]:
+    """The pieces that have another product in the second wardrobe than in the first."""
+    return [now.slot["id"] for was, now in zip(before.slots, after.slots)
+            if (was.chosen.id if was.chosen else None) != (now.chosen.id if now.chosen else None)]
 
 
 def money(amount: float) -> str:
@@ -765,6 +775,7 @@ class Ticking(AppCase):
         return {**self.form(), **ticked, **more}
 
     def test_ticking_a_style_says_what_it_did_to_the_picks_and_the_total(self):
+        having.the_whole_plan()     # every piece is in his wardrobe: the total the sentence speaks of is all of them
         self.client.post("/profile", data=self.sent())       # the profile is his own now; no style ticked
         self.set_mode("cheapest")
         plain = selection.build()
@@ -773,7 +784,7 @@ class Ticking(AppCase):
         pieces, euros = changed_between(plain, selection.build())
         self.assertGreater(pieces, 1, "on the demo catalogue the cheapest product is not always the workwear one")
         self.assertGreater(euros, 0)
-        self.assertIn(brief_changed(({"a": ("x", pieces)}, 0), ({"a": ("y", pieces)}, euros), "Your styles"), page)
+        self.assertIn(brief_changed(({"a": ("x", pieces, True)}, 0), ({"a": ("y", pieces, True)}, euros), "Your styles"), page)
         self.assertIn(f"Your styles changed {pieces} pieces: +{money(euros)}", words(page))
         self.assertIn("Profile saved.", words(page))
         # A save that leaves the styles as they are says nothing about them.
@@ -797,7 +808,7 @@ class Ticking(AppCase):
         self.assertGreater(by_styles, 0)
         self.assertNotEqual(changed_between(with_workwear, both), (by_styles, by_euros),
                             "the two effects differ, so the sentence must be about the styles alone")
-        self.assertIn(brief_changed(({"a": ("x", by_styles)}, 0), ({"a": ("y", by_styles)}, by_euros), "Your styles"), page)
+        self.assertIn(brief_changed(({"a": ("x", by_styles, True)}, 0), ({"a": ("y", by_styles, True)}, by_euros), "Your styles"), page)
         self.assertIn("Profile saved.", words(page))
         self.set_mode("cheapest")
         self.client.post("/profile", data=self.sent(styles=["workwear"], budget="1500"))
@@ -808,19 +819,88 @@ class Ticking(AppCase):
         self.assertEqual(style_rows(), [], "with no style ticked nothing is kept of the brief, not even an empty row")
 
     def test_the_sentence_counts_the_pieces_that_changed_and_the_change_of_the_total(self):
-        before = ({"coat": ("c1", 1), "tee": ("t1", 2), "jeans": ("j1", 1)}, 300.0)
+        # Each piece: its product, how many of it count, and whether it is in his wardrobe. Here all of them are.
+        before = ({"coat": ("c1", 1, True), "tee": ("t1", 2, True), "jeans": ("j1", 1, True)}, 300.0)
         self.assertEqual(brief_changed(before, before, "Your brief"), "", "nothing changed: nothing to say")
-        dearer = ({"coat": ("c2", 1), "tee": ("t1", 2), "jeans": ("j1", 1)}, 304.0)
+        dearer = ({"coat": ("c2", 1, True), "tee": ("t1", 2, True), "jeans": ("j1", 1, True)}, 304.0)
         self.assertEqual(brief_changed(before, dearer, "Your brief"),
                          f'Your brief changed 1 piece: <span aria-hidden="true">+{eur(4)}</span>'
                          f'<span class="sr">{eur(4)} more</span>.')
         self.assertEqual(eur(4), "4\u00a0€")
         # A white tee the plan has twice is two pieces, as on the Wardrobe page.
-        cheaper = ({"coat": ("c2", 1), "tee": ("t9", 2), "jeans": ("j1", 1)}, 287.5)
+        cheaper = ({"coat": ("c2", 1, True), "tee": ("t9", 2, True), "jeans": ("j1", 1, True)}, 287.5)
         self.assertEqual(words(brief_changed(before, cheaper, "Removing it")),
                          f"Removing it changed 3 pieces: −{money(12.5)} {money(12.5)} less .")
-        same = ({"coat": ("c2", 1), "tee": ("t1", 2), "jeans": ("j1", 1)}, 300.0)
+        same = ({"coat": ("c2", 1, True), "tee": ("t1", 2, True), "jeans": ("j1", 1, True)}, 300.0)
         self.assertEqual(brief_changed(before, same, "Your brief"), "Your brief changed 1 piece. Your total is the same.")
+
+    def test_the_sentence_speaks_of_his_total_only_where_a_piece_of_his_wardrobe_changed(self):
+        # His wardrobe is the pieces of the outfits he said yes to, and his total counts those alone (yes.py). The
+        # brief changes the products of pieces that are not in it too: outfits are made from all of them.
+        # Only the coat is his: two pieces changed, his total moved by what the coat did.
+        before = ({"coat": ("c1", 1, True), "tee": ("t1", 1, False), "jeans": ("j1", 1, False)}, 120.0)
+        after = ({"coat": ("c2", 1, True), "tee": ("t9", 1, False), "jeans": ("j1", 1, False)}, 124.0)
+        self.assertEqual(words(brief_changed(before, after, "Your brief")),
+                         f"Your brief changed 2 pieces, 1 of them in your wardrobe: +{money(4)} {money(4)} more .")
+        level = ({"coat": ("c3", 1, True), "tee": ("t9", 1, False), "jeans": ("j1", 1, False)}, 120.0)
+        self.assertEqual(brief_changed(before, level, "Your styles"),
+                         "Your styles changed 2 pieces, 1 of them in your wardrobe. Your total is the same.")
+        # None of the changed pieces is his (a new customer's wardrobe is empty): no total is spoken of, and no
+        # amount, whatever the products cost.
+        new = ({"coat": ("c1", 1, False), "tee": ("t1", 1, False), "jeans": ("j1", 1, False)}, 0.0)
+        new_after = ({"coat": ("c2", 1, False), "tee": ("t9", 1, False), "jeans": ("j1", 1, False)}, 0.0)
+        said = brief_changed(new, new_after, "Your brief")
+        self.assertEqual(said, "Your brief changed 2 of the pieces your outfits are made from. Your wardrobe is as it was.")
+        self.assertNotIn("€", said)
+        one = ({"coat": ("c2", 1, False), "tee": ("t1", 1, False), "jeans": ("j1", 1, False)}, 0.0)
+        self.assertEqual(brief_changed(new, one, "Removing it"),
+                         "Removing it changed 1 of the pieces your outfits are made from. Your wardrobe is as it was.")
+        # His own piece kept its product while two others changed: his wardrobe is as it was.
+        others = ({"coat": ("c1", 1, True), "tee": ("t9", 1, False), "jeans": ("j9", 1, False)}, 120.0)
+        self.assertEqual(brief_changed(before, others, "Your brief"),
+                         "Your brief changed 2 of the pieces your outfits are made from. Your wardrobe is as it was.")
+
+    def test_a_new_customer_is_told_no_amount_for_a_total_he_does_not_have(self):
+        # Someone who has said yes to nothing yet: the bar at the top says his wardrobe is empty. Ticking a style
+        # changes the products outfits are made with, and the page says that, and no sum.
+        self.client.post("/profile", data=self.sent())
+        self.set_mode("cheapest")
+        plain = selection.build()
+        self.assertEqual((plain.mine.slots, plain.mine.total), ([], 0.0))
+        page = self.client.post("/profile", data=self.sent(styles=["workwear"]),
+                                follow_redirects=True).get_data(as_text=True)
+        now = selection.build()
+        pieces = len(ids_changed_between(plain, now))
+        self.assertGreater(pieces, 1)
+        self.assertNotEqual(changed_between(plain, now)[1], 0, "the products the plan's pieces now have cost another sum")
+        said = re.search(r"Your styles changed [^.]*\.[^.]*\.", words(page)).group(0)
+        self.assertEqual(said, f"Your styles changed {pieces} of the pieces your outfits are made from. "
+                               "Your wardrobe is as it was.")
+        self.assertEqual(now.mine.total, 0.0)
+        self.assertIn("Your wardrobe: nothing yet", words(page))
+
+    def test_with_some_pieces_in_his_wardrobe_the_amount_is_what_his_total_moved_by(self):
+        self.client.post("/profile", data=self.sent())
+        self.set_mode("cheapest")
+        plain = selection.build()
+        style.save({**style.EMPTY, "styles": ["workwear"]})
+        moved = ids_changed_between(plain, selection.build())
+        style.remove()
+        self.assertGreater(len(moved), 1)
+        his = moved[0]
+        yes.keep(his, True)                                  # one of the pieces the style will change is his
+        plain = selection.build()
+        total = plain.mine.total
+        self.assertEqual([view.slot["id"] for view in plain.mine.slots], [his])
+        page = self.client.post("/profile", data=self.sent(styles=["workwear"]),
+                                follow_redirects=True).get_data(as_text=True)
+        now = selection.build()
+        cents = round(now.mine.total * 100) - round(total * 100)
+        self.assertNotEqual(cents, 0, "on the demo catalogue the workwear product costs another sum")
+        self.assertNotEqual(cents, round(changed_between(plain, now)[1] * 100), "the plan's total moved by another sum")
+        amount = money(abs(cents) / 100)
+        self.assertIn(f"Your styles changed {len(moved)} pieces, 1 of them in your wardrobe: "
+                      f"{'+' if cents > 0 else '−'}{amount} {amount} {'more' if cents > 0 else 'less'} .", words(page))
 
     def test_everyday_office_both_work_as_they_did(self):
         for use in ("office", "everyday", "both"):
@@ -911,6 +991,7 @@ class Chat(NoNetwork, AppCase):
         self.assertRegex(page, r'name="styles" value="street" checked', "the styles ticked above show the brief's")
 
     def test_what_a_button_did_is_said_beside_the_brief_with_what_it_changed(self):
+        having.the_whole_plan()     # every piece is in his wardrobe: the total the sentences speak of is all of them
         self.set_mode("cheapest")
         plain = selection.build()
         self.say("street style, Berlin vibe")
@@ -1262,6 +1343,76 @@ class Untrusted(NoNetwork, AppCase):
         self.assertEqual(kept["turns"][-1], {"who": "assistant", "text": "I only help with style."})
         self.assertIsNone(kept["draft"])
         self.assertNotIn("data-brief", self.client.get("/profile").get_data(as_text=True))
+
+
+class FromTheWelcome(NoNetwork, ProductionCase):
+    """The welcome a new customer gets (three short steps, test_yes.py) offers the style chat under its last step,
+    "What you dress for", where the chat is on: "Or describe your style in your own words". It ends the welcome as
+    "Show me outfits" does and opens Profile at the chat."""
+
+    OR = "Or describe your style in your own words"
+    PASSWORD = "correct horse battery staple"
+
+    def lands_after_logging_in(self, email: str) -> str:
+        client = self.app.test_client()
+        return self.post(client, "/login", email=email, password=self.PASSWORD).headers["Location"]
+
+    def test_the_last_step_offers_the_chat_only_where_the_chat_is_on(self):
+        self.chat_on()
+        ada = self.member("ada@example.com", self.PASSWORD)
+        for url in ("/welcome", "/welcome/2"):
+            self.assertNotIn(self.OR, ada.get(url).get_data(as_text=True), url)
+        page = ada.get("/welcome/3").get_data(as_text=True)
+        self.assertEqual(page.count(self.OR), 1)
+        # It is a button of the step's own form (what he ticked goes with it), after "Show me outfits" and "Skip":
+        # Enter in the form still means "Show me outfits".
+        form = page.split('action="/welcome/3"', 1)[1].split("</form>", 1)[0]
+        self.assertIn(f'<button class="quiet" name="then" value="style">{self.OR}</button>', form)
+        self.assertLess(form.index("Show me outfits"), form.index(self.OR))
+        self.assertLess(form.index(">Skip</button>"), form.index(self.OR))
+        self.assertNotIn("€", words(page), "still no price in the welcome")
+        with mock.patch.object(settings, "GEMINI_API_KEY", ""):         # no key: no chat, and no way offered to it
+            self.assertFalse(stylechat.available())
+            self.assertNotIn(self.OR, ada.get("/welcome/3").get_data(as_text=True))
+            self.assertNotIn('name="then"', ada.get("/welcome/3").get_data(as_text=True))
+
+    def test_it_ends_the_welcome_saves_what_he_ticked_and_opens_the_chat_on_profile(self):
+        from wardrobe import profile as profile_mod
+        self.chat_on()
+        ada = self.member("ada@example.com", self.PASSWORD)
+        self.assertEqual(self.lands_after_logging_in("ada@example.com"), "/welcome", "he is not through it yet")
+        gone = self.post(ada, "/welcome/3", use="office", then="style")
+        self.assertEqual((gone.status_code, gone.headers["Location"]), (302, "/profile#style"))
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(db.get_setting("welcome"), "done")
+            self.assertEqual((profile_mod.load()["use"], profile_mod.answered()), ("office", {"use"}))
+        page = ada.get("/profile").get_data(as_text=True)
+        self.assertIn('<div id="style"></div>', page, "the place the address leads to")
+        chat = page.split('<div id="style"></div>', 1)[1]
+        self.assertIn("Describe your style", chat)
+        self.assertIn('action="/profile/style/say"', chat)
+        # The welcome is over: logging in opens the outfits, as after "Show me outfits".
+        self.assertEqual(self.lands_after_logging_in("ada@example.com"), "/outfits")
+        # Nothing ticked: nothing is answered for him, and he is at the chat all the same.
+        bob = self.member("bob@example.com", self.PASSWORD)
+        gone = self.post(bob, "/welcome/3", then="style")
+        self.assertEqual(gone.headers["Location"], "/profile#style")
+        with db.as_user(self.user_id("bob@example.com")):
+            self.assertEqual((db.get_setting("welcome"), profile_mod.answered()), ("done", set()))
+
+    def test_where_the_chat_is_off_the_same_request_shows_the_outfits(self):
+        # A page opened while the chat was on, sent after it was switched off: the welcome ends with the outfits,
+        # never on a Profile without the chat it promised.
+        self.chat_on()
+        ada = self.member("ada@example.com", self.PASSWORD)
+        with mock.patch.object(settings, "GEMINI_API_KEY", ""):
+            gone = self.post(ada, "/welcome/3", use="everyday", then="style")
+        self.assertEqual(gone.headers["Location"], "/outfits")
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(db.get_setting("welcome"), "done")
+        # … and only the last step leads there: an earlier one goes on to the next step.
+        bob = self.member("bob@example.com", self.PASSWORD)
+        self.assertEqual(self.post(bob, "/welcome/2", then="style").headers["Location"], "/welcome/3")
 
 
 class Limits(NoNetwork, ProductionCase):
