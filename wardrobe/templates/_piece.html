@@ -24,14 +24,15 @@
     {% if en %}<p class="en" lang="en">{{ en }}</p>{% endif %}
     <p class="{{ 'orig' if en else 'en' }}" lang="de">{{ c.data.name }}</p>
     {{ fabric_fit(c) }}
-    {# While the sizes are still the example's (profile.sizes_unconfirmed), the size is said to be ours, as on Buy
-       this outfit and the shopping list, with the way to change it: in stock, that is a caution (amber), not yet a
-       yes (green). Sold out or not made in it stays red. A store that gave no sizes (COS) is named: "Sizes not
-       checked at COS: look on its page before you buy" (sizes.not_checked), a caution too, and with no size said
-       there is no example size to change. #}
+    {# In stock in his size: said in ink, plainly. While the sizes are still the example's
+       (profile.sizes_unconfirmed), the size is said to be ours, as on Buy this outfit and the shopping list, with
+       the way to change it: a size to check (amber). Sold out or not made in it is red. A store that gave no sizes
+       (COS) is named: "Sizes not checked at COS: look on its page before you buy" (sizes.not_checked), a size to
+       check too, and with no size said there is no example size to change. Each warning is plain text with the
+       small flag before it. #}
     <p class="sizeline">
-      {% if not c.size.known %}<span class="unk">{{ c.size.text }}</span>
-      {% else %}<span class="{{ 'no' if not c.available else 'ex' if example_sizes else 'yes' }}">{% if c.size.label %}Your size: {% endif %}{{ c.size.text }}{% if example_sizes %} (example&nbsp;size){% endif %}</span>{% endif %}
+      {% if not c.size.known %}<span class="unk">{{ icon('flag') }} {{ c.size.text }}</span>
+      {% else %}{% set how = 'no' if not c.available else 'ex' if example_sizes else 'yes' %}<span class="{{ how }}">{% if how != 'yes' %}{{ icon('flag') }} {% endif %}{% if c.size.label %}Your size: {% endif %}{{ c.size.text }}{% if example_sizes %} (example&nbsp;size){% endif %}</span>{% endif %}
       {% if example_sizes and c.size.known %}<a href="{{ url_for('profile_page') }}#sizes">Change<span class="sr"> your sizes</span></a>{% endif %}
     </p>
     {# The day the prices and stock were collected, right under what it qualifies: "in stock" is as of then. #}
@@ -84,11 +85,11 @@
   <li{% if not o.available %} class="out"{% endif %}>
     {{ pic(o.data.image_url, o.colour_hex) }}
     <span class="swap-text">
-      {# In every card's order (_macros.html): the store and the quality, the name in English, the original. #}
+      {# The store and the quality, then the product's name in one language: English where every word is known
+         (english.py), else the store's own. #}
       <span class="by">{{ by(o.data.store, o.score) }}</span>
       {% set en = o.data.name|english %}
       <b lang="{{ 'en' if en else 'de' }}">{{ en or o.data.name }}</b>
-      {% if en %}<small class="orig" lang="de">{{ o.data.name }}</small>{% endif %}
       {% if not o.available %}<span>Not in your size</span>{% elif not o.size.known %}<span>Sizes not checked</span>{% endif %}
       <span class="swap-price">
         {% if o.price > 0 %}{{ o.price|eur }}{% else %}no price{% endif %}

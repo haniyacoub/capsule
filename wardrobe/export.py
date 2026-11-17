@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from . import programmes
-from .selection import Cand, SlotView, Wardrobe, gone_words
+from .selection import Cand, SlotView, StoreSaid, Wardrobe, gone_words, said_once
 
 
 @dataclass
@@ -32,11 +32,15 @@ class Line:
     notes: list[str] = field(default_factory=list)     # what to check before ordering: the fit, sizes, the fabric
     image_url: str = ""         # the store's photo of the product: on the pages, not in the files
     hex: str = ""               # its colour, shown where there is no photo
-    # On the pages, the product says what every card says, in the same order (store and quality, its name in English,
-    # fabric, fit: _buy_groups.html), and under it only the notes those lines leave out.
+    # On the pages a row is short (_buy_groups.html): the piece and its price, the store's product by name, the colour
+    # and the size. Under it only what there is to act on about this very product's size (`cautions`,
+    # selection.Cand.size_cautions) and what was said of how it was picked (`said`). What is true of the whole store
+    # (sizes not checked, fabric estimated) is said once under the store's name (StoreGroup.said).
     cand: Cand | None = None
     cautions: list[str] = field(default_factory=list)
+    said: str = ""
     view: SlotView | None = None    # the piece itself: for a sold-out line, what is offered in its place
+    slot_id: str = ""           # the piece's own page: where its fabric, fit and quality are said in full
     spares: int = 0             # how many of `qty` are spares he added on the piece's card: said beside the count
 
     @property
@@ -58,6 +62,13 @@ class StoreGroup:
     @property
     def subtotal(self) -> float:
         return round(sum(line.total for line in self.lines), 2)
+
+    @property
+    def said(self) -> StoreSaid | None:
+        """What is true of this store's products on the list, said once under its name instead of on every row
+        (selection.said_once): sizes not checked, fabric estimated or not stated. None with nothing to say."""
+        once = said_once([line.cand for line in self.lines if line.cand is not None])
+        return once[0] if once else None
 
     @property
     def pieces(self) -> int:
@@ -116,9 +127,10 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
             sold_out.append(Line(
                 slot=s.slot["name"], product=c.data.get("name", ""), colour=c.data.get("colour", ""),
                 size=c.size_to_order, qty=s.qty if only is None else 1, unit_price=c.price,
-                url=c.data.get("url", ""), image_url=c.data.get("image_url") or "", hex=c.colour_hex, cand=c, view=s))
+                url=c.data.get("url", ""), image_url=c.data.get("image_url") or "", hex=c.colour_hex, cand=c, view=s,
+                slot_id=s.slot["id"]))
             continue
-        cautions = list(c.check.notes) + ([s.note + "."] if s.note else [])
+        cautions = c.size_cautions
         notes = ([f"Fit: {c.check.fit}"] if c.check.fit else []) + list(c.check.notes)
         if c.score.fabric_source in ("name", "assumed"):
             notes.append("Fabric is an estimate — check the label on the product page.")
@@ -133,7 +145,7 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
             size=c.size_to_order, qty=s.qty if only is None else 1, unit_price=c.price,
             url=c.data.get("url", ""), notes=notes,
             image_url=c.data.get("image_url") or "", hex=c.colour_hex, cand=c, cautions=cautions,
-            spares=s.qty - 1 if only is None else 0))
+            spares=s.qty - 1 if only is None else 0, slot_id=s.slot["id"], said=s.note + "." if s.note else ""))
     order = list(programmes.offered())       # the stores in the order config/stores.toml lists them
     ordered = sorted(groups.values(), key=lambda g: order.index(g.key) if g.key in order else 99)
     total = w.total if only is None else round(sum(g.subtotal for g in ordered), 2)

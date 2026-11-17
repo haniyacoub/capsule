@@ -9,6 +9,7 @@
    Pieces with nothing to buy are counted by reason ("6 pieces not in the product list yet · 1 piece not in stock
    in your size"). With more than one reason that is too long for one line on a phone, so a phone shows the total
    instead ("7 pieces with nothing to buy yet"), and a screen reader still hears every reason. #}
+{% from "_macros.html" import icon %}
 {% set w = w.mine %}
 {% set over = w.budget_known and w.remaining < 0 %}
 <section id="summary" class="summary{% if over %} over{% endif %}{% if not w.slots %} none{% endif %}"{% if oob %} hx-swap-oob="true"{% endif %} aria-label="Your wardrobe and your budget">
@@ -20,7 +21,7 @@
       <div class="num"><span class="lbl">Total</span><b>{{ w.total|eur }}</b></div>
       {% if w.budget_known %}
       <div class="num"><span class="lbl">Budget</span><span class="ph" aria-hidden="true">of </span><a href="{{ url_for('profile_page') }}#budget" title="Change your budget"><b>{{ w.budget|eur }}</b></a></div>
-      <div class="num left"><span class="ph" aria-hidden="true">· {{ 'Over by ' if w.remaining < 0 else '' }}</span><span class="lbl">{{ 'Over budget' if w.remaining < 0 else 'Left' }}</span><b>{{ w.remaining|abs|eur }}</b>{% if w.remaining >= 0 %}<span class="ph" aria-hidden="true"> left</span>{% endif %}</div>
+      <div class="num left"><span class="ph" aria-hidden="true">· {{ 'Over by ' if w.remaining < 0 else '' }}</span><span class="lbl">{{ 'Over budget' if w.remaining < 0 else 'Left' }}</span><b>{% if w.remaining < 0 %}{{ icon('flag') }} {% endif %}{{ w.remaining|abs|eur }}</b>{% if w.remaining >= 0 %}<span class="ph" aria-hidden="true"> left</span>{% endif %}</div>
       {% else %}
       <div class="num"><span class="lbl">Budget</span><span class="ph" aria-hidden="true">· </span><a href="{{ url_for('profile_page') }}#budget">Set a budget</a></div>
       {% endif %}
