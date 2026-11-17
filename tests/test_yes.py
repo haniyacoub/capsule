@@ -52,6 +52,11 @@ class YesCase(AppCase):
     def say_no(self, outfit, **more):
         return self.client.post("/outfits/no", data={"sig": outfit.sig, **more})
 
+    def keys_of(self, sigs) -> str:
+        """The outfits' keys, joined as an address names the row ("front")."""
+        w = selection.build()
+        return ".".join(outfits.find_by_sig(w, sig).key for sig in sigs)
+
     def every(self) -> list:
         return outfits.all_outfits(selection.build())
 
@@ -276,7 +281,9 @@ class NotForMe(YesCase):
         total = int(re.search(r"12 of (\d+) outfits", self.page("/outfits")).group(1))
         answer = self.say_no(outfit)
         second = outfits.find_by_sig(selection.build(), shown[1])       # which now stands where it stood
-        self.assertEqual(answer.headers["Location"], f"/outfits?declined={outfit.sig}#outfit-{second.key}")
+        # Every other outfit of the row stays in its place (front), and the page comes back on the one that followed.
+        self.assertEqual(answer.headers["Location"],
+                         f"/outfits?declined={outfit.sig}&front={self.keys_of(shown[1:])}#outfit-{second.key}")
         self.assertEqual(db.declined_sigs(), {outfit.sig})
         page = self.page(answer.headers["Location"])
         self.assertIn(f"The {self.named(outfit)} will not be offered again. Undo", read(page))
@@ -289,7 +296,7 @@ class NotForMe(YesCase):
         self.assertEqual(self.mine(), set(), "a no puts nothing into his wardrobe")
         # Undo: the outfit is back in its place, and the page comes back on it.
         back = self.client.post("/outfits/no", data={"sig": outfit.sig, "want": "undo"})
-        self.assertEqual(back.headers["Location"], "/outfits#outfit-" + outfit.key)
+        self.assertEqual(back.headers["Location"], f"/outfits?front={self.keys_of(shown)}#outfit-{outfit.key}")
         self.assertEqual(db.declined_sigs(), set())
         self.assertEqual(self.offered(), shown)
         self.assertNotIn("will not be offered again", self.page("/outfits", declined=outfit.sig),
@@ -311,15 +318,17 @@ class NotForMe(YesCase):
         form = self.no_forms(page)[fifth.sig]
         self.assertIn(f'<input type="hidden" name="next" value="{keys[5]}">', form, "the form names the outfit that follows")
         answer = self.client.post("/outfits/no", data={"sig": fifth.sig, "next": keys[5]})
-        self.assertEqual(answer.headers["Location"], f"/outfits?declined={fifth.sig}#outfit-{keys[5]}")
-        after = self.offered()
+        self.assertEqual(answer.headers["Location"],
+                         f"/outfits?declined={fifth.sig}&front={'.'.join(keys[:4] + keys[5:])}#outfit-{keys[5]}")
+        after = self.offered(front=".".join(keys[:4] + keys[5:]))
         self.assertEqual(after[:11], shown[:4] + shown[5:], "the other outfits are where they were")
         self.assertNotIn(after[11], shown, "one more joins the row")
         self.assertIn(f'<article class="slide" id="outfit-{keys[5]}"', self.page(answer.headers["Location"]))
         # Undo puts it back where it was, and the page comes back on it.
-        back = self.client.post("/outfits/no", data={"sig": fifth.sig, "want": "undo"})
-        self.assertEqual(back.headers["Location"], f"/outfits#outfit-{fifth.key}")
-        self.assertEqual(self.offered(), shown)
+        back = self.client.post("/outfits/no", data={"sig": fifth.sig, "want": "undo",
+                                                     "front": ".".join(keys[:4] + keys[5:])})
+        self.assertEqual(back.headers["Location"], f"/outfits?front={'.'.join(keys)}#outfit-{fifth.key}")
+        self.assertEqual(self.offered(front=".".join(keys)), shown)
 
     def test_a_no_to_the_last_of_the_row_comes_back_on_what_stands_there_now(self):
         page = self.page("/outfits")
@@ -329,15 +338,17 @@ class NotForMe(YesCase):
         self.assertIn('<input type="hidden" name="i" value="11">', form)
         self.assertNotIn('name="next"', form)
         answer = self.client.post("/outfits/no", data={"sig": last.sig, "i": "11"})
-        now = self.offered()
+        front = self.keys_of(shown[:11])
+        now = self.offered(front=front)
         self.assertEqual(now[:11], shown[:11])
         there = outfits.find_by_sig(selection.build(), now[11])
-        self.assertEqual(answer.headers["Location"], f"/outfits?declined={last.sig}#outfit-{there.key}")
+        self.assertEqual(answer.headers["Location"], f"/outfits?declined={last.sig}&front={front}#outfit-{there.key}")
         # A page that names no place, or nonsense, still gets an answer: the first outfit.
         other = outfits.find_by_sig(selection.build(), now[3])
-        answer = self.client.post("/outfits/no", data={"sig": other.sig, "next": "../../x", "i": "many"})
+        answer = self.client.post("/outfits/no", data={"sig": other.sig, "next": "../../x", "i": "many", "front": front})
         first = outfits.find_by_sig(selection.build(), now[0])
-        self.assertEqual(answer.headers["Location"], f"/outfits?declined={other.sig}#outfit-{first.key}")
+        self.assertTrue(answer.headers["Location"].startswith(f"/outfits?declined={other.sig}&front="))
+        self.assertTrue(answer.headers["Location"].endswith(f"#outfit-{first.key}"))
 
     def test_an_answer_comes_back_to_the_same_row_of_outfits(self):
         # After "Show more outfits" (24 of them) and Shuffle, the answers carry which row it is.
@@ -350,13 +361,15 @@ class NotForMe(YesCase):
             self.assertIn('<input type="hidden" name="n" value="24"><input type="hidden" name="seed" value="7">', form)
         keys = re.findall(r'<article class="slide" id="outfit-(\w+)"', page)
         answer = self.client.post("/outfits/no", data={"sig": sixth.sig, "next": keys[6], "n": "24", "seed": "7"})
-        self.assertEqual(answer.headers["Location"], f"/outfits?declined={sixth.sig}&n=24&seed=7#outfit-{keys[6]}")
-        self.assertEqual(self.offered(n=24, seed=7)[:23], shown[:5] + shown[6:])
+        rest = ".".join(keys[:5] + keys[6:])
+        self.assertEqual(answer.headers["Location"],
+                         f"/outfits?declined={sixth.sig}&n=24&seed=7&front={rest}#outfit-{keys[6]}")
+        self.assertEqual(self.offered(n=24, seed=7, front=rest)[:23], shown[:5] + shown[6:])
         undo = re.search(r'<div class="flash said short" role="status" data-answered>.*?</div>',
                          self.page(answer.headers["Location"]), re.S).group(0)
         self.assertIn('name="n" value="24"', undo)
         seventh = outfits.find_by_sig(selection.build(), shown[6])
-        answer = self.say_yes(seventh, n="24", seed="7")
+        answer = self.say_yes(seventh, n="24", seed="7", front=rest)
         self.assertTrue(answer.headers["Location"].startswith(
             f"/outfits?added={seventh.key}&n=24&seed=7&front={'.'.join(keys[:5])}#outfit-"), answer.headers["Location"])
         # The row every visit starts with needs no words for it.
@@ -470,7 +483,9 @@ class TakingAnOutfitOut(YesCase):
         outfit = outfits.find_by_sig(selection.build(), self.offered()[0])
         self.say_yes(outfit)
         undo = self.take_out(outfit)        # "Undo" on the line that said it was added
-        self.assertEqual(undo.headers["Location"], f"/outfits?at={outfit.sig}&removed={outfit.key}")
+        # (The row as it stood before the yes comes back, every outfit in its place: front.)
+        self.assertTrue(undo.headers["Location"].startswith(
+            f"/outfits?at={outfit.sig}&removed={outfit.key}&front={outfit.key}."), undo.headers["Location"])
         self.assertEqual(self.mine(), set())
         page = self.page("/outfits", at=outfit.sig, removed=outfit.key)
         self.assertIn(f"Took the {self.named(outfit)} out of your wardrobe.", read(page))
@@ -506,7 +521,7 @@ class RemovingAPieceFromThePlan(YesCase):
         self.assertEqual(mine.count('<article class="slide"'), 2)
         self.assertEqual(read(mine).count(f"“{name}” is no longer in your plan, so it is not in your wardrobe or your total, "
                                           "and this outfit can no longer be bought as one."), 2)
-        self.assertEqual(mine.count("· removed</small>"), 2)
+        self.assertEqual(mine.count("<small>removed</small>"), 2)
         self.assertNotIn("Buy this outfit", mine)
         self.assertEqual(selection.build().n_outfits, 2)
 
@@ -611,7 +626,8 @@ class WhatAnOutfitSaysIsWhatTheBarGains(YesCase):
             slide = slide[:slide.index("</article>")]
             self.assertIn(f'title="What the pieces in this outfit cost together">{eur(outfit.cost)}</b>', slide, where)
             self.assertIn(f'<span class="plus">+ {eur(said.cost)}</span>', slide, where)
-            self.assertIn(f'<p class="adds">{html.escape(said.words)}</p>', slide, where)
+            short = f'<span class="over-short"> · {html.escape(said.over_short)}</span>' if said.over_short else ""
+            self.assertIn(f'<p class="adds">{html.escape(said.words)}{short}</p>', slide, where)
             self.assertIn(plain(f"{said.n_new} new {'piece' if said.n_new == 1 else 'pieces'} {eur(said.cost)}"),
                           plain(said.words), where)
             # Buy this outfit: the same pieces, one of each, for the outfit's price.
@@ -888,9 +904,11 @@ class WhereHeGoesOnAfterAYes(YesCase):
         answer = self.say_yes(third)
         front = ".".join(keys[:2])
         undo = self.take_out(third, front=front)
-        self.assertEqual(undo.headers["Location"], f"/outfits?at={third.sig}&removed={third.key}&front={front}#outfit-{third.key}")
+        self.assertEqual(undo.headers["Location"],
+                         f"/outfits?at={third.sig}&removed={third.key}&front={'.'.join(keys)}#outfit-{third.key}")
         now = self.keys(self.page(undo.headers["Location"].split("#")[0]))
-        self.assertEqual(now[:3], keys[:3], "the outfit is not back in its place behind the two he had passed")
+        # The whole row as it was before the yes: the outfits behind it are not sorted again either.
+        self.assertEqual(now, keys, "Undo of the yes moved outfits of the row")
         self.assertEqual(self.mine(), set())
         self.assertIn("added=", answer.headers["Location"])
 
@@ -902,13 +920,34 @@ class WhereHeGoesOnAfterAYes(YesCase):
         row = self.keys(self.page("/outfits", front=front))
         second = outfits.find(selection.build(), row[1])           # one of the three in front, after all
         answer = self.client.post("/outfits/no", data={"sig": second.sig, "next": row[2], "front": front})
-        self.assertEqual(answer.headers["Location"], f"/outfits?declined={second.sig}&front={front}#outfit-{row[2]}")
+        rest = ".".join(row[:1] + row[2:])
+        self.assertEqual(answer.headers["Location"], f"/outfits?declined={second.sig}&front={rest}#outfit-{row[2]}")
         after = self.keys(self.page(answer.headers["Location"].split("#")[0]))
         self.assertEqual(after[:11], row[:1] + row[2:], "the other outfits moved")
         # Undo puts it back between the two.
-        back = self.client.post("/outfits/no", data={"sig": second.sig, "want": "undo", "front": front})
-        self.assertEqual(back.headers["Location"], f"/outfits?front={front}#outfit-{second.key}")
+        back = self.client.post("/outfits/no", data={"sig": second.sig, "want": "undo", "front": rest})
+        self.assertEqual(back.headers["Location"], f"/outfits?front={'.'.join(row)}#outfit-{second.key}")
         self.assertEqual(self.keys(self.page(back.headers["Location"].split("#")[0])), row)
+
+    def test_once_he_has_pieces_show_more_and_a_no_on_the_last_keep_what_he_has_seen_in_place(self):
+        # (With pieces in his wardrobe the longer row was sorted again by pieces reused: of the 12 new outfits some
+        # came in front of him, and a no on the last outfit put the newcomer among those he had passed.)
+        first = outfits.find_by_sig(selection.build(), self.offered()[0])
+        self.say_yes(first)
+        seen = self.keys(self.page("/outfits"))
+        more = html.unescape(re.search(r'<a class="btn" href="([^"]*)">Show more outfits</a>',
+                                       self.page("/outfits")).group(1))
+        self.assertIn(f"front={'.'.join(seen)}", more)
+        longer = self.keys(self.page(more.split("#")[0]))
+        self.assertEqual((len(longer), longer[:12]), (24, seen), "the new outfits are not all behind those he has seen")
+        # A no on the last of the 24: the others stay, and one more joins at the end.
+        last = outfits.find(selection.build(), longer[-1])
+        front = more.split("front=")[1].split("#")[0]
+        answer = self.client.post("/outfits/no", data={"sig": last.sig, "n": "24", "front": front, "i": "23"})
+        after = self.keys(self.page(answer.headers["Location"].split("#")[0]))
+        self.assertEqual(after[:23], longer[:23], "a no on the last outfit moved outfits he had passed")
+        self.assertNotIn(last.key, after)
+        self.assertTrue(answer.headers["Location"].endswith(f"#outfit-{after[23]}"))
 
     def test_what_stands_in_front_is_only_what_the_address_may_name(self):
         # Nonsense under "front", or outfits that no longer exist: the row every visit starts with.
@@ -919,7 +958,7 @@ class WhereHeGoesOnAfterAYes(YesCase):
         twice = self.keys(self.page("/outfits", front=f"{usual[5]}.{usual[5]}.{usual[7]}"))
         self.assertEqual((twice[:2], len(twice), len(set(twice))), ([usual[5], usual[7]], 12, 12))
         # "Show more outfits" keeps the row as it is.
-        self.assertIn(f"front={usual[5]}.{usual[7]}", html.unescape(
+        self.assertIn(f"front={usual[5]}.{usual[7]}.", html.unescape(
             re.search(r'<a class="btn" href="([^"]*)">Show more outfits</a>',
                       self.page("/outfits", front=f"{usual[5]}.{usual[7]}")).group(1)))
 
@@ -964,7 +1003,8 @@ class TheBudget(YesCase):
         said = f"With it your wardrobe comes to {eur(first + second)}: {eur(over)} over your budget."
         self.assertEqual(adds.over_words, said)
         page = self.page("/outfits", at=b.sig)
-        self.assertIn(f'<p class="adds over">{html.escape(said)}</p>', page)
+        # In red, as plain words with the small flag before them: money over budget.
+        self.assertRegex(page, rf'<p class="adds over"><svg class="ic"[^>]*>.*?</svg> {re.escape(html.escape(said))}</p>')
         # … in the outfit's own box, above the button: on a phone the whole box is what stands over the tab bar
         # (the walk-through measures where it shows).
         box = re.search(rf'<article class="slide" id="outfit-{b.key}".*?<div class="yes-box" data-answer>(.*?)<ul class="pieces">',
@@ -1093,13 +1133,27 @@ class PiecesOnTheirOwnAccount(YesCase):
         self.assertEqual(self.client.post(f"/slot/{piece}/keep", data={"want": "out"}).status_code, 409)
         self.assertEqual(self.client.post("/slot/nope/keep", data={"want": "out"}).status_code, 404)
 
-    def test_owned_taken_back_leaves_the_piece_in_his_wardrobe_to_buy(self):
+    def test_owned_taken_back_returns_the_piece_to_where_it_was(self):
+        # A piece that was not in his wardrobe: "Owned" puts it there, taking it back takes it out again. (It stayed,
+        # as something to buy he had never chosen, and the bar went up by its price.)
         piece = selection.build().slots[0].slot["id"]
         self.post(f"/slot/{piece}/own")
         self.assertEqual(self.mine(), {piece})
         self.post(f"/slot/{piece}/own")
-        self.assertEqual(self.mine(), {piece}, "the card vanished under his finger")
+        self.assertEqual(self.mine(), set(), "the piece stayed in his wardrobe as something to buy")
+        self.assertEqual(selection.build().mine.total, 0)
+        self.assertFalse(yes.owned_from_outside(piece))
+        # A piece he kept, or one from before this was remembered: it was in his wardrobe, so it stays, now to buy.
+        other = selection.build().slots[1].slot["id"]
+        yes.keep(other, True)
+        self.post(f"/slot/{other}/own")
+        self.post(f"/slot/{other}/own")
+        self.assertEqual(self.mine(), {other}, "the card vanished under his finger")
         self.assertGreater(selection.build().mine.total, 0)
+        third = selection.build().slots[2].slot["id"]
+        db.update_slot(third, owned=True)       # (owned before the place it came from was remembered)
+        self.post(f"/slot/{third}/own")
+        self.assertIn(third, self.mine())
 
     def test_new_answers_on_the_profile_keep_the_pieces_of_his_outfits(self):
         outfit = next(o for o in self.every() if any(self.view(s).slot["colour"] == "navy" for s in o.slots))
@@ -1441,6 +1495,24 @@ class TheWelcome(ProductionCase):
         self.assertEqual(self.profile()["budget"], 900)
         self.assertIn("A budget has to be more than 0 €, so what you typed was not saved as your budget.",
                       read(ada.get(saved.headers["Location"]).data.decode()))
+
+    def test_an_emptied_budget_field_clears_the_budget_and_says_so(self):
+        # (Once set, a budget could not be taken away: an empty field kept it.)
+        ada = self.member("ada@example.com")
+        form = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
+                "liked": "navy, white", "refused": "", "use": "both", "shoes": "on", "outerwear": "on", "owned": ""}
+        self.post(ada, "/profile", **form, budget="900")
+        self.assertIn("To have no budget, empty the field and save.", read(ada.get("/profile").data.decode()))
+        saved = self.post(ada, "/profile", **form, budget="")
+        self.assertNotIn("budget", self.answered())
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertFalse(selection.build().budget_known)
+        self.assertIn("Budget cleared. The bar at the top now shows what your wardrobe costs, without a budget.",
+                      read(ada.get(saved.headers["Location"]).data.decode()))
+        self.assertIn('id="budget" name="budget" min="0" inputmode="numeric" value=""', ada.get("/profile").data.decode())
+        # Saved again with the field still empty: nothing to clear, nothing said.
+        again = self.post(ada, "/profile", **form, budget="")
+        self.assertNotIn("Budget cleared", read(ada.get(again.headers["Location"]).data.decode()))
 
     def test_what_he_dresses_for_is_saved_and_then_come_the_outfits(self):
         ada = self.member("ada@example.com")

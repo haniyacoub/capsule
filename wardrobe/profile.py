@@ -138,6 +138,13 @@ def answer(*questions: str) -> None:
     db.set_setting("answered", sorted(answered() | (set(questions) & set(QUESTIONS))))
 
 
+def unanswer(*questions: str) -> None:
+    """Note that these questions are no longer answered (a budget cleared: its field emptied on Profile)."""
+    db.set_setting("answered", sorted(answered() - set(questions)))
+    if "budget" in questions:
+        db.set_setting("budget_as_before", None)    # (nor fitted to the budget his account started with)
+
+
 def budget_known(profile: dict | None = None) -> bool:
     """Whether the budget is one he gave. Until then the bar shows the total and nothing is "left" or "over"."""
     return "budget" in answered(profile)

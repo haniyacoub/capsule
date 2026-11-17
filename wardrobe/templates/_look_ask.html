@@ -1,7 +1,8 @@
 {# A question asked under an outfit's picture before anything is drawn, in its own place under the line (_look.html,
    .look-ask-at; app.outfits_look decides at the tap whether to ask). `ask` says which:
 
-   "again"          "Draw again" on a front picture that other photos were made from: they will be removed with it.
+   "again"          "Draw again" on a front picture that other photos or videos were made from: they will be removed
+                    with it (looks.redraw_words says which).
                     "Draw again" here draws (the whole picture box is answered, as after any "Draw again").
    "more"           "More photos" where the front picture is drawn from the customer's own photo, which he added
                     before its words said that this picture goes to the image service again (looks.needs_ok). He
@@ -18,15 +19,16 @@
   {% if p.look and p.look.status in ('ready', 'working') %}{% set ns.others = ns.others + 1 %}{% endif %}
   {% if p.name == wanted and p.look and p.look.status == 'ready' %}{% set ns.there = true %}{% endif %}
 {% endfor %}
-{% if what == 'again' and ns.others %}
+{% set redraw, n_gone = redraw_words(photos) if what == 'again' else ('', 0) %}
+{% if what == 'again' and redraw %}
 <form class="look-ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:abort">{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">
   <input type="hidden" name="again" value="1">
   <input type="hidden" name="sure" value="1">
-  <p class="look-msg" id="ask-{{ key }}">Draw the front picture again? {{ 'The other photo of this outfit is made from it, so it' if ns.others == 1 else 'The other ' ~ ns.others ~ ' photos of this outfit are made from it, so they' }} will be removed. “More photos” draws {{ 'it' if ns.others == 1 else 'them' }} again.</p>
+  <p class="look-msg" id="ask-{{ key }}">{{ redraw }}</p>
   <span class="look-ask-btns">
     <button class="btn small" aria-describedby="ask-{{ key }}">Draw again</button>
-    <button class="btn ghost small" name="keep" value="1">Keep {{ 'it' if ns.others == 1 else 'them' }}</button>
+    <button class="btn ghost small" name="keep" value="1">Keep {{ 'it' if n_gone == 1 else 'them' }}</button>
   </span>
 </form>
 {% elif what == 'more' or (what == 'send' and wanted) %}

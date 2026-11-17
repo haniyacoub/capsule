@@ -43,35 +43,67 @@
 <span class="fb">{{ caption }}</span></span>
 {%- endmacro %}
 
-{# Every card says the same things about a product, in the same order (Wardrobe, the pop-up, a piece's page, Buy):
+{# A product is shown in two ways.
+
+   A row, in a list (the Wardrobe, the Shopping list, Buy this outfit): short, the same three lines everywhere.
+     [photo]  Charcoal wool coat                          159 €
+              WEEKDAY · Single-breasted oversized coat, wool blend     (one language: English where every word
+                                                                        is known, english.py, else the store's own)
+              Size: M
+              ⚑ Fit: oversized, runs large. Size down for a regular fit.   (only where this product's size needs a look)
+   What is true of a whole store (its sizes were not checked, its fabrics are estimated) is not on a row: it is
+   said once per store (selection.said_once; the `once` macro below).
+
+   A card, where the product is looked at (the pop-up, a piece's page): everything, in the same order in both.
      Charcoal wool coat                                  159 €
      WEEKDAY · Quality 73/100
-     Single-breasted oversized coat, wool blend           (the store's name in English, english.py)
-     Einreihiger Oversize-Mantel aus Wollmischung         (the original, in small print, marked German)
-     Fabric: wool blend (the mix is not stated)
+     Single-breasted oversized coat, wool blend           (the store's name in English)
+     Einreihiger Oversize-Mantel aus Wollmischung         (the store's own, in small print, marked German)
+     Fabric: wool blend (the mix is not stated), estimated
      Fit: oversized, runs large. Size down for a regular fit.
-   Each page writes the names its own way (a heading, a link); the two macros below are the lines around them. #}
+   Each page writes the names its own way (a heading, a link); the macros below are the lines around them. #}
 
-{# "WEEKDAY · Quality 73/100": the store, then the number in its ring (red only when poor), heard as "Quality 73 out
-   of 100". The word Quality is there to see, so the ring has no tooltip. The dot belongs to the quality: where the
+{# A row's second line: "WEEKDAY · Single-breasted oversized coat, wool blend". `link`: the product's page at the
+   store, where the name is the link to it (the Shopping list and Buy this outfit). #}
+{% macro row_product(c, link='') -%}
+{%- set en = c.data.name|english -%}
+<span class="row-product"><span class="store">{{ STORES.get(c.data.store, c.data.store) }}</span> <span aria-hidden="true">·</span> {% if link %}<a class="buy-product" href="{{ link }}" target="_blank" rel="noopener noreferrer"><span lang="{{ 'en' if en else 'de' }}">{{ en or c.data.name }}</span>&nbsp;{{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>{% else %}<span lang="{{ 'en' if en else 'de' }}">{{ en or c.data.name }}</span>{% endif %}</span>
+{%- endmacro %}
+
+{# Under a row's size, only where there is something: what to act on about this very product's size before buying
+   (selection.Cand.size_cautions), each in amber as plain text with the small flag before it. #}
+{% macro row_cautions(notes) -%}
+{% for note in notes %}<span class="row-caution">{{ icon('flag') }} {{ note }}</span>{% endfor %}
+{%- endmacro %}
+
+{# What is true of a whole store, said once (selection.StoreSaid): that its sizes were not checked (a size to check:
+   amber, with the flag), and for how many of its products here the fabric is an estimate or not stated (plain).
+   `named`: with the store's name before it, where the list is not already under that name (the Wardrobe). #}
+{% macro once(items, named=false) -%}
+{% if items %}
+<ul class="once">
+  {% for said in items %}
+  {% if said.sizes %}<li class="sizes">{{ icon('flag') }} {{ said.sizes }}</li>{% endif %}
+  {% if said.fabric %}<li class="fabric-once">{% if named %}<span class="store">{{ said.label }}</span> {% endif %}{{ said.fabric }}</li>{% endif %}
+  {% endfor %}
+</ul>
+{% endif %}
+{%- endmacro %}
+
+{# "WEEKDAY · Quality 73/100": the store, then the quality as a plain number, heard as "Quality 73 out of 100". The
+   word Quality is there to see, so the number has no tooltip. The dot belongs to the quality: where the
    quality goes onto a line of its own (a narrow card), the dot is left off that line's start (app.css, .by-in), so
    no dot ever hangs at the end of the store's line. #}
 {% macro by(key, score) -%}
 <span class="by-in"><span class="store">{{ STORES.get(key, key) }}</span> <span class="quality"><span class="sep" aria-hidden="true">·</span>Quality <span class="pill {{ score.band }}">{{ score.total }}<span class="of" aria-hidden="true">/100</span></span><span class="sr"> out of 100</span></span></span>
 {%- endmacro %}
 
-{# The fabric, saying no more than the store did (composition.in_words), "estimated" where the label was not read,
-   then the cut (sizecheck): an oversized or slim cut is a caution to act on, in amber with its flag. A regular cut
-   says nothing. `tag`: p in a block, span inside a link. The "estimated" chip is a word of its own: on a narrow card
-   it goes onto the next line whole, rather than taking the word before it along past the card's edge.
-   `buying` (Buy this outfit and the shopping list): a product with no fabric at all is a caution to act on before
-   ordering, in amber with its flag. #}
-{% macro fabric_fit(c, tag='p', buying=false) -%}
-{%- if buying and c.score.fabric_source == 'none' %}
-<{{ tag }} class="fabric caution">{{ icon('flag') }} Fabric not stated: check the product page</{{ tag }}>
-{%- else %}
-<{{ tag }} class="fabric">Fabric: {{ c.score.fabric_words }}{% if c.score.fabric_source in ('name', 'assumed') %} <span class="est">estimated</span>{% endif %}</{{ tag }}>
-{%- endif %}
+{# On a card: the fabric, saying no more than the store did (composition.in_words), ending ", estimated" where it was
+   not read off a label (plain words, like the line they end), then the cut (sizecheck): an oversized or slim cut is
+   something to act on before buying (a size up or down), in amber with its flag. A regular cut says nothing.
+   `tag`: p in a block, span inside a link. #}
+{% macro fabric_fit(c, tag='p') -%}
+<{{ tag }} class="fabric">Fabric: {{ c.score.fabric_words }}{% if c.score.fabric_source in ('name', 'assumed') %}<span class="est">, estimated</span>{% endif %}</{{ tag }}>
 {%- if c.check.fit %}
 <{{ tag }} class="fit{{ ' caution' if c.check.fit_flag }}">{% if c.check.fit_flag %}{{ icon('flag') }} {% endif %}Fit: {{ c.check.fit }}</{{ tag }}>
 {%- endif %}

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Shopping list · {{ site_name }}{% endblock %}
 {% block main %}
+{% from "_macros.html" import icon %}
 <h1 class="page-title">Shopping list</h1>
 {# After the swap for a product sold out in his size: what changed, with Undo (_changed.html). #}
 {% if said %}<div class="flash said" role="status">{% include "_changed.html" %}</div>{% endif %}
@@ -39,7 +40,8 @@
   {% if sl.sold_out %}<div class="grand-row muted"><span>{{ sl.gone_words|capitalize }}</span><span>{{ sl.pieces_sold_out }} {{ 'piece' if sl.pieces_sold_out == 1 else 'pieces' }}, not counted</span></div>{% endif %}
   {% if w.budget_known %}
   <div class="grand-row muted"><span>Budget</span><span>{{ sl.budget|eur }}</span></div>
-  <div class="grand-row {{ 'neg' if sl.remaining < 0 else 'pos' }}"><span>{{ 'Over budget' if sl.remaining < 0 else 'Left' }}</span><b>{{ sl.remaining|abs|eur }}</b></div>
+  {# Over budget: the amount in red, as plain text with the small flag before it. #}
+  <div class="grand-row {{ 'neg' if sl.remaining < 0 else 'pos' }}"><span>{{ 'Over budget' if sl.remaining < 0 else 'Left' }}</span><b>{% if sl.remaining < 0 %}{{ icon('flag') }} {% endif %}{{ sl.remaining|abs|eur }}</b></div>
   {% else %}
   <div class="grand-row muted"><span>Budget</span><span><a href="{{ url_for('profile_page') }}#budget">Set a budget</a></span></div>
   {% endif %}

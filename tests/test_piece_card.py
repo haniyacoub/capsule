@@ -8,8 +8,9 @@ the store never gave are not shown as figures, and "the rest not stated" is said
 import html
 import re
 import unittest
+from pathlib import Path
 
-from wardrobe import catalog, composition, english, outfits, programmes, scoring, selection
+from wardrobe import catalog, composition, english, outfits, programmes, scoring, selection, sizecheck, sizes
 from wardrobe.app import eur
 
 from . import having
@@ -105,6 +106,7 @@ class FabricLine(unittest.TestCase):
 
 
 class SameCardEverywhere(AppCase):
+    """A card says everything; a row in a list is short and leads to the card."""
     def setUp(self):
         super().setUp()
         having.the_whole_plan()     # the coat is in his wardrobe: its card is on the Wardrobe page and the list
@@ -127,14 +129,17 @@ class SameCardEverywhere(AppCase):
         return {"pop-up": read(popup.data.decode().split("In this outfit")[0]), "Wardrobe": read(card.group(1)),
                 "piece page": read(option.split("How it's rated")[0]), "Buy": read(line)}
 
-    def test_the_same_lines_in_the_same_order(self):
+    def test_a_card_says_everything_in_the_same_order(self):
+        # Where the product is looked at (the pop-up, the piece's own page): every line, in the same order.
         c, check = self.c, self.c.check
         said = english.name(c.data["name"])
         self.assertTrue(said and check.fit, "the demo coat has an English name and a cut to tell")
         lines = [programmes.label(c.data["store"]), f"Quality {c.score.total}/100", said, c.data["name"],
                  f"Fabric: {c.score.fabric_words}", f"Fit: {check.fit}"]
         price = " ".join(html.unescape(eur(c.price)).split())       # read() writes its no-break space as a space
-        for place, text in self.places().items():
+        places = self.places()
+        for place in ("pop-up", "piece page"):
+            text = places[place]
             with self.subTest(place):
                 at = [text.find(words) for words in lines]
                 self.assertNotIn(-1, at, f"{place} leaves out {[w for w, i in zip(lines, at) if i < 0]}: {text}")
@@ -146,54 +151,73 @@ class SameCardEverywhere(AppCase):
                 self.assertEqual(text.count("Fabric:"), 1, place)
                 self.assertEqual(text.count("Fit:"), 1, place)
 
-    def test_buying_a_product_with_no_fabric_says_to_check_it(self):
-        # On Buy this outfit and the shopping list, a product with no fabric at all is a caution to act on before
-        # ordering: in amber with its flag. Elsewhere the card says "Fabric: not stated", as every card does.
+    def test_a_row_in_a_list_is_short_and_leads_to_the_card(self):
+        # In a list (the Wardrobe, Buy this outfit): the piece and its price, the store and the product's name in one
+        # language, the size, and only what there is to act on about this product's size (the cut runs large). The
+        # quality, the fabric and the store's own words are on the card, which the row leads to.
+        c, check = self.c, self.c.check
+        said = english.name(c.data["name"])
+        self.assertTrue(check.fit_flag, "the demo coat's cut is one to act on")
+        price = " ".join(html.unescape(eur(c.price)).split())
+        lines = [self.piece.slot["name"], price, programmes.label(c.data["store"]).upper(), said, "Size:", f"Fit: {check.fit}"]
+        places = self.places()
+        for place in ("Wardrobe", "Buy"):
+            text = places[place]
+            with self.subTest(place):
+                at = [text.upper().find(words.upper()) if words.isupper() else text.find(words) for words in lines]
+                self.assertNotIn(-1, at, f"{place} leaves out {[w for w, i in zip(lines, at) if i < 0]}: {text}")
+                self.assertEqual(at, sorted(at), f"{place} says them in another order: {text}")
+                for card_only in (c.data["name"], "Quality", "Fabric:"):
+                    self.assertNotIn(card_only, text, f"{place}: {card_only} is on the card, not the row")
+        sid = self.piece.slot["id"]
+        wardrobe = self.client.get("/").data.decode()
+        self.assertIn(f'<a class="slot-main" href="/slot/{sid}"', wardrobe)
+        buy = self.client.get("/outfits/buy", query_string={"at": self.outfit.sig}).data.decode()
+        self.assertIn(f'<span class="buy-slot"><a href="/slot/{sid}?from=outfit&amp;at={html.escape(self.outfit.sig)}">', buy)
+
+    def test_a_product_with_no_fabric_is_said_once_for_its_store_and_in_full_on_its_card(self):
+        # On Buy this outfit, the shopping list and the Wardrobe, that a product's fabric is not stated is said once,
+        # over its store's rows, never on every row. Its own page says "Fabric: not stated"; the file says it too.
         sid = self.piece.slot["id"]
         catalog.update(lambda cat: [c.update(name="Mantel", slug="mantel", composition_text="")
                                     for c in cat["candidates"] if c["slot_id"] == sid])
         jacket = selection.build().get(sid)
         self.assertEqual(jacket.chosen.score.fabric_source, "none")
-        for place, url in (("Buy", f"/outfits/buy?at={self.outfit.sig}"), ("shopping list", "/list")):
+        store = programmes.label(jacket.chosen.data["store"])
+        for place, url in (("Buy", f"/outfits/buy?at={self.outfit.sig}"), ("shopping list", "/list"), ("Wardrobe", "/")):
             with self.subTest(place):
                 page = self.client.get(url).data.decode()
-                line = next(li for li in re.findall(r'<li class="buy">(.*?)</li>', page, re.S)
-                            if self.piece.slot["name"] in li)
-                self.assertRegex(line, r'<span class="fabric caution"><svg class="ic"[^>]*>.*?</svg> Fabric not stated: '
-                                       r'check the product page</span>')
-                self.assertNotIn("Fabric: not stated", line)
-        card = re.search(rf'id="card-{sid}">(.*?)</article>', self.client.get("/").data.decode(), re.S).group(1)
-        self.assertIn('<span class="fabric">Fabric: not stated</span>', card)
+                once = re.findall(r'<ul class="once">(.*?)</ul>', page, re.S)
+                self.assertTrue(once, place)
+                said = read(" ".join(once))
+                self.assertRegex(said, r"Fabric is (estimated for \d+ of the \d+ products here and )?not stated for "
+                                       r"(this product|1|\d+ of the \d+ products here)[^.]*: check the label on the product page\.")
+                rows = re.findall(r'<li class="buy">(.*?)</li>', page, re.S) or \
+                    re.findall(r'<article class="slot[^"]*" id="card-[^"]+">(.*?)</article>', page, re.S)
+                self.assertTrue(rows, place)
+                self.assertFalse([r for r in rows if "Fabric" in r], f"{place}: a row repeats it")
+                if place == "Wardrobe":
+                    self.assertIn(store, said, "named, as the Wardrobe is not grouped by store")
+        self.assertIn('<p class="fabric">Fabric: not stated</p>', self.client.get(f"/slot/{sid}").data.decode())
         self.assertIn("Fabric not stated: check the product page.", self.client.get("/list.csv").data.decode())
 
-    def test_the_estimated_chip_is_a_word_of_its_own(self):
-        # Not glued to the word before it by a no-break space: on a narrow card it goes onto the next line whole.
+    def test_an_estimated_fabric_says_so_on_the_card_and_once_on_the_list(self):
         sid = self.piece.slot["id"]
         catalog.update(lambda cat: [c.update(name="Mantel aus Wollmischung", slug="mantel", composition_text="")
                                     for c in cat["candidates"] if c["slot_id"] == sid])
         self.assertEqual(selection.build().get(sid).chosen.score.fabric_source, "name")
-        page = self.client.get("/").data.decode()
-        self.assertIn(' <span class="est">estimated</span>', page)
-        self.assertNotIn('&nbsp;<span class="est">', page)
+        card = self.client.get(f"/slot/{sid}").data.decode()
+        self.assertIn('<span class="est">, estimated</span>', card)
+        self.assertIn("Fabric: wool blend (the mix is not stated), estimated", read(card))
+        self.assertRegex(read(self.client.get("/").data.decode()), r"Fabric is estimated for [^.:]+: check the label")
 
-    def test_the_price_levels_speak_of_pieces(self):
-        # The tooltips on the price levels, and the name of the group they are in, say "piece", never "slot".
-        page = self.client.get("/").data.decode()
-        levels = re.search(r'<div class="seg levels"(.*?)</div>', page, re.S).group(0)
-        tips = re.findall(r'title="([^"]*)"', levels)
-        self.assertEqual(len(tips), len(selection.MODES))
-        self.assertFalse([t for t in tips if "slot" in t.lower()], tips)
-        self.assertIn("each piece", html.unescape(" ".join(tips)))
-        self.assertIn('aria-label="Which option fills each piece: a price level, or the best your budget buys"', levels)
-
-    def test_the_quality_number_has_no_tooltip_and_is_heard_once(self):
-        # Wherever a product's quality is shown (the Wardrobe, the pop-up and its other options, a piece's page, Buy and
-        # the shopping list), the word Quality is beside the number, so the number has no tooltip: a tooltip would
-        # have a screen reader say the number twice, and say "score". It is heard as "Quality 73 out of 100".
+    def test_the_quality_is_a_plain_number_with_no_tooltip_and_is_heard_once(self):
+        # Wherever a product's quality is shown (its card in the pop-up and its other options, a piece's page), the
+        # word Quality is beside the number, so the number has no tooltip: a tooltip would have a screen reader say
+        # the number twice, and say "score". It is heard as "Quality 73 out of 100". The rows of a list leave it to
+        # the card.
         sid = self.piece.slot["id"]
-        pages = {"Wardrobe": "/", "piece page": f"/slot/{sid}", "Buy": f"/outfits/buy?at={self.outfit.sig}",
-                 "shopping list": "/list"}
-        said = {place: self.client.get(url).data.decode() for place, url in pages.items()}
+        said = {"piece page": self.client.get(f"/slot/{sid}").data.decode()}
         said["pop-up"] = self.client.get("/outfits/piece", query_string={"at": self.outfit.sig, "slot": sid},
                                          headers=HX).data.decode()
         quality = re.compile(r'<span class="quality"><span class="sep" aria-hidden="true">·</span>Quality <span '
@@ -212,9 +236,76 @@ class SameCardEverywhere(AppCase):
                 for total in quality.findall(page):
                     self.assertIn(f"Quality {total} out of 100", heard)
                 self.assertNotRegex(heard, r"Quality \d+ \d+", "a number heard twice")
+        css = (Path(__file__).parent.parent / "wardrobe/static/app.css").read_text()
+        rule = re.search(r"\n\.pill \{([^}]*)\}", css).group(1)
+        self.assertNotIn("border-radius", rule, "a plain number, not a pill")
+        self.assertNotIn("background", rule, "a plain number, not a pill")
 
-    def test_the_english_line_and_the_stores_own_words_are_marked(self):
+    def test_the_english_name_on_a_row_and_the_stores_own_words_on_the_card_are_marked(self):
         name, said = self.c.data["name"], english.name(self.c.data["name"])
         page = self.client.get("/").data.decode()
-        self.assertIn(f'<span class="item" lang="en">{html.escape(said, quote=False)}</span>', page)
-        self.assertIn(f'<span class="item orig" lang="de">{html.escape(name, quote=False)}</span>', page)
+        self.assertIn(f'<span lang="en">{html.escape(said, quote=False)}</span>', page)
+        self.assertNotIn(html.escape(name, quote=False), page, "one language on the row")
+        card = self.client.get(f"/slot/{self.piece.slot['id']}").data.decode()
+        self.assertIn(f'<span lang="de">{html.escape(name, quote=False)}</span>', card)
+
+    def test_the_price_levels_speak_of_pieces(self):
+        # The tooltips on the price levels, and the name of the group they are in, say "piece", never "slot".
+        page = self.client.get("/").data.decode()
+        levels = re.search(r'<div class="seg levels"(.*?)</div>', page, re.S).group(0)
+        tips = re.findall(r'title="([^"]*)"', levels)
+        self.assertEqual(len(tips), len(selection.MODES))
+        self.assertFalse([t for t in tips if "slot" in t.lower()], tips)
+        self.assertIn("each piece", html.unescape(" ".join(tips)))
+        self.assertIn('aria-label="Which option fills each piece: a price level, or the best your budget buys"', levels)
+
+
+class SaidOnceForAStore(unittest.TestCase):
+    """What is true of a whole store's products on a list is said once over its rows (selection.said_once), and a
+    row keeps only what is to act on about that very product's size (Cand.size_cautions)."""
+
+    def cand(self, store: str, known: bool = True, fabric_text: str | None = "100 % Wolle", name: str = "Mantel",
+             fit: str = "") -> selection.Cand:
+        data = {"store": store, "price": 100, "name": name, "composition_text": fabric_text, "fit": fit}
+        size = sizes.SizeStatus(available=True, label="M" if known else None, text="", known=known)
+        check = sizecheck.Check(usual="M", fit=sizecheck.FITS.get(fit, ""), fit_flag=fit in ("oversized", "slim"))
+        if not known:
+            check.notes.append(sizes.not_checked(store) + ".")
+        return selection.Cand(data=data, score=scoring.score(data, "coat", RULES), size=size, fabric="",
+                              colour_hex="#000", check=check)
+
+    def test_a_store_none_of_whose_sizes_were_checked_says_so_once_in_the_words_of_every_card(self):
+        said = selection.said_once([self.cand("cos", known=False), self.cand("cos", known=False)])
+        self.assertEqual(len(said), 1)
+        self.assertEqual(said[0].sizes, sizes.not_checked("cos") + ".")
+        self.assertEqual(said[0].fabric, "")
+
+    def test_some_unchecked_are_counted_and_the_others_say_nothing(self):
+        said = selection.said_once([self.cand("cos", known=False), self.cand("cos")])
+        self.assertEqual(said[0].sizes, f"Sizes not checked for 1 of the 2 products here at {programmes.label('cos')}, "
+                                        "marked “check”: look on its page before you buy.")
+        self.assertEqual(selection.said_once([self.cand("weekday"), self.cand("weekday")]), [], "nothing to say")
+
+    def test_fabric_estimated_and_not_stated_are_counted(self):
+        estimated = self.cand("weekday", fabric_text="", name="Mantel aus Wollmischung")
+        unstated = self.cand("weekday", fabric_text="", name="Mantel")
+        self.assertEqual(estimated.score.fabric_source, "name")
+        self.assertEqual(unstated.score.fabric_source, "none")
+        one = selection.said_once([estimated])[0].fabric
+        self.assertTrue(one.startswith("Fabric is estimated for this product: check the label"), one)
+        both = selection.said_once([estimated, unstated, self.cand("weekday")])[0].fabric
+        self.assertTrue(both.startswith("Fabric is estimated for 1 of the 3 products here and not stated for 1"), both)
+        alone = selection.said_once([unstated, unstated])[0].fabric
+        self.assertTrue(alone.startswith("Fabric is not stated for both products here"), alone)
+
+    def test_stores_come_in_the_order_the_stores_are_listed(self):
+        order = [key for key in programmes.offered() if key in ("cos", "weekday")]
+        said = selection.said_once([self.cand("weekday", known=False), self.cand("cos", known=False)])
+        self.assertEqual([s.store for s in said], order)
+
+    def test_a_row_keeps_the_cut_and_the_chart_but_not_what_is_true_of_the_whole_store(self):
+        c = self.cand("cos", known=False, fit="oversized")
+        c.check.notes.insert(0, "Between sizes at COS: a 100 cm chest is on the border of M and L.")
+        self.assertEqual(c.size_cautions, ["Fit: oversized, runs large.",
+                                           "Between sizes at COS: a 100 cm chest is on the border of M and L."])
+        self.assertEqual(self.cand("weekday", fit="relaxed").size_cautions, [], "a relaxed cut is nothing to act on")

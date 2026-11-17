@@ -105,6 +105,16 @@ class Cand:
         return f"{self.check.usual} (check)" if self.check.usual else "check"
 
     @property
+    def size_cautions(self) -> list[str]:
+        """What there is to act on about this very product's size before buying, for its row in a list: a cut that
+        runs large or sits close ("Fit: oversized, runs large. Size down for a regular fit."), then what the store's
+        chart and the label say against his measurements (sizecheck.check). Not "Sizes not checked at COS": that is
+        true of the whole store, the last of the notes where it applies, and said once for it (said_once)."""
+        store_wide = sizes.not_checked(self.data.get("store", "")) + "."
+        notes = [note for note in self.check.notes if note != store_wide]
+        return ([f"Fit: {self.check.fit}"] if self.check.fit and self.check.fit_flag else []) + list(notes)
+
+    @property
     def id(self) -> str:
         return self.data["id"]
 
@@ -284,6 +294,65 @@ class SlotView:
 
 
 @dataclass
+class StoreSaid:
+    """What is true of a whole store's products on a page, said once instead of on every row (said_once)."""
+    store: str          # the store's key
+    label: str          # its name, as people read it
+    sizes: str = ""     # "Sizes not checked at COS: look on its page before you buy." A size to check: amber
+    fabric: str = ""    # "Fabric is estimated for 3 of the 5 products here …": plain words
+
+
+def said_once(cands: list[Cand]) -> list[StoreSaid]:
+    """The cautions that used to stand on every row of a list, said once per store: that a store's sizes were not
+    checked, and for how many of its products here the fabric is an estimate or not stated at all. `cands` are the
+    products the page lists (the chosen product of each piece). Stores are in the order config/stores.toml lists
+    them; a store with nothing to say is left out. Nothing here is new: each product's own card (the pop-up, the
+    piece's page) still says its fabric, "estimated" where it is, and "Sizes not checked at …" in full.
+
+    Sizes: where none of a store's products here had its sizes checked (COS), the sentence every row used to carry
+    (sizes.not_checked); where only some did not, how many, and that those are the ones marked "check".
+    Fabric: "estimated" is a fabric read off the product's name or assumed from the kind of garment
+    (scoring.Score.fabric_source "name" or "assumed"); "not stated" is one with nothing to go by ("none")."""
+    by_store: dict[str, list[Cand]] = {}
+    for c in cands:
+        by_store.setdefault(c.data.get("store", ""), []).append(c)
+    order = list(programmes.offered())
+    out: list[StoreSaid] = []
+    for store in sorted(by_store, key=lambda key: order.index(key) if key in order else len(order)):
+        products = by_store[store]
+        m, name = len(products), programmes.label(store) if store else ""
+        said = StoreSaid(store=store, label=name or "Other")
+
+        def of_them(n: int) -> str:
+            if n == m:
+                return "this product" if m == 1 else "both products here" if m == 2 else f"all {m} products here"
+            return f"{n} of the {m} products here"
+
+        unchecked = sum(1 for c in products if not c.size.known)
+        if unchecked == m:
+            said.sizes = sizes.not_checked(store) + "."
+        elif unchecked:
+            at, where = (f" at {name}", "its page") if name else ("", "the store's page")
+            said.sizes = (f"Sizes not checked for {unchecked} of the {m} products here{at}, marked “check”: "
+                          f"look on {where} before you buy.")
+        estimated = sum(1 for c in products if c.score.fabric_source in ("name", "assumed"))
+        unstated = sum(1 for c in products if c.score.fabric_source == "none")
+        if estimated and unstated:
+            what = f"Fabric is estimated for {estimated} of the {m} products here and not stated for {unstated}"
+        elif estimated:
+            what = f"Fabric is estimated for {of_them(estimated)}"
+        elif unstated:
+            what = f"Fabric is not stated for {of_them(unstated)}"
+        else:
+            what = ""
+        if what:
+            said.fabric = what + ": check the label on the product page. Each piece's own page says what is known."
+        if said.sizes or said.fabric:
+            out.append(said)
+    return out
+
+
+@dataclass
 class Wardrobe:
     slots: list[SlotView]
     mode: str
@@ -336,6 +405,12 @@ class Wardrobe:
             ladder["budget"] = round(sum(picks[view.slot["id"]].price * view.qty if view.slot["id"] in picks
                                          else view.cost for view in self.slots), 2)
         return ladder
+
+    @property
+    def said_once(self) -> list[StoreSaid]:
+        """What is true of each store's products among these pieces, said once over the rows (said_once): of the
+        products to buy, so not of a piece he owns."""
+        return said_once([view.chosen for view in self.slots if view.chosen is not None and view.state != "owned"])
 
     @property
     def styled(self) -> bool:

@@ -309,7 +309,13 @@ class SeeItMove(WithVideos, AppCase):
         self.assertEqual(len(self.videos_on_disk()), 1)
         later = looks.time.time() + 30                              # a new version comes later, with a new name
         with mock.patch.object(looks.time, "time", lambda: later):
-            self.post("/outfits/look", key=outfit.key, again="1")
+            # A video costs more than a picture: "Draw again" asks first, as for the photos made from it. (It
+            # removed the video without a word.)
+            asked = said(self.post("/outfits/look", key=outfit.key, again="1").data.decode())
+            self.assertIn("Draw the front picture again? Its video will be removed. “See it move” makes a new one, "
+                          "as one of your videos for the day.", asked)
+            self.assertEqual(len(self.videos_on_disk()), 1, "nothing is removed before he answers")
+            self.post("/outfits/look", key=outfit.key, again="1", sure="1")
         self.assertEqual(self.videos_on_disk(), [])
         again = looks.get(look.key)
         self.assertNotEqual(again.file, look.file)
@@ -457,6 +463,10 @@ class FromThePictureShowing(WithVideos, AppCase):
         self.assertEqual(len(self.videos_on_disk()), 2)
         later = looks.time.time() + 30                              # a new version comes later, with a new name
         with mock.patch.object(looks.time, "time", lambda: later):
+            asked = said(self.post("/outfits/look", key=self.outfit.key, again="1").data.decode())
+            self.assertIn("Draw the front picture again? The other 5 photos of this outfit are made from it, so they "
+                          "will be removed, and with them the 2 videos made from these pictures. “More photos” draws "
+                          "them again. “See it move” makes a new video, as one of your videos for the day.", asked)
             self.post("/outfits/look", key=self.outfit.key, again="1", sure="1")    # asked first, and answered yes
         self.assertEqual(self.videos_on_disk(), [], "clips of pictures that are gone")
 

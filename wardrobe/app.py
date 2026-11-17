@@ -826,12 +826,19 @@ def create_app() -> Flask:
         slot = db.get_slot(slot_id)
         if slot is None:
             abort(404)
+        # Taken back, "Owned" returns the piece to where it was. A piece that was not in his wardrobe when he said he
+        # owns it (yes.owned_from_outside) leaves it again. One that was (an outfit of his wears it, he kept it, or
+        # it is from before this was remembered) stays, now to buy, so it does not vanish from the page under his
+        # finger; "Take out" on its card removes it.
         if slot["owned"]:
-            # "Owned" taken back on a piece no outfit of his wears: it stays in his wardrobe, now to buy, so that it
-            # does not vanish from the page under his finger. "Take out" on its card removes it.
             view = selection.build().get(slot_id)
-            if view is not None and not view.outfits_in:
+            if yes.owned_from_outside(slot_id):
+                yes.remember_outside(slot_id, False)
+            elif view is not None and not view.outfits_in:
                 yes.keep(slot_id, True)
+        else:
+            view = selection.build().get(slot_id)
+            yes.remember_outside(slot_id, view is not None and not view.mine)
         db.update_slot(slot_id, owned=not slot["owned"])
         return after_slot_change(slot_id)
 
@@ -928,6 +935,10 @@ def create_app() -> Flask:
             return redirect(url_for("slot_page", slot_id=slot_id, **way_back()) + "#add")
         results = manual.from_urls(links, slot, raw.decode("utf-8", errors="replace") if raw else None,
                                    anyway=request.form.get("anyway") == "1")
+        # "Add it anyway" on one of several links asked about: the others come along, to be asked again.
+        still = [u for u in request.form.getlist("still") if u and u not in links][:8]
+        if still:
+            results += manual.from_urls(still, slot, None)
 
         def add(cat: dict) -> None:
             for _, cand, _ in results:
@@ -1144,7 +1155,7 @@ def create_app() -> Flask:
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved), removed=removed,
                     answer=answer, n_declined=n_declined, news=wardrobe_news(w),
                     reusing=bool(yes_sigs) and any(b.get("adds") and b["adds"].have and not b["adds"].in_wardrobe
-                                                   for b in boards[held:]),
+                                                   for b in boards[held:]) and len(boards) - held > 1,
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
                     front=front, held=held,     # the outfits kept in front after a yes, and how many of them show
                     # Pieces whose chosen product is sold out in his size: said under the piece, with the swap.
@@ -1235,6 +1246,7 @@ def create_app() -> Flask:
         return kept.get(outfit_key, "")
 
     app.jinja_env.globals["photos_said"] = photos_said
+    app.jinja_env.globals["redraw_words"] = looks.redraw_words
 
     def picture_service() -> str:
         """The image service, as a sentence names it to the customer: "Google" (as `drawn_by` on Profile)."""
@@ -1313,9 +1325,11 @@ def create_app() -> Flask:
         if not (front and front.status == "ready"):
             shot = looks.FRONT              # nothing can be made from a front picture that is not there: it is asked for
         again = request.form.get("again") == "1"
-        if again and shot == looks.FRONT and looks.made_from_front(pieces) and request.form.get("sure") != "1":
-            # "Draw again" on a front picture that other photos were made from: they will be removed with it, so
-            # the page says that and asks first; "Draw again" under the question sends sure=1.
+        if again and shot == looks.FRONT and request.form.get("sure") != "1" and looks.redraw_words(photos)[0] \
+                and looks.left() > 0:
+            # "Draw again" on a front picture that other photos or videos were made from: they will be removed with
+            # it, so the page says that and asks first; "Draw again" under the question sends sure=1. Not asked when
+            # no picture is left today: then nothing is drawn and nothing removed, and the page says why.
             return ask_first("again", looks.FRONT)
         there = next((photo.look for photo in photos if photo.name == shot), None)
         if shot != looks.FRONT and (again or not (there and there.status in ("ready", "working"))) \
@@ -1470,6 +1484,12 @@ def create_app() -> Flask:
         w = selection.build()
         stays = front_of(request.form)      # the outfits that keep their places at the head of the row
         if want == "remove":
+            last = db.get_setting("last_answer") or {}
+            if where not in ("saved", "buy") and last.get("kind") == "yes" and last.get("key") == key \
+                    and key in (last.get("row") or []):
+                # Undo of the yes just given: the row as it stood before it, every outfit in its place (the outfits
+                # behind it are not sorted again by what he has now).
+                stays = list(last["row"])
             if rows:
                 key, sig = rows[0]["key"], rows[0]["sig"]
                 # (Saved twice before version 9, with different products: the same pieces are still his through
@@ -1500,6 +1520,7 @@ def create_app() -> Flask:
                     abort(409, "That outfit no longer exists — reload the page.")
                 added = yes.adds(w, outfit)
                 sig = outfit.sig
+                row_now: list[str] = []
                 if where not in ("saved", "buy"):       # in the row: what stood in front of it stays in front
                     row_now = [o.key for o in yes.offer(w, occasion or usual_occasion(), *place(request.form), stays)[0]]
                     if key in row_now:
@@ -1510,8 +1531,9 @@ def create_app() -> Flask:
                 pieces = outfits.snapshot(outfit)
                 db.save_outfit(key, catalog.now_iso(), outfit.label, pieces, sig)
                 db.undecline_outfit(sig)        # (a yes to something he had said no to: the yes counts)
+                # (`row`: the row as it stood before the yes, so that its Undo puts back every outfit where it was.)
                 db.set_setting("last_answer", {"kind": "yes", "key": key, "sig": sig, "label": outfit.label,
-                                               "name": yes.name(pieces), "words": added.words})
+                                               "name": yes.name(pieces), "words": added.words, "row": row_now})
         if request.headers.get("HX-Request"):
             # A page from before the button was a plain form: its new state and the chip with its new number.
             return render_template("_save_button.html", key=key, saved=want != "remove", yes_sig=sig,
@@ -1558,8 +1580,10 @@ def create_app() -> Flask:
             return redirect(url_for("outfits_page", occasion=occasion, **row))
         if want == "undo":
             db.undecline_outfit(sig)
-            shown = yes.offer(selection.build(), occasion or usual_occasion(), *place(request.form),
-                              front_of(request.form))[0]
+            last = db.get_setting("last_answer") or {}
+            if last.get("kind") == "no" and last.get("sig") == sig and last.get("row"):
+                row = same_row(request.form, list(last["row"]))     # the row as it was before the no
+            shown = yes.offer(selection.build(), occasion or usual_occasion(), *place(request.form), front_of(row))[0]
             back = next((o for o in shown if o.sig == sig), None)
             if back is not None:        # in its old place in the row, and on screen
                 return redirect(url_for("outfits_page", occasion=occasion, **row, _anchor=f"outfit-{back.key}"))
@@ -1569,14 +1593,20 @@ def create_app() -> Flask:
             abort(409, "That outfit no longer exists — reload the page.")
         if sig in db.yes_sigs():
             abort(409, "That outfit is in your wardrobe. Take it out first.")
+        # The row as it stands now. After the no every other outfit of it stays in front, in its place, and one more
+        # joins at the end: he goes on from where he was, and none he passed moves (a row sorted by what he has
+        # would put the newcomer among them). Its Undo puts back the row as it was.
+        row_was = [o.key for o in yes.offer(selection.build(), occasion or usual_occasion(), *place(request.form),
+                                            front_of(request.form))[0]]
+        row = same_row(request.form, [k for k in row_was if k != outfit.key])
         db.decline_outfit(sig)
         db.set_setting("last_answer", {"kind": "no", "sig": sig, "label": outfit.label,
-                                       "name": yes.name(outfits.snapshot(outfit))})
+                                       "name": yes.name(outfits.snapshot(outfit)), "row": row_was})
         following = request.form.get("next", "")
         if not re.fullmatch(r"[0-9a-f]{12}", following):
             # It was the last of the row: whatever stands in its place now, or the one before it.
             shown = yes.offer(selection.build(), occasion or usual_occasion(), *place(request.form),
-                              front_of(request.form))[0]
+                              front_of(row))[0]
             try:
                 i = max(0, min(len(shown) - 1, int(request.form.get("i", 0))))
             except ValueError:
@@ -1699,6 +1729,8 @@ def create_app() -> Flask:
             yes.keep(slot_id, False)            # (a piece that is gone is no longer one he kept)
         if slot_id in (db.get_setting("spares") or []):
             yes.spare(slot_id, False)           # (… nor one with a spare)
+        if yes.owned_from_outside(slot_id):
+            yes.remember_outside(slot_id, False)
         db.set_setting("plan_edited", True)
         sync_catalog()
         said = f"Removed “{slot['name']}” from your plan."
@@ -1793,7 +1825,15 @@ def create_app() -> Flask:
         # only if he typed one, or had given one before (its field is empty until then).
         typed_budget = profile_mod.given_budget(request.form.get("budget")) is not None
         profile_mod.answer("colours", "use", *(["budget"] if typed_budget else []))
+        # A budget he had, its field emptied: he has no budget now. The bar shows his total, with nothing left or
+        # over, as before he gave one ("Best for budget" says it needs one).
+        cleared = ("budget" in request.form and not request.form["budget"].strip()
+                   and profile_mod.budget_known(current))
+        if cleared:
+            profile_mod.unanswer("budget")
         profile_mod.save(new)
+        if cleared:
+            flash("Budget cleared. The bar at the top now shows what your wardrobe costs, without a budget.")
         for note in notes:
             flash(note)
         if stores_line:
@@ -1875,7 +1915,8 @@ def create_app() -> Flask:
         leather shoes were gone."""
         names = [(view.slot["name"], view.qty) for view in w.slots
                  if view.state != "owned" and view.chosen is not None
-                 and style.against(view.chosen.data, view.slot["category"], w.brief)]
+                 and (style.against(view.chosen.data, view.slot["category"], w.brief)
+                      or style.name_against(view.slot["name"], w.brief))]   # "White leather sneakers", by name
         if not names:
             return ""
         n = sum(qty for _, qty in names)
@@ -1922,10 +1963,12 @@ def create_app() -> Flask:
                       % (changed or "Your picks are as they are without one.", see_outfits), "style")
         elif do == "remove":
             before = picks_of(selection.build())
+            talked = bool(stylechat.state()["turns"])       # the conversation goes with it: said
             style.remove()
             stylechat.forget()
             changed = brief_changed(before, picks_of(selection.build()), "Removing it")
-            flash(Markup("Style brief removed. %s %s") % (changed or "That changed none of your pieces.", see_outfits),
+            flash(Markup("Style brief removed%s. %s %s") % (", and the conversation with it" if talked else "",
+                                                           changed or "That changed none of your pieces.", see_outfits),
                   "style")
         elif do == "forget":
             stylechat.forget()
@@ -1934,11 +1977,13 @@ def create_app() -> Flask:
         return redirect(url_for("profile_page") + "#style")
 
     def no_partners() -> bool:
-        """True while no store's partner programme has accepted Stilsmith ("approved" in the owner's registry). From
+        """True while no real store's partner programme has accepted Stilsmith ("approved" in the owner's registry). From
         the day one has, the Stores tab calls that store a partner, and the page's foot no longer says "Not
         affiliated with any retailer". If the registry cannot be read (an error page), the foot says nothing."""
         try:
-            return not any(store["status"] == "approved" for store in db.list_stores())
+            # (An invented sample store, for trying the importers, is no partner: it does not count.)
+            return not any(store["status"] == "approved" and not (store.get("rules") or {}).get("sample")
+                           for store in db.list_stores())
         except Exception:
             return False
 

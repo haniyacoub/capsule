@@ -13,7 +13,8 @@
    (_save_button.html), which leads back here. #}
 {% if not adds.in_wardrobe %}
 <div class="not-yet">
-  <p>This outfit is not in your wardrobe yet, so it is not on your shopping list or in your total. {{ adds.words }}.{% if adds.over_words %} {{ adds.over_words }}{% endif %}</p>
+  <p>This outfit is not in your wardrobe yet, so it is not on your shopping list or in your total. {{ adds.words }}.</p>
+  {% if adds.over_words %}<p class="adds over">{{ icon('flag') }} {{ adds.over_words }}</p>{% endif %}
   {% with key = outfit.key, saved = false, yes_sig = outfit.sig, on = 'buy' %}{% include "_save_button.html" %}{% endwith %}
 </div>
 {% endif %}

@@ -90,8 +90,10 @@
 {% endif %}
 {% endmacro %}
 
-{# One row: on a narrow phone the chips scroll sideways inside their own row, and Shuffle stays beside them
-   (an icon on a phone, its name still read out; with its name on a computer). #}
+{# One row of plain words right under the bar, and right under it the picture: which outfits are shown (the one
+   chosen is underlined), and Shuffle at its end (a sign on a phone, its name still read out; with its name on a
+   computer). On a very narrow phone the words scroll sideways inside their own row. Nothing else stands above
+   the picture: how many outfits there are and how to see the next one is one quiet line under them (below). #}
 <div class="toolbar">
   <div class="chips" role="group" aria-label="Which outfits">
     {% for key, label in OCCASIONS.items() %}
@@ -105,20 +107,6 @@
 </div>
 
 {% if boards %}
-{# One line: how many outfits, the day their prices were collected ("11 Nov" of "11 Nov 2026, 15:02"), and how
-   to see the next one: swipe on a touch screen, the arrows or the arrow keys with a mouse (app.css shows one). #}
-<p class="lead">
-  {% if occasion == 'saved' %}The outfits you said yes to, as they were when you added them. “Changed” marks a piece your wardrobe now fills with something else.
-  {% else %}
-  {{ '%d of ' % boards|length if boards|length < total }}{{ total }} {{ 'outfit' if total == 1 else 'outfits' }}
-  {%- if w.collected != 'never' %} · prices of {{ w.collected.split(',')[0].rsplit(' ', 1)[0] }}{% endif %}
-  {%- if boards|length > 1 or boards|length < total %}<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>{% endif %}
-  {% endif %}
-  {# Why the outfits are in this order, once he has pieces: the ones that cost him least come first. After a yes
-     the outfits that stood in front of that one are still in front (`held` of them): the order starts behind them. #}
-  {% if reusing %}<span class="why-first"> · {% if held %}from outfit {{ held + 1 }} on, those{% else %}outfits{% endif %} that use pieces you already have come first</span>{% endif %}
-</p>
-
 {% if occasion != 'saved' %}
 {# On a phone: what a yes adds and the two answers for the outfit that is showing, always in reach above the tab bar.
    app.js (17a) moves that outfit's .yes-box in here, and back when another outfit shows (app.css, .dock). It is
@@ -204,8 +192,8 @@
            the box stays here. #}
         <div class="yes-box" data-answer>
         {% if o.adds %}
-        <p class="adds{% if o.adds.in_wardrobe %} in{% endif %}">{{ o.adds.words }}</p>
-        {% if o.adds.over_words %}<p class="adds over">{{ o.adds.over_words }}</p>{% endif %}
+        <p class="adds{% if o.adds.in_wardrobe %} in{% endif %}">{{ o.adds.words }}{% if o.adds.over_short %}<span class="over-short"> · {{ o.adds.over_short }}</span>{% endif %}</p>
+        {% if o.adds.over_words %}<p class="adds over">{{ icon('flag') }} {{ o.adds.over_words }}</p>{% endif %}
         {% endif %}
         <div class="answer">
           {% include "_save_button.html" %}
@@ -226,10 +214,14 @@
           <li>
             {% call piece(o, p, 'piece-row', p.slot_name) %}
               {{ pic('' if p.owned else p.image_url, p.hex) }}
-              <span class="piece-text"><b>{{ p.slot_name }}</b>{% if p.owned %}<span>You own this</span>{% elif p.gone %}<span>No longer offered</span>{% else %}<span{% if p.store_name %} lang="de"{% endif %}>{{ p.name }}</span>{% endif %}</span>
+              {# The piece, then its store and the product's name in one language: English where every word is
+                 known (english.py), else the store's own. The store's own name is on the piece's card (the pop-up). #}
+              {% set theirs = p.store_name or (p.name if p.name != p.slot_name else '') %}
+              {% set en = theirs|english if theirs else none %}
+              <span class="piece-text"><b>{{ p.slot_name }}</b>{% if p.owned %}<span>You own this</span>{% elif p.gone %}<span>No longer offered</span>{% else %}<span class="row-product"><span class="store">{{ STORES.get(p.store, p.store) }}</span>{% if theirs %} <span aria-hidden="true">·</span> <span lang="{{ 'en' if en else 'de' }}">{{ en or theirs }}</span>{% endif %}</span>{% endif %}</span>
               {% set out = sold.get(p.slot_id) if not p.owned and not p.gone else none %}
               {% set out = out and (o.sig or p.cand_id == out.chosen.id) %}
-              <span class="piece-price">{% if p.owned %}0 €{% else %}{% if out %}<s>{{ p.price|eur }}</s><span class="sr"> (not counted in the outfit's price)</span>{% else %}{{ p.price|eur }}{% endif %}{% if not p.gone %}<small>{{ STORES.get(p.store, p.store) }}{% if p.unplanned %} · removed{% elif p.changed %} · changed{% endif %}</small>{% endif %}{% endif %}</span>
+              <span class="piece-price">{% if p.owned %}0 €{% else %}{% if out %}<s>{{ p.price|eur }}</s><span class="sr"> (not counted in the outfit's price)</span>{% else %}{{ p.price|eur }}{% endif %}{% if not p.gone and (p.unplanned or p.changed) %}<small>{{ 'removed' if p.unplanned else 'changed' }}</small>{% endif %}{% endif %}</span>
             {% endcall %}
             {# Its product is sold out in his size: said under the piece, with the next best in his size in one
                tap (_sold_out.html). The outfit stays. Under Saved, only while the piece is still that product. #}
@@ -265,14 +257,29 @@
       </div>
     </article>
     {% endfor %}
+    {# "Show more outfits" keeps every outfit he has seen in its place (front): the new ones come behind them. #}
     {% if occasion != 'saved' and boards|length < total %}
     <article class="slide more-slide" data-slide>
       <p class="muted">That was {{ boards|length }} of {{ total }}.</p>
-      <a class="btn" href="{{ url_for('outfits_page', occasion=occasion, n=n + 12, seed=seed, front=front|join('.') or none) }}#outfit-{{ boards[-1].key }}">Show more outfits</a>
+      <a class="btn" href="{{ url_for('outfits_page', occasion=occasion, n=n + 12, seed=seed, front=boards|map(attribute='key')|join('.')) }}#outfit-{{ boards[-1].key }}">Show more outfits</a>
     </article>
     {% endif %}
   </div>
 </section>
+{# One quiet line under the outfits: how many there are, the day their prices were collected ("11 Nov" of "11 Nov
+   2026, 15:02"), and how to see the next one: swipe on a touch screen, the arrows or the arrow keys with a mouse
+   (app.css shows one). It stood over the picture; the picture starts right under the bar now. #}
+<p class="lead below">
+  {% if occasion == 'saved' %}The outfits you said yes to, as they were when you added them. “Changed” marks a piece your wardrobe now fills with something else.
+  {% else %}
+  {{ '%d of ' % boards|length if boards|length < total }}{{ total }} {{ 'outfit' if total == 1 else 'outfits' }}
+  {%- if w.collected != 'never' %} · prices of {{ w.collected.split(',')[0].rsplit(' ', 1)[0] }}{% endif %}
+  {%- if boards|length > 1 or boards|length < total %}<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>{% endif %}
+  {% endif %}
+  {# Why the outfits are in this order, once he has pieces: the ones that cost him least come first. After a yes
+     the outfits that stood in front of that one are still in front (`held` of them): the order starts behind them. #}
+  {% if reusing %}<span class="why-first"> · {% if held %}from outfit {{ held + 1 }} on, those{% else %}outfits{% endif %} that use pieces you already have come first</span>{% endif %}
+</p>
 
 {# The pop-up for one piece. Its content comes from /outfits/piece when a piece is tapped; its title there
    (#piece-title, the piece's name) names it. #}

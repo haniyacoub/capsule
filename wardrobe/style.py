@@ -426,11 +426,24 @@ def narrowed(pool: list, category: str, brief: dict | None) -> tuple[list, str]:
 
 # ── an outfit ─────────────────────────────────────────────────────────────────
 
+def name_against(name: object, brief: dict | None) -> bool:
+    """Whether the plan's own name for a piece holds something he does not want: with "no leather", "White leather
+    sneakers", whatever the product picked for it is made of. He reads that name on every page, so an outfit that
+    wears it is never said to fit the brief, and the piece is named among those that go against it."""
+    if not brief or not name:
+        return False
+    text, forms = str(name).lower(), load_rules().get("not_wanted", {})
+    return any(_has(text, form) for word in brief["not_wanted"] for form in forms.get(word, [word]))
+
+
 def _each_judged(pieces: list[dict], brief: dict) -> list[Judged] | None:
-    """Each piece of an outfit against the brief, or None when the brief speaks against one of them: such an
-    outfit does not fit the brief as a whole, whatever its other pieces are."""
+    """Each piece of an outfit against the brief, or None when the brief speaks against one of them (its product,
+    or the plan's own name for it, name_against): such an outfit does not fit the brief as a whole, whatever its
+    other pieces are."""
     found = [judge(piece, piece.get("category", ""), brief) for piece in pieces]
-    return None if any(one.against for one in found) else found
+    if any(one.against for one in found) or any(name_against(piece.get("slot_name"), brief) for piece in pieces):
+        return None
+    return found
 
 
 def outfit_style(pieces: list[dict], level: float, brief: dict | None) -> tuple[str, list[dict]] | None:
@@ -530,9 +543,15 @@ def why(pieces: list[dict], level: float, brief: dict | None) -> str:
     With styles in the brief: "Street: t-shirt, relaxed jeans, sneakers" only when the outfit is that style as a
     whole (outfit_style), naming the pieces that make it so. With a brief that names no style (colours or fits
     only): "Your brief: navy jumper, navy chinos, navy sneakers", under the same threshold
-    (in_his_colours_or_fits). Any other outfit says nothing, so the line tells the outfits apart."""
+    (in_his_colours_or_fits). Any other outfit says nothing, so the line tells the outfits apart, and so does one
+    that is not as formal as the brief's "How formal"."""
     if not brief:
         return ""
+    if brief["formality"]:
+        # "How formal" is part of the brief: an outfit that is not that formal does not fit it as a whole.
+        low, high = load_rules()["formality"][brief["formality"]]["levels"]
+        if not low <= level <= high:
+            return ""
     found = outfit_style(pieces, level, brief)
     if found:
         label, own = load_rules()["styles"][found[0]]["label"], found[1]

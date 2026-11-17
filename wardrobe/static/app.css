@@ -31,33 +31,38 @@
   --bg: #f6f5f2;          /* the page */
   --surface: #ffffff;     /* cards, the pop-up, the tab bar */
   --soft: #efede8;        /* quiet fills: control tracks, status lines (ink on it 14.7:1) */
-  --ink: #1b1b1a;         /* text, main buttons, whatever is selected, focus rings: 15.8:1 */
+  --ink: #1b1b1a;         /* text, links, main buttons, whatever is selected, focus rings: 15.8:1 */
   --muted: #6b6964;       /* secondary text: 5.0:1, 5.5:1, and 4.7:1 on --soft */
   --line: #e2e0da;        /* dividers only: too faint to be the only edge of a control */
   --field: #8a8780;       /* edges of inputs and secondary buttons: 3.3:1, 3.6:1 */
-  --good: #1a7446;        /* in your size, money left: 5.8:1 on a card */
-  --ok: #8a5a00;    --ok-bg: #f7ecd2;     /* cautions to act on: 5.9:1 on a card */
-  --poor: #a8322a;  --poor-bg: #f8e3e0;   /* over budget, not in your size, a poor score: 6.1:1 */
-  --danger: #a8322a;      /* Delete buttons, white text on it (6.7:1); the same in dark mode */
+  /* Two warning colours and no others, always as plain text with a small flag before it, never as a filled box:
+     amber for a size to check before buying, red for money over budget and a size that is sold out or not made.
+     Everything else, good news included, is said in ink. */
+  --ok: #8a5a00;          /* a size to check (the cut runs large, between sizes, sizes not checked): 5.4:1 / 5.9:1 */
+  --poor: #a8322a;        /* over budget, sold out or not made in your size: 6.1:1 / 6.7:1 */
   --photo: #ecebe7;       /* behind every product photo and the AI picture. Photos are shot on
                              light grounds, so this stays light in dark mode too */
   /* Spacing, on a 4px grid, and the gutter: the space between the screen's edge and the content. */
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
   --gutter: 16px;                                  /* computers: 24px */
   --form-w: 620px;                                 /* the widest a form on a card gets, and the words beside it */
-  /* Corners: five values and no others (plus 50% for round things and 0 for square ones). */
-  --r-img: 2px;           /* product photos, and the AI picture on computers */
-  --r-ui: 6px;            /* cards, buttons, inputs, the cells of a segmented control */
-  --r-track: 8px;         /* the track around segmented cells: their 6px plus its 2px padding */
-  --r-sheet: 14px;        /* the pop-up's top corners */
-  --r-pill: 999px;        /* chips and the quality number */
+  /* Corners: square, everywhere. Photos, buttons, cards, inputs and the pop-up have no rounding at all, and there are
+     no pills: a tab, a chip or a choice is a plain word, underlined when it is the one chosen. Only things that are
+     round by nature stay round (50%): a colour's dot, the dots on the AI picture, the spinner. */
+  --r-img: 0;             /* product photos and the AI picture */
+  --r-ui: 0;              /* cards, buttons, inputs */
+  --r-sheet: 0;           /* the pop-up */
+  /* Weights: text is regular (400). One heavier weight, and only for three things: prices, titles (the wordmark, a
+     page's title, an outfit's title, the pop-up's title) and the one main button of a page. */
+  --w-text: 400;
+  --w-strong: 600;
   /* One family. --display is for the wordmark, the landing page's headline and step numbers, page titles
-     and each outfit's title: the same Archivo, set wide and semi-bold where it is used
-     ("font: 600 expanded ..."; "expanded" is CSS's word for 125% wide). */
+     and each outfit's title: the same Archivo, set wide and in the one heavier weight where it is used
+     ("font: var(--w-strong) expanded ..."; "expanded" is CSS's word for 125% wide). */
   --font: "Archivo", "Archivo Fallback", ui-sans-serif, system-ui, sans-serif;
   --display: "Archivo", "Archivo Wide Fallback", ui-sans-serif, system-ui, sans-serif;
   /* Seven text sizes, each with its line height (phones; computers just below).
-     Weights are 400, 500 and 600 only. Inputs stay at 16px so phones do not zoom in.
+     Weights are 400 and 600 only (see --w-strong). Inputs stay at 16px so phones do not zoom in.
      Nothing is under 11px, and only UPPERCASE labels are under 13px. */
   --t-xs: 11px;  --lh-xs: 1.35;   /* UPPERCASE labels: sections, stores, budget labels, captions */
   --t-s: 13px;   --lh-s: 1.4;     /* secondary lines: product names, hints, notes, chips, tabs */
@@ -81,9 +86,8 @@
     --muted: #a3a19a;     /* 7.1:1, 6.5:1, and 5.7:1 on --soft */
     --line: #33322f;
     --field: #77756f;     /* 4.0:1, 3.6:1 */
-    --good: #72d49d;
-    --ok: #e6b75e;    --ok-bg: #33290f;
-    --poor: #f18e84;  --poor-bg: #3b1b18;
+    --ok: #e6b75e;        /* 9.6:1, 8.7:1 */
+    --poor: #f18e84;      /* 7.4:1, 6.7:1 */
   }
 }
 
@@ -99,10 +103,10 @@ body {
   padding-bottom: calc(64px + env(safe-area-inset-bottom));   /* room for the bottom tab bar */
 }
 h1, h2, h3, p { margin: 0; }
-h1, h2, h3 { font-size: var(--t-m); font-weight: 500; }   /* each heading's own rule below sets its size */
-b, strong { font-weight: 600; }                        /* the browser's bold would be 700 */
+h1, h2, h3 { font-size: var(--t-m); font-weight: var(--w-text); }   /* each heading's own rule below sets its size; only titles are heavier */
+b, strong { font-weight: inherit; }                    /* never the browser's bold: a price says so itself (--w-strong) */
 small { font-size: var(--t-s); }                       /* a size from the scale, not the browser's "smaller" */
-a { color: inherit; }
+a { color: var(--ink); }                               /* links are ink, whatever they stand in; a tab or a chip not chosen is grey (below) */
 button, input, select, textarea { font: inherit; color: inherit; }
 /* Keyboard focus: one ring everywhere, in the ink colour. Where a card clips its content the
    ring is drawn just inside the edge instead (see .slot-main, .act, .piece-row), so that all
@@ -120,8 +124,8 @@ main { max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--side-r) var(
   display: flex; align-items: center; justify-content: space-between; gap: var(--s-3);
   max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--side-r) var(--s-2) var(--side-l);
 }
-/* The wordmark: the site's name (the SITE_NAME setting) shown in capitals by the stylesheet, wide and bold. */
-.brand { font: 700 expanded 17px/var(--lh-xl) var(--display); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; font-synthesis: none; text-decoration: none; }
+/* The wordmark: the site's name (the SITE_NAME setting) shown in capitals by the stylesheet, wide, in the one heavier weight. */
+.brand { font: var(--w-strong) expanded 17px/var(--lh-xl) var(--display); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; font-synthesis: none; text-decoration: none; }
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
   display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
@@ -130,9 +134,12 @@ main { max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--side-r) var(
 }
 .tabs a {
   display: flex; align-items: center; justify-content: center; min-height: 56px;
-  font-size: var(--t-s); font-weight: 500; color: var(--muted); text-decoration: none;
+  font-size: var(--t-s); color: var(--muted); text-decoration: none;
 }
-.tabs a.on { color: var(--ink); box-shadow: inset 0 2px 0 var(--ink); }
+/* The tab you are on: a plain word in ink, underlined. The same mark says "this one is chosen" everywhere: a chip
+   over the outfits, a price level, a choice on Profile (--on-line is the underline, set once here). */
+:root { --on-line: underline 1px; --on-gap: 6px; }
+.tabs a.on { color: var(--ink); text-decoration: var(--on-line); text-underline-offset: var(--on-gap); }
 .tabs a:focus-visible { outline-offset: -3px; }   /* phones: the tabs touch each other and the screen's edge */
 
 /* ── Summary bar (sticks to the top) ─────────────────────────────────────── */
@@ -149,19 +156,20 @@ main { max-width: 1240px; margin: 0 auto; padding: var(--s-3) var(--side-r) var(
 .num { display: inline; white-space: nowrap; }   /* a very long line breaks between its three parts, never inside one */
 .num .lbl {   /* phones: hidden, but read out (as .sr) */
   position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
-  font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+  font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
 }
 .num b { font-weight: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.num:first-child { font-size: var(--t-l); line-height: var(--lh-l); font-weight: 600; color: var(--ink); }   /* the total */
-.num.left { font-weight: 500; color: var(--good); }
+.num:first-child { font-size: var(--t-l); line-height: var(--lh-l); font-weight: var(--w-strong); color: var(--ink); }   /* the total: a price */
+.num.left { color: var(--ink); }
+/* Over budget: the amount in red, as plain text with the small flag before it (_summary.html). The line stays ink. */
 .summary.over .num.left { color: var(--poor); }
+.num.left .ic { width: 12px; height: 12px; vertical-align: -1px; }
 .num a { position: relative; text-underline-offset: 3px; }
 .num a::after { content: ""; position: absolute; inset: calc(-1 * var(--s-3)) calc(-1 * var(--s-1)); }   /* a finger-sized target */
-.bar { height: 3px; border-radius: var(--r-pill); background: var(--line); overflow: hidden; margin-top: var(--s-1); }
-.bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--ink); }
-.summary.over .bar i { background: var(--poor); }
+.bar { height: 2px; background: var(--line); overflow: hidden; margin-top: var(--s-1); }
+.bar i { display: block; height: 100%; background: var(--ink); }
 .sub { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); margin-top: var(--s-1); }
-.warn { color: var(--ok); font-weight: 500; }
+.warn { color: var(--ink); }
 @media (max-width: 759.98px) {
   :root:has(#summary .warn) { --bar-h: 70px; }   /* with the line about missing pieces */
   /* Of the line under the figures, phones show only how many pieces have nothing to buy, and only when there are
@@ -187,7 +195,7 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 .field > :is(input, select, textarea) { scroll-margin-top: calc(var(--t-s) * var(--lh-m) + var(--s-1)); }
 
 /* ── Notices ─────────────────────────────────────────────────────────────── */
-.demo { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); background: var(--ok-bg); border-radius: var(--r-ui); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-3); }
+.demo { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); background: var(--soft); border-radius: var(--r-ui); padding: var(--s-2) var(--s-3); margin: 0 0 var(--s-3); }
 /* A status line: what just happened (saved, swapped, rebuilt). */
 .flash { font-size: var(--t-m); background: var(--soft); border-radius: var(--r-ui); padding: 10px var(--s-3); margin: 0 0 10px; }
 /* What a change made from an outfit did (outfits.html), and what Undo put back, its way back at the end of its words:
@@ -206,35 +214,30 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--t-s); background: var(--soft); padding: 1px 5px; border-radius: var(--r-ui); }
 .lead { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); margin: 0 0 12px; }
 
-/* ── Buttons, chips, pills ───────────────────────────────────────────────── */
-/* The main button: ink, 48px tall on phones and 44px on computers. A secondary one (.ghost) is
-   an outline with a --field edge; .small makes either 40px. Whatever is selected, wherever one of
-   several is chosen (a chip, a price level, a model option), is filled with ink the same way. */
+/* ── Buttons, chips, the quality number ──────────────────────────────────── */
+/* A page has one main button: filled with ink, in the heavier weight, 48px tall on phones and 44px on computers
+   ("Add to my wardrobe", "Save profile", "Log in"). Every other button is an outline with a --field edge and
+   regular text: .ghost, and every .small one (44px tall), filled or not. All are square. */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
   min-height: 48px; padding: 0 20px; border-radius: var(--r-ui);
   border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
-  font-weight: 600; font-size: var(--t-m); text-decoration: none; cursor: pointer;
+  font-weight: var(--w-strong); font-size: var(--t-m); text-decoration: none; cursor: pointer;
 }
-.btn.ghost { background: none; color: var(--ink); border-color: var(--field); }
-.btn.small { min-height: 40px; padding: 0 var(--s-3); }   /* smaller box, same text */
-.link { background: none; border: 0; padding: 8px 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: var(--t-s); }
-.link.danger { color: var(--poor); }
-.chips { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+.btn.ghost, .btn.small { background: none; color: var(--ink); border-color: var(--field); font-weight: var(--w-text); }
+.btn.small { min-height: 44px; padding: 0 var(--s-3); }   /* smaller box, same text */
+.link { background: none; border: 0; padding: 8px 0; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: var(--t-s); }
+/* Chips are plain words in a row: grey, and the one that is on is ink and underlined (as the tab you are on). */
+.chips { display: flex; gap: 0 var(--s-4); flex-wrap: wrap; }
 .chip-link {
-  display: inline-flex; align-items: center; min-height: 40px; padding: 0 var(--s-3); border-radius: var(--r-pill);
-  border: 1px solid var(--line); font-size: var(--t-s); font-weight: 500; color: var(--muted); text-decoration: none;
+  display: inline-flex; align-items: center; min-height: 44px;
+  font-size: var(--t-s); color: var(--muted); text-decoration: none;
 }
-.chip-link.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
-/* The quality number: plain ink in a hairline ring. Only a poor score is coloured. */
-.pill {
-  display: inline-flex; align-items: center; justify-content: center; flex: none;
-  min-width: 28px; height: 20px; padding: 0 6px; border-radius: var(--r-pill);
-  font-size: var(--t-s); font-weight: 500; font-variant-numeric: tabular-nums;
-}
-.pill.good, .pill.ok { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
-.pill.poor { color: var(--poor); background: var(--poor-bg); }
-.store { flex: none; font-size: var(--t-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }
+.chip-link:hover { color: var(--ink); }
+.chip-link.on { color: var(--ink); text-decoration: var(--on-line); text-underline-offset: var(--on-gap); }
+/* The quality number: a plain number after the word Quality, "73/100", in ink. No ring, no colour. */
+.pill { flex: none; color: var(--ink); font-variant-numeric: tabular-nums; }
+.store { flex: none; font-size: var(--t-xs); letter-spacing: .12em; text-transform: uppercase; }
 /* Every card's lines (_macros.html), the same on Wardrobe, the pop-up, a piece's page and Buy: "WEEKDAY · Quality
    73/100", the store's name for the product in English with the original under it in small print (on the cards,
    where the English is already at the smallest size for words, the original is told apart by its grey), then
@@ -252,17 +255,18 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .by-in { display: inline-flex; align-items: center; flex-wrap: wrap; row-gap: 2px; min-width: 0; margin-left: calc(-1 * var(--s-4)); }   /* 2px: as .by's own row gap */
 .by-in > .store { padding-left: var(--s-4); }
 .by .sep { flex: none; width: var(--s-2); margin-left: var(--s-1); text-align: center; }
-.pill .of { font-weight: 400; }
 .orig { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .fabric, .fit { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
-.fit.caution, .fabric.caution { color: var(--ok); }
+.fit.caution { color: var(--ok); }   /* a cut to act on (a size up or down): amber, with its flag */
 .fit .ic, .fabric .ic { width: 13px; height: 13px; vertical-align: -2px; }
-.tag { display: inline-block; font-size: var(--t-s); font-weight: 500; padding: 2px 8px; border-radius: var(--r-pill); background: var(--soft); color: var(--muted); }
+.tag { display: inline-block; font-size: var(--t-s); color: var(--muted); }   /* "added by you": plain words */
 
 /* ── Pictures with a swatch fallback ─────────────────────────────────────── */
 .pic { position: relative; display: block; overflow: hidden; background: var(--photo); border-radius: var(--r-img); }
-.pic::after {   /* hairline, so a white swatch still reads as a swatch */
-  content: ""; position: absolute; inset: 0; border-radius: var(--r-img); pointer-events: none;
+/* A product photo lies on the plain grey of --photo with nothing round it. Only a colour shown in a photo's place
+   (.noimg) has a hairline, so that a white one still reads as a swatch. */
+.pic.noimg::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
   box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .22);
 }
 .pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
@@ -271,72 +275,85 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .pic.noimg img { display: none; }
 .pic.noimg .fb {
   position: absolute; inset: 0; display: flex; align-items: flex-start; padding: 8px;
-  font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; color: var(--on);
+  font-size: var(--t-s); line-height: var(--lh-s); color: var(--on);
 }
 
-/* ── Wardrobe: price level, slider, slot cards ────────────────────────────────── */
+/* ── Wardrobe: price level, slider, its rows ─────────────────────────────── */
 .controls { display: grid; gap: var(--s-3); margin: 2px 0 4px; }
-.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--soft); border-radius: var(--r-track); padding: 2px; }
+/* One of several (a price level, what you dress for): plain words side by side over a hairline, 44px tall to tap;
+   the one chosen is ink with an ink line under it, as a tab. */
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
 .seg label { position: relative; cursor: pointer; }
 .seg input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .seg span {
-  display: block; text-align: center; padding: 10px 14px; border-radius: var(--r-ui);
-  font-size: var(--t-s); font-weight: 500; color: var(--muted); white-space: nowrap;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 44px; height: 100%;
+  padding: var(--s-1) var(--s-2); text-align: center; box-shadow: inset 0 -1px 0 var(--line);
+  font-size: var(--t-s); color: var(--muted); white-space: nowrap;
 }
-.seg input:checked + span { background: var(--ink); color: var(--bg); }
+.seg input:checked + span { color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
 .seg input:checked + span small { color: inherit; }   /* the chosen level's amount too */
-.seg input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
+.seg input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: -2px; }
 .thr { display: grid; gap: 2px; }
 .thr-text { display: flex; justify-content: space-between; font-size: var(--t-s); color: var(--muted); }
-.thr output { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.thr output { color: var(--ink); font-variant-numeric: tabular-nums; }
 .thr input[type=range] { width: 100%; height: 30px; margin: 0; accent-color: var(--ink); }
-.thr input[type=range]:focus-visible { border-radius: var(--r-ui); }
 /* Phones: three by two (Cheapest, Cheap, Medium / Expensive, Top, Best for budget), each amount under its
    name: six amounts in a row do not fit a 360px screen at a readable size. Computers: one row of six,
    see "Wider screens". A name may wrap to two lines on the smallest phones; amounts are to the cent. */
 .levels { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .levels span { padding: 7px 2px 6px; font-size: var(--t-s); line-height: 1.25; white-space: normal; }
-.levels small { display: block; font-size: var(--t-s); font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
-.thr small { font-weight: 400; }
+.levels small { display: block; font-size: var(--t-s); color: var(--muted); font-variant-numeric: tabular-nums; }
 .plan-line a { padding: 10px 0; }    /* "Edit the plan": a finger-sized target that does not move the line */
 
-.sec { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 20px 2px 8px; }
-.grid { display: grid; gap: 10px; }
-.slot {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto;
-  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ui); overflow: hidden;
-}
-.slot.has-warn { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.sec { font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 20px 0 8px; }
+/* What is true of a whole store, said once (selection.said_once): over the Wardrobe's rows, and under a store's
+   name on the Shopping list and on Buy this outfit. "Sizes not checked at COS" is a size to check before buying:
+   amber, as plain text with its small flag. What is said of the fabric is plain grey. No row repeats either. */
+.once { list-style: none; margin: 0 0 var(--s-2); padding: 0; display: grid; gap: var(--s-1); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.once .store { margin-right: var(--s-1); }
+.once .sizes { color: var(--ok); }
+.once .ic { width: 12px; height: 12px; vertical-align: -1px; }
+/* A row of the Wardrobe (and the same lines on the Shopping list and Buy this outfit, .buy): the product's photo,
+   88 by 110px on plain grey, then the piece and its price, the store and the product's name (one language), the
+   size, and how many of his outfits wear it. No box round a row: a hairline above each. */
+.grid { display: grid; gap: 0 var(--s-5); }
+.slot { display: grid; grid-template-columns: minmax(0, 1fr) auto; border-top: 1px solid var(--line); }
 .slot-main {
-  display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 11px; align-items: center;
-  padding: 9px 12px 9px 10px; min-height: 98px; text-decoration: none;
+  display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: var(--s-3); align-items: start;
+  padding: var(--s-3) var(--s-2) var(--s-3) 0; text-decoration: none;
 }
-.slot-main:focus-visible, .act:focus-visible { outline-offset: -3px; }   /* the card clips: ring inside */
-.slot-main .pic { width: 62px; aspect-ratio: 4 / 5; }
+.slot-main:focus-visible, .act:focus-visible { outline-offset: -3px; }   /* rows touch: ring inside */
+.slot-main .pic { width: 88px; aspect-ratio: 4 / 5; }
 .slot-main .pic .fb { display: none; }
 .slot-text { display: grid; gap: 3px; min-width: 0; }
 .line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
-.slot-name { flex: 1 1 auto; min-width: 0; font-size: var(--t-m); font-weight: 500; line-height: 1.25; overflow-wrap: anywhere; }
-.qty { color: var(--muted); font-weight: 500; }
-.slot-price { flex: none; font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.slot-name { flex: 1 1 auto; min-width: 0; font-size: var(--t-m); line-height: 1.25; overflow-wrap: anywhere; }
+.qty { color: var(--muted); }
+.slot-price { flex: none; font-size: var(--t-m); font-weight: var(--w-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .item { flex: 1 1 auto; min-width: 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
-.slot-text .item[lang] { color: var(--ink); }   /* the product's name, in English where it is known */
-.slot-text .item.orig { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }   /* the store's own */
-.each { display: block; text-align: right; font-size: var(--t-s); font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }   /* "2 × 24.99 €", under the total */
-.note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
+/* The second line of a row: "COS · Jacket, boiled wool with shawl collar". The store in small capitals, then the
+   product's name in one language (English where every word is known, else the store's own). */
+.row-product { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); overflow-wrap: anywhere; }
+/* The third: "Size: M", and on the lists the colour as the store names it. The size itself is ink. */
+.row-size { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.row-size b { color: var(--ink); }
+/* Then, only where there is one: something about the size of this very product to act on before buying (the cut
+   runs large, he is between sizes): amber, as plain text with its small flag. */
+.row-caution { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
+.row-caution .ic { width: 12px; height: 12px; vertical-align: -1px; }
+.each { display: block; text-align: right; font-size: var(--t-s); font-weight: var(--w-text); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }   /* "2 × 24.99 €", under the total */
+.note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); }
 .hint { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .hint .ic { width: 12px; height: 12px; vertical-align: -1px; }
-.hint b { font-weight: 600; }
-.slot.is-owned .slot-price { color: var(--good); }
-.slot-actions { display: grid; grid-template-rows: 1fr 1fr; border-left: 1px solid var(--line); }
+.slot-actions { display: grid; grid-auto-rows: minmax(48px, auto); align-content: start; padding: var(--s-2) 0; }
 .slot-actions form { display: contents; }
 .act {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
   width: 56px; min-height: 48px; border: 0; background: none; cursor: pointer;
-  font-size: var(--t-s); font-weight: 500; color: var(--muted);
+  font-size: var(--t-s); color: var(--muted);
 }
-.slot-actions form + form .act { border-top: 1px solid var(--line); }
-.act.on { background: var(--soft); color: var(--ink); font-weight: 600; }
+.act.on { color: var(--ink); }
+.act.on span { text-decoration: var(--on-line); text-underline-offset: 4px; }
 .act:disabled { opacity: .35; cursor: default; }
 /* A piece the product list has nothing for: the colours Stilsmith has its garment in, one tap each, or why it
    stays out (_colour_offer.html). On a card the row runs under the piece and its two buttons. */
@@ -344,14 +361,14 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .offer form { display: flex; }
 .offer .dot { width: 14px; height: 14px; }
 .left-out { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
-.slot .offer { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
+.slot .offer { grid-column: 1 / -1; padding: 0 0 var(--s-3); }
 /* A piece the plan has twice (two white tees): an outfit wears one, and the card offers the other as a spare, in a
    row under the piece and its buttons: what is so, and "Add a spare" with its price, or "Take the spare out". */
 .slot .spare {
   grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-1) var(--s-3);
-  padding: var(--s-2) var(--s-3); border-top: 1px solid var(--line); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted);
+  padding: 0 0 var(--s-3); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted);
 }
-.slot .spare .btn .plus { font-weight: 400; opacity: .85; white-space: nowrap; }
+.slot .spare .btn .plus { opacity: .85; white-space: nowrap; }
 /* A chosen product that is sold out in his size (_sold_out.html): the fact in the colour of a size that is not
    there (as .sizeline .no), then one button, "Swap for <the next best in his size>, +10 €", whose words wrap
    inside it rather than widen the page, and one quiet line about what the tap does. The same block under a piece
@@ -360,26 +377,25 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .soldout { display: grid; gap: var(--s-1); justify-items: start; min-width: 0; font-size: var(--t-s); line-height: var(--lh-s); }
 .soldout p { margin: 0; }
 .soldout-said { color: var(--poor); }
-.soldout-said b { font-weight: 500; }
 .soldout-said .ic { width: 12px; height: 12px; vertical-align: -1px; }
 .soldout form { display: flex; max-width: 100%; }
-.soldout .btn { display: block; min-height: 44px; padding: var(--s-2) var(--s-3); text-align: left; overflow-wrap: anywhere; }
+.soldout .btn { display: block; min-height: 44px; padding: 10px var(--s-3); text-align: left; overflow-wrap: anywhere; }
 .soldout-more { color: var(--muted); }
 .about-less { margin: 0; color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }
 .about-why { margin: 0; color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }   /* why the outfit fits his style brief */
 @media screen { .print-only { display: none !important; } }     /* on paper the button is gone: its product is named */
 .soldout-more a { display: inline-block; padding: var(--s-1) 0; color: var(--ink); text-underline-offset: 3px; }
-.slot .soldout { grid-column: 1 / -1; padding: var(--s-2) var(--s-3) var(--s-3); border-top: 1px solid var(--line); }
-.pieces .soldout { padding: 0 12px var(--s-3) 66px; }
+.slot .soldout { grid-column: 1 / -1; padding: 0 0 var(--s-3); }
+.pieces .soldout { padding: 0 0 var(--s-3) calc(80px + var(--s-3)); }
 .sheet .soldout { margin-top: var(--s-4); padding-top: var(--s-3); border-top: 1px solid var(--line); }
 .buy .soldout { margin-top: var(--s-1); }
-.slot-price s, .buy-total s { color: var(--muted); font-weight: 400; text-decoration-thickness: 1px; }
+.slot-price s, .buy-total s { color: var(--muted); font-weight: var(--w-text); text-decoration-thickness: 1px; }
 
 /* ── One slot: its candidates ────────────────────────────────────────────── */
 .crumb { margin: 0 0 10px; font-size: var(--t-s); }
-.crumb a { display: inline-flex; align-items: center; gap: 2px; min-height: 36px; color: var(--muted); text-decoration: none; }
+.crumb a { display: inline-flex; align-items: center; gap: 2px; min-height: 44px; text-decoration: none; }
 .slot-head { display: grid; gap: 8px; margin-bottom: 16px; }
-.slot-head h1 { font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; }
+.slot-head h1 { font: var(--w-strong) expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; }
 .state { font-size: var(--t-m); color: var(--muted); }
 .state .note { display: block; font-size: var(--t-s); margin-top: 2px; }
 .slot-head .left-out { font-size: var(--t-m); line-height: var(--lh-m); }   /* as large as the line it explains */
@@ -390,9 +406,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .cands { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .cand {
   display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: 12px; align-items: start;
-  padding: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ui);
+  padding: var(--s-3); background: var(--surface); border: 1px solid var(--line);
 }
-.cand.chosen { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.cand.chosen { border-color: var(--ink); }
 .cand .pic { width: 104px; aspect-ratio: 3 / 4; }
 /* Not in your size: only the photo fades, never words. Where the store's photo is missing, the colour swatch and
    the colour's name show instead, at full strength (faded, a name read at 2.6:1). */
@@ -401,48 +417,55 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 /* Where the store, its quality and the price do not fit one line (an option on a phone), the quality goes under the
    store, without the dot between them (.by-in), for every store alike. */
 .colour-name { font-size: var(--t-s); color: var(--muted); }
-.price { font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.cand h2 { font-size: var(--t-m); font-weight: 500; line-height: 1.3; margin: var(--s-1) 0 2px; }   /* each option's name: a heading under the piece's */
+.price { font-size: var(--t-m); font-weight: var(--w-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cand h2 { font-size: var(--t-m); line-height: 1.3; margin: var(--s-1) 0 2px; }   /* each option's name: a heading under the piece's */
 .cand .orig { margin-bottom: var(--s-1); }
-.est { font-size: var(--t-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--ok); background: var(--ok-bg); padding: 1px 6px; border-radius: var(--r-pill); white-space: nowrap; }
-.was { font-size: var(--t-s); font-weight: 400; color: var(--muted); margin-left: 4px; }
+.est { white-space: nowrap; }   /* ", estimated" after a fabric nobody read off a label: plain words, like the line it ends */
+.was { font-size: var(--t-s); font-weight: var(--w-text); color: var(--muted); margin-left: 4px; }
 .sizeline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--t-s); margin-top: 5px; }
-.sizeline .yes { color: var(--good); font-weight: 500; }
-.sizeline .no { color: var(--poor); font-weight: 500; }
-.sizeline .unk { color: var(--ok); font-weight: 500; }   /* sizes not checked at the store: a caution to act on */
+/* In stock in your size: said in ink. Sold out or not made in it: red. Sizes not checked at the store: amber, a
+   size to check before buying. Each warning is plain text with the small flag before it (_macros.html, size_line). */
+.sizeline .yes { color: var(--ink); }
+.sizeline .no { color: var(--poor); }
+.sizeline .unk { color: var(--ok); }
+.sizeline .ic { width: 12px; height: 12px; vertical-align: -1px; }
 .size-notes { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
 .size-notes .ic { width: 13px; height: 13px; vertical-align: -2px; }
 details.why { margin-top: 6px; font-size: var(--t-s); }
 details.why summary {
-  display: inline-flex; align-items: center; gap: 7px; min-height: 34px;
-  color: var(--muted); cursor: pointer; list-style: none;
+  display: inline-flex; align-items: center; gap: 7px; min-height: 44px;
+  color: var(--ink); cursor: pointer; list-style: none;
 }
 details.why summary u, details.fill summary u { text-underline-offset: 3px; }
 details.fill { font-size: var(--t-s); }
-details.fill summary { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; min-height: 34px; color: var(--muted); cursor: pointer; list-style: none; }
+details.fill summary { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; min-height: 44px; color: var(--ink); cursor: pointer; list-style: none; }
 details.fill summary::-webkit-details-marker { display: none; }
 .form.compact { gap: 8px; margin: 4px 0 8px; padding: 10px 12px; background: var(--soft); border-radius: var(--r-ui); }
 .form.compact .cand-actions { margin-top: 2px; }
 details.why summary::-webkit-details-marker { display: none; }
 .breakdown { display: grid; gap: 9px; margin: 4px 0 2px; padding: 10px 12px; background: var(--soft); border-radius: var(--r-ui); }
-.part-head { display: flex; justify-content: space-between; gap: 8px; font-weight: 500; }
-.part-head .muted { font-weight: 400; }
+.part-head { display: flex; justify-content: space-between; gap: 8px; }
 .part-head.total { border-top: 1px solid var(--line); padding-top: 8px; }
 .part ul { margin: 3px 0 0; padding-left: 16px; color: var(--muted); }
 .allsizes { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .sz { font-size: var(--t-s); padding: 1px 6px; border-radius: var(--r-ui); border: 1px solid var(--line); background: var(--surface); }
 .sz.gone { text-decoration: line-through; color: var(--muted); background: none; }
-.sz.mine { border-color: var(--ink); font-weight: 600; }
+.sz.mine { border-color: var(--ink); }
 .cand-actions { display: flex; align-items: center; gap: var(--s-2); flex-wrap: wrap; margin-top: 10px; }   /* "Open at COS" beside "Choose this" on a 390px phone */
-.chosen-mark { display: inline-flex; align-items: center; gap: 5px; min-height: 38px; font-size: var(--t-s); font-weight: 500; }
-.extlink { display: inline-flex; align-items: center; gap: 4px; min-height: 38px; font-size: var(--t-s); color: var(--muted); }
+.chosen-mark { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; font-size: var(--t-s); }
+.extlink { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; font-size: var(--t-s); }
 
 /* ── Outfits: one at a time, side to side ────────────────────────────────── */
-/* The chips and Shuffle in one row. Where the chips do not fit (a narrow phone) they scroll sideways inside their
-   own row, which reaches 4px past them on every side and pads that back, so that their focus rings show whole.
-   A chip that gets keyboard focus while partly outside the row is scrolled in (app.js) until it is 4px clear of
-   the row's edge (scroll-padding): its whole ring shows. */
-.toolbar { display: flex; align-items: center; gap: var(--s-2); margin: 0 0 var(--s-2); }
+/* The picture is the page. Right under the bar at the top comes one row of plain words, which outfits are shown
+   (All, Everyday, Office, My outfits) with Shuffle at its end, and right under that the picture: nothing else
+   stands above it. How many outfits there are, the day their prices are from and how to see the next one are one
+   quiet line under the outfits (.lead.below, outfits.html).
+   Where the words do not fit (a very narrow phone) they scroll sideways inside their own row, which reaches 4px
+   past them on every side and pads that back, so that their focus rings show whole. A word that gets keyboard
+   focus while partly outside the row is scrolled in (app.js) until it is 4px clear of the row's edge
+   (scroll-padding): its whole ring shows. */
+.toolbar { display: flex; align-items: center; gap: var(--s-2); margin: 0; }
+main:has(> .toolbar) { padding-top: 0; }
 .toolbar .chips {
   flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
   margin: calc(-1 * var(--s-1)); padding: var(--s-1);
@@ -450,14 +473,14 @@ details.why summary::-webkit-details-marker { display: none; }
 }
 .toolbar .chips::-webkit-scrollbar { display: none; }
 .toolbar .chip-link { flex: none; white-space: nowrap; }
-/* On a phone under 380px wide (360px: many Android phones) the four chips with 12px of padding each side were
-   24px wider than their row, and the number on "My outfits 3" was cut off beside Shuffle until the row was scrolled.
-   With 8px each side they fit, a two-figure number too. Narrower still (320px) the row scrolls, as said above. */
-@media (max-width: 379.98px) { .toolbar .chip-link { padding: 0 var(--s-2); } }
+/* On a phone under 380px wide (360px: many Android phones) the words stand 12px apart instead of 16, so that all
+   four, a two-figure number on "My outfits 12" too, show beside Shuffle. Narrower still (320px) the row scrolls. */
+@media (max-width: 379.98px) { .toolbar .chips { column-gap: var(--s-3); } }
 /* Shuffle: a 44px icon on a phone, its name hidden but still read out (as .sr); with its name on a computer. */
-.shuffle { position: relative; flex: none; width: 44px; min-height: 44px; padding: 0; }
+.btn.shuffle { position: relative; flex: none; width: 44px; min-height: 44px; padding: 0; border-color: transparent; }   /* a plain sign on a phone, no box */
 .shuffle span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-/* The lead line ends "swipe for more" on a touch screen, "use the arrows or ← →" with a mouse. */
+/* The quiet line under the outfits ends "swipe for more" on a touch screen, "use the arrows or ← →" with a mouse. */
+.lead.below { margin: var(--s-4) 0 0; }
 .by-mouse { display: none; }
 @media (hover: hover) and (pointer: fine) {
   .by-touch { display: none; }
@@ -479,31 +502,35 @@ details.why summary::-webkit-details-marker { display: none; }
   flex: 0 0 100%; min-width: 0; scroll-snap-align: center; scroll-snap-stop: always;
   display: grid; gap: var(--s-3); align-content: start; padding: var(--s-4) var(--gutter);
 }
+@media (max-width: 759.98px) { .slide { padding-top: calc(var(--s-4) + var(--s-1)); } }   /* 4px between the row of words and the picture */
 /* An outfit takes keyboard focus itself only where the outfit you moved to has nothing like what had focus in the
    one you left (app.js, 6a): a quiet ring in the edge colour of a field (3.3:1 on the page), inside the room the
    slide pads back, around the whole outfit. */
-.slide:focus-visible { outline: 2px solid var(--field); outline-offset: calc(-1 * var(--s-2)); border-radius: var(--r-ui); }
-/* The stage: the outfit as a picture, 2 wide by 3 high, without a border. Square corners on a phone; on computers
-   the photo radius (see "Wider screens"). On a phone the first screen shows the whole model and its
-   price: the picture is as large as the screen's height allows once the room for the rest is taken. That room is
-   the budget bar (--bar-h) and 302px: the header, the chips and the lead line above the picture (150px), the line
-   under it (40px), the outfit line and the tab bar below; and --shots-h, the small pictures under the line (84px, see .shots),
-   where there are any. The picture is never under 240px wide; on a shorter screen it then ends just above the tab
-   bar, and the outfit line follows below. Its width is kept as --stage-w, so that the arrows can be placed beside
-   the picture (see .reel-nav). */
-.looks { --told: 0px; --least: 240px; --lead-more: 0px; --yes-h: 0px; }
-.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 302px - var(--shots-h) - var(--why-h) - var(--lead-more) - var(--told) - var(--yes-h)) * 2 / 3))); }
+.slide:focus-visible { outline: 2px solid var(--field); outline-offset: calc(-1 * var(--s-2)); }
+/* The stage: the outfit as a picture, 2 wide by 3 high, square-cornered, without a border. On a computer the
+   picture is as large as the screen's height allows once the room for the rest is taken. That room is the budget
+   bar (--bar-h) and 248px: the header and the row of words above the picture (102px), the line under it (40px),
+   the outfit line and the tab bar below; and --shots-h, the small pictures under the line (84px, see .shots),
+   where there are any. The picture is never under 240px wide. Its width is kept as --stage-w, so that the arrows
+   can be placed beside the picture (see .reel-nav). The line that says how many outfits there are stands under
+   them (.lead.below), not above the picture. */
+.looks { --told: 0px; --least: 240px; }
+.looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 248px - var(--shots-h) - var(--told)) * 2 / 3))); }
 .looks { --shots-h: 0px; }
 .looks:has(.shots) { --shots-h: 84px; }
-/* With a style brief, an outfit that fits it says so in a line under its name (.about-why, up to two lines on a
-   phone): the picture gives up that room (it may be 208px wide for it; on a phone, where the bar with the two
-   answers stands over the tab bar, 198px: see .dock), so that on a phone of 390 x 844 the line is on the first
-   screen, above both bars, not behind them. On a shorter phone the picture is at its smallest already, and the line
-   is reached by scrolling, like the outfit's name there. */
-.looks { --why-h: 0px; }
-.looks:has(.about-why) { --why-h: calc(2 * var(--t-s) * var(--lh-s)); --least: 208px; }
-.looks.saved { --lead-more: calc(2 * var(--t-s) * var(--lh-s)); --least: 220px; }   /* under Saved the lead is three lines on a phone */
-.looks.reusing { --lead-more: calc(var(--t-s) * var(--lh-s)); }   /* … and two once it says why the outfits are in this order */
+/* On a phone the outfit's name, its price and the line that says why it fits his brief stand above the picture (see
+   .about, "On a phone"), so the bar with the two answers (.dock) never covers them. Below the picture, on the first
+   screen, are that bar (--dock-room: its 80px, none under Saved) and the tab bar; the line under the picture and the
+   small pictures follow, a scroll away. Above it: the header, the row of words and the outfit's name (151px, with
+   the budget bar's --bar-h), then the why-line (--why-h). So the whole model shows above both bars. The picture is
+   never under 287px wide on a phone 820px high or more, nor under 198px on a shorter one, where the bar may cover
+   the foot of the picture on the shortest phones (390 x 664) until he scrolls. */
+@media (max-width: 759.98px) {
+  .looks { --dock-room: 80px; --why-h: 0px; --least: calc(198px + var(--tall) * 89); }
+  .looks.saved { --dock-room: 0px; }
+  .looks:has(.about-why) { --why-h: calc(var(--t-s) * var(--lh-s) + var(--s-1)); }
+  .looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 207px - var(--dock-room) - var(--why-h) - var(--told)) * 2 / 3))); }
+}
 /* A short phone (under 820px of height while the browser's own bars show: most phones in a browser, 390 x 664,
    360 x 740, 393 x 760). There the picture is already at its smallest, so an 84px row would push the outfit's name
    and price off the first screen: the row is 40px there, its pictures smaller and without their names (see
@@ -563,8 +590,8 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .tile .pic img { object-fit: contain; object-position: center; }   /* the whole product, never cropped */
 .tile .cap {
   position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px);
-  font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
-  padding: 2px 6px; border-radius: var(--r-ui); background: rgba(255, 255, 255, .88); color: #1b1b1a;
+  font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase;
+  padding: 2px 6px; background: rgba(255, 255, 255, .88); color: #1b1b1a;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* The AI picture lies over the pieces' photos, in the same 2:3 box, and fades in when it arrives (htmx-added is on
@@ -577,9 +604,9 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .look-pic.kept, .look-pic.kept.htmx-added { opacity: 1; transition: none; }
 .look-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .ai-chip {
-  position: absolute; left: var(--s-2); bottom: var(--s-2); padding: var(--s-1) var(--s-2); border-radius: var(--r-pill);
+  position: absolute; left: var(--s-2); bottom: var(--s-2); padding: var(--s-1) var(--s-2);
   background: rgba(27, 27, 26, .72); color: #fff; pointer-events: none;
-  font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
+  font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase;
 }
 /* The label and the dots never meet. A dot low on the picture (.spot.low, outfits.html: the shoes') keeps to the right
    of the label: its centre at least --chip-clear from the picture's left edge, the label's width (about 90px: 'AI
@@ -591,12 +618,12 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
    narrowest picture (124px). */
 .spots { --chip-clear: 114px; }
 @container (max-width: 199.98px) {   /* the stage's width */
-  .ai-chip { left: var(--s-1); bottom: var(--s-1); padding: var(--s-1); border-radius: var(--r-ui); white-space: nowrap; }
+  .ai-chip { left: var(--s-1); bottom: var(--s-1); padding: var(--s-1); white-space: nowrap; }
   .spots { --chip-clear: 104px; }
 }
-@container (max-width: 185.98px) {
-  .ai-chip { width: min-content; white-space: normal; }
-  .spots { --chip-clear: 88px; }
+@container (max-width: 185.98px) {     /* still one line: a little tighter (about 70px wide) */
+  .ai-chip { padding: 2px var(--s-1); letter-spacing: .06em; }
+  .spots { --chip-clear: 92px; }
 }
 /* What is being done about the picture (asked for, drawing, waiting its turn, failed) is said in a band across the top
    of the box, over the pieces' photos: their prices at the bottom of each photo stay readable, and nothing outside
@@ -611,7 +638,7 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 .band > span:not(.spin) { flex: 1 1 6em; min-width: 0; }   /* the words; a button that does not fit beside them goes under */
 .band.wait { flex-wrap: nowrap; }
 .band .look-msg { color: inherit; }
-.band .btn { flex: none; background: #fff; border-color: #fff; color: #1b1b1a; }
+.band .btn { flex: none; background: #fff; border-color: #fff; color: #1b1b1a; }   /* on the picture: white, so it shows on the veil */
 .band :focus-visible { outline-color: #fff; }
 .band .spin { border-color: rgba(255, 255, 255, .35); border-top-color: #fff; }
 /* The line under the box: one line, 40px tall in every state (empty until there is a picture), so that nothing under
@@ -641,7 +668,7 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
 }
 .look-links { display: flex; gap: var(--s-3); flex: none; align-self: stretch; }
 .look-links .link { display: inline-flex; align-items: center; padding: 0; font-size: var(--t-s); }   /* each the line's 40px tall */
-.look-msg { color: var(--ok); }
+.look-msg { color: var(--ink); }   /* why a picture was not drawn: plain words */
 /* Why a new version was not drawn: right under the line with "Draw again", as wide as it, above the small pictures. */
 p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var(--s-2); font-size: var(--t-s); line-height: var(--lh-s); }
 /* A question asked before anything is drawn (_look_ask.html: "Draw again" on a front picture that other photos
@@ -683,14 +710,14 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .shots-row form { display: contents; }
 .shots-row button[aria-pressed] {
   flex: none; display: grid; justify-items: center; gap: calc(var(--tall) * 2); width: var(--cell); padding: 0;
-  border: 0; border-radius: 4px; background: none; color: var(--muted); font: inherit; cursor: pointer;
+  border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer;
 }
-.shot-pic { position: relative; display: grid; place-items: center; width: var(--cell); height: calc(var(--cell) * 4 / 3); border-radius: 4px; overflow: hidden; background: var(--soft); }
+.shot-pic { position: relative; display: grid; place-items: center; width: var(--cell); height: calc(var(--cell) * 4 / 3); overflow: hidden; background: var(--soft); }
 .shots-row img { display: block; width: var(--cell); height: calc(var(--cell) * 4 / 3); object-fit: cover; object-position: 50% 15%; }
 /* The picture's name under it, on one line: "Walking", the longest, fits the cell. On a short phone the line has
    no height, so the name does not show. */
 .shot-name { height: calc(var(--tall) * 16); overflow: hidden; font-size: var(--t-xs); line-height: 16px; white-space: nowrap; }
-.shots-row [aria-pressed="true"] .shot-name { color: var(--ink); font-weight: 600; }
+.shots-row [aria-pressed="true"] .shot-name { color: var(--ink); }
 /* A hairline round each cell, over its picture: a white studio picture has an edge on a light page too. */
 .shot-pic::before { content: ""; position: absolute; inset: 0; border: 1px solid var(--line); border-radius: inherit; pointer-events: none; }
 .shots-row [aria-pressed="true"] { cursor: default; }
@@ -716,8 +743,8 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .vid-pill {
   position: absolute; top: var(--s-2); right: var(--s-2); z-index: 2;
   display: inline-flex; align-items: center; gap: var(--s-1); height: var(--s-6); padding: 0 var(--s-3) 0 var(--s-2);
-  border: 0; border-radius: var(--r-pill); background: rgba(27, 27, 26, .72); color: #fff; cursor: pointer;
-  font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; white-space: nowrap;
+  border: 0; background: rgba(27, 27, 26, .72); color: #fff; cursor: pointer;
+  font-size: var(--t-s); line-height: var(--lh-s); white-space: nowrap;
   transition: background-color .15s ease-out;
 }
 .vid-pill .ic { width: 14px; height: 14px; fill: currentColor; }
@@ -730,7 +757,7 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
   .vid-pill { top: var(--s-1); right: var(--s-1); height: 28px; }
 }
 /* On a picture under 200px wide (under a message on a short phone) its words would cover the head: the button is its
-   play sign alone, a 28px circle (44px to a finger), and its words are still read out. */
+   play sign alone, a 28px square (44px to a finger), and its words are still read out. */
 @container (max-width: 199.98px) {
   .vid-pill { width: 28px; padding: 0; justify-content: center; }
   .vid-pill span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -788,7 +815,8 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .vid-bar.ask { margin-bottom: max(0px, var(--shots-h, 40px) - 40px); }
 .vid-bar.ask > span, .vid-bar.ask > .check { grid-column: 1 / -1; }
 .vid-bar.ask .link { display: inline-flex; align-items: center; min-height: 40px; padding: 0; }
-.vid-bar b { font-weight: 600; }
+.vid-bar.ask .btn.small { min-height: 40px; }   /* as before: the offer keeps to the room of the line and the small
+   pictures it replaces (80px on a short phone), so its button stays 40px tall here, beside 'Not now' */
 .vid-bar .check { gap: var(--s-2); min-height: 40px; }
 .spin { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--ink); animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -826,41 +854,54 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 }
 .spot .tip {
   display: none; position: absolute; left: 50%; bottom: calc(100% + 11px); transform: translateX(-50%);
-  padding: 5px 9px; border-radius: var(--r-ui); background: #1b1b1a; color: #fff;
+  padding: 5px 9px; background: #1b1b1a; color: #fff;
   font-size: var(--t-s); line-height: var(--lh-s); text-align: left; white-space: nowrap;
   pointer-events: none;    /* a label may lie over the dot above it: the pointer goes through it to that dot */
 }
-.spot .tip b { display: block; font-weight: 500; }
+.spot .tip b { display: block; }
 .spot:hover .tip, .spot:focus-visible .tip { display: block; }
 .looks.hush .spot .tip { display: none; }   /* Escape hides them, until the next dot pointed at or focused (app.js, 6c) */
 /* Beside (or under) the stage: what the outfit is made of. */
 .about { width: min(100%, 460px); margin: 0 auto; }
+/* On a phone the outfit's name, its price and the line that says why it fits his brief stand above the picture,
+   where the bar with the two answers (.dock) never covers them; the rest of .about follows the picture. (The page
+   is read in the same order as before: the slide's own name says which outfit it is.) */
+@media (max-width: 759.98px) {
+  .slide > .about { display: contents; }
+  .slide > .about > :is(.about-head, .about-less, .about-why) { order: -1; width: 100%; }
+  .slide > .about > .about-head { padding-bottom: 0; }
+  .slide > .about > :is(.about-less, .about-why) { margin-top: calc(-1 * var(--s-2)); padding: 0 2px; }
+}
 /* The outfit line: the title in the wide cut, then "1 / 12" and the price, which go under the title together
    when they do not fit beside it ("Everyday, smart casual" on a 375px phone). Under 360px the title always has a
    line of its own. */
 .about-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) 10px; padding: 0 2px 8px; }
-.about-head h2 { flex: 0 1 auto; font: 600 expanded var(--t-xl)/var(--lh-xl) var(--display); letter-spacing: -.01em; font-synthesis: none; }
+.about-head h2 { flex: 0 1 auto; font: var(--w-strong) expanded var(--t-xl)/var(--lh-xl) var(--display); letter-spacing: -.01em; font-synthesis: none; }
 .about-meta { flex: 1 0 auto; display: flex; align-items: center; gap: 10px; }
 @media (max-width: 359.98px) {
   .about-head h2 { flex-basis: 100%; }
 }
 .count { font-size: var(--t-s); color: var(--muted); font-variant-numeric: tabular-nums; }
-.board-cost { margin-left: auto; font-size: var(--t-l); font-weight: 600; font-variant-numeric: tabular-nums; }
-.pieces { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ui); overflow: hidden; }
-.pieces li + li { border-top: 1px solid var(--line); }
+.board-cost { margin-left: auto; font-size: var(--t-l); font-weight: var(--w-strong); font-variant-numeric: tabular-nums; }
+/* The outfit's pieces: no box, a hairline above each. Each line is the product's photo, 80 by 100px on plain grey
+   (its colour where there is none), the piece, the store and the product's name in one language (English where
+   every word is known, else the store's own), and the price. */
+.pieces { list-style: none; margin: 0; padding: 0; border-bottom: 1px solid var(--line); }
+.pieces li { border-top: 1px solid var(--line); }
 .piece-row {
-  display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center;
-  width: 100%; min-height: 60px; padding: 6px 12px 6px 8px; border: 0; background: none; text-align: left; text-decoration: none; cursor: pointer;
+  display: grid; grid-template-columns: 80px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center;
+  width: 100%; min-height: 116px; padding: var(--s-2) var(--s-1) var(--s-2) 0; border: 0; background: none; text-align: left; text-decoration: none; cursor: pointer;
 }
 .piece-row:hover, .piece-row.lit { background: var(--soft); }   /* .lit: its dot on the picture is pointed at (app.js 6d) */
-.piece-row:focus-visible { outline-offset: -3px; }   /* the list clips: ring inside */
-.piece-row .pic { width: 48px; aspect-ratio: 4 / 5; }   /* 48 x 60 */
+.piece-row:focus-visible { outline-offset: -3px; }   /* lines touch: ring inside */
+.piece-row .pic { width: 80px; aspect-ratio: 4 / 5; }   /* 80 x 100 */
 .piece-row .pic .fb { display: none; }
-.piece-text { display: grid; min-width: 0; }
-.piece-text b { font-size: var(--t-m); font-weight: 500; }
-.piece-text span { font-size: var(--t-s); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.piece-price { text-align: right; font-size: var(--t-m); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.piece-price small { display: block; font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.piece-text { display: grid; gap: 2px; min-width: 0; }
+.piece-text b { font-size: var(--t-m); }
+.piece-text .row-product { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }   /* two lines at most */
+.piece-text > span:not(.row-product) { font-size: var(--t-s); color: var(--muted); }
+.piece-price { text-align: right; font-size: var(--t-m); font-weight: var(--w-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.piece-price small { display: block; font-size: var(--t-s); line-height: var(--lh-s); font-weight: var(--w-text); color: var(--muted); }   /* "changed", "removed" */
 .about-actions { margin: var(--s-3) 0 0; }
 .about-actions .btn { width: 100%; }   /* "Buy this outfit": the main button, the whole width of the list */
 .more-slide { place-content: center; justify-items: center; min-height: 260px; text-align: center; }
@@ -872,9 +913,9 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
    (the keyboard reaches them first) and the z-index keeps them over it, so a click lands on them, not on a slide. */
 .looks { --pair: var(--stage-w); }
 .reel-nav {
-  display: none; position: absolute; z-index: 3; top: calc(var(--stage-w) * 3 / 4 - 44px / 2); width: 44px; height: 44px; padding: 0; border-radius: 50%;
-  align-items: center; justify-content: center; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, .12); cursor: pointer;
+  display: none; position: absolute; z-index: 3; top: calc(var(--stage-w) * 3 / 4 - 44px / 2); width: 44px; height: 44px; padding: 0;
+  align-items: center; justify-content: center; border: 1px solid var(--field); background: var(--bg); color: var(--ink);
+  cursor: pointer;
 }
 .reel-nav.prev { left: max(0px, 50% - var(--pair) / 2 - 44px - var(--s-3)); }
 .reel-nav.next { right: max(0px, 50% - var(--pair) / 2 - 44px - var(--s-3)); }
@@ -925,7 +966,7 @@ html:has(dialog[open]) { overflow: hidden; }
 .sheet-close {
   position: sticky; top: 0; z-index: 2; display: block; width: var(--close); height: var(--close); padding: var(--s-1);
   margin: 0 calc(var(--sheet-t) - var(--sheet-x)) calc(-1 * var(--close)) auto;   /* takes no room: the top row is under it */
-  border: 0; border-radius: 50%; background: var(--soft) content-box; font-size: var(--t-xl); line-height: 1; cursor: pointer;
+  border: 0; background: var(--soft) content-box; font-size: var(--t-xl); line-height: 1; cursor: pointer;
 }
 .piece-top {
   position: sticky; top: calc(-1 * var(--sheet-t)); z-index: 1; display: flex; align-items: center; justify-content: space-between;
@@ -945,98 +986,103 @@ html:has(dialog[open]) { overflow: hidden; }
   .piece-top { animation: sheet-scrolled linear both; animation-timeline: scroll(nearest); animation-range: 0 var(--s-2); }
 }
 @keyframes sheet-scrolled { to { box-shadow: 0 1px 0 var(--line); } }
-h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece you have: its name is the title */
+h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); font-weight: var(--w-strong); }   /* a piece you have: its name is the title */
 /* A product's piece and price. Two lines of the name still fit the row's 44px, so what scrolls under it is never hidden. */
-.piece-top h2 { min-width: 0; font-size: var(--t-l); line-height: 1.25; }
-.sheet-price { flex: none; font-size: var(--t-l); font-weight: 500; font-variant-numeric: tabular-nums; }
+.piece-top h2 { min-width: 0; font-size: var(--t-l); line-height: 1.25; font-weight: var(--w-strong); }   /* the pop-up's title */
+.sheet-price { flex: none; font-size: var(--t-l); font-weight: var(--w-strong); font-variant-numeric: tabular-nums; }
 .piece-head { display: grid; grid-template-columns: 104px minmax(0, 1fr); gap: var(--s-4); align-items: start; }
 .piece-head .pic { width: 104px; aspect-ratio: 3 / 4; }   /* 104 x 139 */
 .piece-facts { display: grid; gap: var(--s-1); justify-items: start; }
-.piece-facts .en { font-weight: 500; line-height: 1.3; }   /* the product's name: 15px, the original under it 13px */
+.piece-facts .en { line-height: 1.3; }   /* the product's name: 15px, the original under it 13px */
 .quality { display: inline-flex; align-items: center; gap: var(--s-1); font-size: var(--t-s); color: var(--muted); }
 .piece-facts .sizeline { margin-top: 0; }
-.piece-facts .sizeline .ex { color: var(--ok); font-weight: 500; }   /* in stock, but in our example size: a caution to act on */
-.piece-facts .sizeline a { padding: var(--s-1) 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
+.piece-facts .sizeline .ex { color: var(--ok); }   /* in stock, but in our example size: a caution to act on */
+.piece-facts .sizeline a { padding: var(--s-1) 0; text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
 .as-of { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .as-of span { white-space: nowrap; }   /* the date and time stay together */
 .piece-facts .size-notes { margin: 0; display: block; }
-.piece-facts .extlink { min-height: 40px; }
-.piece-state { display: flex; align-items: start; gap: var(--s-1); font-size: var(--t-s); font-weight: 500; }   /* the icon by the first line, where "Locked: …" wraps */
+.piece-facts .extlink { min-height: 44px; }
+.piece-state { display: flex; align-items: start; gap: var(--s-1); font-size: var(--t-s); }   /* the icon by the first line, where "Locked: …" wraps */
 .sheet .sec { margin: var(--s-5) 0 var(--s-2); }
 .swap { list-style: none; margin: 0 0 var(--s-2); padding: 0; display: grid; gap: var(--s-3); }
-.swap li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; }
+.swap li { display: grid; grid-template-columns: 80px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center; }
 .swap li.out .pic:not(.noimg) { opacity: .5; }   /* not in your size: the photo fades (a swatch in its place does not), the words say so in full */
-.swap .pic { width: 48px; aspect-ratio: 4 / 5; }
+.swap .pic { width: 80px; aspect-ratio: 4 / 5; }   /* 80 x 100, as in the outfit's list */
 .swap .pic .fb { display: none; }
 .swap-text { display: grid; gap: 2px; min-width: 0; font-size: var(--t-s); color: var(--muted); }
-.swap-text b, .swap-text .orig { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.swap-text b { font-size: var(--t-m); font-weight: 500; color: var(--ink); }
+.swap-text b { font-size: var(--t-m); color: var(--ink); overflow-wrap: anywhere; }   /* the product's name, in one language */
 .swap-text > span { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .swap-text > .by { display: inline-flex; justify-self: start; }   /* "COS · Quality 84/100", as on every card */
 /* Its price, and what it costs next to the piece in the outfit now ("−69.05 €"). */
-.swap-text .swap-price { gap: var(--s-2); font-size: var(--t-m); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
-.diff { font-size: var(--t-s); font-weight: 400; color: var(--muted); }
+.swap-text .swap-price { gap: var(--s-2); font-size: var(--t-m); font-weight: var(--w-strong); color: var(--ink); font-variant-numeric: tabular-nums; }
+.diff { font-size: var(--t-s); font-weight: var(--w-text); color: var(--muted); }
+/* "Wear the coat instead", "Leave the jacket off": links, so ink and underlined like every link. */
+.sheet .chips { gap: 0 var(--s-5); }
+.sheet .chip-link { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .sheet-more .link { display: inline-block; }
 .chips + .sheet-more { margin-top: var(--s-3); }   /* "No other option for this piece yet.", spaced from the chips above */
 .sheet-foot { margin-top: var(--s-4); }
 
 /* ── Shopping list ───────────────────────────────────────────────────────── */
 /* A page's title outside a card: the same wide cut and size as .card h1. */
-.page-title { font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin: 0 0 8px; }
+.page-title { font: var(--w-strong) expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin: 0 0 8px; }
 /* The list's lead line, then its download and print buttons: beside each other where they fit, the buttons on
    their own line on a phone, wrapping onto a second one if they must (never cut off at the screen's edge). */
 .list-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2) var(--s-4); margin: 0 0 var(--s-3); }
 .list-tools .lead { flex: 1 1 20em; margin: 0; }
 /* Buy this outfit: what the outfit costs is the page's headline number, with what it is for under it. */
 .buy-head { display: grid; gap: 2px; margin: 0 0 var(--s-4); }
-.buy-head b { font-size: var(--t-l); line-height: var(--lh-l); font-weight: 600; font-variant-numeric: tabular-nums; }
+.buy-head b { font-size: var(--t-l); line-height: var(--lh-l); font-weight: var(--w-strong); font-variant-numeric: tabular-nums; }
 .buy-head span { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 /* "Your sizes", the sizes every line is ordered in: a quiet line, or, while they are still the example's,
    a caution with the button that keeps them. */
-.your-sizes { display: grid; gap: var(--s-1); margin: 0 0 var(--s-3); padding: var(--s-2) var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
-.your-sizes a { padding: var(--s-1) 0; color: var(--muted); text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
+.your-sizes { display: grid; gap: var(--s-1); margin: 0 0 var(--s-3); padding: var(--s-2) var(--s-3); background: var(--soft); }
+.your-sizes a { padding: var(--s-1) 0; text-underline-offset: 3px; }   /* "Change": 24px or more to tap */
 .your-sizes form { margin-top: var(--s-1); }
-.card.store-list { margin-bottom: 12px; padding: 0; }   /* its header and lines run to its edges, with their own padding */
-.store-head { display: flex; align-items: baseline; gap: 10px; padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
+/* A store's part of the list: no box. Its name, how many pieces and what they cost over a line in ink; then what is
+   true of the whole store, said once (.once); then its rows. */
+.card.store-list, .card + .card.store-list { margin: var(--s-6) 0 0; padding: 0; background: none; border: 0; }
+/* On a computer the list keeps to a column a line of words can be read in, like the Wardrobe's controls. */
+.store-list, .costs, .grand, .your-sizes, .list-tools, .buy-head, .not-yet { max-width: 860px; }
+.store-head { display: flex; align-items: baseline; gap: 10px; padding: 0 0 var(--s-2); border-bottom: 1px solid var(--ink); }
 .store-head h2 { margin: 0; font-size: var(--t-l); }
-.subtotal { margin-left: auto; font-weight: 500; font-variant-numeric: tabular-nums; }
+.subtotal { margin-left: auto; font-weight: var(--w-strong); font-variant-numeric: tabular-nums; }
+.subtotal.muted { font-weight: var(--w-text); }      /* "not counted": words, not a price */
+.store-list .once { margin: var(--s-2) 0; }
 .buys { list-style: none; margin: 0; padding: 0; }
-/* One line: the product's photo (56 x 70; its colour where there is none), then the piece and its price, the
-   store's name for the product, its colour and size, and anything to check before ordering. */
-.buy { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: var(--s-3); align-items: start; padding: var(--s-3) 14px; border-bottom: 1px solid var(--line); }
-.buy:last-child { border-bottom: 0; }
-.buy .pic { width: 56px; aspect-ratio: 4 / 5; }
+/* One row, as on the Wardrobe: the product's photo (88 x 110 on plain grey; its colour where there is none), then
+   the piece and its price, the store's product by name (one language), which is the link to its page, the colour
+   and the size to order, and anything about this product's size to act on. */
+.buy { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: var(--s-3); align-items: start; padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
+.buy .pic { width: 88px; aspect-ratio: 4 / 5; }
 .buy .pic .fb { display: none; }
 .buy-main { display: grid; gap: 2px; min-width: 0; }
 .buy-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
-.buy-slot { min-width: 0; font-weight: 500; }
-.buy-total { flex: none; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* The whole of the store's name for the product is the link to it, with the external-link sign at its end. */
-.buy-product { justify-self: start; padding: 3px 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); text-decoration: none; }
-.buy-product:hover { text-decoration: underline; text-underline-offset: 3px; }
+.buy-slot { min-width: 0; }
+.buy-slot a { text-decoration: none; }                /* the piece: leads to its own page, where its fabric, fit and quality are said in full */
+.buy-slot a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.buy-total { flex: none; font-weight: var(--w-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The whole of the product's name is the link to it at the store, with the external-link sign at its end. */
+.buy-product { justify-self: start; padding: 3px 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); text-underline-offset: 3px; }
 .buy-product .ic { width: 13px; height: 13px; color: var(--muted); }
-.buy .by { margin: 2px 0 0; }
 .buy-meta { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .buy-meta b { color: var(--ink); }
-.buy-note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--ok); }
+.buy-note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 /* Under the stores: what the prices include and what each store adds at its checkout. */
 .costs { display: grid; gap: var(--s-1); margin: var(--s-4) 0 var(--s-5); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
-.costs p:first-child { color: var(--ink); font-weight: 500; }
-@media (min-width: 760px) {   /* the same inset as the other cards' content */
-  .store-head, .buy, .store-list .open-all { padding-left: 20px; padding-right: 20px; }
-}
+.costs p:first-child { color: var(--ink); }
 .grand { display: grid; gap: 6px; margin-bottom: 12px; }
 .grand-row { display: flex; justify-content: space-between; gap: 10px; font-variant-numeric: tabular-nums; }
-.grand-row.pos b { color: var(--good); }
-.grand-row.neg b { color: var(--poor); }
+.grand-row b { font-weight: var(--w-strong); }       /* a price */
+.grand-row.neg b { color: var(--poor); }             /* over budget: red, with its small flag (list.html) */
+.grand-row .ic { width: 12px; height: 12px; vertical-align: -1px; }
 .plain { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: var(--t-m); }
-.plain b { font-weight: 500; }
 .card + .card { margin-top: 12px; }
 @media print {
   .top, .summary, .demo, .no-print, .tabs { display: none !important; }
   body { background: #fff; padding: 0; font-size: var(--t-s); }
   main { padding: 0; max-width: none; }
-  main .card { border: 0; border-top: 1px solid #999; border-radius: 0; break-inside: avoid; }   /* "main": .card's own rule comes later */
+  main .card { border: 0; border-top: 1px solid #999; break-inside: avoid; }   /* "main": .card's own rule comes later */
   .buy-product::after { content: " — " attr(href); font-size: var(--t-xs); color: #555; word-break: break-all; }
   .buy { grid-template-columns: minmax(0, 1fr); }
   .buy .pic { display: none; }      /* paper gets the words, not the photos */
@@ -1045,7 +1091,7 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 
 /* ── Slots editor and profile form ───────────────────────────────────────── */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-ui); padding: 14px; }
-.card h1 { font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin-bottom: 8px; }
+.card h1 { font: var(--w-strong) expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin-bottom: 8px; }
 .card h2 { font-size: var(--t-l); margin-bottom: 10px; }
 .card.add { margin-top: 22px; }
 .card.add .flash { overflow-wrap: anywhere; }   /* what pasted links came to (a piece's page): a long link wraps, never widens the page */
@@ -1059,14 +1105,13 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 .set-aside-list li + li { border-top: 1px solid var(--line); }
 .set-aside-list .what { min-width: 0; font-size: var(--t-m); line-height: var(--lh-m); overflow-wrap: anywhere; }
 .set-aside-list .store { display: block; color: var(--muted); }
-.set-aside-list .name { font-weight: 500; }
 .set-aside-list .price { margin-left: var(--s-1); }
 .set-aside-list .link { flex: none; min-height: 44px; padding: 0 var(--s-1); }
 .card .sec { margin: 8px 0 0; font-size: var(--t-xs); }   /* a section label stays small inside a card too */
 #sizes { scroll-margin-top: calc(var(--s-8) * 2); }   /* "Change" by Your sizes lands here: well clear of the bar that sticks to the top */
 .card .demo { margin: 6px 0 4px; }
 .palette { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 8px; }
-.swatch-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 5px; border: 1px solid var(--line); border-radius: var(--r-pill); font-size: var(--t-s); }
+.swatch-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 0; font-size: var(--t-s); }
 .swatch-chip i, .dot, .mini i { display: inline-block; flex: none; border-radius: 50%; border: 1px solid rgba(128, 128, 128, .35); }
 .swatch-chip i { width: 18px; height: 18px; }
 .swatch-chip small { color: var(--muted); }
@@ -1079,9 +1124,9 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); }   /* a piece y
 }
 .slot-list summary::-webkit-details-marker { display: none; }
 .dot { width: 18px; height: 18px; }
-.nm { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kind { font-size: var(--t-s); color: var(--muted); white-space: nowrap; }
-.edit { font-size: var(--t-s); font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+.edit { font-size: var(--t-s); text-decoration: underline; text-underline-offset: 3px; }
 details[open] > summary .edit { visibility: hidden; }
 .slot-edit { padding: 4px 12px 10px; border-top: 1px solid var(--line); }
 .slot-list .flash { margin: 0 var(--s-3) var(--s-3); overflow-wrap: anywhere; }   /* what adding or saving the piece came to, inside it */
@@ -1089,8 +1134,7 @@ details[open] > summary .edit { visibility: hidden; }
 .form { display: grid; gap: 12px; }
 .form > .btn { justify-self: start; }
 .field { display: grid; gap: 4px; min-width: 0; }
-.field > span { font-size: var(--t-s); font-weight: 500; color: var(--muted); }
-.field small { font-weight: 400; }
+.field > span { font-size: var(--t-s); color: var(--muted); }
 .field input, .field select, .field textarea {
   width: 100%; min-height: 44px; padding: 8px 10px; border-radius: var(--r-ui);
   border: 1px solid var(--field); background: var(--surface); font-size: 16px;   /* 16px stops iOS zooming in */
@@ -1112,7 +1156,7 @@ details[open] > summary .edit { visibility: hidden; }
 .swatch-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-1) var(--s-2); }   /* the empty AVOID line spaces the rows */
 .swatch {
   display: grid; justify-items: center; align-content: start; gap: var(--s-1); min-width: 0; margin: 0; padding: 0 0 var(--s-1);
-  border: 0; border-radius: var(--r-ui); background: none; color: var(--muted); cursor: pointer;
+  border: 0; background: none; color: var(--muted); cursor: pointer;
   font-size: var(--t-s); line-height: var(--lh-s); text-align: center; -webkit-tap-highlight-color: transparent;
 }
 .swatch[aria-pressed=true] { color: var(--ink); }
@@ -1122,10 +1166,10 @@ details[open] > summary .edit { visibility: hidden; }
 }
 .swatch b {
   position: absolute; top: -10px; right: -12px; display: none; min-width: 22px; height: 22px; padding: 0 var(--s-1);
-  border: 2px solid var(--surface); border-radius: var(--r-pill); background: var(--ink); color: var(--surface);
-  font: 600 var(--t-s)/18px var(--font); font-variant-numeric: tabular-nums; font-style: normal;   /* 18px: the disc inside its edge */
+  border: 2px solid var(--surface); border-radius: 11px; background: var(--ink); color: var(--surface);   /* a disc on a round swatch */
+  font: var(--w-text) var(--t-s)/18px var(--font); font-variant-numeric: tabular-nums; font-style: normal;   /* 18px: the disc inside its edge */
 }
-.swatch small { font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; visibility: hidden; }
+.swatch small { font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase; visibility: hidden; }
 .swatch[data-state=like] i { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
 .swatch[data-state=like] b { display: block; }
 .swatch[data-state=avoid] i::after {
@@ -1138,16 +1182,16 @@ details[open] > summary .edit { visibility: hidden; }
 }
 
 /* ── Your model (Profile) and buying ─────────────────────────────────────── */
-.pick { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; border: 0; }
-.pick legend { margin-bottom: 6px; padding: 0; font-size: var(--t-s); font-weight: 500; color: var(--muted); }
+.pick { display: flex; flex-wrap: wrap; gap: 0 var(--s-4); min-width: 0; margin: 0; padding: 0; border: 0; }
+.pick legend { margin-bottom: 2px; padding: 0; font-size: var(--t-s); color: var(--muted); }
 .pick label { position: relative; cursor: pointer; }
 .pick input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.pick span {   /* a chip, like .chip-link */
-  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 var(--s-3); border-radius: var(--r-pill);
-  border: 1px solid var(--line); font-size: var(--t-s); font-weight: 500; color: var(--muted);
+.pick span {   /* a plain word, like .chip-link: grey, and ink and underlined once chosen */
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
+  font-size: var(--t-s); color: var(--muted);
 }
 .pick span i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(128, 128, 128, .4); }
-.pick input:checked + span { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.pick input:checked + span { color: var(--ink); text-decoration: var(--on-line); text-underline-offset: var(--on-gap); }
 .pick input:focus-visible + span { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* The model's words keep to the width of its form, so that no line runs across a computer's whole card. */
 #model > p { max-width: var(--form-w); }
@@ -1159,16 +1203,18 @@ details[open] > summary .edit { visibility: hidden; }
 .me { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; align-items: start; margin: 10px 0 14px; }
 .me img { width: 96px; height: 128px; object-fit: cover; border-radius: var(--r-img); border: 1px solid var(--line); }
 .me p { font-size: var(--t-m); }
-.photo-ready { display: flex; align-items: center; gap: 12px; font-size: var(--t-m); line-height: var(--lh-m); background: var(--soft); border-radius: var(--r-ui); padding: 10px var(--s-3); }   /* a status line, like .flash */
+.photo-ready { display: flex; align-items: center; gap: 12px; font-size: var(--t-m); line-height: var(--lh-m); background: var(--soft); padding: 10px var(--s-3); }   /* a status line, like .flash */
 .photo-ready[hidden] { display: none; }
 .photo-ready img { width: 54px; height: 72px; object-fit: cover; border-radius: var(--r-img); border: 1px solid var(--line); flex: none; }
-.photo-ready.bad, .flash.bad { color: var(--poor); background: var(--poor-bg); }
+/* Something that did not work (a wrong password, a photo that could not be used): the same quiet box, with an ink
+   line down its left side. No red: that is kept for money and sizes. */
+.photo-ready.bad, .flash.bad { box-shadow: inset 2px 0 0 var(--ink); }
 .check input { flex: none; }
 .check span { flex: 1; min-width: 0; }
-.open-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: 10px 14px 14px; border-top: 1px solid var(--line); }
+.open-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: var(--s-3) 0 0; }
 .open-all [data-start-again] :is(.ic, .sr) { display: none; }   /* "Start again" opens no tab (app.js, 9) */
 .open-status { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
-.buy-opened { display: flex; align-items: center; gap: 4px; font-size: var(--t-s); line-height: var(--lh-s); color: var(--good); }
+.buy-opened { display: flex; align-items: center; gap: 4px; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); }
 .buy-opened[hidden] { display: none; }
 .buy-opened .ic { width: 14px; height: 14px; }
 
@@ -1180,7 +1226,7 @@ details[open] > summary .edit { visibility: hidden; }
    at the bottom above the tab bar; on a computer (760px and up) the tabs are a column on the left, the middle is large
    in the centre and the controls are on the right with Save under them, kept in view. */
 .cc-head { margin-bottom: var(--s-4); }
-.cc-head h1 { font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin-bottom: var(--s-2); }
+.cc-head h1 { font: var(--w-strong) expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin-bottom: var(--s-2); }
 .cc-head .demo { margin: 0; }
 .cc-head p.muted { max-width: var(--form-w); }
 .cc { display: grid; gap: var(--s-4); }
@@ -1232,31 +1278,30 @@ details[open] > summary .edit { visibility: hidden; }
 .cc[data-tabs] .cc-pic:not([hidden]) { display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .cc[data-tabs] .cc-pic-frame { flex: 1 1 auto; align-self: stretch; min-height: 0; }
 .cc[data-tabs] .cc-pic-box { position: absolute; top: 0; bottom: 0; left: 50%; height: auto; transform: translateX(-50%); }
-.cc-pic-again .link { display: inline-flex; align-items: center; min-height: 40px; padding: 0 var(--s-3); border-radius: var(--r-pill); background: var(--surface); color: var(--ink); }
+.cc-pic-again .link { display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--s-3); background: var(--surface); color: var(--ink); }
 .cc-pic-wait { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-4); font-size: var(--t-s); line-height: var(--lh-s); }
 .cc-pic-ask { display: grid; justify-items: center; gap: var(--s-3); max-width: 32ch; padding: var(--s-4); text-align: center; font-size: var(--t-s); line-height: var(--lh-s); }
 .cc-pic-note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .cc-pic-note[hidden] { display: none; }
-/* The switch between the drawn figure and "Your model": a segmented control over the middle's top left corner, its
-   two buttons one above the other on a phone (beside the figure's head) and side by side on a computer (over a band
-   kept free for it at the top of the middle, so it is never over the head of a tall figure). */
-.cc-switch {
-  position: absolute; top: var(--s-2); left: var(--s-2); z-index: 2; display: flex; flex-direction: column; padding: 2px;
-  border-radius: var(--r-track); background: var(--surface); box-shadow: inset 0 0 0 1px var(--field);
-}
+/* The switch between the drawn figure and "Your model": two plain words over the middle's top left corner (the one
+   showing is ink and underlined), one above the other on a phone (beside the figure's head) and side by side on a
+   computer (over a band kept free for them at the top of the middle, so they are never over the head of a tall
+   figure). */
+.cc-switch { position: absolute; top: var(--s-2); left: var(--s-3); z-index: 2; display: flex; flex-direction: column; }
 .cc-switch[hidden] { display: none; }
 .cc-switch button {
-  min-height: 40px; padding: 0 var(--s-3); border: 0; border-radius: var(--r-ui); background: none; color: var(--ink);
-  font: 500 var(--t-s)/1 var(--font); white-space: nowrap; cursor: pointer;
+  min-height: 44px; padding: 0; border: 0; background: none; color: var(--muted);
+  font: var(--w-text) var(--t-s)/1 var(--font); text-align: left; white-space: nowrap; cursor: pointer;
 }
-.cc-switch button[aria-pressed=true] { background: var(--ink); color: var(--bg); }
-/* The tabs: chips (the selected one filled with ink), hidden until app.js makes them work. */
+.cc-switch button[aria-pressed=true] { color: var(--ink); text-decoration: var(--on-line); text-underline-offset: var(--on-gap); }
+/* The tabs: plain words (the one open is ink and underlined), hidden until app.js makes them work. */
 .cc-tabs[hidden] { display: none; }
 .cc-tabs button {
-  display: inline-flex; align-items: center; flex: none; min-height: 40px; padding: 0 var(--s-3); border-radius: var(--r-pill);
-  border: 1px solid var(--line); background: none; color: var(--muted); font: 500 var(--t-s)/1 var(--font); white-space: nowrap; cursor: pointer;
+  display: inline-flex; align-items: center; flex: none; min-height: 44px; padding: 0;
+  border: 0; background: none; color: var(--muted); font: var(--w-text) var(--t-s)/1 var(--font); white-space: nowrap; cursor: pointer;
 }
-.cc-tabs button[aria-selected=true] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.cc-tabs button:hover { color: var(--ink); }
+.cc-tabs button[aria-selected=true] { color: var(--ink); text-decoration: var(--on-line); text-underline-offset: var(--on-gap); }
 /* The controls: a card; each tab's part of it is a column of fields. Save is the last thing in it (app.js 13a moves it
    after the photo's forms), at its foot where the card is taller than what the open tab holds. */
 .cc-side { display: flex; flex-direction: column; min-width: 0; }
@@ -1278,9 +1323,9 @@ details[open] > summary .edit { visibility: hidden; }
 .style-chat p, .style-chat h3 { margin: 0; }
 .chat-lines { display: grid; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
 .chat-lines li { max-width: 88%; padding: var(--s-2) var(--s-3); font-size: var(--t-m); line-height: var(--lh-m); overflow-wrap: anywhere; }
-.chat-lines .me { justify-self: end; background: var(--soft); border-radius: var(--r-ui); }
+.chat-lines .me { justify-self: end; background: var(--soft); }
 .chat-lines .it { justify-self: start; border-left: 2px solid var(--ink); }
-.chat-q { display: block; margin-top: var(--s-1); font-weight: 500; }
+.chat-q { display: block; margin-top: var(--s-1); }
 /* The message field with Send beside it, so that the answer above and the field fit on a phone's screen together
    (the figure and the tabs keep the top of it). While a message is on its way the button is pale and says
    "Sending…", and a line under the field says the answer can take a few seconds (app.js, 13d). */
@@ -1289,12 +1334,12 @@ details[open] > summary .edit { visibility: hidden; }
 .chat-say button:disabled { opacity: .55; cursor: progress; }
 .chat-say .chat-wait { grid-column: 1 / -1; }
 .chat-say .chat-wait[hidden] { display: none; }
-.brief { padding: var(--s-4); border: 1px solid var(--field); border-radius: var(--r-ui); }
+.brief { padding: var(--s-4); border: 1px solid var(--field); }
 .brief-head { font-size: var(--t-l); line-height: var(--lh-l); }
 .brief-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-4); }
 .cc[data-tabs] .cc-save {     /* stuck to the bottom of the screen while the controls go on under it */
   position: sticky; bottom: 0; z-index: 3; margin: var(--s-5) calc(-1 * var(--s-4)) calc(-1 * var(--s-4));
-  padding: var(--s-3) var(--s-4); background: var(--surface); border-top: 1px solid var(--line); border-radius: 0 0 var(--r-ui) var(--r-ui);
+  padding: var(--s-3) var(--s-4); background: var(--surface); border-top: 1px solid var(--line);
 }
 @media (prefers-reduced-motion: reduce) {
   .fig-skin, .fig-hair, .fig-beard, .fig-creases, .fig-features { transition: none; }
@@ -1318,8 +1363,8 @@ details[open] > summary .edit { visibility: hidden; }
   }
   .cc[data-tabs] .cc-words { padding: var(--s-1) var(--s-3) var(--s-2); }
   .cc[data-tabs] .cc-tabs {             /* one row that scrolls sideways when the tabs are wider than the phone */
-    display: flex; gap: var(--s-2); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
-    margin: 0 calc(-1 * var(--side-r)) var(--s-3) calc(-1 * var(--side-l)); padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l);
+    display: flex; gap: var(--s-4); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+    margin: 0 calc(-1 * var(--side-r)) var(--s-3) calc(-1 * var(--side-l)); padding: 6px var(--side-r) 6px var(--side-l);   /* 57px tall in all: the 57px below */
     background: var(--bg); border-bottom: 1px solid var(--line);
   }
   .cc-tabs::-webkit-scrollbar { display: none; }
@@ -1348,10 +1393,10 @@ details[open] > summary .edit { visibility: hidden; }
 @media (min-width: 760px) {
   .cc-stage { --fig-line: 1.15px; }
   .cc-fig { height: 520px; }
-  .cc-switch { flex-direction: row; }
+  .cc-switch { flex-direction: row; gap: var(--s-4); }
   .cc[data-tabs] { grid-template-columns: 124px minmax(240px, 1fr) minmax(0, 420px); gap: var(--s-5); align-items: start; }
   .cc[data-tabs] .cc-tabs {
-    grid-column: 1; grid-row: 1; display: flex; flex-direction: column; gap: var(--s-2);
+    grid-column: 1; grid-row: 1; display: flex; flex-direction: column; gap: 0;
     position: sticky; top: calc(var(--bar-h) + var(--s-4));
   }
   .cc[data-tabs] .cc-tabs button { width: 100%; justify-content: flex-start; }
@@ -1379,21 +1424,22 @@ details[open] > summary .edit { visibility: hidden; }
 .store-pick { display: grid; }
 .store-row { min-height: 48px; gap: var(--s-3); font-size: var(--t-m); line-height: var(--lh-m); }
 .store-row + .store-row { border-top: 1px solid var(--line); }
-.store-row b { font-weight: 500; }
 .store-note { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }
 /* The stores with no products yet, apart from the others: a line over them saying what they are for. */
 .store-empty { display: grid; margin-top: var(--s-4); padding-top: var(--s-4); border-top: 1px solid var(--line); }
-.store-empty-head { margin: 0 0 var(--s-1); color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); font-weight: 500; }
+.store-empty-head { margin: 0 0 var(--s-1); color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }
 .store-said { margin: 0; }
-/* With the Stores tab there are six tabs: on a phone up to 419px wide their chips take 8px each side instead of 12, so
-   that all six fit a 390px phone and the last one still shows its edge on a 360px one (the row scrolls sideways). */
+/* With the Stores tab there are six tabs: on a phone up to 419px wide their words stand 12px apart instead of 16, so
+   that all six fit a 390px phone and the last one still shows on a 360px one (the row scrolls sideways). */
 @media (max-width: 419.98px) {
-  .cc[data-tabs] .cc-tabs button { padding: 0 var(--s-2); }
+  .cc[data-tabs] .cc-tabs { gap: var(--s-3); }
 }
 
 /* ── Public pages and accounts (production) ──────────────────────────────── */
-.account-link { font-size: var(--t-s); font-weight: 500; color: var(--muted); text-decoration: none; padding: 8px 2px; }
-.account-link.on { color: var(--ink); }
+/* "Account", at the header's end: 44px tall to a finger; on a phone 5px of that reach past the header above and
+   below, so the header is no taller for it. */
+.account-link { display: inline-flex; align-items: center; min-height: 44px; margin: -5px 0; font-size: var(--t-s); color: var(--muted); text-decoration: none; padding: 0 2px; }
+.account-link.on { color: var(--ink); text-decoration: var(--on-line); text-underline-offset: var(--on-gap); }
 .public-nav { display: flex; gap: 8px; }
 .public-nav .btn { white-space: nowrap; }
 /* The wide wordmark, "Log in" and "Create account" fit on one line each on a phone narrower than 390px only with
@@ -1411,7 +1457,7 @@ details[open] > summary .edit { visibility: hidden; }
 }
 /* The landing page: words only, until one approved AI picture joins them. */
 .hero { padding: var(--s-5) 0 0; text-align: center; }
-.hero h1 { font: 600 expanded var(--t-3xl)/var(--lh-3xl) var(--display); letter-spacing: -.01em; font-synthesis: none; max-width: 16em; margin: 0 auto; text-wrap: balance; }
+.hero h1 { font: var(--w-strong) expanded var(--t-3xl)/var(--lh-3xl) var(--display); letter-spacing: -.01em; font-synthesis: none; max-width: 16em; margin: 0 auto; text-wrap: balance; }
 .hero-lead { font-size: var(--t-l); line-height: var(--lh-l); max-width: 34em; margin: var(--s-5) auto 0; text-wrap: pretty; }
 .hero-lead span { white-space: nowrap; }            /* "best-value", "high-street": never split at the hyphen */
 .hero-cta { margin: var(--s-5) 0 0; }
@@ -1421,7 +1467,7 @@ details[open] > summary .edit { visibility: hidden; }
 .steps { list-style: none; margin: var(--s-7) 0 0; padding: 0; display: grid; gap: var(--s-5); }
 .steps li { border-top: 1px solid var(--line); padding-top: var(--s-4); }
 .steps h2 { font-size: var(--t-l); line-height: var(--lh-l); }
-.step-n { display: block; font: 600 expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin-bottom: var(--s-2); }
+.step-n { display: block; font: var(--w-strong) expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin-bottom: var(--s-2); }
 .steps p { color: var(--muted); margin-top: var(--s-1); max-width: 34em; text-wrap: pretty; }
 .auth { max-width: 440px; margin: 24px auto 0; }
 .auth h1 { margin-bottom: 12px; }
@@ -1432,9 +1478,7 @@ details[open] > summary .edit { visibility: hidden; }
 .oops h1 { font-size: var(--t-xl); line-height: var(--lh-xl); text-wrap: balance; }   /* one size down: "We can't find that page" on one line */
 .oops p { overflow-wrap: anywhere; text-wrap: pretty; }   /* a long file name in a config error must not widen the page */
 .oops .btn { width: 100%; margin-top: var(--s-4); }
-.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .site-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; max-width: 1240px; margin: 0 auto; padding: 18px var(--gutter) 26px; font-size: var(--t-s); color: var(--muted); }
-.site-foot a { color: var(--muted); }
 
 /* ── Motion ──────────────────────────────────────────────────────────────── */
 /* Stilsmith moves only to answer the customer: a tap, a swipe, a key, or a picture he asked for arriving. Every
@@ -1609,21 +1653,21 @@ details[open] > summary .edit { visibility: hidden; }
    hidden but still read out, and a cell that needs its name says it (.cell-label, shown there only and never read
    out, as the header already is). Product photos are shown whole (contain), on the photo ground; where a photo is
    missing or does not load, the colour shows with a word (.pic.noimg, app.js). */
-.cat-h2 { font-size: var(--t-l); line-height: var(--lh-l); font-weight: 500; margin: var(--s-5) 0 var(--s-2); }
-.cat-h3 { font-size: var(--t-m); line-height: var(--lh-m); font-weight: 500; margin: var(--s-5) 0 var(--s-2); }
-.cat-h3 .cat-sub { display: inline; margin-left: var(--s-2); font-size: var(--t-s); font-weight: 400; }
+.cat-h2 { font-size: var(--t-l); line-height: var(--lh-l); margin: var(--s-5) 0 var(--s-2); }
+.cat-h3 { font-size: var(--t-m); line-height: var(--lh-m); margin: var(--s-5) 0 var(--s-2); }
+.cat-h3 .cat-sub { display: inline; margin-left: var(--s-2); font-size: var(--t-s); }
 .card.cat-card { padding-top: 0; padding-bottom: 0; }
 .cat-scroll { position: relative; overflow-x: auto; margin: 0 calc(-1 * var(--s-1)); padding: 0 var(--s-1); }
 .cat-table { width: 100%; border-collapse: collapse; font-size: var(--t-s); line-height: var(--lh-s); }
-.cat-table th, .cat-table td { padding: var(--s-3) var(--s-3) var(--s-3) 0; text-align: left; vertical-align: top; font-weight: 400; }
+.cat-table th, .cat-table td { padding: var(--s-3) var(--s-3) var(--s-3) 0; text-align: left; vertical-align: top; font-weight: var(--w-text); }
 .cat-table tr > :last-child { padding-right: 0; }
 .cat-table thead th {
   padding-bottom: var(--s-2); border-bottom: 1px solid var(--line); white-space: nowrap;
-  font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+  font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
 }
 .cat-table tbody tr + tr > * { border-top: 1px solid var(--line); }
 .cat-table .num-col { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-right: var(--s-5); }
-.cat-name { display: block; font-size: var(--t-m); line-height: 1.3; font-weight: 500; overflow-wrap: anywhere; }   /* 1.3 as .cand h2, a product's name; --lh-m adds 3px a line */
+.cat-name { display: block; font-size: var(--t-m); line-height: 1.3; overflow-wrap: anywhere; }   /* 1.3 as .cand h2, a product's name; --lh-m adds 3px a line */
 .cat-sub { display: block; color: var(--muted); overflow-wrap: anywhere; }
 .cell-label { display: none; }
 .c-store .cat-sub, .c-feed, .c-import, .c-price { white-space: nowrap; }
@@ -1632,13 +1676,14 @@ details[open] > summary .edit { visibility: hidden; }
 .c-prog .cat-link { min-height: 24px; margin-top: 0; }   /* in line with the programme's ID, and still 24px to tap */
 .c-product { min-width: 14em; }
 .c-product .cat-name { margin-bottom: 2px; }
-.cat-note { display: block; overflow-wrap: anywhere; font-weight: 500; }
-.cat-note.good { color: var(--good); }
+/* The owner's own notes on a store's feed. Good news is ink; a feed to look at is amber and one that failed is red:
+   this page is the owner's workbench, not a customer's page. */
+.cat-note { display: block; overflow-wrap: anywhere; }
 .cat-note.warn { color: var(--ok); }
 .cat-note.bad { color: var(--poor); }
-.cat-note.info { font-weight: 400; }                 /* what the research says: plain text, under any warning */
+.cat-note.info { color: var(--muted); }              /* what the research says: plain text, under any warning */
 .cat-note + .cat-note { margin-top: var(--s-1); }
-.tag.st-approved { color: var(--good); }
+.tag.st-approved { color: var(--ink); }
 .tag.st-refused, .tag.st-ended { color: var(--poor); }
 .cat-pic { width: 64px; aspect-ratio: 4 / 5; }      /* 64 x 80 */
 .cat-pic img { object-fit: contain; object-position: center; }   /* the whole photo, never cropped */
@@ -1646,7 +1691,7 @@ details[open] > summary .edit { visibility: hidden; }
 .cat-key { display: block; color: var(--muted); white-space: nowrap; }
 .cat-key .dot { width: 12px; height: 12px; margin-right: var(--s-1); vertical-align: -1px; }
 .c-sizes .allsizes { max-width: 12em; }
-.c-price b { font-size: var(--t-m); font-weight: 500; }
+.c-price b { font-size: var(--t-m); font-weight: var(--w-strong); }
 .cat-link { display: inline-flex; align-items: center; gap: var(--s-1); min-height: 40px; margin-top: calc(-1 * var(--s-3)); color: var(--muted); text-decoration: none; white-space: nowrap; }
 .cat-link u { text-underline-offset: 3px; }        /* the word only, not the space before the sign */
 .cat-link .ic { width: 13px; height: 13px; }
@@ -1732,14 +1777,15 @@ details[open] > summary .edit { visibility: hidden; }
   main { padding: var(--s-4) var(--side-r) var(--s-7) var(--side-l); }
   .top { padding: var(--s-4) var(--side-r) var(--s-2) var(--side-l); }
   html { scroll-padding-bottom: 0; }            /* no tab bar at the bottom */
-  .tabs { position: static; display: flex; gap: 4px; background: none; border: 0; padding: 0; }
-  .tabs a { min-height: 36px; padding: 0 14px; border-radius: var(--r-pill); }
-  .tabs a.on { background: var(--ink); color: var(--bg); box-shadow: none; }
+  .tabs { position: static; display: flex; gap: var(--s-5); background: none; border: 0; padding: 0; }
+  .tabs a { min-height: 44px; }                 /* plain words; the one you are on is ink and underlined (see .tabs a.on) */
+  .tabs a:hover, .account-link:hover { color: var(--ink); }
+  .account-link { margin: 0; }
   .tabs a:focus-visible { outline-offset: 2px; }
   /* The budget bar: Total, Budget and Left, each figure under its label, then the progress line and the pieces to buy. */
   :root { --bar-h: 90px; }
   .nums { display: flex; gap: var(--s-6); align-items: flex-end; color: var(--ink); }
-  .num, .num.left { display: flex; flex-direction: column; min-width: 0; font-size: var(--t-l); line-height: var(--lh-l); font-weight: 600; }
+  .num, .num.left { display: flex; flex-direction: column; min-width: 0; font-size: var(--t-l); line-height: var(--lh-l); font-weight: var(--w-strong); }   /* three prices */
   .num .lbl { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
   .num a:focus-visible { outline-offset: 0; }   /* clear of the label just above */
   .ph { display: none; }
@@ -1747,6 +1793,7 @@ details[open] > summary .edit { visibility: hidden; }
   .btn { min-height: 44px; }                  /* .btn.small stays 40px */
   /* The six price levels in one row of equal cells, the minimum-quality slider on its own row below. */
   .controls { max-width: 860px; }
+  .toolbar { margin-top: var(--s-2); }
   .levels { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .levels span { padding: 7px 10px 6px; }     /* room between the amounts, which would otherwise run together */
   .thr { max-width: 430px; }
@@ -1754,21 +1801,19 @@ details[open] > summary .edit { visibility: hidden; }
   .card { padding: 20px; }
   .card .form { max-width: var(--form-w); }
   .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); margin-top: var(--s-8); }
-  .shuffle { width: auto; padding: 0 var(--s-3); }
+  .btn.shuffle { width: auto; padding: 0 var(--s-3); border-color: var(--field); }
   .shuffle span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
   .reel { margin: calc(-1 * var(--s-4)) 0; }   /* the 16px of room for focus rings stays (see .reel) */
   .slide { grid-template-columns: auto minmax(0, 420px); justify-content: center; gap: var(--s-6); padding: var(--s-4) 60px; }
-  /* The picture beside the pieces, as tall as the screen allows below the budget bar (--bar-h), the header, the
-     chips and the lead line, with the line under it (210px) and the small pictures under that (--shots-h), less any
-     message's room (see .looks). */
-  .looks { --stage-w: max(260px, min(470px, calc((100svh - var(--bar-h) - 210px - var(--shots-h) - var(--told)) * 2 / 3))); }
+  /* The picture is the page: beside the pieces, about half the window wide (half the row of outfits, less the room
+     for the arrow beside it), and never taller than the window, so that the whole model can be on the screen at
+     once: in a window of 1280 x 860 it is 556px wide, where it was 317px. The page scrolls to its foot and to the
+     small pictures under it, as a store's product page does. Never under 260px wide. */
+  .looks { --stage-w: max(260px, min(50cqw - 60px, calc((100svh - var(--s-5)) * 2 / 3))); }
   .looks { --pair: calc(var(--stage-w) + var(--s-6) + 420px); }   /* the picture, the gap and the list: the slide's columns */
   .stage { margin: 0; }
-  .collage, .look-pic { border-radius: var(--r-img); }
-  .vid-box { border-radius: var(--r-img); }
-  .band { border-radius: var(--r-img) var(--r-img) 0 0; }
   .about { margin: 0; }
-  .sheet { --sheet-t: var(--s-3); --sheet-x: var(--s-5); margin: auto; padding: var(--sheet-t) var(--sheet-x) var(--s-5); border-radius: var(--r-sheet); }
+  .sheet { --sheet-t: var(--s-3); --sheet-x: var(--s-5); margin: auto; padding: var(--sheet-t) var(--sheet-x) var(--s-5); }
   .hero { padding-top: var(--s-7); }
   .hero-cta .btn { width: auto; }
 }
@@ -1791,8 +1836,10 @@ details[open] > summary .edit { visibility: hidden; }
    above the yes. */
 .adds { margin: 0; padding: 0 2px; font-size: var(--t-m); line-height: var(--lh-m); }
 .adds.in { color: var(--muted); }
-.adds.over { color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }
-.btn.yes .plus { font-weight: 400; opacity: .85; white-space: nowrap; }
+.adds.over { color: var(--poor); font-size: var(--t-s); line-height: var(--lh-s); }   /* money over budget: red, with its small flag */
+.adds.over .ic { width: 12px; height: 12px; vertical-align: -1px; }
+.over-short { display: none; }       /* the dock's short form of .adds.over, on a phone */
+.btn.yes .plus { font-weight: var(--w-text); opacity: .85; white-space: nowrap; }
 /* The two answers: "Add to my wardrobe", the main button, and a quiet "Not for me" beside it. */
 .answer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); margin: var(--s-2) 0 var(--s-3); padding: 0 2px; }
 .answer .save { flex: 1 1 auto; }
@@ -1800,39 +1847,22 @@ details[open] > summary .edit { visibility: hidden; }
 .answer .btn.yes.on { width: auto; }
 /* On a phone: what a yes adds and the two answers, for the outfit that is showing, in a bar that stays above the tab
    bar (56px high, see .tabs), so they are in reach on every phone and wherever the page is scrolled to. app.js (17a)
-   moves the outfit's box in here and tells the page the bar's height (--dock-h), which the page's foot and the
-   picture make room for: the first screen shows the whole model above the bar (--yes-h, see .looks; on a short
-   phone the picture may be a little narrower for it, --least). The button does not repeat the sum: the line right
-   above it says it. Never on a computer, where the box is beside the picture. */
+   moves the outfit's box in here and tells the page the bar's height (--dock-h), which the page's foot makes room
+   for. The outfit's name and price stand above the picture on a phone (see .about), so the bar never covers them.
+   The button does not repeat the sum: the line right above it says it. Never on a computer, where the box is beside
+   the picture. */
 .dock { display: none; }
 @media (max-width: 759.98px) {
-  .looks:not(.saved) { --yes-h: 88px; --least: 198px; }
-  /* Once the line over the outfits is two lines (it says why they are in this order, .reusing) the picture gives up
-     that line's room on a short phone too, 12px of its width: what is under it stays where it was before his first
-     yes. So at 393 x 760 the outfit's name and price are still whole above this bar, and at 360 x 740 the name
-     still begins above it. Not on a screen under 732px high (390 x 664): there the name is under this bar either
-     way, and the picture keeps its 198px. */
-  @media (min-height: 732px) { .looks.reusing:not(.saved) { --least: 186px; } }
-  /* Under a message at the top of the page (a profile save, say) the picture may be narrower still, so that the
-     whole model shows above the bar on a short phone (390 x 664) then too. */
-  main:has(> .flash:not(.said), > .demo) .looks:not(.saved) { --least: 150px; }
-  /* … and narrower again where the line over the outfits is two lines as well (it says why they are in this order). */
-  main:has(> .flash:not(.said), > .demo) .looks.reusing:not(.saved) { --least: 138px; }
-  /* An outfit that would take him over his budget says so in the bar, in up to two more lines. Then every picture
-     of the row gives up that room too (not only that outfit's: the pictures stay one size while he swipes). */
-  main:has(.adds.over) .looks:not(.saved) { --yes-h: 126px; --least: 172px; }
-  /* Right after an answer the page says what was done, above the outfits, and the picture already gives up room
-     for that line (--told): it does not give up the bar's room as well. The whole model still shows above the
-     bar; the outfit's title under the picture is then behind it until the page is scrolled. */
-  main:has(> .said[data-answered]) .looks:not(.saved) { --yes-h: 0px; }      /* (also where an outfit has a warning) */
-  main:has(> .said.short[data-answered]) .looks:not(.saved) { --least: 138px; }
+  /* Compact: one line of what a yes adds (two at most, with by how much it would take him over his budget, in
+     short), then the two answers. About 76px high, 94px with the budget's words. */
   .dock:not([hidden]) {
     display: block; position: fixed; left: 0; right: 0; bottom: calc(56px + env(safe-area-inset-bottom)); z-index: 39;
-    padding: var(--s-2) var(--side-r) var(--s-2) var(--side-l); background: var(--surface); border-top: 1px solid var(--line);
+    padding: 6px var(--side-r) 4px var(--side-l); background: var(--surface); border-top: 1px solid var(--line);
   }
   .dock .adds { padding: 0; font-size: var(--t-s); line-height: var(--lh-s); }
-  .dock .adds.over { margin-top: 2px; }
-  .dock .answer { flex-wrap: nowrap; margin: var(--s-1) 0 0; padding: 0; }
+  .dock .adds.over { display: none; }       /* said in short on the line above (.over-short) */
+  .dock .over-short { display: inline; color: var(--poor); }
+  .dock .answer { flex-wrap: nowrap; margin: 2px 0 0; padding: 0; }
   .dock .btn.yes .plus { display: none; }
   .dock .quiet { white-space: nowrap; }
   body:has(.dock:not([hidden])) { padding-bottom: calc(64px + var(--dock-h, 84px) + env(safe-area-inset-bottom)); }
@@ -1847,14 +1877,13 @@ main > .said.in-sight { position: sticky; top: var(--s-2); z-index: 38; box-shad
 .slide { scroll-margin-top: 100vh; }
 .btn.yes { display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2); }
 .quiet {
-  font: inherit; font-size: var(--t-s); color: var(--muted); background: none; border: 0; padding: 0 var(--s-1); min-height: 44px;
+  font: inherit; font-size: var(--t-s); color: var(--ink); background: none; border: 0; padding: 0 var(--s-1); min-height: 44px;
   cursor: pointer; text-decoration: underline; text-underline-offset: 3px;
 }
-.quiet:hover { color: var(--ink); }
 .foot.declined { display: block; }
 .foot.declined .quiet { min-height: 24px; padding: var(--s-1) 0; }
 .saved-on a { display: inline-block; padding: var(--s-1) 0; text-underline-offset: 3px; }
-.saved-on.gone-piece { color: var(--poor); }   /* under My outfits: a piece of the outfit is no longer in his plan */
+.saved-on.gone-piece { color: var(--ink); }   /* under My outfits: a piece of the outfit is no longer in his plan */
 /* A piece's card, pop-up and page: "In 4 of your outfits". */
 .in-outfits { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .slot-head .in-outfits { margin-top: var(--s-1); }
@@ -1863,10 +1892,9 @@ main > .said.in-sight { position: sticky; top: var(--s-2); z-index: 38; box-shad
 .first-yes .small { font-size: var(--t-s); }
 .first-yes .small a { display: inline-block; padding: var(--s-1) 0; }
 /* Buy this outfit, for an outfit that is not in his wardrobe yet. */
-.not-yet { display: grid; gap: var(--s-2); margin: 0 0 var(--s-3); padding: var(--s-3); border-radius: var(--r-ui); background: var(--soft); }
+.not-yet { display: grid; gap: var(--s-2); margin: 0 0 var(--s-3); padding: var(--s-3); background: var(--soft); }
 .not-yet .save { justify-content: flex-start; }
 /* Said once to someone who was a customer before (_news.html). */
-.flash.news b { font-weight: 600; }
 /* What he has not answered yet, said on Profile where it is asked. */
 .not-given { margin: 0 0 var(--s-2); }
 /* The welcome: three short steps on a page of their own. */
@@ -1883,4 +1911,4 @@ main > .said.in-sight { position: sticky; top: var(--s-2); z-index: 38; box-shad
 .pick-colour input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--ink); }
 .pick-colour i { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--field); }
 .welcome-use { margin: var(--s-1) 0; }
-.welcome-use span { display: block; text-align: center; padding: var(--s-3) var(--s-2); border-radius: var(--r-track); }
+

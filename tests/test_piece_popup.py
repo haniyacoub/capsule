@@ -57,24 +57,22 @@ class PiecePopUp(AppCase):
         # Whether it is in his wardrobe (none of his outfits wears it yet), and how many outfits it could be worn in.
         self.assertRegex(said, r"Not in your wardrobe yet: it joins with the first outfit you add that wears it\. "
                                r"It could be worn in \d+ of the \d+ outfits your plan makes\.")
-        # Each option's name is in English too where every word is known, the store's own words under it.
+        # Each option's name is in one language: English where every word is known, else the store's own words.
         others = [c for c in coat.view.cands if c.id != chosen.id][:6]
         rest = page.split("Swap it for", 1)[1]
         options = re.findall(r'<b lang="(en|de)">([^<]+)</b>', rest)
         self.assertEqual(options, [("en", html.escape(english.name(c.data["name"]), quote=False))
                                    if english.name(c.data["name"]) else ("de", html.escape(c.data["name"], quote=False))
                                    for c in others])
-        for c in others:
-            if english.name(c.data["name"]):
-                self.assertIn(f'<small class="orig" lang="de">{html.escape(c.data["name"], quote=False)}</small>', rest)
-        # In the same order as every card: the store and the quality, then the name in English, then the original.
+        # The store and the quality come first, then the name; the store's own words beside an English name are on
+        # that product's own card, not in this list.
         rows = re.findall(r'<span class="swap-text">(.*?)<span class="swap-price">', rest, re.S)
         self.assertEqual(len(rows), len(others))
         for row, c in zip(rows, others):
-            at = [row.find('<span class="by">'), row.find("<b lang="), row.find('<small class="orig"')]
+            at = [row.find('<span class="by">'), row.find("<b lang=")]
             self.assertTrue(-1 < at[0] < at[1], f"the store and quality come before the name: {row}")
             if english.name(c.data["name"]):
-                self.assertLess(at[1], at[2], f"the original comes after the English: {row}")
+                self.assertNotIn(html.escape(c.data["name"], quote=False), row, "one language per name in the list")
 
     def test_the_title_follows_the_pieces_name(self):
         # A piece that took a new colour in one tap is renamed ("Black wool coat" becomes "Navy wool coat"): the
@@ -134,7 +132,9 @@ class PiecePopUp(AppCase):
         store = programmes.label(view.chosen.data["store"])
         page = self.popup(outfit, sid)
         said = self.read(page)
-        self.assertIn(f'<span class="unk">Sizes not checked at {store}: look on its page before you buy</span>', page)
+        # A size to check: amber (.unk), as plain words with the small flag before them.
+        self.assertRegex(page, rf'<span class="unk"><svg class="ic"[^>]*>.*?</svg> Sizes not checked at {store}: look '
+                               r'on its page before you buy</span>')
         self.assertEqual(said.count("Sizes not checked at"), 1, said)
         self.assertNotIn("gave no sizes", said)
         self.assertNotIn("Your size", said, "nothing is said to be in your size")
@@ -177,9 +177,11 @@ class PiecePopUp(AppCase):
                                     for c in cat["candidates"] if c.get("slot_id") == sid and c.get("id") == cand])
         self.assertFalse(selection.build().get(sid).chosen.available)
         page = self.popup(outfit, sid)
-        self.assertIn('<span class="no">Your size: M sold out (example&nbsp;size)</span>', page)
+        # Red (.no), as plain words with the small flag before them.
+        self.assertRegex(page, r'<span class="no"><svg class="ic"[^>]*>.*?</svg> Your size: M sold out '
+                               r'\(example&nbsp;size\)</span>')
         self.post("/profile/sizes-ok")
-        self.assertIn('<span class="no">Your size: M sold out</span>', self.popup(outfit, sid))
+        self.assertRegex(self.popup(outfit, sid), r'<span class="no"><svg class="ic"[^>]*>.*?</svg> Your size: M sold out</span>')
 
     def test_a_chosen_piece_says_locked_and_one_you_have_says_so(self):
         outfit, coat = self.outfit_with("outer")
@@ -277,14 +279,14 @@ class PiecePopUp(AppCase):
         page = plain_post(page, ">Add<", urls="")                                    # nothing pasted: said, and back
         page = plain_post(page, ">Add<", urls="https://www.cos.com/de-de/x/product/another-coat-1234567890")
         self.assertIn("added by you", page)
-        added = re.search(r'name="candidate" value="([^"]+)">\s*<button class="link danger">Remove', page)
+        added = re.search(r'name="candidate" value="([^"]+)">\s*<button class="link">Remove', page)
         assert added is not None
         # "Add details" is not shown on demo data: its form posts to the page's own address arguments, as the others.
         details = opened.replace(f"/slot/{sid}?", f"/slot/{sid}/details?sort=price&")
         response = self.client.post(details, data={"candidate": added.group(1), "price": "120"})
         self.assertEqual(response.status_code, 302)
         way_back(response.headers["Location"])
-        page = plain_post(page, rf'value="{added.group(1)}">\s*<button class="link danger">Remove', candidate=added.group(1))
+        page = plain_post(page, rf'value="{added.group(1)}">\s*<button class="link">Remove', candidate=added.group(1))
         self.assertNotIn("added by you", page)
         for sort in ("By price", "By quality"):         # links, not forms: sorting keeps the way back too
             sorting = re.search(rf'<a class="chip-link[^"]*" href="([^"]+)"[^>]*>{sort}</a>', page)
