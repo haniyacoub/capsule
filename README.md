@@ -398,7 +398,11 @@ What a brief changes, all of it plain Python in `wardrobe/style.py`:
   budget or sizes (the styles are saved last, so their effect is told apart).
   Where a piece keeps a product the brief is against (nothing else good
   enough was found for it, or he chose it himself), that is said too: "1
-  piece still goes against it: Dark brown derby shoes."
+  piece still goes against it: Dark brown derby shoes." A piece's own page
+  says it as well, where his style passed over some of its options: "Picked
+  for you: the cheapest option that fits your style, rated 70 or more" (or
+  "among those that suit your style best" where none fits it), so that the
+  sentence stays true over a list with cheaper options in it.
 
 Without a brief every pick is exactly as before. The points and the words of
 each style are in `config/style.toml`.

@@ -15,6 +15,7 @@ from contextlib import redirect_stdout
 from unittest import mock
 
 from wardrobe import config, db, imagegen, mockchat, outfits, paths, programmes, selection, settings, style, stylechat
+from wardrobe import profile as profile_mod
 from wardrobe import yes
 from wardrobe.__main__ import main
 from wardrobe.app import brief_changed, eur
@@ -167,6 +168,27 @@ class TheBrief(AppCase):
         pool = [against, silent, fits]
         self.assertIs(style.narrow(pool, "trousers", None), pool, "without a brief: the same products, untouched")
         self.assertEqual(style.narrow([], "trousers", brief), [])
+
+    def test_how_the_brief_narrowed_a_pieces_products_is_told_apart(self):
+        # For the sentence on the piece's page: "that fits your style" only where the ones left do fit it, "among
+        # those that suit your style best" where none fits, and nothing where no product was passed over.
+        class Cand:
+            def __init__(self, **data):
+                self.data = data
+
+        fits = Cand(name="Relaxed Jeans", fit="relaxed", colour="Schwarz")
+        silent = Cand(name="Hose", colour="Beige")
+        against = Cand(name="Jeans mit Logo", fit="slim", colour="Beige")
+        brief = {**style.EMPTY, "fits": ["relaxed"], "not_wanted": ["logo"]}
+        self.assertEqual(style.narrowed([against, silent, fits], "trousers", brief), ([fits], "fits"))
+        self.assertEqual(style.narrowed([against, silent], "trousers", brief), ([silent], "best"))
+        self.assertEqual(style.narrowed([fits], "trousers", brief), ([fits], ""), "nothing was passed over")
+        self.assertEqual(style.narrowed([silent], "trousers", brief), ([silent], ""))
+        self.assertEqual(style.narrowed([against], "trousers", brief), ([against], ""), "all of them are left")
+        self.assertEqual(style.narrowed([against, silent, fits], "trousers", None), ([against, silent, fits], ""))
+        self.assertEqual(style.narrowed([], "trousers", brief), ([], ""))
+        for pool in ([against, silent, fits], [against, silent], [against], []):
+            self.assertEqual(style.narrow(pool, "trousers", brief), style.narrowed(pool, "trousers", brief)[0])
 
     def test_the_stores_are_ranked_by_the_style_table_in_stores_toml(self):
         stores = config.load("stores.toml")
@@ -614,6 +636,135 @@ class Steering(AppCase):
                     self.assertGreater(style.product_points(view.chosen.data, view.slot["category"], OFFICE), 0,
                                        view.slot["name"])
 
+    def picked(self, slot_id: str) -> tuple[str, str]:
+        """What a piece's own page says of its pick, between "Picked for you: " and ". Choose another below", and
+        whatever else stands in that paragraph after it."""
+        page = self.client.get(f"/slot/{slot_id}").get_data(as_text=True)
+        state = words(re.search(r'<p class="state">(.*?)</p>', page, re.S).group(1)).replace(" ,", ",").replace(" .", ".")
+        said, rest = html.unescape(state).split(". Choose another below to swap it in.", 1)
+        self.assertTrue(said.startswith("Picked for you: "), said)
+        return said.removeprefix("Picked for you: "), rest.strip()
+
+    def chosen_among(self, view, w) -> list:
+        """The products a price level chooses among for a piece when there is no style: those he can buy that reach
+        the minimum quality, in his size first."""
+        return selection.in_your_size_first([c for c in view.cands if c.available and c.price > 0
+                                             and c.score.total >= w.threshold])
+
+    def test_a_pick_the_style_narrowed_says_so_on_the_pieces_own_page(self):
+        # Seen on the preview: with "Workwear" ticked the trousers went from a 129 € pair to a 199 € pair, and their
+        # page still said "Picked for you: the cheapest option rated 70 or more" over a list with pairs at 129 €.
+        db.set_setting("sizes_confirmed", True)
+        seen = set()
+        no_wool = {**style.EMPTY, "not_wanted": ["logos", "wool"]}
+        for brief in ({**style.EMPTY, "styles": ["workwear"]}, STREET, no_wool):
+            style.save(brief)
+            for mode in selection.POSITION:
+                self.set_mode(mode)
+                w = selection.build()
+                level = selection.MODES[mode].lower()
+                for view in w.slots:
+                    if view.state != "auto" or not view.chosen:
+                        continue
+                    category, name = view.slot["category"], (mode, view.slot["name"])
+                    pool = self.chosen_among(view, w)
+                    left = style.narrow(pool, category, brief)
+                    said, _ = self.picked(view.slot["id"])
+                    if len(left) == len(pool):
+                        how = ""
+                        self.assertEqual(said, f"the {level} option in your size rated 70 or more", name)
+                    elif style.product_points(left[0].data, category, brief) > 0:
+                        how = "fits"
+                        self.assertEqual(said, f"the {level} option in your size that fits your style, rated 70 or more",
+                                         name)
+                        self.assertTrue(all(style.product_points(c.data, category, brief) > 0 for c in left), name)
+                    else:
+                        how = "best"
+                        self.assertEqual(said, f"the {level} option in your size among those that suit your style "
+                                               "best, rated 70 or more", name)
+                    self.assertEqual(view.styled, how, name)
+                    # What the sentence says is what was done: the level's place among the products that are left.
+                    self.assertEqual(view.chosen.id, selection.at_level(left, mode).id, name)
+                    cheaper = [c for c in pool if c.price < view.chosen.price]
+                    if mode == "cheapest" and cheaper:
+                        seen.add("a cheaper one in the list")
+                        self.assertNotIn("the cheapest option in your size rated", said, name)
+                    seen.add(how)
+        self.assertEqual(seen, {"", "fits", "best", "a cheaper one in the list"}, "the demo catalogue shows every case")
+        # "Your style" leads to where it is set.
+        styled = next(view for view in selection.build().slots if view.styled)
+        page = self.client.get(f"/slot/{styled.slot['id']}").get_data(as_text=True)
+        self.assertIn('<a href="/profile">your style</a>', page)
+        # Without a style the sentence is the one it always was, for every piece.
+        style.remove()
+        self.set_mode("cheapest")
+        for view in selection.build().slots:
+            if view.state == "auto" and view.chosen:
+                self.assertEqual(view.styled, "")
+                self.assertEqual(self.picked(view.slot["id"])[0], "the cheapest option in your size rated 70 or more")
+        # … and a piece he locked or owns is not picked for him, so his style is not said of it.
+        style.save(STREET)
+        styled = next(view for view in selection.build().slots if view.styled)
+        self.post(f"/slot/{styled.slot['id']}/lock")
+        self.assertEqual(selection.build().get(styled.slot["id"]).state, "locked")
+        self.assertEqual(selection.build().get(styled.slot["id"]).styled, "")
+
+    def test_best_for_budget_says_the_style_too_and_never_your_budget_to_someone_without_one(self):
+        db.set_setting("sizes_confirmed", True)
+        self.set_mode("budget")
+        needs = "“Best for budget” needs your budget: set one on the Profile page."
+        # No budget given yet: that level picks the cheapest options meanwhile, and the piece's page says that.
+        w = selection.build()
+        self.assertFalse(w.budget_to_fit)
+        for view in w.slots:
+            if view.state == "auto" and view.chosen:
+                self.assertEqual(self.picked(view.slot["id"]),
+                                 ("the cheapest option in your size rated 70 or more", needs), view.slot["name"])
+                self.assertEqual(view.chosen.id, selection.at_level(self.chosen_among(view, w), "cheapest").id)
+        self.assertTrue(w.note.endswith("Until then these are the cheapest options that reach your minimum quality."))
+        hints = re.findall(r'<label title="([^"]*)"', self.client.get("/").get_data(as_text=True))
+        self.assertEqual(len(hints), len(selection.MODES))
+        self.assertFalse([hint for hint in hints if "style" in hint])
+        style.save(OFFICE)
+        w = selection.build()
+        self.assertTrue(w.styled)
+        said = {view.styled: self.picked(view.slot["id"]) for view in w.slots if view.state == "auto" and view.chosen}
+        self.assertEqual(said["fits"], ("the cheapest option in your size that fits your style, rated 70 or more", needs))
+        self.assertEqual(said[""], ("the cheapest option in your size rated 70 or more", needs))
+        self.assertTrue(w.note.endswith("Until then these are the cheapest options that reach your minimum quality "
+                                        "and suit your style best."), w.note)
+        # The words on each level of the Wardrobe page say that his style comes first.
+        hints = [html.unescape(hint) for hint in re.findall(r'<label title="([^"]*)"',
+                                                            self.client.get("/").get_data(as_text=True))]
+        self.assertEqual(len(hints), len(selection.MODES))
+        for hint, plain in zip(hints, (selection.HINTS[key] for key in selection.MODES)):
+            self.assertEqual(hint, f"{plain}. Your style comes first: each piece is chosen among the options that "
+                                   "suit it best")
+        # With a budget the level fits it, among the products his style left, and says both.
+        profile_mod.save({**profile_mod.load(), "budget": 5000})
+        profile_mod.answer("budget")
+        w = selection.build()
+        self.assertTrue(w.budget_to_fit)
+        said = {view.styled: self.picked(view.slot["id"]) for view in w.slots if view.state == "auto" and view.chosen}
+        self.assertEqual(said["fits"], ("what your budget allows here among the options that fit your style, rated 70 "
+                                        "or more", ""))
+        self.assertEqual(said[""], ("what your budget allows here, rated 70 or more", ""))
+        # A budget the plan cannot meet: "their cheapest options" are the cheapest of what his style left.
+        profile_mod.save({**profile_mod.load(), "budget": 50})
+        w = selection.build()
+        self.assertTrue(w.note.startswith(
+            "Even on their cheapest options that reach your minimum quality and suit your style best, the pieces your "
+            "outfits are made from come to more than your budget together, so every piece is on the cheapest of "
+            "those. Lower the minimum quality"), w.note)
+        for view in w.slots:
+            if view.state == "auto" and view.chosen:
+                left = style.narrow(self.chosen_among(view, w), view.slot["category"], OFFICE)
+                self.assertEqual(view.chosen.price, min(c.price for c in left), view.slot["name"])
+        style.remove()
+        self.assertTrue(selection.build().note.startswith(
+            "Even on their cheapest options that reach your minimum quality, the pieces your outfits are made from "
+            "come to more than your budget together, so every piece is on its cheapest option. Lower"))
+
     def test_the_outfits_that_fit_the_brief_are_offered_first_and_say_why(self):
         style.save(STREET)
         w = selection.build()
@@ -905,7 +1056,6 @@ class Ticking(AppCase):
     def test_everyday_office_both_work_as_they_did(self):
         for use in ("office", "everyday", "both"):
             self.client.post("/profile", data={**self.form(use=use), "styles": ["minimal"]})
-            from wardrobe import profile as profile_mod
             self.assertEqual(profile_mod.load()["use"], use)
         self.assertEqual(style.current()["styles"], ["minimal"])
 
@@ -1377,7 +1527,6 @@ class FromTheWelcome(NoNetwork, ProductionCase):
             self.assertNotIn('name="then"', ada.get("/welcome/3").get_data(as_text=True))
 
     def test_it_ends_the_welcome_saves_what_he_ticked_and_opens_the_chat_on_profile(self):
-        from wardrobe import profile as profile_mod
         self.chat_on()
         ada = self.member("ada@example.com", self.PASSWORD)
         self.assertEqual(self.lands_after_logging_in("ada@example.com"), "/welcome", "he is not through it yet")
@@ -1470,7 +1619,6 @@ class Limits(NoNetwork, ProductionCase):
         self.assertIn("Customer: street style, Berlin vibe", text)
         self.assertIn('"styles": ["minimal"]', text)
         self.assertIn('"not_wanted": ["leather"]', text)
-        from wardrobe import profile as profile_mod
         with db.as_user(self.user_id("anna.personal@example.com")):
             profile = profile_mod.load()
         for private in ("anna", "example.com", str(self.user_id("anna.personal@example.com")) + "@"):
@@ -1497,6 +1645,10 @@ class Limits(NoNetwork, ProductionCase):
         self.assertEqual(len(copy["style_chat_asked_at"]), 1)
         self.assertIn("style_brief", json.dumps(copy))
         self.assertIn("street style, Berlin vibe", json.dumps(copy), "the conversation is in his copy")
+        # The Account page says what that copy holds, the brief and the chat included.
+        account = words(anna.get("/account").get_data(as_text=True))
+        self.assertIn("the styles you ticked and your style brief, items you added", account)
+        self.assertIn("the last lines of your style chat and the times you sent it a message if you used it", account)
 
     def test_one_customers_brief_and_conversation_are_not_anothers(self):
         anna, ben = self.member("anna@example.com"), self.member("ben@example.com")

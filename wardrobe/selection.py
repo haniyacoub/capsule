@@ -155,6 +155,11 @@ class SlotView:
     outfits_in: int = 0             # how many of the outfits he said yes to wear this piece ("In 4 of your outfits")
     kept: bool = False              # in his wardrobe on its own account: chosen by hand before version 9 (db.py)
     spare: bool = False             # he added the plan's further ones of this piece to his wardrobe ("Add a spare")
+    # How his style (the styles he ticked, his style brief) narrowed what the price level chose among for this
+    # piece (style.narrowed): "" not at all, "fits" to the products that fit it, "best" to those that suit it best
+    # where none fits. The piece's page says it: with a cheaper option in its list that the style passed over,
+    # "the cheapest option rated 70 or more" alone would not be true.
+    styled: str = ""
 
     @property
     def mine(self) -> bool:
@@ -331,6 +336,12 @@ class Wardrobe:
             ladder["budget"] = round(sum(picks[view.slot["id"]].price * view.qty if view.slot["id"] in picks
                                          else view.cost for view in self.slots), 2)
         return ladder
+
+    @property
+    def styled(self) -> bool:
+        """Whether his style passed over a product for any piece outfits are made from (SlotView.styled): then "the
+        lowest-priced option for each piece" is true only among the products his style left."""
+        return any(view.styled for view in (self.plan or self).slots)
 
     @property
     def total(self) -> float:
@@ -637,6 +648,8 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
     for view in views:
         if view.state != "owned" and not view.cands:
             _offer(view, views, profile, charts)
+    for view in views:
+        view.styled = _styled(view, threshold, brief)
 
     wardrobe = Wardrobe(
         slots=views, mode=mode, threshold=threshold, budget=float(profile.get("budget") or 0),
@@ -649,10 +662,12 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
     # account started with (he never gave one): the level goes on fitting to that budget, so that none of his
     # products changes with the upgrade (db.py notes it, "budget_as_before"), and the page says which budget it is.
     wardrobe.budget_to_fit = wardrobe.budget_known or bool(db.get_setting("budget_as_before"))
+    # Where his style passed products over, "cheapest" is the cheapest of what it left, and the notes say so.
+    of_style = " and suit your style best" if wardrobe.styled else ""
     if mode == "budget" and not wardrobe.budget_to_fit:
         # No budget to fit anything to yet: every piece shows its cheapest option that reaches the minimum quality.
         wardrobe.note = ("“Best for budget” needs your budget: set one on the Profile page. Until then these are "
-                         "the cheapest options that reach your minimum quality.")
+                         f"the cheapest options that reach your minimum quality{of_style}.")
     elif mode == "budget":
         # Fitted for the whole plan together, the pieces that are not in his wardrobe yet included, each as often as
         # the plan has it (_fit). So a piece's product does not depend on which outfits he said yes to, or on a
@@ -666,13 +681,25 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
                 view.chosen = picks[view.slot["id"]]
         if not fits:
             wardrobe.note = (
-                "Even on their cheapest options that reach your minimum quality, the pieces your outfits are made "
-                "from come to more than your budget together, so every piece is on its cheapest option. Lower the "
+                f"Even on their cheapest options that reach your minimum quality{of_style}, the pieces your outfits "
+                f"are made from come to more than your budget together, so every piece is on "
+                f"{'the cheapest of those' if of_style else 'its cheapest option'}. Lower the "
                 "minimum quality, mark what you own, or raise the budget on the Profile page.")
         if not wardrobe.budget_known:
             wardrobe.note = (f"“Best for budget” is still fitted to {wardrobe.budget:,.0f} €, the budget your account "
                              "started with, as before. Set your own budget on the Profile page. " + wardrobe.note).strip()
     return wardrobe
+
+
+def _styled(view: SlotView, threshold: int, brief: dict | None) -> str:
+    """How his style narrowed what this piece's automatic pick was chosen among (SlotView.styled). The products are
+    the ones a price level (choose) and "Best for budget" (_fit) choose among: those he can buy that reach the
+    minimum quality, in his size first. Where none reaches it the pick is the best-rated one and his style has no
+    say, and a piece he owns or locked is not picked for him at all."""
+    if not brief or view.state != "auto" or view.chosen is None:
+        return ""
+    good = [c for c in view.cands if c.available and c.price > 0 and c.score.total >= threshold]
+    return style.narrowed(in_your_size_first(good), view.slot["category"], brief)[1] if good else ""
 
 
 def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -> None:

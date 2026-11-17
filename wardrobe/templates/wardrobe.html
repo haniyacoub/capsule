@@ -50,7 +50,7 @@
       hx-trigger="change, input delay:150ms from:#threshold">{{ csrf_field() }}
   <div class="seg levels" role="radiogroup" aria-label="Which option fills each piece: a price level, or the best your budget buys">
     {% for key, label in MODES.items() %}
-    <label title="{{ level_hints[key] }}"{% if key == 'budget' %} class="wide"{% endif %}><input type="radio" name="mode" value="{{ key }}"{% if w.mode == key %} checked{% endif %}><span>{{ label }}{% include "_level_total.html" %}</span></label>
+    <label title="{{ level_hints[key] }}{% if w.styled %}. Your style comes first: each piece is chosen among the options that suit it best{% endif %}"{% if key == 'budget' %} class="wide"{% endif %}><input type="radio" name="mode" value="{{ key }}"{% if w.mode == key %} checked{% endif %}><span>{{ label }}{% include "_level_total.html" %}</span></label>
     {% endfor %}
   </div>
   <label class="thr" for="threshold">

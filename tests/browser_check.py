@@ -766,6 +766,7 @@ def run(base: str) -> None:
                 const dots = [...slide.querySelectorAll('.spot')].map(box).filter(d => d.width);
                 const pill = slide.querySelector('.vid-pill');
                 return {width: Math.round(pic.width), met: dots.filter(d => meet(chip, d)).length, dots: dots.length,
+                        label_h: Math.round(chip.height),
                         chip_on: chip.left >= pic.left && chip.bottom <= pic.bottom + .5 && chip.width > 0,
                         pill: pill && {words: pill.textContent.trim(), width: box(pill).width}};
             }""", first)
@@ -776,10 +777,14 @@ def run(base: str) -> None:
             # alone, so that its words do not cover the head; they are still read out.
             seen = label_and_dots(where_page)
             assert seen["dots"] and not seen["met"] and seen["chip_on"], f"{where}: the label 'AI picture' meets a dot: {seen}"
-            for width in (124, 140, 150, 160, 170, 180, 190, 200, 220, 240):
+            for width in (124, 140, 150, 160, 170, 180, 186, 190, 198, 200, 220, 240):
                 where_page.evaluate("w => document.querySelector('.looks').style.setProperty('--stage-w', w + 'px')", width)
                 seen = label_and_dots(where_page)
                 assert not seen["met"] and seen["chip_on"], f"{where}, a picture {width}px wide: the label meets a dot: {seen}"
+                # On most phones in a browser the picture is 198px wide, and 186px after his first yes: there the
+                # label is still one line, 'AI PICTURE', not 'AI' over 'PICTURE' (which is for pictures narrower still).
+                assert width < 186 or seen["label_h"] <= 26, \
+                    f"{where}, a picture {width}px wide: the label 'AI picture' is on two lines ({seen['label_h']}px high)"
                 if width < 200 and seen["pill"]:
                     assert seen["pill"]["width"] <= 44 and seen["pill"]["words"] == "See it move", \
                         f"{where}, a picture {width}px wide: 'See it move' covers the head, or is not read out: {seen}"
@@ -4956,9 +4961,15 @@ def run(base: str) -> None:
                             price: box(slide.querySelector('.board-cost')).bottom,
                             yes: [box(document.querySelector('#dock .btn.yes')).top, box(document.querySelector('#dock .btn.yes')).bottom],
                             answers: box(document.getElementById('dock')).top,
+                            chips: [document.querySelector('.toolbar .chips').scrollWidth, document.querySelector('.toolbar .chips').clientWidth],
+                            last_chip: [...document.querySelectorAll('.toolbar .chip-link')].pop().textContent.trim().replace(/\\s+/g, ' '),
                             tabs: box(document.querySelector('nav.tabs')).top}; }""")
                 context.close()
                 where = f"at {width} x {height}"
+                # The chips over the outfits all show beside Shuffle, the number on "My outfits 3" included: on a phone
+                # 360px wide the last chip is not cut off (the chips are a little closer cut there to fit).
+                assert seen["last_chip"].startswith("My outfits") and seen["chips"][0] <= seen["chips"][1], \
+                    f"{where} the chip {seen['last_chip']!r} is cut off beside Shuffle: the chips need {seen['chips'][0]}px and have {seen['chips'][1]}px"
                 least = 186 if seen["lead"] > 22 else 198       # the line over the outfits: two lines, or one
                 assert seen["picture"] >= least, f"{where} the picture is only {seen['picture']:.0f}px wide, under {least}px"
                 assert seen["answers"] <= seen["tabs"] + 1 and seen["answers"] <= seen["yes"][0] and seen["yes"][1] <= seen["tabs"], \

@@ -450,6 +450,10 @@ details.why summary::-webkit-details-marker { display: none; }
 }
 .toolbar .chips::-webkit-scrollbar { display: none; }
 .toolbar .chip-link { flex: none; white-space: nowrap; }
+/* On a phone under 380px wide (360px: many Android phones) the four chips with 12px of padding each side were
+   24px wider than their row, and the number on "My outfits 3" was cut off beside Shuffle until the row was scrolled.
+   With 8px each side they fit, a two-figure number too. Narrower still (320px) the row scrolls, as said above. */
+@media (max-width: 379.98px) { .toolbar .chip-link { padding: 0 var(--s-2); } }
 /* Shuffle: a 44px icon on a phone, its name hidden but still read out (as .sr); with its name on a computer. */
 .shuffle { position: relative; flex: none; width: 44px; min-height: 44px; padding: 0; }
 .shuffle span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -578,14 +582,20 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
   font-size: var(--t-xs); line-height: var(--lh-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
 }
 /* The label and the dots never meet. A dot low on the picture (.spot.low, outfits.html: the shoes') keeps to the right
-   of the label: its centre at least --chip-clear from the picture's left edge, the label's width (about 89px: 'AI
-   PICTURE', 8px in), 4px of space and room for the dot and the ring round it (13px). That moves it only on a picture under about 200px wide,
-   where the shoe is that near the corner (under a message on a short phone); there the label also takes two lines,
-   'AI' over 'PICTURE', 4px in from the corner (about 64px wide), so the dot moves as little as it can: not at all
-   down to 152px, by about 16px on the narrowest picture (124px). */
+   of the label: its centre at least --chip-clear from the picture's left edge, the label's width (about 90px: 'AI
+   PICTURE', 8px in), 4px of space and room for the dot and the ring round it (13px). On a picture under 200px wide
+   (most phones in a browser: 198px, and 186px after his first yes) the label is 4px in from the corner with 4px of
+   padding, still on one line (about 82px wide), and the shoe's dot (108px in on a picture of 186px) stays where it
+   is. Only on a picture under 186px wide (under a message on a short phone) does the label take two lines, 'AI' over
+   'PICTURE' (about 64px wide), so the dot moves as little as it can: not at all down to 152px, by about 16px on the
+   narrowest picture (124px). */
 .spots { --chip-clear: 114px; }
 @container (max-width: 199.98px) {   /* the stage's width */
-  .ai-chip { left: var(--s-1); bottom: var(--s-1); width: min-content; padding: var(--s-1); border-radius: var(--r-ui); }
+  .ai-chip { left: var(--s-1); bottom: var(--s-1); padding: var(--s-1); border-radius: var(--r-ui); white-space: nowrap; }
+  .spots { --chip-clear: 104px; }
+}
+@container (max-width: 185.98px) {
+  .ai-chip { width: min-content; white-space: normal; }
   .spots { --chip-clear: 88px; }
 }
 /* What is being done about the picture (asked for, drawing, waiting its turn, failed) is said in a band across the top
