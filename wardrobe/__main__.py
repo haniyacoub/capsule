@@ -10,6 +10,8 @@
     python -m wardrobe looks --test           draw one sample picture, to check the key (costs one picture)
     python -m wardrobe looks --test-set       draw a sample outfit's whole set: the front picture and the five made from it
     python -m wardrobe looks --test-video     make one "See it move" video from that set (--video-model NAME tries another model)
+    python -m wardrobe example-pictures       what drawing the example wardrobe's pictures (what visitors see) would cost
+    python -m wardrobe example-pictures --yes ... and draw them (billed; --sample 3: only three; --max-cost 1.00)
     python -m wardrobe chat                   is the style chat switched on?
     python -m wardrobe chat --test "WORDS"    send one message to Google's text model (costs about a tenth of a cent)
     python -m wardrobe stores [sync | end KEY]    the stores whose feeds Stilsmith may use (config/feeds.toml)
@@ -24,6 +26,8 @@ import logging
 import socket
 import socketserver
 import sys
+import time
+from decimal import ROUND_UP, Decimal, InvalidOperation
 
 
 def _free_port(host: str, wanted: int) -> int:
@@ -248,6 +252,151 @@ def check_looks(args: argparse.Namespace) -> None:
     print(f"It works: {path} ({seconds:.0f} seconds). Open that file to look at it.")
 
 
+# What `python -m wardrobe example-pictures --help` says above its options.
+EXAMPLE_PICTURES = (
+    "Draws the AI pictures of the example wardrobe that visitors without an account look through: the front picture "
+    "of each of its first outfits, in the order a visitor sees them, of Stilsmith's house model (never anyone's "
+    "photo). First it says how many are there already, how many it would draw, and what that would cost by "
+    "price_each_usd in config/looks.toml (an estimate); without --yes it stops there. Each picture is billed to the "
+    "image service's key. It is the owner's, run by hand where the site runs (deploy/README.md): it is not counted "
+    "in the day's picture limits, it never runs by itself, and a visitor never causes a drawing. Running it again "
+    "draws only what is still missing."
+)
+
+
+def _whole(low: int, high: int):
+    """For the options: a whole number from `low` to `high`, else a plain line saying so."""
+    def read(text: str) -> int:
+        try:
+            value = int(text)
+        except ValueError:
+            value = low - 1
+        if not low <= value <= high:
+            raise argparse.ArgumentTypeError(f"a whole number from {low} to {high}")
+        return value
+    return read
+
+
+def _dollars(text: str) -> Decimal:
+    """For --max-cost: an amount in US dollars, like 1.00 (exact, so that 12 pictures at 0.05 are 0.60, not more)."""
+    try:
+        value = Decimal(text.strip().lstrip("$"))
+    except InvalidOperation:
+        value = Decimal(-1)
+    if not value.is_finite() or value < 0:
+        raise argparse.ArgumentTypeError("an amount in US dollars, like 1.00")
+    return value
+
+
+def _usd(amount: Decimal) -> str:
+    """$0.35: to the cent, rounded up (it is an estimate: better a little high)."""
+    return f"${amount.quantize(Decimal('0.01'), rounding=ROUND_UP)}"
+
+
+def example_pictures(args: argparse.Namespace) -> None:
+    """The owner's command (EXAMPLE_PICTURES): what drawing the example wardrobe's pictures would cost and, with
+    --yes, drawing them one at a time, each waited for. guests.py has the example wardrobe and the visitor's order,
+    looks.draw_front_now the drawing."""
+    from . import db, guests, looks, selection, settings, yes
+    from .config import ConfigError
+
+    if not settings.PRODUCTION:
+        sys.exit("There is no example wardrobe on your own machine: it is for the visitors of the public site. "
+                 "Run this where the site runs (deploy/README.md).")
+    try:
+        on, line = looks.status()
+        price = looks.price_each()
+    except ConfigError as mistake:
+        sys.exit(f"Nothing was drawn: {mistake}")
+    if not on:
+        sys.exit(f"Nothing was drawn: AI pictures are {line}.")
+    if price is None:
+        sys.exit("Nothing was drawn: the estimate needs price_each_usd under [pictures] in config/looks.toml.")
+    db.init()
+    example = db.internal_account(guests.EXAMPLE_EMAIL)     # (not guests.example_id: that is the site's process)
+    if example is None:
+        sys.exit("There is no example wardrobe here yet: the site makes it when it starts, and its start-up lines "
+                 "say if it could not. Nothing was drawn.")
+
+    with db.as_user(example):
+        reading = db.set_read_only(True)     # read as a visitor's page reads the example: nothing can be written
+        try:
+            first = guests.first_outfits(selection.build(), args.outfits)
+        finally:
+            db.reset_read_only(reading)
+        states = []                          # for each: there | working (being drawn already) | missing
+        for _, board in first:
+            front = board["photos"][0].look if board.get("photos") else None
+            states.append("there" if guests.outfit_picture(board) else
+                          "working" if front is not None and front.status == "working" else "missing")
+        missing = [(number, board) for number, ((_, board), state) in enumerate(zip(first, states), 1)
+                   if state == "missing"]
+        wanted = missing[:args.sample] if args.sample else missing
+        cost = price * len(wanted)
+
+        print(f"AI pictures: {line}", flush=True)
+        if len(first) < args.outfits:
+            print(f"The example wardrobe: all its {len(first)} outfits, as a visitor sees them (it has no more).")
+        else:
+            print(f"The example wardrobe: its first {len(first)} outfits, as a visitor sees them.")
+        print(f"{states.count('there')} of {len(first)} already there.")
+        if "working" in states:
+            busy = states.count("working")
+            print(f"{busy} {'is' if busy == 1 else 'are'} being drawn already: left alone.")
+        if not wanted:
+            print("Nothing to draw.")
+            return
+        each = f"{len(wanted)} {'picture' if len(wanted) == 1 else 'pictures'} at ${price}, price_each_usd in config/looks.toml"
+        if len(wanted) < len(missing):
+            print(f"{len(missing)} missing; --sample {args.sample} draws the first {len(wanted)} of them: "
+                  f"about {_usd(cost)} ({each}).")
+        else:
+            print(f"{len(wanted)} to draw: about {_usd(cost)} ({each}).")
+        if cost > args.max_cost:
+            sys.exit(f"That is more than --max-cost ({_usd(args.max_cost)}), so nothing was drawn. "
+                     "Draw fewer with --sample, or allow more with --max-cost.")
+        if not args.yes:
+            print("Nothing was drawn. To draw them, run this again with --yes.")
+            return
+        if not guests.door_open():
+            print("Note: visitors cannot look around at the moment (guests = false in config/site.toml).")
+
+        print(f"Drawing {len(wanted)}, one at a time (each takes up to a minute):", flush=True)
+        drawn = failed = billed = 0
+        for done, (number, board) in enumerate(wanted, 1):
+            if looks.held_off():         # the image service's last answer would only come again for the next ones
+                print(f"Stopped: the other {len(wanted) - done + 1} were not sent. Run this again once that is put "
+                      "right: it draws only what is missing.")
+                break
+            started = time.time()
+            try:
+                result, problem = looks.draw_front_now(board["pieces"])
+            except ValueError as refusal:
+                sys.exit(str(refusal))
+            said = f"  {done}/{len(wanted)}  #{number}, the {yes.name(board['pieces'])}:"
+            if result == "ready":
+                drawn += 1
+                billed += 1
+                print(f"{said} ready ({time.time() - started:.0f} seconds)", flush=True)
+            elif result != "failed":
+                print(f"{said} {'there already' if result == 'there' else 'being drawn already'}, nothing sent",
+                      flush=True)
+            else:
+                failed += 1
+                billed += 0 if problem is None or problem.free else 1
+                why = (looks.SAY.get(problem.kind, looks.SAY["unknown"]) + (f" {problem.detail}" if problem.detail
+                                                                             else "")) if problem else "not sent"
+                print(f"{said} failed. {why}", flush=True)
+
+    print(f"Done: {drawn} drawn" + (f", {failed} failed" if failed else "") + ".")
+    print(f"Spent, by this command's estimate: about {_usd(price * billed)} ({billed} "
+          f"{'picture' if billed == 1 else 'pictures'} at ${price}"
+          + (", counting those that failed after reaching the image service: it may bill them" if billed > drawn
+             else "") + ").")
+    if drawn and guests.door_open():
+        print("Visitors see the new pictures from their next page load.")
+
+
 def rebuild_mock(args: argparse.Namespace) -> None:
     _local_only("Rebuilding the demo catalogue")
     from . import catalog, db, mock
@@ -303,6 +452,21 @@ def main(argv: list[str] | None = None) -> None:
     p_looks.add_argument("--video-model", metavar="NAME",
                          help="with --test-video: try this name for the video model instead of [videos] model")
     p_looks.set_defaults(func=check_looks)
+
+    from .guests import MOST, PAGE
+    p_example = sub.add_parser("example-pictures", help="draw the AI pictures of the example wardrobe that visitors "
+                                                        "see (the owner's, by hand; billed, and only with --yes)",
+                               description=EXAMPLE_PICTURES)
+    p_example.add_argument("--outfits", type=_whole(1, MOST), default=PAGE, metavar="N",
+                           help=f"its first N outfits, as a visitor sees them ({PAGE}, the default: his first page; "
+                                f"{2 * PAGE}: also those after one \"Show more outfits\"; at most {MOST})")
+    p_example.add_argument("--sample", type=_whole(1, MOST), metavar="K",
+                           help="draw only the first K of those still missing, to look at them first")
+    p_example.add_argument("--max-cost", type=_dollars, default=Decimal("1.00"), metavar="USD",
+                           help="draw nothing if the estimate is above this, in US dollars (default 1.00)")
+    p_example.add_argument("--yes", action="store_true",
+                           help="draw them; without it, it only says what it would draw and what that would cost")
+    p_example.set_defaults(func=example_pictures)
 
     p_chat = sub.add_parser("chat", help="is the style chat switched on? (--test sends one message)")
     p_chat.add_argument("--test", metavar="WORDS", help="send these words to Google's text model and print its answer")

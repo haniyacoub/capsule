@@ -52,6 +52,16 @@ more_only_on_yes = true
 per_day              = 300   # everyone together (on your own machine: you)
 per_customer_per_day = 30    # each customer of a public service
 
+# What one picture costs, in US dollars. Only for the estimate that
+# `python -m wardrobe example-pictures` (the example wardrobe's pictures) prints
+# before it draws anything: nothing else reads it, and nothing is charged by it.
+# From Google's price list, read on 15 Nov 2026: the model under [service.google]
+# at 1K is $0.0336 a picture, and the words sent and the model's "thinking" are
+# billed on top, so about 4 to 5 cents all in. Rounded up to 5 cents, so the
+# estimate errs on the high side. OpenAI's prices differ. Your bill has the real
+# figure: put it here once you have seen it.
+price_each_usd = 0.05
+
 
 # What the image service is told. The list of pieces is added by the app.
 # These words were written from Google's guidance on 15 Nov 2026 and have not

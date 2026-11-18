@@ -39,6 +39,7 @@ import time
 import traceback
 from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 from . import colours, composition, config, db, imagegen, outfits, paths, person, settings
@@ -116,6 +117,9 @@ def _check(data: dict) -> None:
         value = pictures.get(name)
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ConfigError(f"pictures.{name} must be a whole number, 0 or more")
+    price = pictures.get("price_each_usd")          # (only the owner's command reads it: price_each)
+    if price is not None and (isinstance(price, bool) or not isinstance(price, (int, float)) or not 0 < price <= 10):
+        raise ConfigError("pictures.price_each_usd must be what one picture costs in US dollars, like 0.05")
 
     text = config.table(data.get("text"), "text")
     for name in ("model", "scene", "scene_with_photo", "from_anchor", "avoid", "avoid_scene"):
@@ -741,6 +745,58 @@ def request_more(pieces: list[dict]) -> str:
     return ""
 
 
+# ── the owner's command: the example wardrobe's pictures, drawn by hand ───────
+# python -m wardrobe example-pictures (__main__.py) draws the front pictures of the outfits that visitors without an
+# account see first (guests.py), once the owner has seen what they would cost. Never at start-up, never for a visitor.
+
+def price_each() -> Decimal | None:
+    """What one picture costs, in US dollars: price_each_usd under [pictures] in config/looks.toml, an estimate.
+    None while it is not set. (A Decimal: 12 pictures at 0.05 are exactly 0.60, which in floats they are not.)"""
+    price = load_rules()["pictures"].get("price_each_usd")
+    return None if price is None else Decimal(str(price))
+
+
+def draw_front_now(pieces: list[dict]) -> tuple[str, imagegen.DrawError | None]:
+    """Draw the front picture of one outfit for the signed-in account, here and now, and wait for it: for the owner's
+    command, which runs it as the example wardrobe (guests.py), one outfit after another.
+    It is the picture a page shows for that outfit: the same name (fingerprint) as in attach and request, of the
+    model the account has. That must be Stilsmith's house model: an account with a photo of its own is refused
+    (ValueError), so no picture of a person is ever drawn this way, and the picture belongs to no account.
+    It is written as every picture is (_draw): its row in the database and its file in <data>/looks/, so a running
+    site shows it from its next page load. It is not counted in the day's limits ([pictures] in config/looks.toml):
+    the command is run by hand and has its own ceiling (--max-cost).
+    Returns (what happened, what went wrong):
+        ("there", None)      it is there already: nothing was sent
+        ("working", None)    it is being drawn already (for a customer with the same model, or by another run of the
+                             command, or a run stopped a few minutes ago): left alone
+        ("ready", None)      drawn now
+        ("failed", problem)  not drawn, with the image service's own words (None: it could not even be asked)
+    """
+    chosen = service()
+    if chosen is None:
+        raise imagegen.DrawError("key", "no key is set", free=True)
+    rules = load_rules()
+    who = person.current(rules["pictures"]["photos"])
+    if who.photo is not None or who.mark:
+        raise ValueError("This account has a photo of its own: pictures of a person are never drawn from the command "
+                         "line. Nothing more was drawn.")
+    text = prompt(pieces, rules, who)
+    key = fingerprint(chosen, text, who.mark)
+    row = db.look_rows([key]).get(key)
+    look = _view(row)
+    if look is not None and look.status in ("ready", "working"):
+        return ("there" if look.status == "ready" else "working"), None
+    lost = row is not None and row["status"] == "ready"      # its file was deleted by hand: drawn afresh
+    now = time.time()
+    if not db.start_look(key, chosen.tag, now - STALE_SECONDS, now - QUEUE_SECONDS, again=lost, owner=None):
+        return "working", None                              # somebody asked for it a moment ago
+    problem = _draw(key, chosen, text, None, 0)             # waits its turn and for the picture
+    look = get(key)
+    if problem is None and look is not None and look.status == "ready":
+        return "ready", None
+    return "failed", problem
+
+
 def _spawn(job) -> None:
     """Run `job` in the background (the tests swap this for running it at once)."""
     threading.Thread(target=job, name="look", daemon=True).start()
@@ -759,13 +815,17 @@ def _a_turn(taken: bool):
 
 
 def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ticket: int, turn: bool = False,
-          reference: bytes | None = None) -> None:
+          reference: bytes | None = None) -> imagegen.DrawError | None:
     """Background: have the picture drawn and record how it went. Never raises.
     `reference`: the front picture this one is to be made from (one of an outfit's further pictures).
     `ticket` is this request's entry in the day's count. It is given back only when the service
     certainly drew (and billed) nothing; anything else counts, which is what bounds "Try again".
+    (0: nothing was counted, so there is nothing to give back: the owner's command, draw_front_now.)
     `turn`: request() found a drawing turn free, took it and marked the picture as being drawn.
-    Without it, the picture waits in line here, and is checked again once its turn comes."""
+    Without it, the picture waits in line here, and is checked again once its turn comes.
+    Returns what went wrong when drawing it failed: the image service's own words, or the kind of error. None when it
+    was drawn, or not tried (held off, no longer wanted). The owner's command prints it (draw_front_now); a page shows
+    the row's words instead (_say)."""
     global _held
     with _a_turn(turn):
         try:
@@ -773,10 +833,10 @@ def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ti
             if waiting:                                  # the service failed for another picture meanwhile
                 db.fail_look(key, waiting)
                 db.drop_look_request(ticket)
-                return
+                return None
             if not turn and not db.touch_look(key):      # no longer wanted: its account went, or it was started afresh
                 db.drop_look_request(ticket)
-                return
+                return None
             if reference is None:
                 data, ext = imagegen.draw(chosen, text, photo)
             else:
@@ -790,13 +850,14 @@ def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ti
                 before = db.finish_look(key, name)
             except LookupError:                          # the account was deleted meanwhile
                 (folder() / name).unlink(missing_ok=True)
-                return
+                return None
             if before and before != name:
                 (folder() / before).unlink(missing_ok=True)
                 from . import videos                     # its videos showed the picture that is gone
                 videos.forget_made_from(before)
                 forget_made_from(before)                 # … and so did the pictures made from it
             log.info("Drew look %s with %s", key, chosen.tag)
+            return None
         except imagegen.DrawError as problem:
             if photo is not None and problem.kind == "request":
                 # The request the service would not take carried this person's photo. That is their
@@ -812,12 +873,14 @@ def _draw(key: str, chosen: imagegen.Service, text: str, photo: bytes | None, ti
             level = logging.ERROR if problem.kind in OPERATORS else logging.WARNING
             log.log(level, "Look %s was not drawn (%s): %s", key, problem.kind, problem.detail)
             _write_down(key, chosen.tag, problem.kind, problem.detail)
+            return problem
         except Exception as error:
             # Never the exception's own words in a log that outlives the process: they could quote the key.
             trace = traceback.format_exc()
             log.error("Look %s was not drawn\n%s", key, trace.replace(chosen.key, "(the key)") if chosen.key else trace)
             db.fail_look(key, SAY["unknown"])
             _write_down(key, chosen.tag, "unknown", type(error).__name__)
+            return imagegen.DrawError("unknown", type(error).__name__)
 
 
 def _say(problem: imagegen.DrawError) -> str:

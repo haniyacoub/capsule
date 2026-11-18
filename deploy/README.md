@@ -60,6 +60,25 @@ Both cost money and need your name on them, so they are yours to set up.
 
 - **A new version:** `git pull && docker compose -f deploy/compose.yaml up -d --build`.
   The data stays: it is on a volume, not in the container.
+- **The example wardrobe's pictures** (the AI pictures that visitors without an
+  account see; PRODUCTION.md has the details). On the server, in the folder
+  with the code:
+
+  ```bash
+  docker compose -f deploy/compose.yaml exec app python -m wardrobe example-pictures
+  docker compose -f deploy/compose.yaml exec app python -m wardrobe example-pictures --sample 3 --yes
+  docker compose -f deploy/compose.yaml exec app python -m wardrobe example-pictures --yes
+  ```
+
+  - The first line only says how many pictures are there already, how many it
+    would draw, and what that would cost. It draws nothing.
+  - The second draws three, to look at first.
+  - The third draws the rest of the first 12.
+  - It runs inside the app's container, so it uses the site's data and the key
+    in `deploy/app.env`. Each picture is billed to that key.
+  - It draws nothing if its estimate is above `--max-cost` (1.00 US dollar
+    unless you give another).
+  - Each picture shows on the site as soon as it is drawn.
 - **A copy of the database** (not automated yet, and it should be):
 
   ```bash
