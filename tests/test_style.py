@@ -1696,7 +1696,8 @@ class Limits(NoNetwork, ProductionCase):
         visitor = self.app.test_client()
         response = self.post(visitor, "/profile/style/say", message="street")
         self.assertEqual(response.status_code, 302)
-        self.assertIn("/login", response.headers["Location"])
+        # (Asked to create an account, as every button a visitor without one presses is: test_guests.py.)
+        self.assertEqual(response.headers["Location"], "/signup?why=you")
         self.assertEqual(self.asked, [])
         self.assertEqual(self.member("c@example.com").post("/profile/style/say", data={"message": "x"}).status_code, 400,
                          "and not without the form's token")

@@ -114,6 +114,18 @@ only place they have run. The Tunnel has never been started.
   Impressum, privacy policy and terms **that are placeholders**. While no product
   list is published the landing page says the products are invented examples,
   and names no store.
+- Visitors without an account (`guests = true` in `config/site.toml`, the
+  default; `false` closes the door again): "Explore outfits" on the landing page
+  opens the outfits of one example wardrobe, the same for every visitor
+  (`wardrobe/guests.py`). Each piece shows its name and colour, drawn by the app;
+  an outfit's AI picture shows only where one was drawn already. Stores, prices,
+  sizes, links and the stores' photos are left out of those pages on the server,
+  and every button leads to "Create your account". The example wardrobe is an
+  account Stilsmith makes for itself at start-up
+  (`example-wardrobe@stilsmith.invalid`, no password: nobody can log in to it);
+  a visitor reads it with the database read-only, so nothing he does is stored
+  and no cookie is set. A newly published product list reaches it at the next
+  restart. SITE_PASSWORD still comes first.
 - Partner links said to be partner links: from the day a real store is marked
   `approved` (config/feeds.toml, then `python -m wardrobe stores sync`), the foot
   of every page says "Partner links: Stilsmith may earn a commission when you buy

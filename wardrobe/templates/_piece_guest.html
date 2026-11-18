@@ -1,0 +1,18 @@
+{# The pop-up for one piece, for a visitor without an account (app.py, guest_piece): what the piece is, its name and
+   colour as the plan has them ("Dark brown loafers", dark brown), drawn by the app in that colour. Nothing of its
+   product: grey bars stand where the price, the store and the product's details would be, and one line says what an
+   account shows, with the way to create one. `p` is the piece as guests.outfit gives it. #}
+{% from "_macros.html" import icon, pic %}
+<div class="piece-top">
+  <h2 id="piece-title">{{ p.name }}</h2>
+  <b class="sheet-price veiled" aria-hidden="true"><i class="blur-bar w1"></i></b>
+</div>
+<div class="piece-head">
+  {{ pic(p.drawing, p.hex, p.name, p.name) }}
+  <div class="piece-facts">
+    <p class="guest-colour"><i class="dot" style="background:{{ p.hex }}"></i>Colour: {{ p.colour|lower }}</p>
+    <p class="veiled" aria-hidden="true"><i class="blur-bar w2"></i><i class="blur-bar w3"></i><i class="blur-bar w1"></i></p>
+    <p class="locked">{{ icon('lock') }}<span>{{ lock }}</span></p>
+    <p><a class="btn" href="{{ sign_up('shop') }}">Create a free account</a></p>
+  </div>
+</div>

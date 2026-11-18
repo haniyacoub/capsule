@@ -3,6 +3,8 @@
 {% block main %}
 <section class="card auth">
   <h1>Create your account</h1>
+  {# Why he is here, when a visitor without an account tapped something that needs one (auth.signup, guests.WHY). #}
+  {% if why %}<p class="signup-why" role="status">{{ why }}</p>{% endif %}
   {# By invitation, one paragraph: two muted lines one under the other would read as one broken paragraph. #}
   <p class="muted">{% if invite %}{{ site_name }} is open by invitation for now. You need the code you were given. {% endif %}Free. No card. Delete your account and everything in it at any time.</p>
   <form class="form" method="post" action="{{ url_for('auth.signup') }}">{{ csrf_field() }}

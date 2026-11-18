@@ -62,6 +62,11 @@ the pop-up slides up and lets a tap through as it closes, the AI picture comes u
 pieces' photos (never blank, never half-loaded, on a slow connection too), all within 300 ms and without a layout
 shift; and with less motion asked for, the same taps move nothing.
 
+A visitor without an account opens "Explore outfits" on the landing page, on a phone and a computer, light and dark:
+the outfits of an example wardrobe, with no price, store or link, a line on each about creating an account, and a
+piece's name and colour in its pop-up; "Add to my wardrobe" leads him to "Create your account", which says why, and
+nothing he does is stored.
+
 On the way a second customer, on a small product list published for that step alone, skips the welcome, finds on
 his Profile what he has not given said in plain lines, and fills a piece the list has nothing for with one tap.
 A third picks his colours on a phone by tapping swatches (and by keyboard), sees his first liked colour that is not a
@@ -110,7 +115,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, db, imagegen, looks, mockchat, person, settings, stylechat, videogen, videos  # noqa: E402
+from wardrobe import colours, db, guests, imagegen, looks, mockchat, person, settings, stylechat, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 # With an SQLite that can deadlock (db.sqlite_problem) the walk-through's first pages would wait for ever, and every
@@ -657,6 +662,100 @@ def run(base: str) -> None:
             page.locator("main a", has_text="Go to your outfits").click()
             page.wait_for_url(base + "/outfits")
 
+        def a_visitor_explores_the_outfits():
+            # Most websites open without an account (guests.py). On a 390 x 664 phone and a 1280 x 800 computer, light
+            # and dark: "Explore outfits" on the landing page opens the outfits of an example wardrobe, with "Log in"
+            # and "Create account" at the top. The visitor goes through three outfits (a swipe on the phone, the
+            # arrow on the computer), each with its line about an account on the screen (on the phone in the bar at
+            # the foot, for the outfit showing) and grey bars where the prices are, and no price, store or link
+            # anywhere; taps a piece and the pop-up says what it is (its name and colour); then taps "Add to my
+            # wardrobe" and lands on "Create your account", which says why. Nothing sets a cookie before that form,
+            # nothing he does is stored, no picture is drawn for him, and the page is never wider than the screen.
+            def counts() -> dict:
+                """The example wardrobe's rows (guests.py: the account visitors look through), and how many accounts
+                there are. (The customer's own page may ask for a picture meanwhile: that is his, not counted here.)"""
+                with db.connect() as con:
+                    example = con.execute("SELECT id FROM users WHERE email = ?", (guests.EXAMPLE_EMAIL,)).fetchone()[0]
+                    seen = {table: con.execute(f"SELECT COUNT(*) FROM {table} WHERE user_id = ?",     # nosec B608
+                                               (example,)).fetchone()[0]
+                            for table in ("saved_outfits", "outfits_declined", "look_requests", "video_requests", "looks",
+                                          "videos", "slots")}
+                    seen["settings"] = con.execute("SELECT group_concat(key || '=' || value, ';') FROM settings "
+                                                   "WHERE user_id = ?", (example,)).fetchone()[0]
+                    seen["users"] = con.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+                return seen
+
+            before = counts()
+            reel = "() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth); }"
+            for (width, height, phone), scheme in [(size, scheme) for size in ((390, 664, True), (1280, 800, False))
+                                                   for scheme in ("light", "dark")]:
+                where = f"{width} x {height}, {scheme}"
+                context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=phone,
+                                              has_touch=phone, color_scheme=scheme)
+                visitor = context.new_page()
+                visitor.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                           if r.status >= 400 and r.url.startswith(base) else None)
+                visitor.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                visitor.goto(base + "/", wait_until="networkidle")
+                visitor.locator("main a", has_text="Explore outfits").click()
+                visitor.wait_for_url(base + "/outfits")
+                visitor.wait_for_load_state("networkidle")
+                header = [a.strip() for a in visitor.locator("header.top .public-nav a").all_inner_texts()]
+                assert header == ["Log in", "Create account"], f"at {where} the visitor's header reads {header}"
+                assert not context.cookies(), f"at {where} looking around set a cookie: {context.cookies()}"
+                touch = context.new_cdp_session(visitor) if phone else None
+                for i in range(3):
+                    visitor.wait_for_function("i => { const r = document.getElementById('reel');"     # at rest on it
+                                              " return Math.abs(r.scrollLeft - i * r.clientWidth) < 1; }", arg=i, timeout=5000)
+                    visitor.wait_for_timeout(150)
+                    slide = f"#reel .slide:nth-child({i + 1})"
+                    key = visitor.get_attribute(slide, "id").split("-", 1)[1]
+                    box = "#dock .yes-box" if phone else f"{slide} .yes-box"
+                    seen = visitor.evaluate("""([box, key]) => { const el = document.querySelector(box + ' .locked'), r = el.getBoundingClientRect();
+                        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+                        return {words: el.innerText.replace(/\\s+/g, ' ').trim(), mine: !!document.querySelector(box + ' #save-' + key),
+                                shown: r.top >= 0 && r.bottom <= innerHeight && !!top && el.contains(top),
+                                bars: document.querySelectorAll('#outfit-' + key + ' .piece-price .blur-bar').length,
+                                pieces: document.querySelectorAll('#outfit-' + key + ' .piece-row').length,
+                                wide: document.documentElement.scrollWidth, text: document.body.innerText}; }""", [box, key])
+                    assert seen["words"].startswith("Create a free account to") and seen["mine"] and seen["shown"], \
+                        f"at {where} outfit {i + 1} has no line about an account of its own on the screen: {seen['words']!r}"
+                    assert seen["bars"] == seen["pieces"] > 0, f"at {where} outfit {i + 1} has no grey bar for each price"
+                    assert "€" not in seen["text"] and not re.search(r"\b(COS|Weekday)\b", seen["text"]), \
+                        f"at {where} a price or a store is on the visitor's page"
+                    assert seen["wide"] <= width + 1, f"at {where} the visitor's outfits are {seen['wide']}px wide"
+                    if i == 2:
+                        break
+                    if phone:           # a swipe to the left on the picture (some headless browsers ignore it: then the row is moved)
+                        stage = visitor.locator(f"{slide} .stage").bounding_box()
+                        touch.send("Input.synthesizeScrollGesture", {
+                            "x": int(stage["x"] + stage["width"] - 30), "y": int(stage["y"] + stage["height"] / 2),
+                            "xDistance": -250, "yDistance": 0, "gestureSourceType": "touch", "speed": 800})
+                        visitor.wait_for_timeout(900)
+                        if visitor.evaluate(reel) == i:
+                            visitor.evaluate("() => { const r = document.getElementById('reel'); r.scrollBy({left: r.clientWidth}); }")
+                    else:
+                        visitor.locator(".reel-nav.next").click()
+                # A tap on a piece: the pop-up says what it is, and what an account shows of it.
+                piece = visitor.locator(f"{slide} .tile").first
+                name = piece.get_attribute("title")
+                piece.tap() if phone else piece.click()
+                visitor.wait_for_selector("dialog#piece[open] #piece-title")
+                said = visitor.locator("dialog#piece").inner_text()
+                assert visitor.locator("#piece-title").inner_text().strip() == name and "Colour: " in said \
+                    and "Create a free account" in said and "€" not in said, f"at {where} the pop-up for {name!r} says {said!r}"
+                visitor.locator("dialog#piece .sheet-close").click()
+                visitor.wait_for_function("() => !document.querySelector('dialog#piece').open")
+                yes = visitor.locator("#dock a.btn.yes") if phone else visitor.locator(f"{slide} a.btn.yes")
+                yes.tap() if phone else yes.click()
+                visitor.wait_for_url(base + "/signup?why=save")
+                why = visitor.locator("main .signup-why").inner_text().strip()
+                assert why == "Create a free account to save outfits.", f"at {where} the sign-up page says {why!r}"
+                context.close()
+            after = counts()
+            assert after == before, \
+                f"a visitor's looking around was stored: {[(t, before[t], after[t]) for t in before if before[t] != after[t]]}"
+
         def the_wordmark_fits():
             # The name is Stilsmith, two letters longer than the old one. On the narrowest phone (320px), a usual one
             # (390px) and a computer, for a visitor and for a customer: every page's title and the wordmark say
@@ -680,7 +779,7 @@ def run(base: str) -> None:
                 context = browser.new_context(viewport={"width": width, "height": 800}, is_mobile=phone, has_touch=phone)
                 other = context.new_page()
                 seen = {}
-                for path in ("/", "/login", "/does-not-exist"):     # as a visitor (the 404 is expected)
+                for path in ("/", "/outfits", "/login", "/does-not-exist"):     # as a visitor (the 404 is expected)
                     other.goto(base + path, wait_until="networkidle")
                     seen["visitor " + path] = other.evaluate(measure)
                 other.goto(base + "/login", wait_until="networkidle")
@@ -6372,6 +6471,7 @@ def run(base: str) -> None:
                  ("log-in, first tab and wordmark lead to outfits", outfits_are_home),
                  ("the landing page says what Stilsmith is", the_landing_page),
                  ("public pages: no cookie, errors in plain words", public_pages_and_errors),
+                 ("a visitor explores outfits, then signs up", a_visitor_explores_the_outfits),
                  ("the wordmark Stilsmith fits at 320, 390 and 1280", the_wordmark_fits),
                  ("moving between tabs fetches only the page", tabs_fetch_only_the_page),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),

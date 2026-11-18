@@ -275,6 +275,8 @@ def connect():
     con = sqlite3.connect(paths.DB_PATH, timeout=10)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
+    if _read_only.get():        # a visitor without an account: SQLite itself refuses every write (set_read_only)
+        con.execute("PRAGMA query_only = ON")
     try:
         yield con
         con.commit()
@@ -290,6 +292,8 @@ def exclusive():
     con = sqlite3.connect(paths.DB_PATH, timeout=10, isolation_level=None)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
+    if _read_only.get():
+        con.execute("PRAGMA query_only = ON")
     try:
         con.execute("BEGIN IMMEDIATE")
         yield con
@@ -469,6 +473,25 @@ def reset_user(token) -> None:
     _current.reset(token)
 
 
+# A visitor without an account looks at the example wardrobe (guests.py) through the same functions as a customer,
+# but may change nothing: while this is set, every connection is opened with SQLite's "query_only", so any write
+# (INSERT, UPDATE, DELETE) fails with an error instead of changing the example every visitor sees.
+_read_only: ContextVar[bool] = ContextVar("capsule_read_only", default=False)
+
+
+def set_read_only(on: bool = True):
+    """Make the rest of this request read-only (or not). Returns the token for reset_read_only."""
+    return _read_only.set(on)
+
+
+def reset_read_only(token) -> None:
+    _read_only.reset(token)
+
+
+def is_read_only() -> bool:
+    return _read_only.get()
+
+
 @contextmanager
 def as_user(user_id: int):
     """Run a block as one user (used by tests and command-line tools)."""
@@ -496,6 +519,19 @@ def create_user(email: str, password_hash: str) -> int | None:
             return cur.lastrowid
     except sqlite3.IntegrityError:
         return None
+
+
+def internal_account(email: str, make: bool = False) -> int | None:
+    """The id of an account Stilsmith keeps for itself (the example wardrobe that visitors look through: guests.py),
+    or None. `make`: create it first if it is not there. It has no password, so nobody can log in to it or ask for a
+    reset link. An address that belongs to an account with a password is a customer's: then None, never his id."""
+    with connect() as con:
+        row = con.execute("SELECT id, password_hash FROM users WHERE email = ?", (email,)).fetchone()
+        if row is None and make:        # (asked first: a start-up that finds it there writes nothing at all)
+            con.execute("INSERT OR IGNORE INTO users (email, password_hash, created_at) VALUES (?, '', ?)",
+                        (email, now_iso()))
+            row = con.execute("SELECT id, password_hash FROM users WHERE email = ?", (email,)).fetchone()
+    return row["id"] if row and not row["password_hash"] else None
 
 
 def get_user(user_id: int) -> dict | None:

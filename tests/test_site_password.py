@@ -29,8 +29,10 @@ class SitePassword(ProductionCase):
 
     def test_nothing_is_shown_without_the_password(self):
         visitor = self.app.test_client()
+        # (Outfits, a piece's pop-up and an outfit's picture too, open to visitors without an account: test_guests.py.)
         for address in ("/", "/outfits", "/login", "/signup", "/legal/impressum", "/legal/privacy", "/robots.txt",
-                        "/static/app.css", "/no-such-page", "/stores"):
+                        "/static/app.css", "/no-such-page", "/stores", "/outfits/piece?at=x&slot=white-tee",
+                        "/outfits/0123456789ab/picture/x-1.jpg", "/mock/img/coat.svg?c=333333&ground=0"):
             for headers in ({}, basic("wrong password"), basic(PASSWORD[:-1]), {"Authorization": "Bearer " + PASSWORD}):
                 answer = visitor.get(address, headers=headers)
                 self.assertEqual(answer.status_code, 401, (address, headers))

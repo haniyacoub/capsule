@@ -128,8 +128,10 @@ def _shoe(kind: str, fill: str, ink: str) -> str:
             f'<g fill="none" stroke="{ink}">{extra}</g></g>')
 
 
-def svg(kind: str, hex_: str | None) -> str:
-    """SVG text for a garment kind in a colour. Raises KeyError for unknown kinds."""
+def svg(kind: str, hex_: str | None, ground: bool = True) -> str:
+    """SVG text for a garment kind in a colour. Raises KeyError for unknown kinds. `ground`: on the light grey of a
+    product photo (the demo's stand-in photos); without it, on nothing, for a box that has its own ground (a visitor's
+    outfits, guests.py)."""
     fill = "#" + hex_.lstrip("#") if hex_ and is_hex(hex_) else "#9a9893"
     ink = "rgba(0,0,0,.34)" if lightness(fill) > 42 else "rgba(255,255,255,.34)"
     if kind in ("sneakers", "shoes", "boots"):
@@ -140,4 +142,5 @@ def svg(kind: str, hex_: str | None) -> str:
                 f'<g fill="{fill}" stroke="{ink}">{details}</g>')
     return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400" width="300" height="400" '
             'stroke-width="2" stroke-linejoin="round" stroke-linecap="round">'
-            f'<rect width="300" height="400" fill="{_BACKDROP}"/>{body}</svg>')
+            + (f'<rect width="300" height="400" fill="{_BACKDROP}"/>' if ground else "") + f'{body}</svg>')
+

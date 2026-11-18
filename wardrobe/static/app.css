@@ -571,7 +571,7 @@ main:has(> .flash ~ .flash, > .flash ~ .above-looks > .demo) .looks { --told: ca
   main:has(> .looks) {
     --told: 0px; --least: 150px; --dock-room: 80px;
     --stage-w: min(100vw - var(--side-l) - var(--side-r), max(var(--least),
-                   (100svh - 54px - 4px - var(--told) - var(--dock-room) - 57px - env(safe-area-inset-bottom) - 6px) * 2 / 3));
+                   (100svh - 54px - 4px - var(--told) - var(--dock-room) - var(--tabs-h, 57px) - env(safe-area-inset-bottom) - 6px) * 2 / 3));
     --row-room: calc(var(--s-2) + 44px + var(--s-2));                  /* the row of words, 8px above and below it */
   }
   main:has(> .looks):has(.over-short) { --dock-room: 98px; }
@@ -2049,3 +2049,53 @@ main > .said.in-sight { position: sticky; top: var(--s-2); z-index: 38; box-shad
 .pick-colour i { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--field); }
 .welcome-use { margin: var(--s-1) 0; }
 
+/* ── A visitor without an account: the example wardrobe (outfits_guest.html, guests.py) ───────── */
+/* Where a store, a product's name or a price would be: grey bars, softly blurred, in the colour of the words they
+   stand for (light on the dark veil over a phone's picture). The words themselves are not in the page. The bars come
+   in the same few lengths in turn, never the length of what is left out. */
+.blur-bar {
+  display: inline-block; width: 5em; height: .75em; vertical-align: middle;
+  background: currentColor; opacity: .3; filter: blur(1.5px);
+}
+.blur-bar.w1 { width: 3.2em; }
+.blur-bar.w2 { width: 7.5em; }
+.blur-bar.w3 { width: 5.5em; }
+.veiled { user-select: none; }
+.tile .cap.veiled { display: block; line-height: 0; padding: 6px 7px; }     /* on the drawing's white caption */
+.row-product.veiled { display: block; padding: 3px 0; }
+.piece-price.veiled .blur-bar { width: 3.4em; }
+p.veiled { display: flex; flex-wrap: wrap; gap: var(--s-2); padding: var(--s-1) 0; }
+/* The line that says what an account shows, with the way to create one: in the box with the two answers (on a phone
+   in the bar at the foot of the screen) and in a piece's pop-up, the small lock before it. */
+.locked { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); font-size: var(--t-s); line-height: var(--lh-s); }
+.locked .ic { flex: none; width: 15px; height: 15px; }
+.locked span { flex: 1 1 11em; min-width: 0; }
+.locked .btn { flex: none; }
+.yes-box .locked { padding: 0 2px; margin: var(--s-1) 0 var(--s-2); }
+.answer > .btn.yes { flex: 1 1 auto; width: auto; }     /* a link here, not a form: as wide as the form would be */
+a.quiet { display: inline-flex; align-items: center; }   /* 44px tall to tap, like the button it stands for */
+.guest-colour { display: flex; align-items: center; gap: var(--s-2); }
+.guest-colour .dot { flex: none; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(128, 128, 128, .4); }
+.piece-facts .locked { margin-top: var(--s-2); }
+/* "Create your account", reached from a button that needs one: why, in one line over the form. */
+.signup-why { margin: 0 0 var(--s-3); font-weight: var(--w-strong); }
+/* The landing page's two ways in: side by side on a computer, one under the other on a phone. */
+.hero-cta { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s-3); }
+/* On a phone a visitor has no tab bar: the bar with the line and the two answers stands at the foot of the screen,
+   and the picture takes the tab bar's room (--tabs-h, "Outfits on a phone"). The bar is as tall as what is in it, the
+   same on every outfit, and the picture ends above it: the bar's height as app.js measures it (--dock-h, which
+   includes the phone's own bottom edge, already counted in the picture's size), and until then the height it has on
+   that width: 108px from 375px wide, 118px from 360px (the line takes three lines), 152px below (its button goes
+   under it). */
+@media (max-width: 759.98px) {
+  main:has(> .looks.guest) {
+    --tabs-h: 0px; --dock-guess: 108px;
+    --dock-room: calc(var(--dock-h, calc(var(--dock-guess) + env(safe-area-inset-bottom))) - env(safe-area-inset-bottom));
+  }
+  body:has(.looks.guest) .dock:not([hidden]) { bottom: 0; min-height: 0; padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+  body:has(.looks.guest):has(.dock:not([hidden])) { padding-bottom: calc(var(--s-2) + var(--dock-h, 108px)); }
+  html:has(.looks.guest):has(.dock:not([hidden])) { scroll-padding-bottom: calc(var(--s-4) + var(--dock-h, 108px)); }
+  .dock .locked { margin: 0 0 var(--s-1); }
+}
+@media (max-width: 374.98px) { main:has(> .looks.guest) { --dock-guess: 118px; } }
+@media (max-width: 359.98px) { main:has(> .looks.guest) { --dock-guess: 152px; } }
