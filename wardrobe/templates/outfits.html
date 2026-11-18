@@ -225,6 +225,10 @@
         {% if o.adds.over_words %}<p class="adds over">{{ icon('flag') }} {{ o.adds.over_words }}</p>{% endif %}
         {% endif %}
         <div class="answer">
+          {# The number the page shows over this outfit ("3 / 13"), sent with both answers: the message after one names
+             the outfit by it (yes.answered), also where an outfit was shown out of the row's order (?at=…, after a
+             swap), so that it is always the number he saw. #}
+          {% set shown_at = loop.index %}
           {% include "_save_button.html" %}
           {# No "Not for me" under an outfit he can already wear, every piece his (review N6): it is his to save. #}
           {% if o.sig and not o.saved and not (o.adds and o.adds.all_yours) %}
@@ -234,6 +238,7 @@
             <input type="hidden" name="sig" value="{{ o.sig }}">
             <input type="hidden" name="occasion" value="{{ occasion }}">{{ row_fields }}
             {% if not loop.last %}<input type="hidden" name="next" value="{{ boards[loop.index].key }}">{% else %}<input type="hidden" name="i" value="{{ loop.index0 }}">{% endif %}
+            <input type="hidden" name="shown" value="{{ shown_at }}">
             <button class="quiet" id="no-{{ o.key }}">Not for me</button>
           </form>
           {% endif %}

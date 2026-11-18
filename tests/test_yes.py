@@ -192,6 +192,49 @@ class BeforeAnyYes(YesCase):
         extra = {p["shown_name"].lower() for p in outfits.snapshot(now_first)} - {p["shown_name"].lower() for p in outfits.snapshot(first)}
         self.assertTrue(any(name in named_no for name in extra), f"{named_no!r} does not name a piece the first had not")
 
+    def shown(self, page: str) -> list[dict]:
+        """Each outfit on the page, in the order shown: the number over it ("3 / 13") and the fields its two answers'
+        forms send, exactly as the page has them."""
+        out = []
+        for chunk in re.split(r'(?=<article class="slide")', page)[1:]:
+            count = re.search(r'<span class="count" aria-hidden="true">(\d+) / (\d+)</span>', chunk)
+            seen = {"number": int(count.group(1)), "of": int(count.group(2))}
+            for kind in ("save", "no"):
+                form = re.search(rf'<form class="{kind}" method="post" action="/outfits/{kind}">(.*?)</form>', chunk, re.S)
+                if form:
+                    seen[kind] = {name: html.unescape(value)
+                                  for name, value in re.findall(r'name="(\w+)" value="([^"]*)"', form.group(1))}
+            out.append(seen)
+        return out
+
+    def test_an_outfit_shown_out_of_the_rows_order_moves_none_of_the_numbers_said(self):
+        # Review N2, found again by the round's check: an outfit asked for by its address (after "Wear the navy light
+        # jacket instead": /outfits?at=…) is shown first, and every other outfit one place further on. The messages
+        # counted places in the row without it: a yes to the outfit shown as "3 / 13" said "outfit 2", the number
+        # another outfit on the same page showed. Now each answer sends the number shown, and is named by it.
+        row = self.offered()
+        apart = next(o for o in self.every() if o.sig not in row)
+        seen = self.shown(self.page("/outfits", at=apart.sig))
+        self.assertEqual([(s["number"], s["of"]) for s in seen], [(i, len(row) + 1) for i in range(1, len(row) + 2)])
+        self.assertEqual(seen[0]["save"]["sig"], apart.sig, "the outfit asked for stands first")
+        self.assertEqual([s["save"]["shown"] for s in seen], [str(i) for i in range(1, len(row) + 2)])
+        third = outfits.find_by_sig(selection.build(), seen[2]["save"]["sig"])
+        self.assertEqual(row.index(third.sig), 1, "second in the row without it")
+        said = self.answered_line(self.page(self.client.post("/outfits/save", data=seen[2]["save"]).headers["Location"]))
+        self.assertRegex(said, "^Added " + self.called(third, 3) + " to your wardrobe")
+        # A no, from the same kind of page: the first outfit behind the third that has a "Not for me".
+        seen = self.shown(self.page("/outfits", at=apart.sig))
+        answered = next(s for s in seen[3:] if "no" in s)
+        self.assertEqual(answered["no"]["shown"], str(answered["number"]))
+        said = self.answered_line(self.page(self.client.post("/outfits/no", data=answered["no"]).headers["Location"]))
+        self.assertRegex(said, "^O" + self.called(outfits.find_by_sig(selection.build(), answered["no"]["sig"]),
+                                                  answered["number"])[1:] + " will not be offered again")
+        # And the outfit asked for, shown first: "outfit 1", where it used to be "this outfit".
+        seen = self.shown(self.page("/outfits", at=apart.sig))
+        self.assertEqual(seen[0]["save"]["sig"], apart.sig)
+        said = self.answered_line(self.page(self.client.post("/outfits/save", data=seen[0]["save"]).headers["Location"]))
+        self.assertRegex(said, "^Added " + self.called(apart, 1) + " to your wardrobe")
+
 
 class SayingYes(YesCase):
     def test_a_yes_puts_the_outfits_pieces_into_his_wardrobe_and_nothing_else(self):

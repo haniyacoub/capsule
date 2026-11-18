@@ -197,18 +197,21 @@ def title(label: str, occasion: str) -> str:
 
 
 def answered(label: str, occasion: str, pieces: list[dict], row: list[str], key: str,
-             before: dict | None = None) -> dict:
+             before: dict | None = None, shown: int = 0) -> dict:
     """What the message after a yes or a no names the one outfit answered by, so that two outfits never read the
-    same (review N2): its number in the row as he saw it and its title, "outfit 2 (Office, smart casual)" ("this
-    outfit (Smart casual)" where it stood in no row: shown on its own after a swap), and every piece of it, as a row
-    of small photos and, for a screen reader, by name. `row`: the keys of the outfits of the row before the answer,
-    in order.
+    same (review N2): its number in the row as he saw it and its title, "outfit 2 (Office, smart casual)", and every
+    piece of it, as a row of small photos and, for a screen reader, by name.
+    The number is the one the page showed over it (`shown`, which the answer's form carries): the page may show an
+    outfit out of the row's order (the one asked for by its address after a swap, put first), and then every outfit
+    behind it stands one place further on than in `row`. Without it (a form from before it was sent), its place in
+    `row`, the keys of the outfits of the row before the answer, in order; "this outfit (Smart casual)" where it
+    stood in no row.
     After an answer the next outfit moves up into the place of the one answered, and so takes its number: a yes to
     outfit 1 and then a no to the outfit now first would both say "outfit 1 (Smart casual)". So where the answer
     before (`before`, the last message's) was called the same, this one says what tells it apart, in words: the
     pieces it has that the other had not, "outfit 1 (Smart casual), with the stone chinos", or, where it only has
     fewer, what it has not, "…, without the navy wool blazer"."""
-    number = row.index(key) + 1 if key in row else 0
+    number = shown or (row.index(key) + 1 if key in row else 0)
     called = f"{f'outfit {number}' if number else 'this outfit'} ({title(label, occasion)})"
     names = [str(piece.get("shown_name") or piece.get("slot_name") or "") for piece in pieces]
     shown = called

@@ -1061,6 +1061,13 @@ def create_app() -> Flask:
         outfit; outfits.generate). None for a row he has not said yes in."""
         return [key for key in str(source.get("front", "")).split(".") if re.fullmatch(r"[0-9a-f]{12}", key)][:60]
 
+    def shown_number(source) -> int:
+        """The number the page showed over the outfit answered ("3 / 13"), which both answers' forms carry
+        (outfits.html, shown_at): the message after the answer names the outfit by it (yes.answered). 0 for a form
+        without it."""
+        value = str(source.get("shown", ""))
+        return int(value) if re.fullmatch(r"[1-9][0-9]{0,2}", value) else 0
+
     def same_row(source, front: list[str] | None = None) -> dict:
         """`place` and `front_of` as address arguments, to go back to that row (none for the row every visit starts
         with). `front`: the outfits that now stay in front, when that has just changed (a yes)."""
@@ -1636,7 +1643,7 @@ def create_app() -> Flask:
                                                "name": yes.name(pieces), "words": added.words, "row": row_now,
                                                "all_yours": added.all_yours, "all_owned": added.all_owned,
                                                **yes.answered(outfit.label, occasion or usual_occasion(), pieces,
-                                                              row_now, key, said_before)})
+                                                              row_now, key, said_before, shown_number(request.form))})
         if request.headers.get("HX-Request"):
             # A page from before the button was a plain form: its new state and the chip with its new number.
             return render_template("_save_button.html", key=key, saved=want != "remove", yes_sig=sig,
@@ -1707,7 +1714,7 @@ def create_app() -> Flask:
         db.set_setting("last_answer", {"kind": "no", "sig": sig, "label": outfit.label,
                                        "name": yes.name(pieces), "row": row_was,
                                        **yes.answered(outfit.label, occasion or usual_occasion(), pieces, row_was,
-                                                      outfit.key, db.get_setting("last_answer"))})
+                                                      outfit.key, db.get_setting("last_answer"), shown_number(request.form))})
         following = request.form.get("next", "")
         if not re.fullmatch(r"[0-9a-f]{12}", following):
             # It was the last of the row: whatever stands in its place now, or the one before it.
