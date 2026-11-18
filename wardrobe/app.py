@@ -343,6 +343,7 @@ def create_app() -> Flask:
     app.jinja_env.lstrip_blocks = True
     app.jinja_env.filters["eur"] = eur
     app.jinja_env.filters["weblink"] = weblink
+    app.jinja_env.globals["outfit_title"] = yes.title     # "Office, smart casual", over an outfit
     app.jinja_env.filters["outfit_name"] = yes.name       # an outfit's pieces -> 'outfit with the navy blazer and grey trousers'
     app.jinja_env.filters["english"] = english.name      # a store's German product name in English, or None
     app.jinja_env.globals.update(
@@ -1614,7 +1615,9 @@ def create_app() -> Flask:
                 db.undecline_outfit(sig)        # (a yes to something he had said no to: the yes counts)
                 # (`row`: the row as it stood before the yes, so that its Undo puts back every outfit where it was.)
                 db.set_setting("last_answer", {"kind": "yes", "key": key, "sig": sig, "label": outfit.label,
-                                               "name": yes.name(pieces), "words": added.words, "row": row_now})
+                                               "name": yes.name(pieces), "words": added.words, "row": row_now,
+                                               **yes.answered(outfit.label, occasion or usual_occasion(), pieces,
+                                                              row_now, key)})
         if request.headers.get("HX-Request"):
             # A page from before the button was a plain form: its new state and the chip with its new number.
             return render_template("_save_button.html", key=key, saved=want != "remove", yes_sig=sig,
@@ -1681,8 +1684,11 @@ def create_app() -> Flask:
                                             front_of(request.form))[0]]
         row = same_row(request.form, [k for k in row_was if k != outfit.key])
         db.decline_outfit(sig)
+        pieces = outfits.snapshot(outfit)
         db.set_setting("last_answer", {"kind": "no", "sig": sig, "label": outfit.label,
-                                       "name": yes.name(outfits.snapshot(outfit)), "row": row_was})
+                                       "name": yes.name(pieces), "row": row_was,
+                                       **yes.answered(outfit.label, occasion or usual_occasion(), pieces, row_was,
+                                                      outfit.key)})
         following = request.form.get("next", "")
         if not re.fullmatch(r"[0-9a-f]{12}", following):
             # It was the last of the row: whatever stands in its place now, or the one before it.

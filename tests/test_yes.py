@@ -74,8 +74,22 @@ class YesCase(AppCase):
         return {view.slot["id"] for view in selection.build().mine.slots}
 
     def named(self, outfit) -> str:
-        """How the messages name this outfit: 'outfit with the charcoal wool coat and indigo jeans'."""
+        """How the message after taking an outfit out names it: 'outfit with the charcoal wool coat and indigo jeans'."""
         return yes.name(outfits.snapshot(outfit))
+
+    def called(self, outfit, number: int | None = None) -> str:
+        """How the messages after a yes or a no name this outfit, as a pattern to look for: by its number in the row
+        and its title, 'outfit 2 (Smart casual)' (review N2). `number`: where it stood, if the test knows it."""
+        which = "this outfit" if number == 0 else f"outfit {number or r'\d+'}"     # 0: shown on its own, in no row
+        return rf"{which} \({re.escape(yes.title(outfit.label, 'all'))}\)"
+
+    def its_pieces(self, outfit) -> str:
+        """... and every one of its pieces, which a screen reader hears and the eye sees as small photos."""
+        return re.escape("Its pieces: " + ", ".join(p["slot_name"] for p in outfits.snapshot(outfit)) + ".")
+
+    def answered_line(self, page: str) -> str:
+        """The message after a yes or a no, as the customer reads it."""
+        return read(re.search(r'<div class="flash said short answered" role="status" data-answered>.*?</div>', page, re.S).group(0))
 
     def bar(self, page: str) -> str:
         return read(re.search(r'<section id="summary".*?</section>', page, re.S).group(0))
@@ -156,6 +170,23 @@ class BeforeAnyYes(YesCase):
             self.assertNotIn(label.lower(), self.named(coat))
 
 
+    def test_a_yes_and_a_no_to_two_outfits_with_the_same_coat_and_jeans_never_read_the_same(self):
+        # Review N2: "Added the outfit with the charcoal wool coat and indigo jeans", then, after a no to the next
+        # outfit, "The outfit with the charcoal wool coat and indigo jeans will not be offered again": he read that
+        # his new outfit was thrown away. Now each is named by its number and title, and shows all its pieces.
+        w = selection.build()
+        row = [outfits.find_by_sig(w, sig) for sig in self.offered(n=60)]
+        a, b = next((a, b) for i, a in enumerate(row) for b in row[i + 1:]
+                    if yes.name(outfits.snapshot(a)) == yes.name(outfits.snapshot(b)))
+        said_yes = self.answered_line(self.page(self.say_yes(a, n="60").headers["Location"]))
+        said_no = self.answered_line(self.page(self.say_no(b, n="60").headers["Location"]))
+        self.assertRegex(said_yes, "^Added " + self.called(a, row.index(a) + 1) + " to your wardrobe")
+        self.assertRegex(said_yes, self.its_pieces(a))
+        self.assertRegex(said_no, self.its_pieces(b))
+        self.assertNotEqual(said_yes.split(" to your wardrobe")[0].removeprefix("Added "),
+                            said_no.split(" will not be offered")[0].lower())
+
+
 class SayingYes(YesCase):
     def test_a_yes_puts_the_outfits_pieces_into_his_wardrobe_and_nothing_else(self):
         outfit = outfits.find_by_sig(selection.build(), self.offered()[0])
@@ -167,10 +198,11 @@ class SayingYes(YesCase):
         self.assertEqual((w.n_outfits, db.yes_sigs()), (1, [outfit.sig]))
         self.assertAlmostEqual(w.mine.total, said.cost, places=2)
         page = self.page(answer.headers["Location"])
-        self.assertIn(plain(f"Added the {self.named(outfit)} to your wardrobe: "
-                            f"{said.words[0].lower()}{said.words[1:]}. Undo"), read(page))
-        said_line = read(re.search(r'<div class="flash said short" role="status" data-answered>.*?</div>', page, re.S).group(0))
-        self.assertNotIn(outfit.label, said_line, "its occasion alone names a filter and dozens of outfits")
+        # By its number and title, and its pieces: its title alone names a filter and dozens of outfits.
+        self.assertRegex(self.answered_line(page), "^Added " + self.called(outfit, 1) + re.escape(plain(
+            f" to your wardrobe: {said.words[0].lower()}{said.words[1:]}. ")) + self.its_pieces(outfit) + " Undo$")
+        self.assertEqual(len(re.findall(r'<span class="pic', re.search(r'<p class="answered-pieces">.*?</p>', page, re.S).group(0))),
+                         len(outfit.pieces), "a small photo for every piece")
         self.assertIn("My outfits 1</a>", page)
         self.assertNotIn(outfit.sig, self.offered(), "an outfit he answered is not offered again")
         # The Wardrobe page, the shopping list and its files hold those pieces, and the bar their total.
@@ -234,8 +266,9 @@ class SayingYes(YesCase):
         # After the yes the page says so in a sentence of its own, and the bar has not moved.
         total = selection.build().mine.total
         answer = self.say_yes(outfits.find_by_sig(selection.build(), small.sig))
-        self.assertIn(f"Added the {self.named(small)} to your wardrobe. Nothing new to buy: all {len(small.slots)} are in "
-                      "your wardrobe. Undo", read(self.page(answer.headers["Location"])))
+        self.assertRegex(self.answered_line(self.page(answer.headers["Location"])), "^Added " + self.called(small, 0)
+                         + re.escape(f" to your wardrobe. Nothing new to buy: all {len(small.slots)} are in your wardrobe. ")
+                         + self.its_pieces(small) + " Undo$")
         self.assertEqual(selection.build().mine.total, total)
 
     def test_a_piece_says_how_many_of_his_outfits_wear_it(self):
@@ -286,9 +319,9 @@ class NotForMe(YesCase):
                          f"/outfits?declined={outfit.sig}&front={self.keys_of(shown[1:])}#outfit-{second.key}")
         self.assertEqual(db.declined_sigs(), {outfit.sig})
         page = self.page(answer.headers["Location"])
-        self.assertIn(f"The {self.named(outfit)} will not be offered again. Undo", read(page))
-        said_line = read(re.search(r'<div class="flash said short" role="status" data-answered>.*?</div>', page, re.S).group(0))
-        self.assertNotIn(outfit.label, said_line, "that reads as if every such outfit were switched off")
+        # By its number and title, and its pieces: its title alone reads as if every such outfit were switched off.
+        self.assertRegex(self.answered_line(page), "^O" + self.called(outfit, 1)[1:] + " will not be offered again\\. "
+                         + self.its_pieces(outfit) + " Undo$")
         self.assertIn(f"12 of {total - 1} outfits", page)
         self.assertIn("You said no to 1 outfit, so it is not shown. Offer it again", read(page))
         for seed in (0, 1, 2, 3):
@@ -365,7 +398,7 @@ class NotForMe(YesCase):
         self.assertEqual(answer.headers["Location"],
                          f"/outfits?declined={sixth.sig}&n=24&seed=7&front={rest}#outfit-{keys[6]}")
         self.assertEqual(self.offered(n=24, seed=7, front=rest)[:23], shown[:5] + shown[6:])
-        undo = re.search(r'<div class="flash said short" role="status" data-answered>.*?</div>',
+        undo = re.search(r'<div class="flash said short answered" role="status" data-answered>.*?</div>',
                          self.page(answer.headers["Location"]), re.S).group(0)
         self.assertIn('name="n" value="24"', undo)
         seventh = outfits.find_by_sig(selection.build(), shown[6])
@@ -645,8 +678,8 @@ class WhatAnOutfitSaysIsWhatTheBarGains(YesCase):
             self.assertEqual(now.mine.n_buy - n_buy, said.n_new, where)
             self.assertEqual(self.products(), products, f"{where}: the yes changed a product")
             back = self.page(answer.headers["Location"])
-            self.assertIn(plain(f"Added the {self.named(outfit)} to your wardrobe: "
-                                f"{said.words[0].lower()}{said.words[1:]}. Undo"), read(back), where)
+            self.assertRegex(self.answered_line(back), "^Added " + self.called(outfit) + re.escape(plain(
+                f" to your wardrobe: {said.words[0].lower()}{said.words[1:]}. ")) + self.its_pieces(outfit) + " Undo$", where)
             self.assertIn(plain(f"Total {eur(now.mine.total)}"), self.bar(back), where)
             # The shopping list holds what the bar counts, and My outfits shows the outfit as it is: nothing "changed".
             self.assertAlmostEqual(export.build(now.mine).total, now.mine.total, places=2, msg=where)
@@ -879,7 +912,7 @@ class WhereHeGoesOnAfterAYes(YesCase):
         self.assertEqual(reused, sorted(reused, reverse=True))
         self.assertGreater(reused[0], 0)
         self.assertIn("from outfit 5 on, those that use pieces you already have come first", read(back))
-        self.assertIn(plain(f"Added the {self.named(fifth)} to your wardrobe"), read(back))
+        self.assertRegex(self.answered_line(back), "^Added " + self.called(fifth, 5) + " to your wardrobe")
         # Every form under an outfit, and Undo, carry the row, so the next answer comes back to it too.
         self.assertEqual(back.count(f'<input type="hidden" name="front" value="{".".join(keys[:4])}">'), 12 + 12 + 1)
         # A second yes, to the outfit he is now on: the same four stay in front.
@@ -1057,7 +1090,7 @@ class TheBudget(YesCase):
             self.assertEqual({slot_id: now.get(slot_id).chosen.id for slot_id in shown}, shown,
                              "he got other products than the outfit he said yes to showed")
             back = self.page(answer.headers["Location"])
-            self.assertIn(plain(f"{said.words[0].lower()}{said.words[1:]}. Undo"), read(back))
+            self.assertIn(plain(f"{said.words[0].lower()}{said.words[1:]}. Its pieces: "), read(back))
             bar = read(re.search(r'<section id="summary".*?</section>', back, re.S).group(0))
             self.assertIn(plain(f"Total {eur(now.mine.total)}"), bar)
             self.assertNotIn("· changed", self.page("/outfits", occasion="saved"))

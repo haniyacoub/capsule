@@ -2866,7 +2866,7 @@ def run(base: str) -> None:
                 yes_button.focus()
                 page.keyboard.press("Enter")
                 page.wait_for_url("**added=*")
-                in_view("main > .said", "Added the outfit with the ")
+                in_view("main > .said", "Added outfit ")
                 page.locator("main > .said button:has-text('Undo')").focus()
                 page.keyboard.press("Enter")
                 page.wait_for_url("**removed=*")
@@ -4202,11 +4202,14 @@ def run(base: str) -> None:
                         f"{where}: the outfit costs {one['cost']!r}, its button says {one['plus']!r}, the line {one['adds'][0]!r}"
                     tap(answer("yes"))
                     assert "added=" in view.url, f"{where}: a yes led to {view.url}"
-                    # The message names the outfit by its main pieces, never by its occasion alone ("Everyday" is a
-                    # filter, and dozens of outfits).
-                    assert re.match(r"Added the outfit with the [a-z' -]+ and [a-z' -]+ to your wardrobe: ", said()) \
-                        and " ".join(one["adds"][0].split())[1:] in said() and said().endswith("Undo") and "“" not in said() \
-                        and not re.search(r"Everyday|Smart casual|Office", said()), f"{where}: after a yes the page says {said()!r}"
+                    # The message names the outfit by its number and title, never by its title alone ("Everyday" is a
+                    # filter, and dozens of outfits), and shows its pieces as a row of small photos (review N2).
+                    assert re.match(r"Added outfit 1 \([A-Z][a-z ,]+\) to your wardrobe: ", said()) \
+                        and " ".join(one["adds"][0].split())[1:] in said() and said().endswith("Undo") and "“" not in said(), \
+                        f"{where}: after a yes the page says {said()!r}"
+                    thumbs = view.locator("main > .said .answered-pieces .pic")
+                    assert thumbs.count() == len(one["pieces"]) and all(t.is_visible() for t in thumbs.all()), \
+                        f"{where}: after a yes the message shows {thumbs.count()} small photos for {len(one['pieces'])} pieces"
                     assert chip() == "My outfits 1", f"{where}: after a yes the chip says {chip()!r}"
                     figures = bar()
                     assert money(figures["Total"]) == money(one["adds"][0]), f"{where}: the outfit added {one['adds'][0]!r}, the bar's total is {figures['Total']}"
@@ -4323,8 +4326,10 @@ def run(base: str) -> None:
                     assert answers()["pieces"] == row[4], f"{where}: the fifth outfit is not the one on screen: {answers()}"
                     was_at = tap(answer("no", 4))
                     assert "declined=" in view.url and re.search(r"#outfit-[0-9a-f]{12}$", view.url), f"{where}: 'Not for me' led to {view.url}"
-                    assert re.fullmatch(r"The outfit with the [a-z' -]+ and [a-z' -]+ will not be offered again\. Undo", said()) \
-                        and not re.search(r"Everyday|Smart casual|Office", said()), f"{where}: after 'Not for me' the page says {said()!r}"
+                    assert re.fullmatch(r"Outfit 5 \([A-Z][a-z ,]+\) will not be offered again\. Its pieces: [^.]+\. Undo", said()), \
+                        f"{where}: after 'Not for me' the page says {said()!r}"
+                    assert view.locator("main > .said .answered-pieces .pic").count() == len(row[4]), \
+                        f"{where}: after 'Not for me' the message does not show the outfit's pieces"
                     now = [o["pieces"] for o in offered()]
                     assert row[4] not in now, f"{where}: the outfit he said no to is offered again"
                     assert [o for o in now if o in row] == row[:4] + row[5:], f"{where}: after a no the other outfits are not in the order they were in"
@@ -4366,7 +4371,7 @@ def run(base: str) -> None:
                         assert seen["pieces"] == row[2] and seen["keyboard"] == "yes of the outfit on screen", \
                             f"{where}: after a no given with the keyboard, the keyboard is on {seen['keyboard']} (outfit {seen['index'] + 1} shows)"
                         heard = view.wait_for_function("() => document.getElementById('announce').textContent").json_value()
-                        assert re.fullmatch(r"The outfit with the [a-z' -]+ and [a-z' -]+ will not be offered again\. Undo is at the top of the page\.", heard), \
+                        assert re.fullmatch(r"Outfit \d+ \([A-Z][a-z ,]+\) will not be offered again\. Its pieces: [^.]+\. Undo is at the top of the page\.", heard), \
                             f"{where}: after a no given with the keyboard a screen reader hears {heard!r}"
                         tap("main > .said button:has-text('Undo')")
 

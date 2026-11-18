@@ -18,6 +18,9 @@ This module works out what follows from a yes before and after it is given:
     leaving(w, sig)       taking an outfit out again: the pieces no other yes-outfit wears, which go with it
     offer(...)            the outfits to offer: none he answered, and those that reuse his pieces first
     name(pieces)          how a message names one outfit: by its two main pieces, never by its occasion alone
+    title(label, occ)     the outfit's title as the page shows it over the outfit: "Office, smart casual"
+    answered(...)         what the message after a yes or a no names the outfit by: its number in the row and its
+                          title ("outfit 2 (Office, smart casual)") and its pieces, shown as small photos
 """
 from __future__ import annotations
 
@@ -166,3 +169,23 @@ def owned_from_outside(slot_id: str) -> bool:
 def remember_outside(slot_id: str, outside: bool) -> None:
     now = [key for key in (db.get_setting("owned_from_outside") or []) if key != slot_id]
     db.set_setting("owned_from_outside", now + [slot_id] if outside else now)
+
+
+def title(label: str, occasion: str) -> str:
+    """An outfit's title as the page shows it over the outfit (outfits.html): its kind ("Smart casual"), and under
+    the Everyday and Office filters the filter's name before it, "Office, smart casual"."""
+    if label == "Smart casual" and occasion in ("everyday", "office"):
+        return f"{outfits.OCCASIONS[occasion]}, smart casual"
+    return label
+
+
+def answered(label: str, occasion: str, pieces: list[dict], row: list[str], key: str) -> dict:
+    """What the message after a yes or a no names the one outfit answered by, so that two outfits never read the
+    same (review N2): its number in the row as he saw it and its title, "outfit 2 (Office, smart casual)" ("this
+    outfit (Smart casual)" where it stood in no row: shown on its own after a swap), and every piece of it, as a row
+    of small photos and, for a screen reader, by name. `row`: the keys of the outfits of the row before the answer,
+    in order."""
+    number = row.index(key) + 1 if key in row else 0
+    return {"title": f"{f'outfit {number}' if number else 'this outfit'} ({title(label, occasion)})",
+            "thumbs": [{"name": str(piece.get("slot_name") or ""), "image_url": piece.get("image_url") or "",
+                        "hex": piece.get("hex") or "#cccccc"} for piece in pieces]}

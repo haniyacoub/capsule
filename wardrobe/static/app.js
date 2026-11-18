@@ -1351,7 +1351,11 @@ document.addEventListener('submit', (e) => {
     if (next) next.focus({ preventScroll: true });
     const announce = document.getElementById('announce');
     if (said && announce) {
-      const words = [...said.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent).join(' ');
+      // The message's own words: its lines (after a yes or a no: the sentence, then its pieces by name), or the words
+      // straight inside it; not its Undo.
+      const lines = said.querySelectorAll(':scope > p');
+      const words = lines.length ? [...lines].map((line) => line.textContent).join(' ')
+        : [...said.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent).join(' ');
       // A moment later: a screen reader reads a live region only when it changes after the page has been read in.
       setTimeout(() => {
         announce.textContent = `${words.replace(/\s+/g, ' ').trim()}${undo && next !== undo ? ' Undo is at the top of the page.' : ''}`;

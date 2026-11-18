@@ -24,14 +24,26 @@
    under an outfit carries it, so that an answer comes back to the same row (app.py, same_row). Nothing for the row
    every visit starts with. #}
 {% set row_fields %}{% if n != 12 %}<input type="hidden" name="n" value="{{ n }}">{% endif %}{% if seed %}<input type="hidden" name="seed" value="{{ seed }}">{% endif %}{% if front %}<input type="hidden" name="front" value="{{ front|join('.') }}">{% endif %}{% endset %}
-{# The messages below name the one outfit that was answered by its two main pieces ("the outfit with the charcoal
-   wool coat and indigo jeans", yes.name): its occasion alone, “Everyday”, is also the name of a filter and of dozens
-   of outfits. data-answered: app.js reads it out, and after an answer given with the keyboard puts the keyboard on
+{# The messages below name the one outfit that was answered by its title and its number in the row, as the page
+   showed them over it ("outfit 2 (Office, smart casual)"), and show its pieces as a row of small photos, named for a
+   screen reader (yes.answered): two outfits never read the same, even where they share their coat and jeans. (An
+   answer kept from before that, by its two main pieces: "the outfit with the charcoal wool coat and indigo jeans",
+   yes.name.) data-answered: app.js reads it out, and after an answer given with the keyboard puts the keyboard on
    the answer of the outfit now showing (app.js, 17b). #}
+{% macro answered_name(answer, first=false) -%}
+{%- if answer.title %}{{ answer.title[0]|upper ~ answer.title[1:] if first else answer.title }}{% else %}{{ 'The' if first else 'the' }} {{ answer.name or 'outfit' }}{% endif -%}
+{%- endmacro %}
+{% macro answered_thumbs(answer) -%}
+{% if answer.thumbs %}
+  <p class="answered-pieces"><span class="sr">Its pieces: {{ answer.thumbs|map(attribute='name')|join(', ') }}.</span>
+    {%- for t in answer.thumbs %}{{ pic(t.image_url, t.hex) }}{% endfor %}</p>
+{% endif %}
+{%- endmacro %}
 {% if answer and answer.kind == 'yes' %}
 {# After "Add to my wardrobe": what was added, with Undo (it takes the outfit out again) and the way to buy it. #}
-<div class="flash said short" role="status" data-answered>
-  Added the {{ answer.name or 'outfit' }} to your wardrobe{% if answer.words.startswith('Nothing') %}. {{ answer.words }}.{% else %}: {{ answer.words[0]|lower }}{{ answer.words[1:] }}.{% endif %}
+<div class="flash said short answered" role="status" data-answered>
+  <p>Added {{ answered_name(answer) }} to your wardrobe{% if answer.words.startswith('Nothing') %}. {{ answer.words }}.{% else %}: {{ answer.words[0]|lower }}{{ answer.words[1:] }}.{% endif %}</p>
+  {{ answered_thumbs(answer) }}
   <form method="post" action="{{ url_for('outfits_save') }}">{{ csrf_field() }}
     <input type="hidden" name="key" value="{{ answer.key }}">
     <input type="hidden" name="sig" value="{{ answer.sig }}">
@@ -42,8 +54,9 @@
 </div>
 {% elif answer %}
 {# After "Not for me": that this one outfit is not offered again, with Undo (it is back in its place, and shown). #}
-<div class="flash said short" role="status" data-answered>
-  The {{ answer.name or 'outfit' }} will not be offered again.
+<div class="flash said short answered" role="status" data-answered>
+  <p>{{ answered_name(answer, true) }} will not be offered again.</p>
+  {{ answered_thumbs(answer) }}
   <form method="post" action="{{ url_for('outfits_no') }}">{{ csrf_field() }}
     <input type="hidden" name="sig" value="{{ answer.sig }}">
     <input type="hidden" name="want" value="undo">
@@ -183,7 +196,7 @@
           {% endif %}
         {% endfor %}
         <header class="about-head">
-          <h2>{{ OCCASIONS[occasion] ~ ', smart casual' if o.label == 'Smart casual' and occasion in ('everyday', 'office') else o.label }}<span class="sr">, outfit {{ loop.index }} of {{ boards|length }}</span></h2>
+          <h2>{{ outfit_title(o.label, occasion) }}<span class="sr">, outfit {{ loop.index }} of {{ boards|length }}</span></h2>
           <div class="about-meta">
             <span class="count" aria-hidden="true">{{ loop.index }} / {{ boards|length }}</span>
             <b class="board-cost" title="{{ 'What the pieces of this outfit that can be bought cost together' if off.said else 'What the pieces in this outfit cost together' }}">{{ (o.cost - off.sum)|round(2)|eur }}</b>
