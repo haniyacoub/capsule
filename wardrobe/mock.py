@@ -1,26 +1,27 @@
 """Invented demo catalogue, used until real data is collected (Phase 2).
 
 NOTHING HERE IS A REAL PRODUCT. Names, prices and fabrics are made up to look
-like what COS and Weekday typically sell on their German sites, so the app can
-be tried end to end. Product links go to each store's home page. Only stores
+like what COS, Weekday and OTTO typically sell on their German sites, so the app
+can be tried end to end. Product links go to each store's home page. Only stores
 with a partner programme are in it (programmes.py): there is no Zara.
 
 The data is deterministic: the same slot always gets the same candidates, so
 your locks survive a rebuild. Two things are broken on purpose so the image
 fallback can be seen working:
-  * every Weekday chino has no image at all
+  * every Weekday and OTTO chino has no image at all
   * the Weekday "Ledersneaker" has an image URL that fails to load
 """
 from __future__ import annotations
 
 import random
 
-from . import catalog, colours, composition
+from . import catalog, colours, composition, sizes
 from .garments import GARMENTS
 
 STORE_HOME = {
     "cos": "https://www.cos.com/de-de",
     "weekday": "https://www.weekday.com/de-de",
+    "otto": "https://www.otto.de",
 }
 
 FIT_TEXT = {
@@ -229,6 +230,55 @@ VARIANTS: dict[str, dict[str, list[tuple[str, float, str, str]]]] = {
     },
 }
 
+# OTTO, a budget department store (added 18 Nov 2026): its plain basics, priced where budget stores sell them, so
+# that a small budget has products to fit (config/budget.toml). For each garment one at least is rated 70 or more
+# at or under its usual price there. Two are rated under 50 on purpose, as such products exist: suit trousers of
+# polyester and viscose, and derby shoes of polyurethane. Cheap is not always good enough.
+_OTTO: dict[str, list[tuple[str, float, str, str]]] = {
+    "tee": [
+        ("T-Shirt aus Baumwolle", 7.99, "100 cotton", "regular"),
+        ("T-Shirt mit Rundhalsausschnitt", 8.99, "100 cotton", "regular"),
+        ("Schmales T-Shirt aus Baumwolle", 12.99, "100 organic_cotton", "slim"),
+    ],
+    "longsleeve": [("Langarmshirt aus Baumwolle", 12.99, "100 cotton", "regular")],
+    "polo": [("Poloshirt aus Baumwollpiqué", 19.99, "100 cotton", "regular")],
+    "shirt": [("Hemd aus Baumwoll-Oxford", 24.99, "100 cotton", "regular")],
+    "knit": [
+        ("Pullover aus Baumwolle", 24.99, "100 cotton", "regular"),
+        ("Pullover mit Merino", 39.99, "50 merino, 50 polyamide", "regular"),
+    ],
+    "cardigan": [("Strickjacke aus Baumwolle", 34.99, "100 cotton", "regular")],
+    "overshirt": [("Overshirt aus Baumwolltwill", 34.99, "100 cotton", "regular")],
+    "jacket": [("Leichte Jacke aus Baumwolle", 49.99, "100 cotton", "regular")],
+    "coat": [("Oversize-Mantel aus Wollmix", 119.99, "70 wool, 30 polyester", "oversized")],
+    "blazer": [("Blazer aus Baumwolle und Leinen", 69.99, "55 cotton, 45 linen", "regular")],
+    "trousers": [
+        ("Hose aus Baumwolle", 34.99, "98 cotton, 2 elastane", "regular"),
+        ("Hose aus Wollmix", 49.99, "50 wool, 48 polyester, 2 elastane", "regular"),
+        ("Anzughose", 24.99, "64 polyester, 34 viscose, 2 elastane", "slim"),
+    ],
+    "chinos": [
+        ("Chino Regular", 24.99, "100 cotton", "regular"),
+        ("Chino mit Stretch", 29.99, "97 cotton, 3 elastane", "slim"),
+    ],
+    "jeans": [
+        ("Jeans Straight Regular", 24.99, "100 cotton", "regular"),
+        ("Jeans Slim Tapered", 29.99, "98 cotton, 2 elastane", "slim"),
+    ],
+    "sneakers": [
+        ("Sneaker mit Leder", 39.99, "60 leather, 40 polyester", "regular"),
+        ("Sneaker aus Leder", 49.99, "100 leather", "regular"),
+        ("Canvas-Sneaker", 29.99, "100 cotton", "regular"),
+    ],
+    "shoes": [
+        ("Derby-Schuhe aus Leder", 59.99, "100 leather", "regular"),
+        ("Derby-Schuhe", 39.99, "100 polyurethane", "regular"),
+    ],
+    "boots": [("Chelsea-Boots aus Leder", 69.99, "100 leather", "regular")],
+}
+for _garment, _products in _OTTO.items():
+    VARIANTS[_garment]["otto"] = _products
+
 _ALPHA = ["XS", "S", "M", "L", "XL", "XXL"]
 _EU_TAILORING = ["44", "46", "48", "50", "52", "54", "56"]
 _WAIST_LENGTH = [f"{w}/{length}" for w in (28, 29, 30, 31, 32, 33, 34, 36, 38) for length in (30, 32, 34)]
@@ -236,13 +286,17 @@ _SHOES = ["39", "40", "41", "42", "43", "44", "45", "46", "47"]
 
 
 def size_run(store: str, category: str) -> list[str]:
-    """The labels a store would print for this garment (each store has its own system)."""
+    """The labels a store would print for this garment (each store has its own system). EU numbers only where the
+    store has a size table that translates them (config/size_charts.toml: COS and Weekday). A store without one,
+    such as OTTO, prints what reads without a table (sizes.label_fits): waist/length on trousers, chinos and jeans,
+    letters on tops, EU sizes on shoes. (Its EU numbers on trousers would read as "Not made in your size".)"""
     group = GARMENTS[category].size_group
     if group == "shoes":
         return _SHOES
+    table = sizes.load_charts().get(store, {}).get(group)
     if group == "tops":
-        return _EU_TAILORING if store == "cos" and category in ("coat", "blazer") else _ALPHA
-    return _WAIST_LENGTH if category == "jeans" else _EU_TAILORING
+        return _EU_TAILORING if table and store == "cos" and category in ("coat", "blazer") else _ALPHA
+    return _EU_TAILORING if table and category != "jeans" else _WAIST_LENGTH
 
 
 def _parse_comp(text: str) -> list[tuple[str, float]]:
@@ -266,7 +320,7 @@ def candidates_for(slot: dict, stamp: str) -> list[dict]:
             in_stock = [s for s in run if rng.random() < 0.8]
 
             image = f"/mock/img/{category}.svg?c={hex_.lstrip('#')}"
-            if store == "weekday" and category == "chinos":
+            if store in ("weekday", "otto") and category == "chinos":
                 image = ""                               # demo: no image at all
             elif store == "weekday" and name == "Ledersneaker":
                 image = "/mock/img/does-not-exist.jpg"   # demo: image fails to load

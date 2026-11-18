@@ -1,7 +1,7 @@
 """The rules that decide things: parsing, scoring, sizes, the capsule proposal."""
 import unittest
 
-from wardrobe import capsule, colours, composition, programmes, scoring, sizes
+from wardrobe import capsule, colours, composition, mock, programmes, scoring, sizes
 from wardrobe.profile import EXAMPLE
 
 
@@ -94,10 +94,11 @@ class Scoring(unittest.TestCase):
 
     def test_only_the_stores_customers_are_offered_are_rated(self):
         # A store without a partner programme (programmes.py) is not offered, so it is not rated either. The stores
-        # Stilsmith has products from (the ones the collector reads) are each rated. A store whose products can only
-        # be pasted in by their links (Hirmer and the others of round 6) is not rated yet, and the working says so
-        # instead of claiming a rating nobody gave.
-        self.assertEqual(sorted(self.rules["brand"]), sorted(programmes.read_by_the_collector()))
+        # Stilsmith has products from (the ones the collector reads, and the demo's: OTTO's basics since 18 Nov) are
+        # each rated. A store whose products can only be pasted in by their links (Hirmer and the others of round 6)
+        # is not rated yet, and the working says so instead of claiming a rating nobody gave.
+        self.assertEqual(sorted(self.rules["brand"]),
+                         sorted(set(programmes.read_by_the_collector()) | set(mock.STORE_HOME)))
         self.assertLessEqual(set(self.rules["brand"]), set(programmes.offered()))
         self.assertNotIn("zara", self.rules["brand"])
         self.assertIn("hirmer", programmes.offered())
@@ -114,9 +115,9 @@ class Scoring(unittest.TestCase):
 
     def test_price_sanity(self):
         fair, _ = scoring.price_part(25, "tee", self.rules)
-        cheap, _ = scoring.price_part(5, "tee", self.rules)
+        cheap, _ = scoring.price_part(3, "tee", self.rules)
         steep, _ = scoring.price_part(90, "tee", self.rules)
-        between, _ = scoring.price_part(10, "tee", self.rules)
+        between, _ = scoring.price_part(5, "tee", self.rules)
         self.assertEqual(fair, 100)
         self.assertEqual(cheap, 40)
         self.assertEqual(steep, 55)
@@ -128,15 +129,15 @@ class Scoring(unittest.TestCase):
         def price_line(price):
             return scoring.price_part(price, "tee", self.rules)[1][0].replace("\u00a0", " ")   # "12 €" never splits
 
-        self.assertEqual(price_line(25), "25 € is in the usual range for T-shirts (12 €–40 €)")
+        self.assertEqual(price_line(25), "25 € is in the usual range for T-shirts (7 €–40 €)")
         self.assertNotIn(" €", scoring.price_part(25, "tee", self.rules)[1][0], "an amount and its € never split")
-        self.assertEqual(price_line(10), "10 € is below the usual 12 €–40 € for T-shirts. Prices this low often mean "
-                                         "lower quality, so this counts a little against it.")
-        self.assertEqual(price_line(5), "5 € is far below the usual 12 €–40 € for T-shirts. Prices this low often mean "
+        self.assertEqual(price_line(5), "5 € is below the usual 7 €–40 € for T-shirts. Prices this low often mean "
+                                        "lower quality, so this counts a little against it.")
+        self.assertEqual(price_line(3), "3 € is far below the usual 7 €–40 € for T-shirts. Prices this low often mean "
                                         "lower quality, so this counts against it.")
-        self.assertEqual(price_line(50), "50 € is above the usual 12 €–40 € for T-shirts, so this counts a little "
+        self.assertEqual(price_line(50), "50 € is above the usual 7 €–40 € for T-shirts, so this counts a little "
                                          "against it.")
-        self.assertEqual(price_line(90), "90 € is far above the usual 12 €–40 € for T-shirts, so this counts against it.")
+        self.assertEqual(price_line(90), "90 € is far above the usual 7 €–40 € for T-shirts, so this counts against it.")
         self.assertEqual(scoring.brand_part("weekday", "knit", self.rules)[1], [
             f"Stilsmith rates Weekday {self.rules['brand']['weekday']['knit']}/100 for knitwear"])
         rated = self.score("weekday", 49.95, "100 % Merinowolle", "knit")

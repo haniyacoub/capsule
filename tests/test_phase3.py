@@ -280,7 +280,7 @@ class ShoppingList(AppCase):
 
         # In the order config/stores.toml lists the stores customers are offered.
         self.assertEqual([g.key for g in sl.groups], [k for k in programmes.offered() if k in {g.key for g in sl.groups}])
-        self.assertEqual([g.key for g in sl.groups], ["cos", "weekday"], "the demo data has products of both")
+        self.assertEqual([g.key for g in sl.groups], ["cos", "weekday", "otto"], "the demo data has products of all three")
         self.assertAlmostEqual(sum(g.subtotal for g in sl.groups), w.total, places=2)
         self.assertEqual(sl.pieces, w.n_buy)
         self.assertEqual(sl.owned, [coat.slot["name"]])

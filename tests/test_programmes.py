@@ -151,7 +151,7 @@ class OnYourOwnMachine(unittest.TestCase):
         client = create_app().test_client()
         slots = db.list_slots()
         stores = {c["store"] for c in demo.build(slots)["candidates"]}
-        self.assertEqual(stores, {"cos", "weekday"})
+        self.assertEqual(stores, {"cos", "weekday", "otto"})
         for path in ["/", "/outfits", "/list", "/list.md", "/list.csv", *(f"/slot/{s['id']}" for s in slots)]:
             self.assertNotIn("zara", client.get(path).get_data(as_text=True).lower(), path)
 

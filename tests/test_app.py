@@ -971,7 +971,8 @@ class BuyingInYourSizes(AppCase):
                     self.assertNotIn(f'>{escape(line.product)}<', html_line, "one language per name on a row")
                 self.assertIn(f'Colour: <span lang="de">{escape(line.colour)}</span> · Size: <b>{escape(line.size)}</b>',
                               html_line)
-        # Both kinds were checked: the demo data has products with a photo and one without (the Weekday chinos).
+        # Both kinds were checked: the demo data has products with a photo and one without (the chinos of Weekday
+        # and OTTO).
         self.assertTrue(any(line.image_url for line in seen) and not all(line.image_url for line in seen))
 
     def test_a_lines_button_says_the_size_as_truthfully_as_the_line(self):
@@ -1116,7 +1117,7 @@ class EditingTheRules(AppCase):
         self.assertIn(b"fabric.fibres.polyester must be a number", r.data)
 
     def test_price_bands_must_be_in_order(self):
-        self.edit("fair             = [12, 40]", "fair             = [70, 40]")
+        self.edit("fair             = [7, 40]", "fair             = [70, 40]")
         r = self.client.get("/")
         self.assertEqual(r.status_code, 500)
         self.assertIn(b"price.bands.tee", r.data)

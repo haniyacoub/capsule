@@ -235,6 +235,28 @@ sneakers   = 50
 shoes      = 50
 boots      = 50
 
+# OTTO sells many brands, most of them basic; rated below COS and Weekday for most garments, highest for the
+# plain cotton basics it does well. Set on 18 Nov 2026 for the demo's invented OTTO products (mock.py): look at
+# these again when OTTO's own product feed arrives.
+[brand.otto]
+default    = 60
+tee        = 65
+longsleeve = 62
+polo       = 60
+shirt      = 62
+knit       = 58
+cardigan   = 58
+overshirt  = 60
+jacket     = 60
+coat       = 58
+blazer     = 55
+trousers   = 60
+chinos     = 65
+jeans      = 65
+sneakers   = 55
+shoes      = 60
+boots      = 60
+
 
 # ── Price sanity ──────────────────────────────────────────────────────────────
 # Per garment type, in EUR:
@@ -247,82 +269,86 @@ boots      = 50
 score_when_suspicious = 40   # score at or below suspicious_below
 score_when_steep      = 55   # score at or above steep_above
 
+# The lower ends were moved down on 18 Nov 2026 to where budget stores such as OTTO sell: before, a 7.99 €
+# cotton tee counted as "far below the usual" and was rated 69, under the minimum quality of 70. Only the
+# lower ends moved; where a price counts as steep stayed as it was.
+
 [price.bands.tee]
-suspicious_below = 8
-fair             = [12, 40]
+suspicious_below = 4
+fair             = [7, 40]
 steep_above      = 60
 
 [price.bands.longsleeve]
-suspicious_below = 10
-fair             = [15, 50]
+suspicious_below = 6
+fair             = [10, 50]
 steep_above      = 75
 
 [price.bands.polo]
-suspicious_below = 15
-fair             = [25, 90]
+suspicious_below = 10
+fair             = [16, 90]
 steep_above      = 130
 
 [price.bands.shirt]
-suspicious_below = 20
-fair             = [30, 95]
+suspicious_below = 12
+fair             = [18, 95]
 steep_above      = 140
 
 [price.bands.knit]
-suspicious_below = 25
-fair             = [45, 140]
+suspicious_below = 15
+fair             = [22, 140]
 steep_above      = 220
 
 [price.bands.cardigan]
-suspicious_below = 30
-fair             = [50, 150]
+suspicious_below = 18
+fair             = [26, 150]
 steep_above      = 240
 
 [price.bands.overshirt]
-suspicious_below = 30
-fair             = [45, 150]
+suspicious_below = 18
+fair             = [28, 150]
 steep_above      = 230
 
 [price.bands.blazer]
-suspicious_below = 60
-fair             = [100, 260]
+suspicious_below = 35
+fair             = [55, 260]
 steep_above      = 400
 
 [price.bands.coat]
-suspicious_below = 80
-fair             = [130, 380]
+suspicious_below = 50
+fair             = [80, 380]
 steep_above      = 550
 
 [price.bands.jacket]
-suspicious_below = 40
-fair             = [60, 200]
+suspicious_below = 22
+fair             = [35, 200]
 steep_above      = 320
 
 [price.bands.trousers]
-suspicious_below = 30
-fair             = [50, 150]
+suspicious_below = 18
+fair             = [28, 150]
 steep_above      = 230
 
 [price.bands.chinos]
-suspicious_below = 20
-fair             = [30, 100]
+suspicious_below = 12
+fair             = [20, 100]
 steep_above      = 150
 
 [price.bands.jeans]
-suspicious_below = 25
-fair             = [40, 120]
+suspicious_below = 15
+fair             = [22, 120]
 steep_above      = 180
 
 [price.bands.sneakers]
-suspicious_below = 35
-fair             = [60, 180]
+suspicious_below = 20
+fair             = [30, 180]
 steep_above      = 280
 
 [price.bands.shoes]
-suspicious_below = 50
-fair             = [80, 230]
+suspicious_below = 30
+fair             = [45, 230]
 steep_above      = 350
 
 [price.bands.boots]
-suspicious_below = 55
-fair             = [90, 260]
+suspicious_below = 35
+fair             = [50, 260]
 steep_above      = 380
