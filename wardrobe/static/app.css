@@ -206,7 +206,7 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 /* After a yes or a no (outfits.html): the outfit by its title and number, then a row of small photos of its pieces
    with Undo after them, so that two outfits that share a coat and jeans never read the same (review N2). */
 .said.answered { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-3); }
-.said.answered > p { flex: 1 1 100%; margin: 0; }
+.said.answered > p:not(.answered-pieces) { flex: 1 1 100%; margin: 0; }   /* the sentence; the photos and Undo share the next line */
 .answered-pieces { display: flex; gap: 4px; margin: 0; }
 .answered-pieces .pic { width: 26px; aspect-ratio: 4 / 5; border-radius: 2px; }
 .answered-pieces .pic .fb { display: none; }

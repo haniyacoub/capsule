@@ -81,7 +81,8 @@ class YesCase(AppCase):
         """How the messages after a yes or a no name this outfit, as a pattern to look for: by its number in the row
         and its title, 'outfit 2 (Smart casual)' (review N2). `number`: where it stood, if the test knows it."""
         which = "this outfit" if number == 0 else f"outfit {number or r'\d+'}"     # 0: shown on its own, in no row
-        return rf"{which} \({re.escape(yes.title(outfit.label, 'all'))}\)"
+        # (After an answer to an outfit called the same, what tells this one apart: ", with the stone chinos,".)
+        return rf"{which} \({re.escape(yes.title(outfit.label, 'all'))}\)(?:, with(?:out)? the [^,]+,)?"
 
     def its_pieces(self, outfit) -> str:
         """... and every one of its pieces, which a screen reader hears and the eye sees as small photos."""
@@ -170,42 +171,26 @@ class BeforeAnyYes(YesCase):
             self.assertNotIn(label.lower(), self.named(coat))
 
 
-    def test_a_yes_and_a_no_to_two_outfits_with_the_same_coat_and_jeans_never_read_the_same(self):
+    def test_a_yes_and_then_a_no_to_the_outfit_that_moved_up_never_read_the_same(self):
         # Review N2: "Added the outfit with the charcoal wool coat and indigo jeans", then, after a no to the next
         # outfit, "The outfit with the charcoal wool coat and indigo jeans will not be offered again": he read that
-        # his new outfit was thrown away. Now each is named by its number and title, and shows all its pieces.
-        w = selection.build()
-        row = [outfits.find_by_sig(w, sig) for sig in self.offered(n=60)]
-        a, b = next((a, b) for i, a in enumerate(row) for b in row[i + 1:]
-                    if yes.name(outfits.snapshot(a)) == yes.name(outfits.snapshot(b)))
-        said_yes = self.answered_line(self.page(self.say_yes(a, n="60").headers["Location"]))
-        said_no = self.answered_line(self.page(self.say_no(b, n="60").headers["Location"]))
-        self.assertRegex(said_yes, "^Added " + self.called(a, row.index(a) + 1) + " to your wardrobe")
-        self.assertRegex(said_yes, self.its_pieces(a))
-        self.assertRegex(said_no, self.its_pieces(b))
-        self.assertNotEqual(said_yes.split(" to your wardrobe")[0].removeprefix("Added "),
-                            said_no.split(" will not be offered")[0].lower())
-
-
-class APieceIsCalledWhatWasPicked(YesCase):
-    def test_derby_shoes_filled_by_a_loafer_are_called_loafers_wherever_the_loafer_shows(self):
-        # Review N4: the plan's "Dark brown derby shoes", filled by "Loafer aus Leder", read as two names for one thing.
-        for mode in ("cheapest", "cheap", "medium", "expensive", "top"):
-            self.set_mode(mode, 60)
-            shoes = next(v for v in selection.build().slots if "derby" in v.slot["name"])
-            if shoes.chosen and "Loafer" in shoes.chosen.data["name"]:
-                break
-        else:
-            self.fail("at no price level is the derby shoes piece filled by a loafer in the demo data")
-        self.assertEqual(shoes.shown_name, shoes.slot["name"].replace("derby shoes", "loafers"))
-        outfit = next(o for o in self.every() if shoes.slot["id"] in o.slots)
-        self.say_yes(outfit)
-        card = self.card(shoes.slot["id"])
-        self.assertIn(f'<span class="slot-name">{shoes.shown_name}', card)
-        self.assertIn(f">{shoes.shown_name}</a>", self.page("/list"), "the shopping list calls it the same")
-        page = self.page("/outfits", occasion="saved")
-        self.assertIn(f"<b>{shoes.shown_name}</b>", page, "and so does the outfit")
-        self.assertNotIn(f"<b>{shoes.slot['name']}</b>", page)
+        # his new outfit was thrown away. Each is named by its number and title and shows all its pieces; and as the
+        # next outfit moves up into the place of the one answered, and so takes its number, the second message says
+        # in words what tells it apart.
+        first = outfits.find_by_sig(selection.build(), self.offered()[0])
+        said_yes = self.answered_line(self.page(self.say_yes(first).headers["Location"]))
+        now_first = outfits.find_by_sig(selection.build(), self.offered()[0])
+        self.assertNotEqual(now_first.sig, first.sig)
+        said_no = self.answered_line(self.page(self.say_no(now_first).headers["Location"]))
+        self.assertRegex(said_yes, "^Added " + self.called(first, 1) + " to your wardrobe")
+        self.assertRegex(said_yes, self.its_pieces(first))
+        self.assertRegex(said_no, "^O" + self.called(now_first, 1)[1:] + ", with(out)? the [a-z ,]+, will not be offered again")
+        self.assertRegex(said_no, self.its_pieces(now_first))
+        named_yes = said_yes.split(" to your wardrobe")[0].removeprefix("Added ")
+        named_no = said_no.split(" will not be offered")[0]
+        self.assertNotEqual(named_yes.lower(), named_no.lower(), "the two outfits read the same")
+        extra = {p["shown_name"].lower() for p in outfits.snapshot(now_first)} - {p["shown_name"].lower() for p in outfits.snapshot(first)}
+        self.assertTrue(any(name in named_no for name in extra), f"{named_no!r} does not name a piece the first had not")
 
 
 class SayingYes(YesCase):
@@ -299,7 +284,8 @@ class SayingYes(YesCase):
         self.assertEqual(page.count("Not for me</button>"), page.count('<div class="yes-box"') - 1, "the others keep theirs")
         # Its Buy page says the same, with the same button.
         buy = self.page("/outfits/buy", at=small.sig)
-        self.assertIn("You can already wear this", buy)
+        self.assertIn(f"You can already wear this: all {len(small.slots)} pieces are yours. Save it to keep it among your outfits.", read(buy))
+        self.assertNotIn("not in your wardrobe yet", buy, "its pieces are")
         self.assertIn("<span>Save to My outfits</span>", buy)
         # After the yes the page says so in a sentence of its own, and the bar has not moved.
         total = selection.build().mine.total

@@ -460,7 +460,12 @@ def run(base: str) -> None:
                 assert seen["height"] <= 96, f"{size} the bar at the top is {seen['height']:.0f}px tall"
                 assert seen["fixed"] == "fixed" and seen["dock"][1] <= seen["tabs"] + 1 and seen["dock"][0] > 0, \
                     f"{size} the bar with the answers is not above the tab bar ({seen['tabs']:.0f}px): {seen['dock']} ({seen['fixed']})"
+                # An outfit of pieces that are all his already has no "Not for me" (review N6): it is his to save.
+                yours = bool(seen["adds"]) and seen["adds"][2].startswith("You can already wear this")
+                assert not (yours and seen["no"]), f"{size} 'Not for me' under an outfit he can already wear"
                 for what, name in (("adds", "what a yes adds"), ("yes", "'Add to my wardrobe'"), ("no", "'Not for me'")):
+                    if what == "no" and yours:
+                        continue
                     assert seen[what] and seen["dock"][0] <= seen[what][0] and seen[what][1] <= seen["tabs"], \
                         f"{size} {name} is not on the first screen above the tab bar ({seen['tabs']:.0f}px): {seen[what]}"
                 assert re.fullmatch(r"(\d+ new pieces? [\d.,]+\s€.*|You can already wear this: .+ yours)", seen["adds"][2]), \
@@ -611,7 +616,11 @@ def run(base: str) -> None:
                 assert not planner, f"the planner's words on the landing page: {planner}"
                 assert seen["log_in"] == 1, f"'Log in' is on the first screen {seen['log_in']} times at {width}px"
                 assert seen["join"], f"'Create a free account' is not on the first screen at {width}px"
-                assert seen["title"].startswith("Archivo") and seen["wide"] == "125%" and seen["loaded"] == ["Archivo"], \
+                # Archivo, and no other font. (With the picture on the first screen the browser may show the page a moment
+                # before Archivo has arrived, in Archivo's own stand-ins, made from the device's Arial to Archivo's
+                # measurements so that nothing moves when it comes: app.css. Those are the device's, fetched from nowhere.)
+                assert seen["title"].startswith("Archivo") and seen["wide"] == "125%" and "Archivo" in seen["loaded"] \
+                    and set(seen["loaded"]) <= {"Archivo", "Archivo Fallback", "Archivo Wide Fallback"}, \
                     f"the headline is not set in wide Archivo at {width}px: {seen['title']}, {seen['wide']}, {seen['loaded']}"
                 assert not [url for url in fetched if "font" in url and not url.startswith(base + "/static/fonts/")], \
                     f"the landing page fetches a font from elsewhere at {width}px"
@@ -2876,17 +2885,19 @@ def run(base: str) -> None:
                 # pressed with Enter takes the outfit out again (the walk-through adds one later). The button is called by
                 # its own words.
                 yes_button = page.locator(f"{first} .btn.yes")
-                assert yes_button.inner_text().split("+")[0].strip() == "Add to my wardrobe" and not yes_button.get_attribute("aria-label"), \
+                # ("Save to My outfits" where every piece of it is his already: review N6.)
+                called = yes_button.inner_text().split("+")[0].strip()
+                assert called in ("Add to my wardrobe", "Save to My outfits") and not yes_button.get_attribute("aria-label"), \
                     f"the yes is called {yes_button.inner_text()!r}, or by a label that says something else"
                 yes_button.focus()
                 page.keyboard.press("Enter")
                 page.wait_for_url("**added=*")
-                in_view("main > .said", "Added outfit ")
+                in_view("main > .said", "Added outfit " if called == "Add to my wardrobe" else "Saved outfit ")
                 page.locator("main > .said button:has-text('Undo')").focus()
                 page.keyboard.press("Enter")
                 page.wait_for_url("**removed=*")
                 in_view("main > .said", "Took the outfit with the ")
-                assert page.locator(f"{first} .btn.yes").inner_text().startswith("Add to my wardrobe"), "after Undo the outfit is not on offer again, first"
+                assert page.locator(f"{first} .btn.yes").inner_text().startswith(called), "after Undo the outfit is not on offer again, first"
                 page.goto(base + "/outfits", wait_until="networkidle")
 
                 page.wait_for_selector(f"{first} .look-pic img")       # the dots show on the picture (drawn by itself)
@@ -2977,6 +2988,16 @@ def run(base: str) -> None:
                 assert store.locator(".buy-opened:visible").count() == 0, "a line is ticked before anything was opened"
                 size = button.bounding_box()
                 assert size["height"] >= 24, f"the button is {size['height']:.0f}px tall: under 24px to tap"
+                # Each line's own main action (review N1): "Open at <store>, order <size>", an ink button at least 44px
+                # tall across the whole row, under the store's own button, which comes again after the last line.
+                rows = other.evaluate("""() => [...document.querySelectorAll('.store-list:not(.sold-list) .buy')].map(row => {
+                    const go = row.querySelector('.buy-go'); if (!go) return null; const b = go.getBoundingClientRect(), r = row.getBoundingClientRect();
+                    return {text: go.innerText.trim(), height: b.height, whole: Math.abs(b.width - r.width) < 1, ink: getComputedStyle(go).backgroundColor}; })""")
+                assert rows and all(rows), f"a line of the list has no button to its store: {rows}"
+                for row in rows:
+                    assert re.match(r"Open at \w+, (order |choose your size)", row["text"]) and row["height"] >= 44 and row["whole"], \
+                        f"a line's button: {row}"
+                assert store.locator("[data-open-next]").count() == 2, "the store's 'Open the first of' is not there twice"
                 for number, address in enumerate(pages, start=1):
                     before = len(context.pages)
                     with context.expect_page() as opened:
@@ -4115,6 +4136,8 @@ def run(base: str) -> None:
                         return scrolled
 
                     def money(text: str) -> float:
+                        if text == "":          # the yes of an outfit all his already says no sum: it adds 0 € (review N6)
+                            return 0.0
                         return float(re.search(r"([\d.,]+)\s€", text).group(1).replace(",", ""))
 
                     def bar() -> dict:
@@ -4135,12 +4158,14 @@ def run(base: str) -> None:
                     def offered() -> list[dict]:
                         """Every outfit on offer, in the order shown: its pieces, its price, what it says it adds."""
                         return view.evaluate("() => {" + BOXES + """
-                            return slides.filter(s => box(s) && box(s).querySelector('form.no')).map(slide => ({
+                            // (On offer: not yet in his wardrobe. An outfit of pieces all his has no "Not for me", review N6.)
+                            return slides.filter(s => box(s) && box(s).querySelector('form.save input[name=want][value=save]')).map(slide => ({
                                 pieces: box(slide).querySelector('form.save input[name=sig]').value.split('~'),
+                                no: Boolean(box(slide).querySelector('form.no')),
                                 cost: slide.querySelector('.board-cost').textContent.trim(),
                                 adds: [...box(slide).querySelectorAll('.adds')].map(p => { const c = p.cloneNode(true);
                                     c.querySelectorAll('.over-short').forEach(x => x.remove()); return c.textContent.trim(); }),   // (its short form in the bar aside)
-                                plus: box(slide).querySelector('.btn.yes .plus').textContent.trim()})); }""")
+                                plus: (box(slide).querySelector('.btn.yes .plus') || {textContent: ''}).textContent.trim()})); }""")
 
                     def answer(what: str, index: int = 0) -> str:
                         """The button to tap for an answer ("yes" or "no") to the outfit at this place in the row, which is
@@ -4336,20 +4361,24 @@ def run(base: str) -> None:
                     # was. The page comes back on the outfit that followed, the four he had passed still in front of it,
                     # scrolled to where it was, and it says what was done, with Undo.
                     view.goto(base + "/outfits", wait_until="networkidle")
-                    row = [o["pieces"] for o in offered()]
-                    show(4)
-                    assert answers()["pieces"] == row[4], f"{where}: the fifth outfit is not the one on screen: {answers()}"
-                    was_at = tap(answer("no", 4))
+                    listed = offered()
+                    row = [o["pieces"] for o in listed]
+                    # (The fifth, or the first after it with a "Not for me" and one after it: an outfit of pieces that
+                    # are all his already has none, review N6, and those come first in the row.)
+                    k = next(i for i in range(4, len(listed) - 1) if listed[i]["no"] and listed[i + 1]["no"])
+                    show(k)
+                    assert answers()["pieces"] == row[k], f"{where}: the fifth outfit is not the one on screen: {answers()}"
+                    was_at = tap(answer("no", k))
                     assert "declined=" in view.url and re.search(r"#outfit-[0-9a-f]{12}$", view.url), f"{where}: 'Not for me' led to {view.url}"
-                    assert re.fullmatch(r"Outfit 5 \([A-Z][a-z ,]+\) will not be offered again\. Its pieces: [^.]+\. Undo", said()), \
+                    assert re.fullmatch(rf"Outfit {k + 1} \([A-Z][a-z ,]+\)(?:, with(?:out)? the [^,]+,)? will not be offered again\. Its pieces: [^.]+\. Undo", said()), \
                         f"{where}: after 'Not for me' the page says {said()!r}"
-                    assert view.locator("main > .said .answered-pieces .pic").count() == len(row[4]), \
+                    assert view.locator("main > .said .answered-pieces .pic").count() == len(row[k]), \
                         f"{where}: after 'Not for me' the message does not show the outfit's pieces"
                     now = [o["pieces"] for o in offered()]
-                    assert row[4] not in now, f"{where}: the outfit he said no to is offered again"
-                    assert [o for o in now if o in row] == row[:4] + row[5:], f"{where}: after a no the other outfits are not in the order they were in"
+                    assert row[k] not in now, f"{where}: the outfit he said no to is offered again"
+                    assert [o for o in now if o in row] == row[:k] + row[k + 1:], f"{where}: after a no the other outfits are not in the order they were in"
                     seen = answers()
-                    assert seen["pieces"] == row[5] and all(o in now[:seen["index"]] for o in row[:4]), \
+                    assert seen["pieces"] == row[k + 1] and all(o in now[:seen["index"]] for o in row[:k]), \
                         f"{where}: after a no to the fifth outfit the page shows outfit {seen['index'] + 1}, not the one that followed it"
                     assert abs(seen["scrolled"] - (was_at if script else 0)) <= 1, \
                         f"{where}: he said no with the page scrolled {was_at:.0f}px down, and it came back at {seen['scrolled']:.0f}px"
@@ -4364,7 +4393,7 @@ def run(base: str) -> None:
                             f"{where}: after a no the next outfit's answers are not in reach above the tab bar: {seen}"
                     assert "You said no to 1 outfit" in view.locator("form.declined").inner_text(), f"{where}: no word of the outfit he said no to"
                     tap("main > .said button:has-text('Undo')")
-                    assert [o["pieces"] for o in offered()] == row and answers()["pieces"] == row[4], \
+                    assert [o["pieces"] for o in offered()] == row and answers()["pieces"] == row[k], \
                         f"{where}: Undo after 'Not for me' does not put the outfit back in its place and show it (outfit {answers()['index'] + 1} shows)"
                     assert not view.locator("form.declined").count(), f"{where}: after Undo the page still counts an outfit he said no to"
 
@@ -4373,20 +4402,25 @@ def run(base: str) -> None:
                         # now shows (it was back at the page's top, some twenty presses of Tab away), and the line that
                         # says what was done is read out. Enter there answers that outfit.
                         view.goto(base + "/outfits", wait_until="networkidle")
-                        row = [o["pieces"] for o in offered()]
+                        listed = offered()
+                        row = [o["pieces"] for o in listed]
+                        # (The second, or the first after it with a "Not for me", as above.)
+                        j = next(i for i in range(1, len(listed) - 1) if listed[i]["no"])
                         view.keyboard.press("Tab")
-                        view.keyboard.press("ArrowRight")
-                        view.wait_for_function("() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth) === 1; }")
+                        for _ in range(j):
+                            view.keyboard.press("ArrowRight")
+                            view.wait_for_timeout(120)
+                        view.wait_for_function("j => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth) === j; }", arg=j)
                         view.wait_for_timeout(350)
-                        view.locator(answer("no", 1)).focus()
+                        view.locator(answer("no", j)).focus()
                         with view.expect_navigation(wait_until="networkidle"):
                             view.keyboard.press("Enter")
                         view.wait_for_function("() => document.activeElement && document.activeElement.matches('.btn.yes')")
                         seen = answers()
-                        assert seen["pieces"] == row[2] and seen["keyboard"] == "yes of the outfit on screen", \
+                        assert seen["pieces"] == row[j + 1] and seen["keyboard"] == "yes of the outfit on screen", \
                             f"{where}: after a no given with the keyboard, the keyboard is on {seen['keyboard']} (outfit {seen['index'] + 1} shows)"
                         heard = view.wait_for_function("() => document.getElementById('announce').textContent").json_value()
-                        assert re.fullmatch(r"Outfit \d+ \([A-Z][a-z ,]+\) will not be offered again\. Its pieces: [^.]+\. Undo is at the top of the page\.", heard), \
+                        assert re.fullmatch(r"Outfit \d+ \([A-Z][a-z ,]+\)(?:, with(?:out)? the [^,]+,)? will not be offered again\. Its pieces: [^.]+\. Undo is at the top of the page\.", heard), \
                             f"{where}: after a no given with the keyboard a screen reader hears {heard!r}"
                         tap("main > .said button:has-text('Undo')")
 
@@ -4722,7 +4756,7 @@ def run(base: str) -> None:
                         view.goto(outfit, wait_until="networkidle")
                         # (On a phone the answers of the outfit on screen stand in the bar over the tabs, app.js 17a.)
                         yes_button = view.locator(f"#dock .btn.yes, {first} .btn.yes").first
-                        if yes_button.inner_text().startswith("Add"):
+                        if yes_button.inner_text().startswith(("Add", "Save to")):     # ("Save to My outfits": all his, review N6)
                             with view.expect_navigation(wait_until="networkidle"):
                                 yes_button.click()
                         view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
@@ -6084,7 +6118,7 @@ def run(base: str) -> None:
                     wide.click("button:has-text('Use this brief')")
                 after = bought(wide)
                 sentence = said_on_screen(wide, "Style brief saved.", "/outfits", "Use this brief with no leather")
-                shoes = {piece: product for piece, (product, _, _) in after.items() if "sneakers" in piece or "shoes" in piece}
+                shoes = {piece: product for piece, (product, _, _) in after.items() if "sneakers" in piece or "shoes" in piece or "loafers" in piece}
                 assert len(shoes) == 2 and all(before[piece][0] == product for piece, product in shoes.items()), \
                     f"no leather changed the shoes to other shoes: {[(before[piece][0], product) for piece, product in shoes.items()]}"
                 expected = (f"Style brief saved. {change(before, after, 'Your brief', 'It changed none of your pieces.')} "

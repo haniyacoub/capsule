@@ -26,12 +26,13 @@
 {% set row_fields %}{% if n != 12 %}<input type="hidden" name="n" value="{{ n }}">{% endif %}{% if seed %}<input type="hidden" name="seed" value="{{ seed }}">{% endif %}{% if front %}<input type="hidden" name="front" value="{{ front|join('.') }}">{% endif %}{% endset %}
 {# The messages below name the one outfit that was answered by its title and its number in the row, as the page
    showed them over it ("outfit 2 (Office, smart casual)"), and show its pieces as a row of small photos, named for a
-   screen reader (yes.answered): two outfits never read the same, even where they share their coat and jeans. (An
+   screen reader (yes.answered): two outfits never read the same, even where they share their coat and jeans, and where
+   the outfit answered before had the same number and title, what tells this one apart: ", with the stone chinos,". (An
    answer kept from before that, by its two main pieces: "the outfit with the charcoal wool coat and indigo jeans",
    yes.name.) data-answered: app.js reads it out, and after an answer given with the keyboard puts the keyboard on
    the answer of the outfit now showing (app.js, 17b). #}
 {% macro answered_name(answer, first=false) -%}
-{%- if answer.title %}{{ answer.title[0]|upper ~ answer.title[1:] if first else answer.title }}{% else %}{{ 'The' if first else 'the' }} {{ answer.name or 'outfit' }}{% endif -%}
+{%- if answer.title %}{{ answer.title[0]|upper ~ answer.title[1:] if first else answer.title }}{{ ',' if answer.called and answer.title != answer.called }}{% else %}{{ 'The' if first else 'the' }} {{ answer.name or 'outfit' }}{% endif -%}
 {%- endmacro %}
 {% macro answered_thumbs(answer) -%}
 {% if answer.thumbs %}

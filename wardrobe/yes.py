@@ -186,13 +186,30 @@ def title(label: str, occasion: str) -> str:
     return label
 
 
-def answered(label: str, occasion: str, pieces: list[dict], row: list[str], key: str) -> dict:
+def answered(label: str, occasion: str, pieces: list[dict], row: list[str], key: str,
+             before: dict | None = None) -> dict:
     """What the message after a yes or a no names the one outfit answered by, so that two outfits never read the
     same (review N2): its number in the row as he saw it and its title, "outfit 2 (Office, smart casual)" ("this
     outfit (Smart casual)" where it stood in no row: shown on its own after a swap), and every piece of it, as a row
     of small photos and, for a screen reader, by name. `row`: the keys of the outfits of the row before the answer,
-    in order."""
+    in order.
+    After an answer the next outfit moves up into the place of the one answered, and so takes its number: a yes to
+    outfit 1 and then a no to the outfit now first would both say "outfit 1 (Smart casual)". So where the answer
+    before (`before`, the last message's) was called the same, this one says what tells it apart, in words: the
+    pieces it has that the other had not, "outfit 1 (Smart casual), with the stone chinos", or, where it only has
+    fewer, what it has not, "…, without the navy wool blazer"."""
     number = row.index(key) + 1 if key in row else 0
-    return {"title": f"{f'outfit {number}' if number else 'this outfit'} ({title(label, occasion)})",
-            "thumbs": [{"name": str(piece.get("shown_name") or piece.get("slot_name") or ""), "image_url": piece.get("image_url") or "",
-                        "hex": piece.get("hex") or "#cccccc"} for piece in pieces]}
+    called = f"{f'outfit {number}' if number else 'this outfit'} ({title(label, occasion)})"
+    names = [str(piece.get("shown_name") or piece.get("slot_name") or "") for piece in pieces]
+    shown = called
+    if before and before.get("called") == called:
+        theirs = [str(t.get("name") or "") for t in before.get("thumbs") or []]
+        more = [name for name in names if name not in theirs]
+        fewer = [name for name in theirs if name not in names]
+        if more:
+            shown = f"{called}, with the {names_of([name.lower() for name in more[:2]])}"
+        elif fewer:
+            shown = f"{called}, without the {names_of([name.lower() for name in fewer[:2]])}"
+    return {"title": shown, "called": called,
+            "thumbs": [{"name": name, "image_url": piece.get("image_url") or "", "hex": piece.get("hex") or "#cccccc"}
+                       for name, piece in zip(names, pieces)]}

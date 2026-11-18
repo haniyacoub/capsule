@@ -1630,10 +1630,11 @@ def create_app() -> Flask:
                 db.save_outfit(key, catalog.now_iso(), outfit.label, pieces, sig)
                 db.undecline_outfit(sig)        # (a yes to something he had said no to: the yes counts)
                 # (`row`: the row as it stood before the yes, so that its Undo puts back every outfit where it was.)
+                said_before = db.get_setting("last_answer")     # the message before: called the same? (yes.answered)
                 db.set_setting("last_answer", {"kind": "yes", "key": key, "sig": sig, "label": outfit.label,
                                                "name": yes.name(pieces), "words": added.words, "row": row_now,
                                                **yes.answered(outfit.label, occasion or usual_occasion(), pieces,
-                                                              row_now, key)})
+                                                              row_now, key, said_before)})
         if request.headers.get("HX-Request"):
             # A page from before the button was a plain form: its new state and the chip with its new number.
             return render_template("_save_button.html", key=key, saved=want != "remove", yes_sig=sig,
@@ -1704,7 +1705,7 @@ def create_app() -> Flask:
         db.set_setting("last_answer", {"kind": "no", "sig": sig, "label": outfit.label,
                                        "name": yes.name(pieces), "row": row_was,
                                        **yes.answered(outfit.label, occasion or usual_occasion(), pieces, row_was,
-                                                      outfit.key)})
+                                                      outfit.key, db.get_setting("last_answer"))})
         following = request.form.get("next", "")
         if not re.fullmatch(r"[0-9a-f]{12}", following):
             # It was the last of the row: whatever stands in its place now, or the one before it.
