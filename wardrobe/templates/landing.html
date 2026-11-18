@@ -8,27 +8,6 @@
 {% block main %}
 <section class="hero">
   <h1>A small menswear wardrobe where everything goes with everything.</h1>
-  {# One AI picture of Stilsmith's own house model (drawn for this page with a fresh account, no customer's photo
-     or face), with its "AI picture" label on it, as everywhere. No product's name or price: it shows what an
-     outfit looks like, not what to buy. On a phone it comes right under the headline, the whole model on the first
-     screen with "Create a free account" right under it; on a computer it stands beside the words (app.css, .hero-pic).
-     `sizes` says how wide it is drawn, as app.css works it out: 400px on a computer, and on a phone two thirds of
-     the screen's height less 334px (220px on a 390 x 664 phone, 340px on 390 x 844). From that the browser takes
-     the smaller file (510px wide) wherever it is enough: on a computer and on most phones at twice their pixels;
-     the larger (805px) on a phone at three times, and on a computer screen at twice.
-     Only while AI pictures are on, as the words promise a model only then. #}
-  {% if looks_on %}
-  <figure class="hero-pic">
-    <div class="hero-pic-box">
-      <img src="{{ url_for('static', filename='landing-model.jpg') }}?v={{ asset_v }}"
-           srcset="{{ url_for('static', filename='landing-model-760.jpg') }}?v={{ asset_v }} 510w, {{ url_for('static', filename='landing-model.jpg') }}?v={{ asset_v }} 805w"
-           sizes="(min-width: 760px) 400px, calc((100vh - 334px) * 2 / 3)" width="805" height="1200" decoding="async"
-           alt="AI picture of a model in a long charcoal wool coat over a navy blazer and a white T-shirt, with straight blue jeans and brown suede loafers">
-      <span class="ai-chip">AI picture</span>
-    </div>
-    <figcaption>An example outfit</figcaption>
-  </figure>
-  {% endif %}
   {# `real`: the service has a published product list (shared.published). Without one its products are the invented
      demo ones, and this says so in the words of the "Demo data" line inside: no real product, no store named. #}
   {% if real %}
@@ -41,6 +20,9 @@
   {% if invite %}
   <p class="hero-note">Open by invitation for now: creating an account needs an invitation code.</p>
   {% endif %}
+  {# The picture goes here: one AI picture of Stilsmith's generic model (never a customer's face), with its
+     "AI picture" label, once one drawn by the real service has been approved. Until then the page is
+     words only: no drawings, no stock photos, nothing from the stores. #}
 </section>
 
 <ol class="steps">

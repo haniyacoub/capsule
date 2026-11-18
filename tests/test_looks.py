@@ -2973,20 +2973,6 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertIn("See the outfits one at a time, each drawn by AI on a model.", words(page))    # the second step
         self.assertIn("price level", words(page))
         self.assertIn("every outfit shown on a model", description(page))
-        # And it shows one (review N12): an AI picture of the house model, labelled, with "An example outfit" under
-        # it, from the site's own files (the small one for small screens), and no store's product or price.
-        hero = re.search(r'<figure class="hero-pic">.*?</figure>', page, re.S).group(0)
-        self.assertIn('<span class="ai-chip">AI picture</span>', hero)
-        self.assertIn("<figcaption>An example outfit</figcaption>", hero)
-        self.assertRegex(hero, r'src="/static/landing-model\.jpg\?v=\w+"')
-        self.assertRegex(hero, r'srcset="/static/landing-model-760\.jpg\?v=\w+ 510w, /static/landing-model\.jpg\?v=\w+ 805w"')
-        # How wide it is drawn, as app.css works it out (.hero-pic): 400px on a computer, on a phone two thirds of the
-        # screen's height less 334px. (Said wider, a phone takes the larger file where the smaller one is enough.)
-        self.assertIn('sizes="(min-width: 760px) 400px, calc((100vh - 334px) * 2 / 3)"', hero)
-        self.assertRegex(hero, r'alt="AI picture of a model in [^"]+loafers"')
-        self.assertNotRegex(words(hero), r"€|COS|Weekday")
-        for name in ("landing-model.jpg", "landing-model-760.jpg"):
-            self.assertEqual(visitor.get(f"/static/{name}").status_code, 200, name)
         self.with_rules(photos=False)
         page = visitor.get("/").get_data(as_text=True)
         self.assertIn("every outfit they make, worn by a model.", words(page))
@@ -3003,7 +2989,6 @@ class PicturesForCustomers(WithPictures, ProductionCase):
             self.assertIn("every outfit they make.", words(page))
             self.assertNotIn("model", words(page) + description(page))
             self.assertNotIn("by you", words(page))
-            self.assertNotIn("hero-pic", page, "no picture of a model either")
 
     def test_without_a_key_customers_see_no_trace_of_the_feature(self):
         with mock.patch.object(settings, "OPENAI_API_KEY", ""):

@@ -606,11 +606,6 @@ def run(base: str) -> None:
                             wide: getComputedStyle(document.querySelector('main h1')).fontStretch,
                             loaded: [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family.replace(/"/g, '')),
                             description: (document.querySelector('meta[name=description]') || {}).content || '',
-                            picture: (() => { const box = document.querySelector('.hero-pic-box'), img = box && box.querySelector('img');
-                                if (!box) return null; const b = box.getBoundingClientRect(), h = document.querySelector('main h1').getBoundingClientRect();
-                                return {top: b.top, bottom: b.bottom, left: b.left, height: b.height, loaded: img.complete && img.naturalWidth > 0,
-                                        label: box.querySelector('.ai-chip').textContent, words_right: h.right,
-                                        file: img.currentSrc.split('/').pop().split('?')[0]};})(),
                             cut: [...document.querySelectorAll('main h1, main h2, main p, main .btn')]
                                  .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent.trim().slice(0, 30))};
                 })""")
@@ -620,11 +615,7 @@ def run(base: str) -> None:
                 assert not planner, f"the planner's words on the landing page: {planner}"
                 assert seen["log_in"] == 1, f"'Log in' is on the first screen {seen['log_in']} times at {width}px"
                 assert seen["join"], f"'Create a free account' is not on the first screen at {width}px"
-                # Archivo, and no other font. (With the picture on the first screen the browser may show the page a moment
-                # before Archivo has arrived, in Archivo's own stand-ins, made from the device's Arial to Archivo's
-                # measurements so that nothing moves when it comes: app.css. Those are the device's, fetched from nowhere.)
-                assert seen["title"].startswith("Archivo") and seen["wide"] == "125%" and "Archivo" in seen["loaded"] \
-                    and set(seen["loaded"]) <= {"Archivo", "Archivo Fallback", "Archivo Wide Fallback"}, \
+                assert seen["title"].startswith("Archivo") and seen["wide"] == "125%" and seen["loaded"] == ["Archivo"], \
                     f"the headline is not set in wide Archivo at {width}px: {seen['title']}, {seen['wide']}, {seen['loaded']}"
                 assert not [url for url in fetched if "font" in url and not url.startswith(base + "/static/fonts/")], \
                     f"the landing page fetches a font from elsewhere at {width}px"
@@ -632,27 +623,6 @@ def run(base: str) -> None:
                 assert seen["description"], "no description for search results and shared links"
                 assert not [url for url in fetched if "/mock/img/" in url], "the landing page still loads the demo drawings"
                 assert not [url for url in fetched if "htmx" in url], f"the landing page loads htmx at {width}px"
-                # The house model's AI picture (review N12), labelled, loaded, the whole of it on the first screen: under
-                # the headline and big on a phone (the way in still under it, above), beside the words on a computer.
-                shown = seen["picture"]
-                assert shown and shown["loaded"] and shown["label"] == "AI picture", f"no labelled picture at {width}px: {shown}"
-                assert shown["top"] >= 0 and shown["bottom"] <= 844, f"the picture is not whole on the first screen at {width}px: {shown}"
-                if phone:
-                    assert shown["height"] >= 400, f"the picture is {shown['height']:.0f}px tall on a 390 x 844 phone"
-                else:
-                    assert shown["left"] >= shown["words_right"], f"the picture is not beside the words at {width}px: {shown}"
-                # The smaller of its two files where that is enough (`sizes`, landing.html): on both screens here, one
-                # pixel to a point (drawn 340 and 400px wide; the small file is 510px).
-                assert shown["file"] == "landing-model-760.jpg", f"at {width}px the browser took {shown['file']}"
-            # … and on a short phone with twice the pixels (drawn 220px wide: 440 of its pixels); with three times
-            # (660), the larger.
-            for scale, wanted in ((2, "landing-model-760.jpg"), (3, "landing-model.jpg")):
-                context = browser.new_context(viewport={"width": 390, "height": 664}, device_scale_factor=scale, is_mobile=True, has_touch=True)
-                visitor = context.new_page()
-                visitor.goto(base + "/", wait_until="networkidle")
-                took = visitor.evaluate("() => document.querySelector('.hero-pic-box img').currentSrc.split('/').pop().split('?')[0]")
-                context.close()
-                assert took == wanted, f"on a 390 x 664 phone at {scale} times its pixels the browser took {took}, not {wanted}"
             page.goto(base + "/legal/privacy", wait_until="networkidle")    # the customer is logged in here
             page.locator(".public-nav a", has_text="Open my outfits").click()
             page.wait_for_url(base + "/outfits")
