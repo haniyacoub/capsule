@@ -767,7 +767,8 @@ def draw_front_now(pieces: list[dict]) -> tuple[str, imagegen.DrawError | None]:
     the command is run by hand and has its own ceiling (--max-cost).
     Returns (what happened, what went wrong):
         ("there", None)      it is there already: nothing was sent
-        ("working", None)    it is being drawn already (a customer with the same model looks at it): left alone
+        ("working", None)    it is being drawn already (for a customer with the same model, or by another run of the
+                             command, or a run stopped a few minutes ago): left alone
         ("ready", None)      drawn now
         ("failed", problem)  not drawn, with the image service's own words (None: it could not even be asked)
     """

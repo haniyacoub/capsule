@@ -560,7 +560,7 @@ class ExamplePictures(WithExamplePictures):
         said, refused = self.command()
         self.assertEqual(refused, "")
         self.assertIn("The example wardrobe: its first 12 outfits, as a visitor sees them.\n5 of 12 already there.\n"
-                      "1 is being drawn by the site right now: left alone.\n"
+                      "1 is being drawn already: left alone.\n"
                       "6 to draw: about $0.30 (6 pictures at $0.05, price_each_usd in config/looks.toml).\n"
                       "Nothing was drawn. To draw them, run this again with --yes.\n", said)
         self.assertEqual(self.drawn, [], "nothing was sent")

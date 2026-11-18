@@ -76,7 +76,8 @@ Both cost money and need your name on them, so they are yours to set up.
   - The third draws the rest of the first 12.
   - It runs inside the app's container, so it uses the site's data and the key
     in `deploy/app.env`. Each picture is billed to that key.
-  - It never goes over `--max-cost` (1.00 US dollar unless you give another).
+  - It draws nothing if its estimate is above `--max-cost` (1.00 US dollar
+    unless you give another).
   - Each picture shows on the site as soon as it is drawn.
 - **A copy of the database** (not automated yet, and it should be):
 

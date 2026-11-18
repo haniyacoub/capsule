@@ -324,7 +324,7 @@ def example_pictures(args: argparse.Namespace) -> None:
             first = guests.first_outfits(selection.build(), args.outfits)
         finally:
             db.reset_read_only(reading)
-        states = []                          # for each: there | working (being drawn by the site) | missing
+        states = []                          # for each: there | working (being drawn already) | missing
         for _, board in first:
             front = board["photos"][0].look if board.get("photos") else None
             states.append("there" if guests.outfit_picture(board) else
@@ -342,7 +342,7 @@ def example_pictures(args: argparse.Namespace) -> None:
         print(f"{states.count('there')} of {len(first)} already there.")
         if "working" in states:
             busy = states.count("working")
-            print(f"{busy} {'is' if busy == 1 else 'are'} being drawn by the site right now: left alone.")
+            print(f"{busy} {'is' if busy == 1 else 'are'} being drawn already: left alone.")
         if not wanted:
             print("Nothing to draw.")
             return
@@ -379,8 +379,8 @@ def example_pictures(args: argparse.Namespace) -> None:
                 billed += 1
                 print(f"{said} ready ({time.time() - started:.0f} seconds)", flush=True)
             elif result != "failed":
-                print(f"{said} {'there already' if result == 'there' else 'being drawn by the site already'}, "
-                      "nothing sent", flush=True)
+                print(f"{said} {'there already' if result == 'there' else 'being drawn already'}, nothing sent",
+                      flush=True)
             else:
                 failed += 1
                 billed += 0 if problem is None or problem.free else 1
@@ -393,7 +393,7 @@ def example_pictures(args: argparse.Namespace) -> None:
           f"{'picture' if billed == 1 else 'pictures'} at ${price}"
           + (", counting those that failed after reaching the image service: it may bill them" if billed > drawn
              else "") + ").")
-    if drawn:
+    if drawn and guests.door_open():
         print("Visitors see the new pictures from their next page load.")
 
 
