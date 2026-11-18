@@ -598,6 +598,10 @@ def run(base: str) -> None:
                             wide: getComputedStyle(document.querySelector('main h1')).fontStretch,
                             loaded: [...document.fonts].filter(f => f.status === 'loaded').map(f => f.family.replace(/"/g, '')),
                             description: (document.querySelector('meta[name=description]') || {}).content || '',
+                            picture: (() => { const box = document.querySelector('.hero-pic-box'), img = box && box.querySelector('img');
+                                if (!box) return null; const b = box.getBoundingClientRect(), h = document.querySelector('main h1').getBoundingClientRect();
+                                return {top: b.top, bottom: b.bottom, left: b.left, height: b.height, loaded: img.complete && img.naturalWidth > 0,
+                                        label: box.querySelector('.ai-chip').textContent, words_right: h.right};})(),
                             cut: [...document.querySelectorAll('main h1, main h2, main p, main .btn')]
                                  .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent.trim().slice(0, 30))};
                 })""")
@@ -615,6 +619,15 @@ def run(base: str) -> None:
                 assert seen["description"], "no description for search results and shared links"
                 assert not [url for url in fetched if "/mock/img/" in url], "the landing page still loads the demo drawings"
                 assert not [url for url in fetched if "htmx" in url], f"the landing page loads htmx at {width}px"
+                # The house model's AI picture (review N12), labelled, loaded, the whole of it on the first screen: under
+                # the headline and big on a phone (the way in still under it, above), beside the words on a computer.
+                shown = seen["picture"]
+                assert shown and shown["loaded"] and shown["label"] == "AI picture", f"no labelled picture at {width}px: {shown}"
+                assert shown["top"] >= 0 and shown["bottom"] <= 844, f"the picture is not whole on the first screen at {width}px: {shown}"
+                if phone:
+                    assert shown["height"] >= 400, f"the picture is {shown['height']:.0f}px tall on a 390 x 844 phone"
+                else:
+                    assert shown["left"] >= shown["words_right"], f"the picture is not beside the words at {width}px: {shown}"
             page.goto(base + "/legal/privacy", wait_until="networkidle")    # the customer is logged in here
             page.locator(".public-nav a", has_text="Open my outfits").click()
             page.wait_for_url(base + "/outfits")

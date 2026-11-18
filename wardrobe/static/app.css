@@ -1590,6 +1590,32 @@ details[open] > summary .edit { visibility: hidden; }
 .hero-cta { margin: var(--s-5) 0 0; }
 .hero-cta .btn { width: 100%; max-width: 440px; }   /* the page's one main action: full width on phones */
 .hero-note { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); max-width: 44em; margin: var(--s-3) auto 0; text-wrap: pretty; }
+/* The landing page's picture (landing.html): an AI picture of the house model, 2 wide by 3 high, its label on it as
+   everywhere and "An example outfit" under it. On a phone it comes right under the headline, with "Create a free
+   account" right under it (before the longer words: order, below), and is as tall as the first screen allows once
+   the header, the headline and that button are there: about 330px on a 390 x 664 phone, 510px on 390 x 844, so the
+   whole model and the way in show at once. Its white studio ground keeps a thin edge in dark mode, so it reads as a
+   picture rather than a light box. */
+.hero:has(.hero-pic) { display: flex; flex-direction: column; }
+.hero-pic { order: 1; margin: var(--s-4) auto 0; width: min(100%, max(240px, 100svh - 334px) * 2 / 3); }
+.hero:has(.hero-pic) .hero-cta { order: 2; }
+.hero:has(.hero-pic) :is(.hero-lead, .hero-note) { order: 3; }
+.hero-pic-box { position: relative; aspect-ratio: 805 / 1200; background: var(--photo); border-radius: var(--r-img); overflow: hidden; }
+.hero-pic-box img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.hero-pic figcaption { margin-top: var(--s-1); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+@media screen and (prefers-color-scheme: dark) {
+  .hero-pic-box { box-shadow: 0 0 0 1px var(--line); }
+  .hero-pic-box img { filter: brightness(.94); }
+}
+/* On a computer: the words on the left in their own order, the picture beside them on the right, as tall as the
+   window allows. */
+@media (min-width: 760px) {
+  .hero:has(.hero-pic) { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s-7);
+                         align-content: center; text-align: left; }
+  .hero:has(.hero-pic) > :not(.hero-pic) { grid-column: 1; margin-left: 0; order: 0; }
+  .hero:has(.hero-pic) h1 { margin-top: var(--s-6); }
+  .hero-pic { grid-column: 2; grid-row: 1 / span 6; align-self: start; margin: 0; width: min(400px, (100svh - 160px) * 2 / 3); min-width: 260px; }
+}
 /* How it works, in three steps: no boxes, a hairline above each and a large wide numeral. */
 .steps { list-style: none; margin: var(--s-7) 0 0; padding: 0; display: grid; gap: var(--s-5); }
 .steps li { border-top: 1px solid var(--line); padding-top: var(--s-4); }
