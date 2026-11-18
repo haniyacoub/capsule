@@ -113,6 +113,12 @@ from werkzeug.serving import make_server  # noqa: E402
 from wardrobe import colours, db, imagegen, looks, mockchat, person, settings, stylechat, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
+# With an SQLite that can deadlock (db.sqlite_problem) the walk-through's first pages would wait for ever, and every
+# step after them fail on a timeout: it stops at once instead, saying why.
+if db.sqlite_problem():
+    os.chdir(ROOT)
+    shutil.rmtree(HOME, ignore_errors=True)
+    sys.exit(f"The walk-through cannot run on this Python. {db.sqlite_problem()}")
 
 
 def picture(width: int = 240, height: int = 360, tint: tuple[int, int, int] = (120, 124, 130)) -> bytes:
@@ -6005,6 +6011,30 @@ def run(base: str) -> None:
                 context.close()
                 delete_a_steps_customer(who)
 
+        def tile_captions_whole():
+            # Each piece's photo in an outfit has a caption at its foot. On a phone a tile is about 95px wide, too
+            # narrow for "WEEKDAY · 180 €": it says the price alone (the list of pieces under the picture names the
+            # store), never a store's name cut to "WEEKDA…". On a computer it says both. No caption is cut off.
+            # (A tile is narrow or wide by its own width: three pieces have one tile across the whole picture.)
+            page.goto(base + "/outfits", wait_until="networkidle")
+            for width in (390, 1280):
+                page.set_viewport_size({"width": width, "height": 860})
+                page.wait_for_timeout(150)
+                seen = page.evaluate("""() => [...document.querySelector('#reel .slide').querySelectorAll('.tile .cap')].map(c => {
+                    const store = c.querySelector('.cap-store');
+                    return {text: c.innerText.trim(), cut: c.scrollWidth > c.clientWidth + 1,
+                            store: store ? getComputedStyle(store).display !== 'none' : null,
+                            tile: c.closest('.tile').getBoundingClientRect().width}; })""")
+                assert seen, "the first outfit has no tiles"
+                assert not [s for s in seen if s["cut"]], f"at {width}px a tile's caption is cut off: {seen}"
+                wrong = [s for s in seen if s["store"] is not None and s["store"] != (s["tile"] >= 150)]
+                assert not wrong, f"at {width}px a tile names its store where it is too narrow, or not where it is wide: {wrong}"
+                if width == 390:
+                    assert [s for s in seen if s["store"] is False], f"no tile on a phone says its price alone: {seen}"
+                else:
+                    assert [s for s in seen if s["store"]], f"no tile on a computer names its store: {seen}"
+            page.set_viewport_size({"width": 1280, "height": 860})
+
         steps = [("create an account", sign_up), ("Stilsmith's own typefaces load", own_typefaces),
                  ("price levels and best for budget", price_levels),
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
@@ -6053,6 +6083,7 @@ def run(base: str) -> None:
                  ("one tap fills a piece the list has nothing for", one_tap_colour),
                  ("new colours rebuild the plan, keeping the swap", new_colours_rebuild_the_plan),
                  ("the outfit on a phone's first screen", the_outfit_on_a_phones_first_screen),
+                 ("an outfit's tiles say their price whole", tile_captions_whole),
                  ("motion: quick, never in the way, still if asked", motion_quick_and_still),
                  ("the budget bar never hides what has focus", budget_bar_never_hides_the_focus),
                  ("a piece's page by keyboard, links answered there", a_pieces_page_by_keyboard),

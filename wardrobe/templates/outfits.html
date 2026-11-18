@@ -132,7 +132,9 @@
           {% for p in o.pieces %}
           {% call piece(o, p, 'tile', p.slot_name ~ (' — you own this' if p.owned else ' — no longer offered' if p.gone else ': ' ~ p.name)) %}
             {{ pic('' if p.owned else p.image_url, p.hex, p.name, p.slot_name) }}
-            <span class="cap">{% if p.owned %}Owned{% elif p.gone %}No longer offered · {{ p.price|eur }}{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% if p.changed %} · changed{% endif %}{% endif %}</span>
+            {# The store's name is left off a tile too narrow for it (a phone's: app.css, .cap-store), rather than cut
+               to "WEEKDA…"; the price stays, and the list of pieces under the picture names the store. #}
+            <span class="cap">{% if p.owned %}Owned{% elif p.gone %}No longer offered · {{ p.price|eur }}{% else %}<span class="cap-store">{{ STORES.get(p.store, p.store) }} · </span>{{ p.price|eur }}{% if p.changed %} · changed{% endif %}{% endif %}</span>
           {% endcall %}
           {% endfor %}
         </div>

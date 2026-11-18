@@ -111,7 +111,15 @@ only place they have run. The Tunnel has never been started.
   SameSite=Lax, Secure on https; Content-Security-Policy and related headers;
   plain error pages; no stack traces to visitors.
 - Public landing page, installable on a phone's home screen, and pages for
-  Impressum, privacy policy and terms **that are placeholders**.
+  Impressum, privacy policy and terms **that are placeholders**. While no product
+  list is published the landing page says the products are invented examples,
+  and names no store.
+- Partner links said to be partner links: from the day a real store is marked
+  `approved` (config/feeds.toml, then `python -m wardrobe stores sync`), the foot
+  of every page says "Partner links: Stilsmith may earn a commission when you buy
+  at …. You pay the same." in place of "Not affiliated with any retailer", and
+  the shopping list and Buy this outfit say it under the stores' links, with
+  that the commission does not change which product is picked for a piece.
 - AI pictures of outfits, if a key is set (see the README for what they are):
   - Spending is capped in `config/looks.toml`: `per_customer_per_day` and
     `per_day` for the whole service. A picture that shows no real person is
@@ -216,8 +224,10 @@ These block a launch, and most are yours rather than code:
   writes it, and only for the colours of your own capsule. It is not written
   ahead of time because each network's feed has its own columns: build it
   against the first real feed file.
-- Telling customers that links may earn a commission, once they do (required
-  for affiliate links in Germany), and keeping commission out of the ranking.
+- A lawyer's wording, in German, for the partner-link notice (see "What is in
+  place"), and whether each link needs a mark of its own. Commission is kept out
+  of the ranking today (nothing that picks a product reads a programme's status);
+  keep it that way, as the notice says so.
 - Choosing *which* pieces to buy. "Best for budget" picks the product for each
   slot; the slots themselves still come from the profile. A wardrobe that also
   drops or adds slots to get the most outfits per euro is the next step in

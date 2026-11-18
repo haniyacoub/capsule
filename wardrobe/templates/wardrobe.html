@@ -48,11 +48,12 @@
 <form id="controls" class="controls" method="post" action="{{ url_for('settings') }}"
       hx-post="{{ url_for('settings') }}" hx-target="#wardrobe-body" hx-swap="innerHTML"
       hx-trigger="change, input delay:150ms from:#threshold">{{ csrf_field() }}
-  <div class="seg levels" role="radiogroup" aria-label="Which option fills each piece: a price level, or the best your budget buys">
+  <div class="seg levels" role="radiogroup" aria-label="Which option fills each piece: a price level, or the best your budget buys" aria-describedby="level-hint">
     {% for key, label in MODES.items() %}
     <label title="{{ level_hints[key] }}{% if w.styled %}. Your style comes first: each piece is chosen among the options that suit it best{% endif %}"{% if key == 'budget' %} class="wide"{% endif %}><input type="radio" name="mode" value="{{ key }}"{% if w.mode == key %} checked{% endif %}><span>{{ label }}{% include "_level_total.html" %}</span></label>
     {% endfor %}
   </div>
+  {% include "_level_hint.html" %}
   <label class="thr" for="threshold">
     <span class="thr-text"><span>Minimum quality <small>(0 = anything goes)</small></span><output id="thr-out" for="threshold">{{ w.threshold }}</output></span>
     <input type="range" id="threshold" name="threshold" min="0" max="100" step="1" value="{{ w.threshold }}">

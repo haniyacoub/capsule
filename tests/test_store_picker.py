@@ -124,6 +124,37 @@ class TheStorePicker(ProductionCase):
         self.assertNotIn("affiliated", foot(), "a partner on the Stores tab and 'not affiliated' below it would contradict")
         self.assertIn("Impressum", foot())
 
+    def test_partner_links_are_said_to_be_partner_links(self):
+        # From the day a store's programme has accepted Stilsmith its links may earn a commission, and German law
+        # (UWG § 5a) wants such links marked as advertising, before the click. The foot of every page says so in
+        # place of "Not affiliated with any retailer", naming the stores, and so do the shopping list and Buy this
+        # outfit, under the stores' links. Before that, and for an invented sample store, nothing calls a link a
+        # partner link.
+        foot = lambda page: words(re.search(r'<footer class="site-foot">.*?</footer>', page, re.S).group(0))  # noqa: E731
+        costs = lambda page: words(re.search(r'<div class="costs">.*?</div>', page, re.S).group(0))  # noqa: E731
+        with self.as_ada():
+            having.the_whole_plan()
+        sample = {"network": "awin", "programme_id": "900001", "feed_format": None, "feed_location": None,
+                  "delivery_note": None, "disclaimer": None}
+        db.save_store("kleiderwerk", {**sample, "label": "Kleiderwerk (sample)", "rules": {"sample": True},
+                                      "status": "approved"})
+        for url in ("/profile", "/list"):
+            page = self.ada.get(url).get_data(as_text=True)
+            self.assertNotIn("partner link", page.lower(), url)
+            self.assertIn("Not affiliated with any retailer.", foot(page), url)
+        db.save_store("cos", {**sample, "label": "COS", "network": "rakuten", "rules": {}, "status": "approved"})
+        said = "Partner links: Stilsmith may earn a commission when you buy at COS. You pay the same."
+        for url in ("/profile", "/list", "/outfits", "/account", "/legal/privacy", "/no-such-page"):
+            self.assertIn(said, foot(self.ada.get(url).get_data(as_text=True)), url)
+        self.assertIn("Links to COS are partner links: if you buy there, Stilsmith may earn a commission. You pay "
+                      "the same, and the commission does not change which product is picked for a piece.",
+                      costs(self.ada.get("/list").get_data(as_text=True)))
+        db.save_store("weekday", {**sample, "label": "Weekday", "network": "rakuten", "rules": {}, "status": "approved"})
+        self.assertIn("when you buy at COS or Weekday.", foot(self.ada.get("/list").get_data(as_text=True)))
+        self.assertIn("Links to COS and Weekday are partner links", costs(self.ada.get("/list").get_data(as_text=True)))
+        # A visitor reads it on the public pages too.
+        self.assertIn("when you buy at COS or Weekday.", foot(self.app.test_client().get("/").get_data(as_text=True)))
+
     def test_the_tab_lists_every_store_offered_all_ticked_with_its_programme(self):
         page = self.ada.get("/profile").get_data(as_text=True)
         self.assertIn('<button type="button" role="tab" id="tab-stores" aria-controls="panel-stores"', page)

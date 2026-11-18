@@ -37,7 +37,10 @@ python -m playwright install chromium     # once; a few minutes (about 600 MB on
 python -m wardrobe                        # starts at once; open the address it prints
 ```
 
-Both checks end with "All checks passed." Ctrl+C stops the app; another port:
+Both checks end with "All checks passed." If the app's first lines warn about SQLite 3.51.0 or 3.51.1, or
+`./check.sh browser` stops at once saying so, use another Python: those two SQLite versions can freeze every page
+(a deadlock fixed in SQLite 3.51.2). `python3 -c 'import sqlite3; print(sqlite3.sqlite_version)'` says which one a
+Python has. Ctrl+C stops the app; another port:
 `python -m wardrobe serve --port 8123`. `./check.sh` uses `.venv/bin/python` when
 there is one, so it works in a terminal where the environment is not active;
 `PYTHON=/path/to/python ./check.sh` picks another.
@@ -119,7 +122,8 @@ When one fails:
 - The walk-through prints each step with `ok`, or `FAILED` and the reason, then a list
   of failures. A failed request or a script error on a page fails the step too.
 - Normal noise, not failures: `ResourceWarning` lines, one
-  `ValueError: secret internals` traceback (a test causes it on purpose),
+  `ValueError: secret internals` traceback (a test causes it on purpose), the same for
+  `sqlite3.OperationalError: database is locked` and `RuntimeError: can't start new thread`,
   `Email to ada@example.com was not sent`, and a line per request in the walk-through.
 
 On GitHub every pull request runs five checks, about two minutes in all: "Lint, types,
