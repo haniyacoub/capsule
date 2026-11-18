@@ -580,6 +580,40 @@ class SaidWithUndo(AppCase):
         self.assertIsNotNone(form, "no Undo")
         return self.client.post(form.group(1), data=dict(re.findall(r'name="(\w+)" value="([^"]*)"', form.group(2))))
 
+    def test_the_lines_over_the_outfits_call_a_piece_as_its_tiles_do(self):
+        # Review N4, found by the round's second check: a "Dark brown derby shoes" piece filled by a loafer is
+        # "Dark brown loafers" on the tiles, so the chip "Wear the … instead", the line after it and the line after
+        # Choose call it that too, not by the plan's name beside a list that says "Dark brown loafers".
+        for level in ("cheapest", "cheap", "medium", "expensive", "top"):
+            self.set_mode(level, 0)
+            w = selection.build()
+            view = next((v for v in w.slots if v.chosen and v.shown_name != v.slot["name"]), None)
+            if view:
+                break
+        else:
+            self.skipTest("no price level of the demo picks another kind for a piece")
+        sid, shown = view.slot["id"], view.shown_name
+        swap = next(((outfit, piece) for outfit in outfits.all_outfits(w) if sid not in outfit.slots
+                     for piece in outfit.pieces
+                     if any(other.view.slot["id"] == sid for other, _ in outfits.alternatives(w, outfit, piece.view.slot["id"])[0])),
+                    None)
+        if swap:
+            outfit, piece = swap
+            popup = html_mod.unescape(self.client.get("/outfits/piece", headers=HX, query_string={
+                "at": outfit.sig, "slot": piece.view.slot["id"], "occasion": "all"}).data.decode())
+            chip = re.search(rf'<a class="chip-link" href="([^"]+)"><i class="dot"[^>]*></i>Wear the {re.escape(shown.lower())} '
+                             'instead</a>', popup)
+            self.assertIsNotNone(chip, f"the chip calls it {shown.lower()}")
+            page = self.client.get(chip.group(1)).data.decode()
+            self.assertEqual(status_line(page), f"Wearing the {shown.lower()} instead of the {piece.view.garment.label.lower()}. Undo")
+        outfit = next(outfit for outfit in outfits.all_outfits(w) if sid in outfit.slots)
+        other = next(c for c in view.cands if c.available and c.price > 0 and c.id != view.chosen.id)
+        _, where = self.choose(outfit, sid, other)
+        page = self.client.get(where).data.decode()
+        now = self.view(sid).shown_name          # (the name the new pick gives it, as on the tiles now)
+        self.assertTrue(status_line(page).startswith(f"{now} changed in all your outfits: "), status_line(page))
+        self.assertIn(f"<b>{escape(now)}</b>", page, "the same name as the outfit's own list")
+
     def test_choose_says_the_piece_the_product_its_price_and_the_old_price_and_undo_makes_it_automatic_again(self):
         having.the_whole_plan()         # the piece is in his wardrobe, so its card is on the Wardrobe page
         outfit, sid, before, other = self.piece_with_options()

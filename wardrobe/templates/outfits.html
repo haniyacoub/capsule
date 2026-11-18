@@ -15,7 +15,7 @@
   {% elif said.kind == 'left' %}
   Showing this outfit without the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Put it back</a>
   {% else %}
-  Wearing the {{ said.new.slot.name|lower }} instead of the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Undo</a>
+  Wearing the {{ said.new.shown_name|lower }} instead of the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Undo</a>
   {% endif %}
 </div>
 {% endif %}

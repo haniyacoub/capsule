@@ -5,7 +5,7 @@
    piece's own page.
    `said.back` is which of those, so that Undo comes back to the same page (app.back_to). #}
 {% set v = said.view %}
-{{ v.slot.name }} changed in all your outfits: <span lang="de">{{ v.chosen.data.name }}</span>, {{ v.chosen.price|eur }}{% if said.was_price %} (was {{ said.was_price|eur }}){% endif %}. It stays when you change the price level.
+{{ v.shown_name }} changed in all your outfits: <span lang="de">{{ v.chosen.data.name }}</span>, {{ v.chosen.price|eur }}{% if said.was_price %} (was {{ said.was_price|eur }}){% endif %}. It stays when you change the price level.
 {% if said.undo %}
 {# From the piece's own page, Undo keeps the page's way back to an outfit (`way`, app.way_back). #}
 <form method="post" action="{{ url_for('slot_restore', slot_id=v.slot.id, **(way if said.back == 'slot' and way is defined else {})) }}">{{ csrf_field() }}
