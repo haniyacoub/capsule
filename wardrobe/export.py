@@ -125,7 +125,7 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
             continue
         if s.sold_out:      # not a line of a store's basket: said apart, with what is in stock in his size
             sold_out.append(Line(
-                slot=s.slot["name"], product=c.data.get("name", ""), colour=c.data.get("colour", ""),
+                slot=s.shown_name, product=c.data.get("name", ""), colour=c.data.get("colour", ""),
                 size=c.size_to_order, qty=s.qty if only is None else 1, unit_price=c.price,
                 url=c.data.get("url", ""), image_url=c.data.get("image_url") or "", hex=c.colour_hex, cand=c, view=s,
                 slot_id=s.slot["id"]))
@@ -141,7 +141,7 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
         store = c.data.get("store", "")
         group = groups.setdefault(store, StoreGroup(store, programmes.label(store) if store else "Other"))
         group.lines.append(Line(
-            slot=s.slot["name"], product=c.data.get("name", ""), colour=c.data.get("colour", ""),
+            slot=s.shown_name, product=c.data.get("name", ""), colour=c.data.get("colour", ""),
             size=c.size_to_order, qty=s.qty if only is None else 1, unit_price=c.price,
             url=c.data.get("url", ""), notes=notes,
             image_url=c.data.get("image_url") or "", hex=c.colour_hex, cand=c, cautions=cautions,

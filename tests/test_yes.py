@@ -85,7 +85,7 @@ class YesCase(AppCase):
 
     def its_pieces(self, outfit) -> str:
         """... and every one of its pieces, which a screen reader hears and the eye sees as small photos."""
-        return re.escape("Its pieces: " + ", ".join(p["slot_name"] for p in outfits.snapshot(outfit)) + ".")
+        return re.escape("Its pieces: " + ", ".join(p["shown_name"] for p in outfits.snapshot(outfit)) + ".")
 
     def answered_line(self, page: str) -> str:
         """The message after a yes or a no, as the customer reads it."""
@@ -187,6 +187,27 @@ class BeforeAnyYes(YesCase):
                             said_no.split(" will not be offered")[0].lower())
 
 
+class APieceIsCalledWhatWasPicked(YesCase):
+    def test_derby_shoes_filled_by_a_loafer_are_called_loafers_wherever_the_loafer_shows(self):
+        # Review N4: the plan's "Dark brown derby shoes", filled by "Loafer aus Leder", read as two names for one thing.
+        for mode in ("cheapest", "cheap", "medium", "expensive", "top"):
+            self.set_mode(mode, 60)
+            shoes = next(v for v in selection.build().slots if "derby" in v.slot["name"])
+            if shoes.chosen and "Loafer" in shoes.chosen.data["name"]:
+                break
+        else:
+            self.fail("at no price level is the derby shoes piece filled by a loafer in the demo data")
+        self.assertEqual(shoes.shown_name, shoes.slot["name"].replace("derby shoes", "loafers"))
+        outfit = next(o for o in self.every() if shoes.slot["id"] in o.slots)
+        self.say_yes(outfit)
+        card = self.card(shoes.slot["id"])
+        self.assertIn(f'<span class="slot-name">{shoes.shown_name}', card)
+        self.assertIn(f">{shoes.shown_name}</a>", self.page("/list"), "the shopping list calls it the same")
+        page = self.page("/outfits", occasion="saved")
+        self.assertIn(f"<b>{shoes.shown_name}</b>", page, "and so does the outfit")
+        self.assertNotIn(f"<b>{shoes.slot['name']}</b>", page)
+
+
 class SayingYes(YesCase):
     def test_a_yes_puts_the_outfits_pieces_into_his_wardrobe_and_nothing_else(self):
         outfit = outfits.find_by_sig(selection.build(), self.offered()[0])
@@ -214,7 +235,11 @@ class SayingYes(YesCase):
         shopping = self.page("/list")
         self.assertEqual(len(re.findall(r'<li class="buy">', shopping)), len(outfit.pieces))
         rows = list(csv.DictReader(io.StringIO(self.client.get("/list.csv").data.decode("utf-8-sig"))))
-        self.assertEqual({row["slot"] for row in rows}, {p.view.slot["name"] for p in outfit.pieces})
+        # Each piece by its name as shown with its product: "Dark brown loafers" for derby shoes filled by a loafer.
+        self.assertEqual({row["slot"] for row in rows}, {p.view.shown_name for p in outfit.pieces})
+        shoes = [p.view for p in outfit.pieces if "derby" in p.view.slot["name"]]
+        if shoes and "Loafer" in shoes[0].chosen.data["name"]:
+            self.assertIn("Dark brown loafers", {row["slot"] for row in rows})
         self.assertIn(plain(eur(w.mine.total)), read(shopping))
 
     def test_the_next_outfits_say_what_is_new_and_what_he_has_and_those_that_reuse_most_come_first(self):

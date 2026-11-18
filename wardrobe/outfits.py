@@ -15,7 +15,7 @@ import random
 from collections import Counter
 from dataclasses import dataclass
 
-from . import colours, style
+from . import colours, english, style
 from .garments import LAYER_OVER
 from .selection import SlotView, Wardrobe
 
@@ -126,6 +126,10 @@ def snapshot(outfit: Outfit) -> list[dict]:
         data = chosen.data if chosen else {}
         out.append({
             "slot_id": p.view.slot["id"], "slot_name": p.view.slot["name"],
+            # The piece's name as shown with this product: "Dark brown loafers" for a derby shoes piece filled by a
+            # loafer (english.as_picked). (Not what an AI picture is described from: that stays slot_name.)
+            "shown_name": english.as_picked(p.view.slot["name"], p.view.slot.get("keywords", ""), data.get("name") or "")
+            if chosen else p.view.slot["name"],
             "layer": p.layer, "role": role, "category": p.category, "owned": p.owned, "hex": p.hex,
             "cand_id": chosen.id if chosen else None,
             "name": data.get("name") or p.view.slot["name"],      # what the page shows
@@ -143,7 +147,8 @@ def snapshot(outfit: Outfit) -> list[dict]:
 def no_longer_offered(piece: dict) -> dict:
     """A saved outfit's piece from a store customers are no longer offered (programmes.py), as the Saved page shows
     it: the piece it filled, in its colour and at what it cost, without the store, its product, photo or link."""
-    piece.update(gone=True, name=piece.get("slot_name") or "", store_name="", store="", image_url="", url="")
+    piece.update(gone=True, name=piece.get("slot_name") or "", shown_name=piece.get("slot_name") or "", store_name="",
+                 store="", image_url="", url="")
     return piece
 
 

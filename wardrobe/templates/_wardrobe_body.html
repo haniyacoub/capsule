@@ -32,7 +32,7 @@
       {% endif %}
       <span class="slot-text">
         <span class="line">
-          <span class="slot-name">{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</span>
+          <span class="slot-name">{{ s.shown_name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</span>
           {# A quantity's price for one goes under the total, so the store and its quality have the card's width. #}
           <span class="slot-price">{% if s.state == 'owned' %}0&nbsp;€{% elif c %}{% if gone %}<s>{{ s.price|eur }}</s><span class="sr"> (not counted in the total)</span>{% else %}{{ s.cost|eur }}{% endif %}{% if s.qty > 1 %}<span class="each">{{ s.qty }} × {{ c.price|eur }}</span>{% endif %}{% else %}—{% endif %}</span>
         </span>

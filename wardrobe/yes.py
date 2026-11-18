@@ -194,5 +194,5 @@ def answered(label: str, occasion: str, pieces: list[dict], row: list[str], key:
     in order."""
     number = row.index(key) + 1 if key in row else 0
     return {"title": f"{f'outfit {number}' if number else 'this outfit'} ({title(label, occasion)})",
-            "thumbs": [{"name": str(piece.get("slot_name") or ""), "image_url": piece.get("image_url") or "",
+            "thumbs": [{"name": str(piece.get("shown_name") or piece.get("slot_name") or ""), "image_url": piece.get("image_url") or "",
                         "hex": piece.get("hex") or "#cccccc"} for piece in pieces]}

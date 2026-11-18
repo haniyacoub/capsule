@@ -151,8 +151,8 @@
         {# The pieces as pictures, until the AI picture of the outfit lies over them in the same box. #}
         <div class="collage c{{ o.pieces|length }}">
           {% for p in o.pieces %}
-          {% call piece(o, p, 'tile', p.slot_name ~ (' — you own this' if p.owned else ' — no longer offered' if p.gone else ': ' ~ p.name)) %}
-            {{ pic('' if p.owned else p.image_url, p.hex, p.name, p.slot_name) }}
+          {% call piece(o, p, 'tile', (p.shown_name or p.slot_name) ~ (' — you own this' if p.owned else ' — no longer offered' if p.gone else ': ' ~ p.name)) %}
+            {{ pic('' if p.owned else p.image_url, p.hex, p.name, (p.shown_name or p.slot_name)) }}
             {# The store's name is left off a tile too narrow for it (a phone's: app.css, .cap-store), rather than cut
                to "WEEKDA…"; the price stays, and the list of pieces under the picture names the store. #}
             <span class="cap">{% if p.owned %}Owned{% elif p.gone %}No longer offered · {{ p.price|eur }}{% else %}<span class="cap-store">{{ STORES.get(p.store, p.store) }} · </span>{{ p.price|eur }}{% if p.changed %} · changed{% endif %}{% endif %}</span>
@@ -172,9 +172,9 @@
            label 'AI picture' in its corner (app.css, .spot.low). #}
         <div class="spots">
           {% for p in o.pieces %}
-          {% call piece(o, p, 'spot low' if p.spot[1] >= 70 else 'spot', p.slot_name, '--x:' ~ p.spot[0] ~ '%;--y:' ~ p.spot[1] ~ '%',
-                        p.slot_name ~ ', ' ~ ('owned' if p.owned else 'no longer offered' if p.gone else STORES.get(p.store, p.store) ~ ', ' ~ p.price|eur)) %}
-            <span class="tip"><b>{{ p.slot_name }}</b>{% if p.owned %}Owned{% elif p.gone %}No longer offered{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% endif %}</span>
+          {% call piece(o, p, 'spot low' if p.spot[1] >= 70 else 'spot', (p.shown_name or p.slot_name), '--x:' ~ p.spot[0] ~ '%;--y:' ~ p.spot[1] ~ '%',
+                        (p.shown_name or p.slot_name) ~ ', ' ~ ('owned' if p.owned else 'no longer offered' if p.gone else STORES.get(p.store, p.store) ~ ', ' ~ p.price|eur)) %}
+            <span class="tip"><b>{{ (p.shown_name or p.slot_name) }}</b>{% if p.owned %}Owned{% elif p.gone %}No longer offered{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% endif %}</span>
           {% endcall %}
           {% endfor %}
         </div>
@@ -192,7 +192,7 @@
           {% set g = sold.get(p.slot_id) if not p.owned and not p.gone else none %}
           {% if g and (o.sig or p.cand_id == g.chosen.id) %}
             {% set off.sum = off.sum + p.price %}
-            {% set off.said = off.said + [p.slot_name ~ ', ' ~ g.sold_words[0]|lower ~ g.sold_words[1:]] %}
+            {% set off.said = off.said + [(p.shown_name or p.slot_name) ~ ', ' ~ g.sold_words[0]|lower ~ g.sold_words[1:]] %}
           {% endif %}
         {% endfor %}
         <header class="about-head">
@@ -236,13 +236,13 @@
         <ul class="pieces">
           {% for p in o.pieces %}
           <li>
-            {% call piece(o, p, 'piece-row', p.slot_name) %}
+            {% call piece(o, p, 'piece-row', (p.shown_name or p.slot_name)) %}
               {{ pic('' if p.owned else p.image_url, p.hex) }}
               {# The piece, then its store and the product's name in one language: English where every word is
                  known (english.py), else the store's own. The store's own name is on the piece's card (the pop-up). #}
               {% set theirs = p.store_name or (p.name if p.name != p.slot_name else '') %}
               {% set en = theirs|english if theirs else none %}
-              <span class="piece-text"><b>{{ p.slot_name }}</b>{% if p.owned %}<span>You own this</span>{% elif p.gone %}<span>No longer offered</span>{% else %}<span class="row-product"><span class="store">{{ STORES.get(p.store, p.store) }}</span>{% if theirs %} <span aria-hidden="true">·</span> <span lang="{{ 'en' if en else 'de' }}">{{ en or theirs }}</span>{% endif %}</span>{% endif %}</span>
+              <span class="piece-text"><b>{{ (p.shown_name or p.slot_name) }}</b>{% if p.owned %}<span>You own this</span>{% elif p.gone %}<span>No longer offered</span>{% else %}<span class="row-product"><span class="store">{{ STORES.get(p.store, p.store) }}</span>{% if theirs %} <span aria-hidden="true">·</span> <span lang="{{ 'en' if en else 'de' }}">{{ en or theirs }}</span>{% endif %}</span>{% endif %}</span>
               {% set out = sold.get(p.slot_id) if not p.owned and not p.gone else none %}
               {% set out = out and (o.sig or p.cand_id == out.chosen.id) %}
               <span class="piece-price">{% if p.owned %}0 €{% else %}{% if out %}<s>{{ p.price|eur }}</s><span class="sr"> (not counted in the outfit's price)</span>{% else %}{{ p.price|eur }}{% endif %}{% if not p.gone and (p.unplanned or p.changed) %}<small>{{ 'removed' if p.unplanned else 'changed' }}</small>{% endif %}{% endif %}</span>

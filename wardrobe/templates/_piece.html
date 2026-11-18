@@ -13,7 +13,7 @@
    price. Then the store's name for the product in English where every word is known (english.py), with the
    original under it in small print: it is how the customer finds the product at the store. #}
 <div class="piece-top">
-  <h2 id="piece-title">{{ s.slot.name }}</h2>
+  <h2 id="piece-title">{{ s.slot.name|as_picked(s.slot.keywords, c.data.name) }}</h2>
   <b class="sheet-price">{{ c.price|eur }}</b>
 </div>
 <div class="piece-head">

@@ -343,6 +343,7 @@ def create_app() -> Flask:
     app.jinja_env.lstrip_blocks = True
     app.jinja_env.filters["eur"] = eur
     app.jinja_env.filters["weblink"] = weblink
+    app.jinja_env.filters["as_picked"] = english.as_picked     # 'Dark brown derby shoes' filled by a loafer -> 'Dark brown loafers'
     app.jinja_env.globals["outfit_title"] = yes.title     # "Office, smart casual", over an outfit
     app.jinja_env.filters["outfit_name"] = yes.name       # an outfit's pieces -> 'outfit with the navy blazer and grey trousers'
     app.jinja_env.filters["english"] = english.name      # a store's German product name in English, or None

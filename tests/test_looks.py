@@ -296,7 +296,7 @@ class Viewer(AppCase):
             self.assertIn(f'id="outfit-{o.key}"', page)
         first = shown[0]
         for p in outfits.snapshot(first):
-            self.assertIn(p["slot_name"], page)
+            self.assertIn(p["shown_name"], page)        # by its name as shown with its product (english.as_picked)
         self.assertEqual(page.count("Buy this outfit"), 12)
         self.assertIn('<dialog class="sheet" id="piece"', page)
 
