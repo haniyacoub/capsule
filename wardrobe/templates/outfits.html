@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Outfits · {{ site_name }}{% endblock %}
+{# The demo notice is not at the top of this page: it stands with the row of words over the outfits (.above-looks). #}
+{% block notices %}{% endblock %}
 {% block main %}
 {% from "_macros.html" import icon, pic, saved_chip %}
 <h1 class="sr">Outfits</h1>
@@ -90,10 +92,15 @@
 {% endif %}
 {% endmacro %}
 
-{# One row of plain words right under the bar, and right under it the picture: which outfits are shown (the one
-   chosen is underlined), and Shuffle at its end (a sign on a phone, its name still read out; with its name on a
-   computer). On a very narrow phone the words scroll sideways inside their own row. Nothing else stands above
-   the picture: how many outfits there are and how to see the next one is one quiet line under them (below). #}
+{# One row of plain words: which outfits are shown (the one chosen is underlined), and Shuffle at its end (a sign on
+   a phone, its name still read out; with its name on a computer). On a very narrow phone the words scroll sideways
+   inside their own row. How many outfits there are and how to see the next one is one quiet line under them (below).
+   On a computer the row stands right under the bar at the top, and the picture right under it. On a phone the
+   picture is the screen: this row (and the demo notice, in one short line) stands right under the picture instead,
+   in a room each outfit leaves free there (app.css, "Outfits on a phone"). In the page's order it is still here,
+   before the outfits, so the keyboard and a screen reader reach it first, as before. #}
+<div class="above-looks">
+{% if w is defined and w.source == 'mock' %}{% include "_demo.html" %}{% endif %}
 <div class="toolbar">
   <div class="chips" role="group" aria-label="Which outfits">
     {% for key, label in OCCASIONS.items() %}
@@ -104,6 +111,7 @@
   {% if occasion != 'saved' %}
   <a class="btn ghost shuffle" href="{{ url_for('outfits_page', occasion=occasion, n=n, seed=next_seed) }}">{{ icon('shuffle') }}<span>Shuffle</span></a>
   {% endif %}
+</div>
 </div>
 
 {% if boards %}
@@ -289,6 +297,20 @@
   <button class="sheet-close" type="button" data-close aria-label="Close">&times;</button>
   <div id="piece-body"></div>
 </dialog>
+{# An outfit's photos, full screen, on a phone (app.js 17c): a small picture under an outfit, tapped, opens here (and
+   is shown large in the outfit too, as on a computer). A swipe or the arrow keys move between the outfit's photos that
+   are there; the line at the top says which one it is ("Street · 4 of 6"), and Close (or Escape) goes back to the
+   outfit, with the photo seen last shown large. Each photo carries the label
+   'AI picture'. Filled by app.js from the small pictures themselves: the same files, nothing new is fetched. #}
+{% if looks_on %}
+<dialog class="viewer" id="viewer" aria-label="Photos of this outfit">
+  <button class="viewer-close" type="button" data-close>Close</button>
+  <p class="viewer-said" aria-live="polite"></p>
+  <button class="viewer-step prev" type="button" data-step="-1" aria-label="Previous photo">{{ icon('back') }}</button>
+  <button class="viewer-step next" type="button" data-step="1" aria-label="Next photo">{{ icon('back') }}</button>
+  <div class="viewer-row"></div>
+</dialog>
+{% endif %}
 
 {% elif occasion == 'saved' %}
 <p class="empty">No outfits in your wardrobe yet. “Add to my wardrobe” on an outfit puts it here. <a href="{{ url_for('outfits_page') }}">See the outfits</a></p>

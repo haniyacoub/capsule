@@ -467,7 +467,7 @@ details.why summary::-webkit-details-marker { display: none; }
    focus while partly outside the row is scrolled in (app.js) until it is 4px clear of the row's edge
    (scroll-padding): its whole ring shows. */
 .toolbar { display: flex; align-items: center; gap: var(--s-2); margin: 0; }
-main:has(> .toolbar) { padding-top: 0; }
+main:has(> .above-looks > .toolbar) { padding-top: 0; }
 .toolbar .chips {
   flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
   margin: calc(-1 * var(--s-1)); padding: var(--s-1);
@@ -520,19 +520,6 @@ main:has(> .toolbar) { padding-top: 0; }
 .looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 248px - var(--shots-h) - var(--told)) * 2 / 3))); }
 .looks { --shots-h: 0px; }
 .looks:has(.shots) { --shots-h: 84px; }
-/* On a phone the outfit's name, its price and the line that says why it fits his brief stand above the picture (see
-   .about, "On a phone"), so the bar with the two answers (.dock) never covers them. Below the picture, on the first
-   screen, are that bar (--dock-room: its 80px, none under Saved) and the tab bar; the line under the picture and the
-   small pictures follow, a scroll away. Above it: the header, the row of words and the outfit's name (151px, with
-   the budget bar's --bar-h), then the why-line (--why-h). So the whole model shows above both bars. The picture is
-   never under 287px wide on a phone 820px high or more, nor under 198px on a shorter one, where the bar may cover
-   the foot of the picture on the shortest phones (390 x 664) until he scrolls. */
-@media (max-width: 759.98px) {
-  .looks { --dock-room: 80px; --why-h: 0px; --least: calc(198px + var(--tall) * 89); }
-  .looks.saved { --dock-room: 0px; }
-  .looks:has(.about-why) { --why-h: calc(var(--t-s) * var(--lh-s) + var(--s-1)); }
-  .looks { --stage-w: min(100cqw, max(var(--least), calc((100svh - var(--bar-h) - 207px - var(--dock-room) - var(--why-h) - var(--told)) * 2 / 3))); }
-}
 /* A short phone (under 820px of height while the browser's own bars show: most phones in a browser, 390 x 664,
    360 x 740, 393 x 760). There the picture is already at its smallest, so an 84px row would push the outfit's name
    and price off the first screen: the row is 40px there, its pictures smaller and without their names (see
@@ -550,22 +537,48 @@ main:has(> .toolbar) { padding-top: 0; }
    room above the picture: the picture gives up two lines' worth for it (four for two of them) and may be narrower
    than 240px, so that the whole model still shows on the first screen of a short phone (390 x 664) under a message
    of up to three lines. */
-main:has(> .flash, > .demo) .looks { --told: calc(2 * var(--t-m) * var(--lh-m) + var(--s-6)); --least: 190px; }
-main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-m) * var(--lh-m) + 2 * var(--s-6)); --least: 150px; }
-/* The line that says what a change made from an outfit did (.said, outfits.html), and what Undo put back, is up to
-   four lines on a phone (the piece, the product's own long name, the prices, the price level): it gets that room, so
-   the whole model still ends above the tab bar of a 390 x 664 phone under it, below the starter banner too. After
-   leaving a piece off or wearing another (.short) it is at most two lines. One line on a computer. app.js (12a) sets
-   --said-h to the room the line really takes on this screen, so that a shorter line leaves the picture larger; until
-   then, and without JavaScript, the picture gives up the room of the longest line. */
+main:has(> .flash, > .above-looks > .demo) .looks { --told: calc(2 * var(--t-m) * var(--lh-m) + var(--s-6)); --least: 190px; }
+main:has(> .flash ~ .flash, > .flash ~ .above-looks > .demo) .looks { --told: calc(4 * var(--t-m) * var(--lh-m) + 2 * var(--s-6)); --least: 150px; }
+/* Outfits on a phone: the picture is the screen.
+   On a phone the first screen is the header, the outfit's picture, and under it the bar with the two answers (.dock)
+   over the tab bar. Nothing else stands above the picture:
+     - the budget bar is not shown over the outfits (the bar with the answers says what a yes adds, and by how much
+       it would take him over his budget; the budget itself is on Wardrobe, the Shopping list and Profile);
+     - the outfit's name and price lie on the picture's lower edge (.about-head, below);
+     - the row of words with Shuffle, and the demo notice in one short line, stand right under the picture
+       (.above-looks), in a room every outfit leaves free there (--row-room, under .collage);
+     - the line that says why the outfit fits his brief (.about-why) follows them.
+   The picture is as tall as the screen allows once the room for the rest is taken: the header (54px) and 4px, a
+   message at the top of the page if there is one (--told), the bar with the answers (--dock-room: 80px; 98px when an
+   outfit on the page says by how much it would take him over his budget, or where the words of what a yes adds may
+   wrap, so the bar never grows over a picture worked out for one line; none under My outfits, which has no answers),
+   the tab bar (57px with its edge, and the phone's own bottom edge) and 6px to spare. It is never wider than the
+   page. 2 wide by 3 high, the whole model in it, head to shoes: 309 by 463px on a 390 x 664 phone, 358 by 537px on
+   390 x 844 (as wide as the page), 293 by 439px on 360 x 640, 245 by 367px on 320 x 568.
+   The size is worked out on <main>, so that the row of words (outside the outfits) knows where the picture ends;
+   .looks takes it from there. The units stay as written until they are used (100vw: the page's width, as 100cqw is
+   the outfits' width inside them, the same on a phone). */
 @media (max-width: 759.98px) {
-  main:has(> .said) .looks { --told: var(--said-h, calc(4 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 150px; }
-  main:has(> .said.short) .looks { --told: var(--said-h, calc(2 * var(--t-m) * var(--lh-m) + var(--s-6))); --least: 170px; }
-  /* With the small pictures under the picture as well (40px more on a short phone), the smallest width gives up the
-     same 40px of height (a third less width, 2:3), so the whole model, the line under it and the row of small
-     pictures still end above the tab bar on that 390 x 664 phone. */
-  main:has(> .said) .looks:has(.shots) { --least: 124px; }
-  main:has(> .said.short) .looks:has(.shots) { --least: 144px; }
+  body:has(#reel) > .summary { display: none; }
+  main:has(> .looks) {
+    --told: 0px; --least: 150px; --dock-room: 80px;
+    --stage-w: min(100vw - var(--side-l) - var(--side-r), max(var(--least),
+                   (100svh - 54px - 4px - var(--told) - var(--dock-room) - 57px - env(safe-area-inset-bottom) - 6px) * 2 / 3));
+    --row-room: calc(var(--s-2) + 44px + var(--s-2));                  /* the row of words, 8px above and below it */
+  }
+  main:has(.over-short) { --dock-room: 98px; }
+  main:has(> .looks.saved) { --dock-room: 0px; }
+  main:has(> .above-looks > .demo) { --row-room: calc(var(--s-2) + 44px + var(--s-1) + var(--t-s) * var(--lh-s) + 2 * var(--s-2) + var(--s-2)); }
+  .looks { --stage-w: inherit; }
+  /* A message at the top of the page (what a change made from an outfit did, with its way back; a save that rebuilt
+     the plan): the picture gives up the room it takes. app.js (12a) measures that room on this screen (--told-h);
+     until then, and without JavaScript, two lines' worth for one message, four for two or for a change made from
+     an outfit (the piece, the product's own long name, the prices, the price level). */
+  main:has(> .flash) { --told: var(--told-h, calc(2 * var(--t-m) * var(--lh-m) + var(--s-6))); }
+  main:has(> .flash ~ .flash, > .said:not(.short)) { --told: var(--told-h, calc(4 * var(--t-m) * var(--lh-m) + 2 * var(--s-6))); }
+}
+@media (max-width: 379.98px) {
+  main:has(.adds.in) { --dock-room: 98px; }   /* "1 new piece 129 €, 4 already in your wardrobe" takes two lines there */
 }
 /* The stage is also the box the line under the picture measures itself against (see .look-line). */
 .stage {
@@ -871,14 +884,60 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .looks.hush .spot .tip { display: none; }   /* Escape hides them, until the next dot pointed at or focused (app.js, 6c) */
 /* Beside (or under) the stage: what the outfit is made of. */
 .about { width: min(100%, 460px); margin: 0 auto; }
-/* On a phone the outfit's name, its price and the line that says why it fits his brief stand above the picture,
-   where the bar with the two answers (.dock) never covers them; the rest of .about follows the picture. (The page
-   is read in the same order as before: the slide's own name says which outfit it is.) */
+/* On a phone the outfit's name and price lie on the picture's lower edge (see "Outfits on a phone"): the name at the
+   left, the price at the right, each on a dark veil in fixed colours, as the picture is the same in light and dark
+   mode: white on rgba(27, 27, 26, .78), at least 8:1 even where the picture under it is white. The middle of the
+   lower edge stays clear between them, where the model's shoes are (about 38% to 64% across, the shoe's dot at
+   58%): the name is at most 36% of the picture wide, on two lines if it needs them, the price about a quarter.
+   The label 'AI picture' moves to the right, just above the price (on a picture under 260px wide, a little
+   tighter, so it stays clear of the shoes too). None of
+   them takes a tap: it goes through to the picture. Under the picture: the row of words (.above-looks), the line
+   that says why the outfit fits his brief, the picture's own line and small pictures, then the rest of .about. (The page is read in the same order as
+   before: the slide's own name says which outfit it is.) */
 @media (max-width: 759.98px) {
+  .slide { position: relative; }
   .slide > .about { display: contents; }
-  .slide > .about > :is(.about-head, .about-less, .about-why) { order: -1; width: 100%; }
-  .slide > .about > .about-head { padding-bottom: 0; }
-  .slide > .about > :is(.about-less, .about-why) { margin-top: calc(-1 * var(--s-2)); padding: 0 2px; }
+  .slide > .about > .about-less { width: 100%; padding: 0 2px; }
+  /* The line that says why the outfit fits his brief: right under the row of words, in a room of two lines that an
+     outfit with such a line leaves free there (so it is on the first screen of a 390 x 844 phone, above the bar with
+     the answers). Two lines at most to the eye (a long list of pieces ends in "…"); a screen reader hears it whole. */
+  .slide > .about > .about-why {
+    position: absolute; top: calc(var(--s-4) + var(--s-1) + var(--stage-w) * 3 / 2 + var(--row-room)); left: var(--gutter); right: var(--gutter);
+    margin: 0; padding: 0 2px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+  }
+  .slide:has(> .about > .about-why) .collage { margin-bottom: calc(var(--row-room) + 2 * var(--t-s) * var(--lh-s) + var(--s-2)); }
+  .slide > .about > .about-head {
+    position: absolute; z-index: 1; top: calc(var(--s-4) + var(--s-1)); left: calc(50% - var(--stage-w) / 2);
+    width: var(--stage-w); height: calc(var(--stage-w) * 3 / 2);
+    flex-wrap: nowrap; align-items: flex-end; justify-content: space-between; gap: var(--s-2);
+    padding: var(--s-2); pointer-events: none;
+  }
+  .about-head h2, .about-head .board-cost { background: rgba(27, 27, 26, .78); color: #fff; padding: var(--s-1) var(--s-2); }
+  .slide .about-head h2 { flex: 0 1 auto; max-width: 36%; font-size: var(--t-m); line-height: 1.25; }
+  .about-head .about-meta { flex: none; }
+  .about-head .count { display: none; }       /* the line under the outfits says how many there are */
+  .about-head .board-cost { margin: 0; font-size: var(--t-m); line-height: var(--lh-m); }
+  .stage .ai-chip { left: auto; right: var(--s-2); bottom: calc(var(--s-2) + var(--t-m) * var(--lh-m) + 2 * var(--s-1) + var(--s-1)); }
+  .vid:not([data-turns]) .vid-box .ai-chip { margin-left: 0; margin-right: 7.8125%; }   /* on the clip, as at the left */
+  .spots { --chip-clear: 0px; }               /* no label at the bottom left to keep clear of */
+  @container (max-width: 259.98px) { .stage .ai-chip { padding: 2px var(--s-1); letter-spacing: .06em; } }
+  /* The room under the picture for the row of words: every outfit leaves it free, and the row lies over it. Its
+     place in the page is right before the outfits (it starts where they start), so it is moved down by the picture's
+     height. It is the same on every outfit, so the row stays put while they are swiped. */
+  .slide .collage { margin-bottom: var(--row-room); }
+  /* Until the AI picture is there, the pieces' photos fill the same box. Their prices are at the foot of each photo,
+     so the photos end above a strip at the box's foot (the box's own grey), where the name and the price lie. */
+  .slide .collage { padding-bottom: calc(2 * var(--t-m) * 1.25 + 2 * var(--s-1) + 2 * var(--s-2)); }
+  main:has(> .looks) { position: relative; }
+  main:has(> .looks) > .above-looks {
+    position: absolute; z-index: 2; left: var(--side-l); right: var(--side-r);
+    margin-top: calc(var(--s-1) + var(--stage-w) * 3 / 2 + var(--s-2));
+    display: flex; flex-direction: column; gap: var(--s-1);
+  }
+  .above-looks > .demo { order: 1; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .above-looks .demo-more { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  /* "Show more outfits": in the middle of where the picture is on the other outfits, clear of the row of words. */
+  .more-slide { align-content: start; padding-top: calc(var(--stage-w) * 3 / 4 - 40px); }
 }
 /* The outfit line: the title in the wide cut, then "1 / 12" and the price, which go under the title together
    when they do not fit beside it ("Everyday, smart casual" on a 375px phone). Under 360px the title always has a
@@ -943,12 +1002,51 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
 .chip-link .dot { width: 14px; height: 14px; margin-right: 7px; }
 .tryon { margin-top: 8px; }
 @media (prefers-reduced-motion: reduce) {
-  .reel { scroll-behavior: auto; }
+  .reel, .viewer-row { scroll-behavior: auto; }
   .spin { animation: none; }
   .look-pic { transition: none; }
   .shots-row button[aria-pressed] { transition: none; }
   .vid-pill { transition: none; }
 }
+
+/* An outfit's photos full screen, on a phone (outfits.html, app.js 17c). On black, whatever the theme, as photos are
+   shown: each photo as large as the screen allows, whole (2 wide by 3 high), side by side in a row that snaps to one
+   at a time. At the top: which photo it is and Close, white on a dark veil (as the label 'AI picture', which each
+   photo carries at its foot), each 44px to a finger. The arrows beside the photo are for a mouse; a finger swipes. */
+.viewer {
+  position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0;
+  border: 0; background: #111; color: #fff; overflow: hidden;
+}
+.viewer::backdrop { background: #111; }
+.viewer-row {
+  display: flex; width: 100%; height: 100%; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
+  scroll-behavior: smooth; overscroll-behavior: contain; scrollbar-width: none;
+}
+.viewer-row::-webkit-scrollbar { display: none; }
+.viewer-shot { flex: 0 0 100%; display: grid; place-items: center; margin: 0; scroll-snap-align: center; scroll-snap-stop: always; }
+.viewer-pic { position: relative; width: min(100vw, 100dvh * 2 / 3); aspect-ratio: 2 / 3; background: var(--photo); }
+.viewer-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.viewer .ai-chip { bottom: var(--s-3); left: var(--s-3); }
+.viewer-close, .viewer-said, .viewer-step { position: absolute; z-index: 1; background: rgba(27, 27, 26, .78); color: #fff; }
+.viewer-close {
+  top: calc(var(--s-2) + env(safe-area-inset-top)); right: var(--s-2); min-width: 72px; min-height: 44px; padding: 0 var(--s-4);
+  border: 1px solid rgba(255, 255, 255, .6); font-size: var(--t-m); cursor: pointer;
+}
+.viewer-said {
+  top: calc(var(--s-2) + env(safe-area-inset-top)); left: var(--s-2); margin: 0; padding: var(--s-1) var(--s-2);
+  font-size: var(--t-s); line-height: var(--lh-s); max-width: calc(100% - 72px - 3 * var(--s-2));
+}
+.viewer-said:empty { display: none; }
+.viewer-step {
+  display: none; top: calc(50% - 22px); width: 44px; height: 44px; padding: 0; align-items: center; justify-content: center;
+  border: 1px solid rgba(255, 255, 255, .6); cursor: pointer;
+}
+.viewer-step.prev { left: var(--s-2); }
+.viewer-step.next { right: var(--s-2); }
+.viewer-step.next .ic { transform: rotate(180deg); }
+.viewer-step[disabled] { opacity: .3; cursor: default; }
+@media (hover: hover) and (pointer: fine) { .viewer-step { display: inline-flex; } }
+.viewer :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
 /* ── The pop-up for one piece (a sheet from the bottom on a phone) ───────── */
 /* While it is open the page behind it stays put: a swipe inside the sheet scrolls only the sheet, never the page
@@ -1873,6 +1971,10 @@ details[open] > summary .edit { visibility: hidden; }
   .dock .answer { flex-wrap: nowrap; margin: 2px 0 0; padding: 0; }
   .dock .btn.yes .plus { display: none; }
   .dock .quiet { white-space: nowrap; }
+  /* As tall as the room the picture leaves for it (--dock-room, "Outfits on a phone"), on every outfit, its answers at
+     its foot: nothing under the picture shows between it and the bar, and the answers stay put while outfits are
+     swiped. */
+  .dock:not([hidden]) { display: flex; flex-direction: column; justify-content: flex-end; min-height: calc(var(--dock-room, 80px) - 1px); }
   body:has(.dock:not([hidden])) { padding-bottom: calc(64px + var(--dock-h, 84px) + env(safe-area-inset-bottom)); }
   html:has(.dock:not([hidden])) { scroll-padding-bottom: calc(72px + var(--dock-h, 84px) + env(safe-area-inset-bottom)); }
 }
