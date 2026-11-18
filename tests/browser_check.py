@@ -3891,10 +3891,10 @@ def run(base: str) -> None:
                 before = missing()
                 assert phone.locator(f"#{card} .note").inner_text().startswith("Not in Stilsmith's product list in "), \
                     "the empty piece does not say what is missing"
-                # The card's link is named "<piece>: see all options"; a screen reader hears its note as well.
+                # The card's link is named by all it holds: a screen reader hears its note as well.
                 link = phone.locator(f"#{card} .slot-main")
-                expect(link, "a screen reader is not told why the piece is empty").to_have_accessible_description(
-                    re.compile(r"^Not in Stilsmith's product list in \w"))
+                expect(link, "a screen reader is not told why the piece is empty").to_have_accessible_name(
+                    re.compile(r"Not in Stilsmith's product list in \w"))
                 phone.evaluate("() => { window.stayed = true; }")
                 offer.focus()
                 phone.keyboard.press("Enter")
@@ -3907,8 +3907,9 @@ def run(base: str) -> None:
                 assert missing() == before - pieces, f"the bar still counts {missing()} missing pieces, not {before - pieces}"
                 assert phone.evaluate("id => document.activeElement === document.querySelector('#' + id + ' .slot-main')", card), \
                     "keyboard focus did not move to the piece once its button was gone"
+                # Named by its piece first and its price too (no aria-label hides it), and by where it leads, last.
                 expect(link, "the piece's link does not say what it leads to").to_have_accessible_name(
-                    re.compile(r"^" + re.escape(colour.label) + r" .*: see all options$"))
+                    re.compile(r"^" + re.escape(colour.label) + r" .*\d[\d.,]*\s?€.*\. See all options$"))
             finally:
                 listed.unlink(missing_ok=True)
                 context.close()
