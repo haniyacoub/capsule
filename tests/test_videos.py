@@ -613,9 +613,11 @@ class VideosForCustomers(WithVideos, ProductionCase):
         super().setUp()
         self.switch_on()
 
-    def picture_of(self, client, which=0):
-        """An outfit of a customer's page (the first, or another), drawn. Returns (its key, its picture)."""
-        key = re.findall(r'id="outfit-(\w+)"', client.get("/outfits").data.decode())[which]
+    def picture_of(self, client, which=0, key=None):
+        """An outfit of a customer's page (the first, or another), drawn, and added to his wardrobe: videos are made
+        only of the outfits he said yes to (config/looks.toml, more_only_on_yes). Returns (its key, its picture)."""
+        key = key or re.findall(r'id="outfit-(\w+)"', client.get("/outfits").data.decode())[which]
+        self.post(client, "/outfits/save", key=key, want="save")
         box = self.post(client, "/outfits/look", headers=HX, key=key).data.decode()
         return key, re.search(r'data-look="([0-9a-f]{24})"', box).group(1)
 
@@ -633,7 +635,7 @@ class VideosForCustomers(WithVideos, ProductionCase):
         bob = self.member("bob@example.com")
         bob_key, bob_look = self.picture_of(bob, 1)
         self.assertIn("1 video left today.", self.offer(bob, bob_key, bob_look), "his own allowance")
-        other, second = self.picture_of(ada, 1)
+        other, second = self.picture_of(ada, key=bob_key)     # the outfit Bob drew: its picture is there already
         offer = self.offer(ada, other, second)
         self.assertIn("No videos left today: more tomorrow.", offer)
         self.assertNotIn("Make the video", offer)
@@ -883,6 +885,69 @@ class VideosForCustomers(WithVideos, ProductionCase):
         self.assertEqual(self.made, [])
         offer = ada.get(f"/outfits/video?look={look}&outfit={key}&ask=1").data.decode()
         self.assertEqual(offer.count('name="csrf_token"'), offer.count("<form"))
+
+
+class VideosOnlyOnYes(WithVideos, ProductionCase):
+    """"See it move" is offered, and a video made, only of the outfits he said yes to (config/looks.toml,
+    more_only_on_yes). A video made already is shown as always."""
+
+    def setUp(self):
+        super().setUp()
+        self.switch_on()
+        self.ada = self.member("ada@example.com")
+        self.keys = re.findall(r'id="outfit-(\w+)"', self.ada.get("/outfits").data.decode())
+
+    def draw(self, key):
+        box = self.post(self.ada, "/outfits/look", headers=HX, key=key).data.decode()
+        return box, re.search(r'data-look="([0-9a-f]{24})"', box).group(1)
+
+    def make(self, key, look):
+        return self.post(self.ada, "/outfits/video", headers=HX, look=look, outfit=key).data.decode()
+
+    def tickets(self):
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            return con.execute("SELECT COUNT(*) FROM video_requests").fetchone()[0]
+
+    def test_no_see_it_move_on_an_outfit_not_said_yes_to_and_the_server_refuses_one(self):
+        box, look = self.draw(self.keys[0])
+        self.assertNotIn("See it move", box)
+        self.assertIn("Add it to your wardrobe for more photos and a video.", words(box))
+        offer = said(self.ada.get(f"/outfits/video?look={look}&outfit={self.keys[0]}&ask=1").data.decode())
+        self.assertIn(looks.NOT_YET, offer)
+        self.assertNotIn("Make the video", offer)
+        self.assertIn(looks.NOT_YET, said(self.make(self.keys[0], look)))
+        self.assertIn(looks.NOT_YET, said(self.post(self.ada, "/outfits/video", headers=HX, look=look).data.decode()),
+                      "nor without saying which outfit")
+        self.assertEqual((self.made, self.tickets()), ([], 0), "nothing made, no video of the day taken")
+
+    def test_another_outfits_picture_sent_with_one_said_yes_to_is_refused(self):
+        _, mine = self.draw(self.keys[0])
+        self.post(self.ada, "/outfits/save", key=self.keys[0], want="save")
+        _, other = self.draw(self.keys[1])
+        self.assertIn(looks.NOT_YET, said(self.make(self.keys[0], other)))
+        self.assertEqual(self.made, [])
+        self.assertIn("data-play", self.make(self.keys[0], mine), "its own picture: made")
+        self.assertEqual(len(self.made), 1)
+
+    def test_a_video_made_stays_shown_after_the_outfit_is_taken_out(self):
+        self.post(self.ada, "/outfits/save", key=self.keys[0], want="save")
+        box, look = self.draw(self.keys[0])
+        self.assertIn("See it move", box)
+        self.make(self.keys[0], look)
+        self.post(self.ada, "/outfits/save", key=self.keys[0], want="remove")
+        box, _ = self.draw(self.keys[0])
+        self.assertIn("data-vid", box, "the video made is still there to play")
+        self.assertIn("data-play", self.ada.get(f"/outfits/video?look={look}&outfit={self.keys[0]}&ask=1").data.decode())
+        self.assertEqual(len(self.made), 1)
+
+    def test_owners_and_pro_accounts_may_make_one_of_any_outfit(self):
+        box, look = self.draw(self.keys[0])
+        with redirect_stdout(io.StringIO()):
+            main(["pro", "add", "ada@example.com"])
+        box, look = self.draw(self.keys[0])
+        self.assertIn("See it move", box)
+        self.assertIn("data-play", self.make(self.keys[0], look))
+        self.assertEqual(len(self.made), 1)
 
 
 class GoogleVideoModel(unittest.TestCase):

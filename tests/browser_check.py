@@ -250,6 +250,34 @@ def run(base: str) -> None:
         def total() -> str:
             return page.locator("#summary .num b").nth(0).inner_text()
 
+        # "More photos" and "See it move" are offered only on the outfits he said yes to (config/looks.toml,
+        # more_only_on_yes). The steps that try them use outfits he said yes to: `said_yes` has their sigs.
+        said_yes: dict[str, str] = {}
+
+        def say_yes(where_page, slide: str = first) -> str:
+            """'Add to my wardrobe' on an outfit of the page showing, sent as a tap sends it (a plain form: the page
+            comes back). Returns the outfit's sig, for ?at=, where an outfit he said yes to is shown first in the row
+            (as "See it with today's products" leads there)."""
+            form = where_page.locator(f"{slide} form.save").first
+            assert form.locator("input[name=want]").get_attribute("value") == "save", f"{slide} is in his wardrobe already"
+            sig = form.locator("input[name=sig]").get_attribute("value")
+            with where_page.expect_navigation(wait_until="networkidle"):
+                form.locator("button").click()
+            return sig
+
+        def take_out(where_page, sig: str) -> None:
+            """'Take out of my wardrobe' on the outfit with this sig: his wardrobe as it was before the yes."""
+            where_page.goto(base + f"/outfits?at={sig}", wait_until="networkidle")
+            form = where_page.locator(f"{first} form.save").first
+            assert form.locator("input[name=sig]").get_attribute("value") == sig and \
+                form.locator("input[name=want]").get_attribute("value") == "remove", f"the outfit {sig} is not his to take out"
+            with where_page.expect_navigation(wait_until="networkidle"):
+                form.locator("button").click()
+
+        def yes_page(more: str = "") -> str:
+            """The outfits, with the one he said yes to for the steps on "More photos" and "See it move" first."""
+            return f"/outfits?at={said_yes['first']}" + (f"&{more}" if more else "")
+
         def shows(selector: str, what: str) -> None:
             """The picture itself is on the page, not only the place for it."""
             page.wait_for_function("s => { const i = document.querySelector(s); return i && i.complete; }", arg=selector)
@@ -862,6 +890,49 @@ def run(base: str) -> None:
             assert all(img["lazy"] for img in fetched if not img["first"]), f"another outfit's picture is not fetched lazily: {fetched}"
             context.close()
 
+        def more_only_on_a_yes():
+            # The front picture of every outfit looked at is drawn by itself; "More photos" and "See it move" are
+            # offered only on an outfit he has said yes to. On one he has not: neither, and in their place under the
+            # picture one short line says what a yes brings ("Add it to your wardrobe for more photos and a video.").
+            # After "Add to my wardrobe" (the page comes back) the same outfit, shown first by its address, has both,
+            # and no such line. A second outfit is added too, for "See it move" on another outfit. The steps that try
+            # them use these two; both are taken out again after them (take_them_out_again).
+            page.goto(base + "/outfits", wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            line = page.locator(f"{first} .shots-yes-first")
+            assert line.count() == 1 and line.inner_text() == looks.NOT_YET_SHORT, \
+                f"an outfit not said yes to does not say what a yes brings: {line.all_inner_texts()}"
+            assert not page.locator(f"{first} .shots .btn").count() and not page.locator(f"{first} .vid-pill").count(), \
+                "'More photos' or 'See it move' is offered on an outfit he has not said yes to"
+            said_yes["first"] = say_yes(page)
+            page.goto(base + yes_page(), wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
+            assert page.locator(f"{first} .shots .btn").inner_text() == "More photos" and page.locator(f"{first} .vid-pill").count() \
+                and not page.locator(f"{first} .shots-yes-first").count(), \
+                "after his yes the outfit does not offer 'More photos' and 'See it move', or still says to add it"
+            page.goto(base + "/outfits", wait_until="networkidle")
+            said_yes["second"] = say_yes(page)
+
+        def take_them_out_again():
+            # The two outfits said yes to for the steps on "More photos" and "See it move" are taken out again: the
+            # steps after them start from his wardrobe as it was. Their photos and videos stay, and are still shown.
+            def photos(sig: str) -> list[str]:
+                page.goto(base + f"/outfits?at={sig}", wait_until="networkidle")
+                page.wait_for_selector(f"{first} .look-pic img")
+                return page.eval_on_selector_all(f"{first} .shots-row img", "imgs => imgs.map(i => i.getAttribute('src'))")
+
+            kept = {sig: photos(sig) for sig in (said_yes["second"], said_yes["first"])}
+            before = len(asked), len(made)
+            for sig in kept:
+                take_out(page, sig)
+                assert photos(sig) == kept[sig], f"taken out, the outfit's photos are not those it had: {kept[sig]}"
+                assert not page.locator(f"{first} .shots .btn").count() and not page.locator(f"{first} .vid-pill:not([data-vid-open])").count(), \
+                    "taken out, the outfit still offers 'More photos' or a new video"
+                assert page.locator(f"{first} .shots-yes-first").count() == (len(kept[sig]) < 6), \
+                    "taken out, the outfit does not say that a yes brings more photos (or says it with all six there)"
+            assert (len(asked), len(made)) == before, "taking outfits out drew or made something"
+            page.goto(base + "/outfits", wait_until="networkidle")
+
         def more_photos_of_the_outfit():
             # Under each outfit's picture, a row of its small pictures. At first the front picture alone (the one drawn
             # by itself, on white, with the dots), and "More photos", with what it costs said beside it before the tap:
@@ -914,7 +985,7 @@ def run(base: str) -> None:
                 # (Some headless browsers ignore a synthesized swipe: then one that starts on the line above is
                 # ignored too, and only the row's style is checked.)
                 context, other = logged_in_on(browser, viewport={"width": 320, "height": 844}, is_mobile=True, has_touch=True)
-                other.goto(base + "/outfits", wait_until="networkidle")
+                other.goto(base + yes_page(), wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
                 seen = other.evaluate("""s => {
                     const shots = document.querySelector(s + ' .shots'), row = shots.querySelector('.shots-row'), box = el => el.getBoundingClientRect();
@@ -938,7 +1009,7 @@ def run(base: str) -> None:
                 touch = context.new_cdp_session(other)
                 swipe(touch, other, ".shots-row")
                 on_row = other.evaluate(at)
-                other.goto(base + "/outfits", wait_until="networkidle")
+                other.goto(base + yes_page(), wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
                 swipe(touch, other, ".look-line")
                 on_line = other.evaluate(at)
@@ -962,7 +1033,7 @@ def run(base: str) -> None:
                 # says its name to a screen reader. The row is no scrolling box, so a swipe on it moves the outfits.
                 for width, height in ((390, 664), (320, 568), (360, 740)):
                     context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=True, has_touch=True)
-                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.goto(base + yes_page(), wait_until="networkidle")
                     other.wait_for_selector(f"{first} .look-pic img")
                     seen = other.evaluate("""s => {
                         const shots = document.querySelector(s + ' .shots'), row = shots.querySelector('.shots-row'), box = el => el.getBoundingClientRect();
@@ -1000,7 +1071,7 @@ def run(base: str) -> None:
                 # at the least, 3 wide by 4 high), with its name under it, and no name runs into the next.
                 for width, height in ((1366, 650), (1280, 720), (1440, 780)):
                     context, other = logged_in_on(browser, viewport={"width": width, "height": height})
-                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.goto(base + yes_page(), wait_until="networkidle")
                     other.wait_for_selector(f"{first} .look-pic img")
                     seen = other.evaluate("""s => {
                         const shots = document.querySelector(s + ' .shots'), row = shots.querySelector('.shots-row'), box = el => el.getBoundingClientRect();
@@ -1033,7 +1104,7 @@ def run(base: str) -> None:
                 touch = context.new_cdp_session(other)
 
                 def swiped(selector: str) -> float:
-                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.goto(base + yes_page(), wait_until="networkidle")
                     other.wait_for_selector(f"{first} .look-pic img")
                     motion_ended(other)
                     swipe(touch, other, selector)
@@ -1059,7 +1130,7 @@ def run(base: str) -> None:
                     for scheme in ("light", "dark"):
                         context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=touch,
                                                       has_touch=touch, color_scheme=scheme)
-                        other.goto(base + "/outfits", wait_until="networkidle")
+                        other.goto(base + yes_page(), wait_until="networkidle")
                         other.wait_for_selector(f"{first} .look-pic img")
                         other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                         seen = other.evaluate("""s => {
@@ -1118,7 +1189,7 @@ def run(base: str) -> None:
                                 f"{where}: with the small pictures, the outfit's title and price end under the tab bar: {seen}"
                         context.close()
 
-            page.goto(base + "/outfits", wait_until="networkidle")
+            page.goto(base + yes_page(), wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             front = page.get_attribute(f"{first} .look-pic img", "src")
             group = f"{row} form[role=group]"
@@ -1203,7 +1274,7 @@ def run(base: str) -> None:
             # Without JavaScript the same tap leads to the outfits page asking it, under that outfit's picture, with
             # nothing drawn or removed; "Keep them" leads back to the outfit as it was.
             context, plain = logged_in_on(browser, viewport={"width": 390, "height": 844}, java_script_enabled=False)
-            plain.goto(base + "/outfits", wait_until="networkidle")
+            plain.goto(base + yes_page(), wait_until="networkidle")
             plain.click(f"{first} .look-line button:has-text('Draw again')")
             plain.wait_for_load_state("networkidle")
             asks = plain.locator(".look-ask p").all_inner_texts()
@@ -1274,6 +1345,7 @@ def run(base: str) -> None:
                         break
                 else:
                     raise AssertionError("the first outfit of every shuffle tried already has all its pictures")
+                tapper.goto(base + f"/outfits?at={say_yes(tapper)}&seed={seed}", wait_until="domcontentloaded")    # his yes
                 tapper.wait_for_selector(f"{first} .shots .btn", timeout=30000)      # the front picture, drawn by itself
                 held: list = []
                 tapper.route("**/outfits/photos*", lambda route: held.append(route))  # the row's question waits
@@ -1354,6 +1426,7 @@ def run(base: str) -> None:
                         other.reload(wait_until="networkidle")
                     raise AssertionError(f"without JavaScript, {what}")
 
+                other.goto(base + f"/outfits?at={say_yes(other, f'#outfit-{key}')}", wait_until="networkidle")   # his yes
                 other.click(f"#look-{key} button:has-text('See it worn')")
                 other.wait_for_load_state("networkidle")
                 assert other.url.endswith(f"#outfit-{key}"), f"without JavaScript, 'See it worn' leads back to {other.url}"
@@ -1395,7 +1468,7 @@ def run(base: str) -> None:
             # "No videos left today", and for a video that could not be made (said when the customer is still looking
             # at its picture; the page stays where it is when he has read on past it). Places are measured on the
             # page, not on the screen, so that a page that went up is not taken for one whose parts moved.
-            page.goto(base + "/outfits", wait_until="networkidle")
+            page.goto(base + yes_page(), wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             on_page = """const box = el => { if (!el) return null; const r = el.getBoundingClientRect();
                 return {left: r.left, right: r.right, width: r.width, height: r.height, top: r.top + scrollY, bottom: r.bottom + scrollY}; };"""
@@ -1448,7 +1521,7 @@ def run(base: str) -> None:
                 context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=True,
                                               has_touch=True, color_scheme=scheme,
                                               reduced_motion="reduce" if height == 667 else "no-preference")
-                other.goto(base + "/outfits", wait_until="networkidle")
+                other.goto(base + yes_page(), wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
                 other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                 shut = other.evaluate(geometry, first)
@@ -1475,7 +1548,7 @@ def run(base: str) -> None:
             # the page stays where he is. The failure is then forgotten (as after a restart), for the steps after.
             context, other = logged_in_on(browser, viewport={"width": 320, "height": 568}, is_mobile=True, has_touch=True)
             try:
-                other.goto(base + "/outfits", wait_until="networkidle")
+                other.goto(base + yes_page(), wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
                 other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                 other.click(f"{first} .vid-pill")
@@ -1598,8 +1671,9 @@ def run(base: str) -> None:
             page.wait_for_selector(f"{first} .vid.on")
             assert len(made) == 1, "playing the video again made another"
             page.click(f"{first} [data-vid-close]")
-            page.locator(".reel-nav.next").click()
-            second = "#reel .slide:nth-child(2)"
+            # Another outfit he said yes to (only those offer "See it move"), shown first by its address.
+            page.goto(base + f"/outfits?at={said_yes['second']}", wait_until="networkidle")
+            second = first
             page.wait_for_selector(f"{second} .look-pic img", timeout=20000)
             page.wait_for_timeout(400)
             page.click(f"{second} .vid-pill")
@@ -1621,10 +1695,8 @@ def run(base: str) -> None:
             assert len(made) == 1
             # On a short phone (390 x 664) the same words and Close, with keyboard focus, show above the tab bar.
             context, other = logged_in_on(browser, viewport={"width": 390, "height": 664}, is_mobile=True, has_touch=True)
-            other.goto(base + "/outfits", wait_until="networkidle")
-            other.evaluate("() => { document.querySelectorAll('main .demo').forEach(notice => notice.remove());"
-                           " const r = document.getElementById('reel'); r.style.scrollBehavior = 'auto';"
-                           " r.scrollLeft = r.clientWidth; r.style.scrollBehavior = ''; }")
+            other.goto(base + f"/outfits?at={said_yes['second']}", wait_until="networkidle")
+            other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
             other.wait_for_selector(f"{second} .look-pic img")
             other.wait_for_timeout(400)
             other.click(f"{second} .vid-pill")
@@ -1636,14 +1708,14 @@ def run(base: str) -> None:
             assert placed["shows"] and placed["focus"] == "Close" and placed["focus_shows"], \
                 f"on a short phone, 'No videos left today' or its Close is under the tab bar: {placed}"
             context.close()
-            page.goto(base + "/outfits", wait_until="networkidle")     # the next steps start from the first outfit
+            page.goto(base + yes_page(), wait_until="networkidle")     # the next steps start from the first outfit
             page.wait_for_selector(f"{first} .look-pic img")
 
             for width, height, touch in ((390, 844, True), (1280, 860, False)):
                 for scheme in ("light", "dark"):
                     context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=touch,
                                                   has_touch=touch, color_scheme=scheme, reduced_motion="reduce")
-                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.goto(base + yes_page(), wait_until="networkidle")
                     other.wait_for_selector(f"{first} .look-pic img")
                     other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                     where = f"{width} x {height}, {scheme}"
@@ -1681,7 +1753,7 @@ def run(base: str) -> None:
             # made or counted again.
             with db.connect() as con:                       # a new day: the customer's one video is his again
                 con.execute("DELETE FROM video_requests")
-            page.goto(base + "/outfits", wait_until="networkidle")
+            page.goto(base + yes_page(), wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             row = f"{first} .shots"
             before = len(made)
@@ -1759,7 +1831,7 @@ def run(base: str) -> None:
             assert used.startswith("AI video of the Street picture, 5 seconds") and "No videos left today: more tomorrow" in used \
                 and "Make the video" not in used, f"with the day's video used, the Street picture offers {used!r}"
             assert len(made) == before + 1, "looking at clips that are kept made another"
-            page.goto(base + "/outfits", wait_until="networkidle")     # the next steps start from the front picture
+            page.goto(base + yes_page(), wait_until="networkidle")     # the next steps start from the front picture
             page.wait_for_selector(f"{first} .look-pic img")
 
         def the_dots_small_and_there_when_pointed_at():
@@ -1783,7 +1855,7 @@ def run(base: str) -> None:
                 assert found[0]["aim"], f"{where}: a tap 21px from the first dot's middle misses it: {found}"
                 return found
 
-            page.goto(base + "/outfits", wait_until="networkidle")
+            page.goto(base + yes_page(), wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             assert page.evaluate("() => matchMedia('(hover: hover)').matches"), "this browser has no pointer to hover with: the step checks nothing"
             page.mouse.move(2, 2)
@@ -1841,7 +1913,7 @@ def run(base: str) -> None:
             # On a phone: always there, as small, as easy to tap.
             context, other = logged_in_on(browser, viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
             try:
-                other.goto(base + "/outfits", wait_until="networkidle")
+                other.goto(base + yes_page(), wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
                 motion_ended(other)
                 found = small_with_room_to_tap(other, "on a phone")
@@ -1863,7 +1935,7 @@ def run(base: str) -> None:
                 finger.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
 
             try:
-                other.goto(base + "/outfits", wait_until="networkidle")
+                other.goto(base + yes_page(), wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
                 other.wait_for_function("s => document.querySelector(s).complete", arg=f"{first} .look-pic img")
                 motion_ended(other)
@@ -1902,7 +1974,7 @@ def run(base: str) -> None:
             # stays under the band "Drawing this outfit…", with its dots: not the pieces' photos again. The band asks
             # every 3 seconds how it is going, and the picture must not be put in anew each time (a blink): it is one
             # and the same picture, in every frame, until the new one comes up over it.
-            page.goto(base + "/outfits", wait_until="networkidle")
+            page.goto(base + yes_page(), wait_until="networkidle")
             page.wait_for_selector(f"{first} .look-pic img")
             page.wait_for_function("s => document.querySelector(s).complete", arg=f"{first} .look-pic img")
             motion_ended(page)
@@ -3132,6 +3204,9 @@ def run(base: str) -> None:
                 con.execute("DELETE FROM look_requests")            # a new day: the five fit, whatever was drawn before
                 con.execute("UPDATE settings SET value = ? WHERE key = 'photo_consent' "
                             "AND user_id = (SELECT id FROM users WHERE email = ?)", ('"2026-11-12"', EMAIL))
+            mine = say_yes(page)        # "More photos" is offered on an outfit he said yes to
+            page.goto(base + f"/outfits?at={mine}", wait_until="networkidle")
+            page.wait_for_selector(f"{first} .look-pic img")
             before = len(asked)
             more = f"{first} .shots-row button:has-text('More photos')"
             page.click(more)
@@ -3163,6 +3238,7 @@ def run(base: str) -> None:
                 f"after his yes the five were not each made from the picture of him: {[(bool(one['photo']), len(one['references'])) for one in sent]}"
             assert page.locator(f"{first} .look-pic img").count() == 1 and not page.locator(f"{first} .look-ask").count(), \
                 "after his yes the large picture is gone, or the question is still there"
+            take_out(page, mine)        # his wardrobe as it was
             page.goto(base + "/profile", wait_until="networkidle")
             page.click("button:has-text('Delete my photo')")
             page.wait_for_load_state("networkidle")
@@ -6121,7 +6197,7 @@ def run(base: str) -> None:
                 context, other = logged_in_on(browser, viewport={"width": 390, "height": 664}, is_mobile=True, has_touch=True,
                                               color_scheme=scheme)
                 try:
-                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.goto(base + yes_page(), wait_until="networkidle")
                     other.wait_for_function("s => document.querySelectorAll(s + ' .shots-row img').length === 6", arg=first)
                     key = other.evaluate("s => document.querySelector(s).id.slice(7)", first)
                     other.locator(f"{first} .shots-row button[id$='-street']").tap()
@@ -6157,7 +6233,7 @@ def run(base: str) -> None:
                     context.close()
             context, other = logged_in_on(browser, viewport={"width": 1280, "height": 860})
             try:
-                other.goto(base + "/outfits", wait_until="networkidle")
+                other.goto(base + yes_page(), wait_until="networkidle")
                 other.wait_for_function("s => document.querySelectorAll(s + ' .shots-row img').length === 6", arg=first)
                 other.click(f"{first} .shots-row button[id$='-cafe']")
                 other.wait_for_function("s => document.querySelector(s + ' .shots-row [aria-pressed=true]').id.endsWith('-cafe')", arg=first)
@@ -6177,6 +6253,7 @@ def run(base: str) -> None:
                  ("the picture of an outfit arrives by itself", picture_arrives),
                  ("the yes is on a phone's first screen", the_yes_is_on_a_phones_first_screen),
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
+                 ("more photos and a video only on an outfit said yes to", more_only_on_a_yes),
                  ("more photos: five made from the front picture", more_photos_of_the_outfit),
                  ("the photos full screen on a phone", photos_full_screen_on_a_phone),
                  ("a small picture tapped: never undone, and without JavaScript", a_tap_on_a_small_picture_is_kept),
@@ -6185,6 +6262,7 @@ def run(base: str) -> None:
                  ("the dots: small, there when pointed at", the_dots_small_and_there_when_pointed_at),
                  ("a touch on a computer shows the dots first", a_touch_on_a_computer_shows_the_dots_first),
                  ("Draw again keeps the picture until the new one", draw_again_keeps_the_picture),
+                 ("taken out, its photos stay and no new ones are offered", take_them_out_again),
                  ("a dot on the picture opens the piece", dot_opens_the_piece),
                  ("swap a piece from the pop-up", swap_from_the_popup), ("leave a layer off", leave_a_layer_off),
                  ("the piece pop-up on a phone", the_piece_pop_up_on_a_phone),

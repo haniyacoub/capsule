@@ -38,6 +38,13 @@ image_size = "1K"                 # 1K | 2K | 4K — larger costs more
 [pictures]
 auto   = true      # draw an outfit's picture as soon as it is looked at (false: only when "See it worn" is pressed)
 photos = true      # people may upload a photo of themselves to be the model
+# "More photos" (five more pictures) and "See it move" (a video) are offered only on
+# the outfits a customer has added to his wardrobe, where he has said yes: the money
+# follows what he wants, not every outfit he scrolls past. The front picture is still
+# drawn for every outfit looked at. Owners and Pro accounts (python -m wardrobe owner
+# add / pro add), and your own machine, may make them of any outfit.
+# false: offered on every outfit, as before.
+more_only_on_yes = true
 
 # How many pictures may be started in 24 hours. Each one costs money (about 4 to
 # 5 cents), whichever of an outfit's six pictures it is. "More photos" draws

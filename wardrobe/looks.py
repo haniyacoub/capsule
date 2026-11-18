@@ -110,6 +110,8 @@ def _check(data: dict) -> None:
     for name in ("auto", "photos"):
         if not isinstance(pictures.get(name), bool):
             raise ConfigError(f"pictures.{name} must be true or false")
+    if not isinstance(pictures.get("more_only_on_yes", True), bool):     # (missing: true, see more_only_on_yes)
+        raise ConfigError("pictures.more_only_on_yes must be true or false")
     for name in ("per_day", "per_customer_per_day"):
         value = pictures.get(name)
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -467,9 +469,11 @@ def videos_from_front(photos: list[Photo] | None) -> int:
     return sum(1 for video in found if video is not None and video.status in ("ready", "working"))
 
 
-def redraw_words(photos: list[Photo] | None) -> tuple[str, int]:
+def redraw_words(photos: list[Photo] | None, offered: bool = True) -> tuple[str, int]:
     """What "Draw again" on a front picture asks first, and how many things it would remove: the other photos made
-    from it, and the videos of it and of them. ("", 0) when it would remove nothing: then it is not asked."""
+    from it, and the videos of it and of them. ("", 0) when it would remove nothing: then it is not asked.
+    `offered`: whether "More photos" and "See it move" are offered on this outfit (more_offered in app.py); where
+    they are not, the question does not say they would make them again, but that a yes to the outfit comes first."""
     photos = photos or []
     others = sum(1 for photo in photos[1:] if photo.look and photo.look.status in ("ready", "working"))
     if not photos or not photos[0].look or photos[0].look.status != "ready":
@@ -484,12 +488,38 @@ def redraw_words(photos: list[Photo] | None) -> tuple[str, int]:
         if n_videos:
             said += (", and with them the video" if n_videos == 1 else f", and with them the {n_videos} videos") + \
                 " made from these pictures"
-        said += f". “More photos” draws {'it' if others == 1 else 'them'} again."
+        said += f". “More photos” draws {'it' if others == 1 else 'them'} again." if offered else "."
     else:
         said += ("Its video" if n_videos == 1 else f"Its {n_videos} videos") + " will be removed."
-    if n_videos:
+    if not offered:      # not to be made again until the outfit is in his wardrobe: said so, nothing promised
+        said += " Add the outfit to your wardrobe to make " + ("them" if others + n_videos > 1 else "it") + " again."
+    elif n_videos:
         said += f" “See it move” makes a new {'one' if n_videos == 1 else 'video'}, as one of your videos for the day."
     return said, others + n_videos
+
+
+# ── "More photos" and "See it move": only on the outfits he said yes to ─────────
+# The front picture of every outfit he looks at is drawn (auto); the pictures made from it ("More photos", a pose or
+# a surrounding) and the videos ("See it move", videos.py) cost more and are offered only on an outfit in his
+# wardrobe (config/looks.toml, more_only_on_yes). Which outfit that is, the app knows (app.more_offered); here is
+# who is not held to it, and what is said.
+
+NOT_YET_SHORT = "Add it to your wardrobe for more photos and a video."      # under the picture, where they were
+NOT_YET_NO_VIDEO = "Add it to your wardrobe for more photos."               # … when videos are off
+NOT_YET = "More photos and videos are for the outfits in your wardrobe: add this one first."   # a refused request
+
+
+def more_for_anyone() -> bool:
+    """Whether the signed-in person may ask for "More photos" and "See it move" on any outfit, said yes to or not:
+    when the switch more_only_on_yes in config/looks.toml is false, on your own machine (not settings.PRODUCTION),
+    and for an owner or a Pro account (python -m wardrobe owner add / pro add), so the owner can try any outfit."""
+    if not settings.PRODUCTION or not load_rules()["pictures"].get("more_only_on_yes", True):
+        return True
+    try:
+        user_id = db.uid()
+    except RuntimeError:                 # nobody signed in: nobody's outfit
+        return False
+    return db.is_owner(user_id) or db.is_pro(user_id)
 
 
 # ── a picture of the customer's own photo: his yes before it goes out again ──

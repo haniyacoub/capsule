@@ -283,6 +283,14 @@ Things to know:
   `auto = false` in [config/looks.toml](config/looks.toml) to draw only when
   you press "See it worn". `per_day` in the same file caps how many are started
   in 24 hours.
+- **More only on a yes:** "More photos" and "See it move" (below) are offered
+  only on an outfit the customer has added to his wardrobe; on the others one
+  line says so ("Add it to your wardrobe for more photos and a video."). The
+  server refuses them too, before anything is billed. Pictures and videos made
+  already stay shown, also after "Take out". Owners and Pro accounts, and your
+  own machine, get them on every outfit. `more_only_on_yes = false` under
+  `[pictures]` in [config/looks.toml](config/looks.toml) offers them on every
+  outfit again.
 - **Six pictures of an outfit:** the one drawn by itself is the front picture:
   the man standing, facing the camera, on a white studio background, with the
   dots. Under it, "More photos" draws five more: walking and turned (white

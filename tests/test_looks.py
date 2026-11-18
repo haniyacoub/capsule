@@ -19,7 +19,7 @@ import threading
 import unittest
 import urllib.error
 import zlib
-from contextlib import closing
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -30,6 +30,7 @@ from wardrobe import videos
 from wardrobe import profile as profile_mod
 from wardrobe.__main__ import main
 from wardrobe.app import PHOTO_CONSENT, eur
+from wardrobe.config import ConfigError
 
 from . import having
 from . import test_production as production
@@ -2612,6 +2613,10 @@ class PicturesForCustomers(WithPictures, ProductionCase):
     def ask(self, client, key, **more):
         return self.post(client, "/outfits/look", headers=HX, key=key, **more)
 
+    def say_yes(self, client, key):
+        """"Add to my wardrobe": an outfit's other photos are made only of the outfits he said yes to."""
+        self.post(client, "/outfits/save", key=key, want="save")
+
     def test_what_customers_type_never_reaches_the_image_service(self):
         pieces = [
             {"layer": "top", "category": "knit", "hex": "#8d8f92", "owned": False, "source": "collected",
@@ -2722,6 +2727,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.with_rules(per_customer_per_day=3, per_day=50)
         ada, bob = self.member("ada@example.com"), self.member("bob@example.com")
         key = self.outfit_keys(ada)[0]
+        self.say_yes(ada, key)
         front = self.ask(ada, key).data.decode()
         self.assertIn("look-pic", front)
         self.assertNotIn("5 pictures of your 3 a day", front, "five were promised of three")
@@ -2734,6 +2740,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertIn(b"look-pic more", self.ask(ada, key, shot="walking").data, "a picture drawn already costs nothing")
         self.assertIn(b"look-pic more", self.ask(bob, key, shot="walking").data, "and is there for the next customer too")
         self.assertEqual(len(self.drawn), 3)
+        self.say_yes(bob, key)
         self.assertIn(b"look-pic more", self.ask(bob, key, shot="street").data, "the allowance is per customer")
         self.assertEqual(len(self.drawn), 4)
 
@@ -2743,6 +2750,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         ada.post("/profile/photo", content_type="multipart/form-data", data={
             "photo": (io.BytesIO(PHOTO), "me.jpg"), "agree": "on", "csrf_token": self.token(ada)})
         key = self.outfit_keys(ada)[0]
+        self.say_yes(ada, key)
         self.ask(ada, key)
         self.assertEqual(self.drawn[0]["photo"], person.tidy(PHOTO)[0])
         self.assertIn("the person in the attached photo", self.drawn[0]["prompt"])
@@ -2923,3 +2931,111 @@ class PicturesForCustomers(WithPictures, ProductionCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MorePhotosOnlyOnYes(WithPictures, ProductionCase):
+    """The front picture of every outfit looked at is drawn; "More photos" and a pose or surrounding of an outfit
+    only once he has said yes to it (config/looks.toml, more_only_on_yes): the money follows what he wants."""
+
+    def setUp(self):
+        super().setUp()
+        self.switch_on()
+        self.ada = self.member("ada@example.com")
+        self.key = re.findall(r'id="outfit-(\w+)"', self.ada.get("/outfits").data.decode())[0]
+
+    def ask(self, **more):
+        return self.post(self.ada, "/outfits/look", headers=HX, key=self.key, **more)
+
+    def tickets(self):
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            return con.execute("SELECT COUNT(*) FROM look_requests").fetchone()[0]
+
+    def say_yes(self):
+        self.post(self.ada, "/outfits/save", key=self.key, want="save")
+
+    def test_an_outfit_not_said_yes_to_has_its_front_picture_and_says_a_yes_brings_more(self):
+        box = words(self.ask().data.decode())
+        self.assertEqual(len(self.drawn), 1, "the front picture is drawn as always")
+        self.assertIn("Add it to your wardrobe for more photos.", box)
+        self.assertNotIn("More photos", box)
+        self.assertIn("Draw again", box, "the front picture can be drawn again as before")
+        self.assertIn("Add it to your wardrobe for more photos.", words(self.ada.get("/outfits").data.decode()))
+
+    def test_the_server_refuses_more_photos_and_a_pose_before_a_yes(self):
+        self.ask()
+        drawn, tickets = len(self.drawn), self.tickets()
+        row = html_mod.unescape(self.ask(more="1", shown="front").data.decode())
+        self.assertIn(looks.NOT_YET, row)
+        box = html_mod.unescape(self.ask(shot="walking").data.decode())
+        self.assertIn(looks.NOT_YET, box)
+        self.assertNotIn("look-pic more", box, "the front picture stays large")
+        plain = self.ada.post("/outfits/look", data={"key": self.key, "more": "1", "csrf_token": self.token(self.ada)})
+        self.assertEqual(plain.status_code, 302, "without JavaScript: back to the outfit, with the reason")
+        self.assertEqual((len(self.drawn), self.tickets()), (drawn, tickets), "nothing drawn, no picture of the day taken")
+
+    def test_after_a_yes_more_photos_is_offered_and_draws_them(self):
+        self.ask()
+        self.say_yes()
+        page = words(self.ada.get("/outfits?occasion=saved").data.decode())
+        self.assertIn("More photos", page)
+        self.assertNotIn("Add it to your wardrobe for more photos", page)
+        self.ask(more="1", shown="front")
+        self.assertEqual(len(self.drawn), 6, "the front picture and five more")
+
+    def test_a_refusal_is_said_once_and_gone_after_a_yes(self):
+        page = self.ada.get("/outfits").data.decode()
+        sig = re.search(r'name="key" value="%s">\s*<input type="hidden" name="sig" value="([^"]+)"' % self.key, page).group(1)
+        self.ask()
+        self.ask(more="1", shown="front")
+        self.say_yes()
+        page = self.ada.get(f"/outfits?at={sig}").data.decode()
+        first = page.split('class="slide', 2)[1]
+        self.assertIn(f'id="outfit-{self.key}"', first, "the outfit said yes to, shown first by its address")
+        self.assertIn("More photos", first)
+        self.assertNotIn("Add it to your wardrobe for more photos", first)
+        self.assertNotIn(html_mod.escape(looks.NOT_YET), page, "the refusal from before the yes is not said again")
+
+    def test_taking_it_out_keeps_the_photos_made_and_offers_no_new_ones(self):
+        self.ask()
+        self.say_yes()
+        self.ask(shot="walking")                   # one of the five, drawn while it was his
+        self.assertEqual(len(self.drawn), 2)
+        self.post(self.ada, "/outfits/save", key=self.key, want="remove")
+        row = self.ask(shot="walking").data.decode()
+        self.assertIn("look-pic more", row, "the walking photo is still shown")
+        self.assertNotIn(">Draw again<", row, "but not drawn again")
+        self.assertIn("Add it to your wardrobe for more photos.", words(row))
+        self.assertNotIn('class="plus"', row, "the photos not drawn are not offered")
+        self.ask(shot="street")
+        self.assertEqual(len(self.drawn), 2)
+
+    def test_drawing_the_front_again_does_not_promise_photos_it_will_not_offer(self):
+        self.ask()
+        self.say_yes()
+        self.ask(shot="walking")
+        self.post(self.ada, "/outfits/save", key=self.key, want="remove")
+        asked = html_mod.unescape(self.ask(again="1").data.decode())
+        self.assertIn("will be removed. Add the outfit to your wardrobe to make it again.", asked)
+        self.assertNotIn("“More photos” draws", asked)
+
+    def test_owners_pro_accounts_and_the_switch_keep_everything_on_every_outfit(self):
+        self.ask()
+        db.add_owner("ada@example.com")
+        self.assertIn("More photos", self.ask().data.decode(), "an owner may try any outfit")
+        db.remove_owner("ada@example.com")
+        with redirect_stdout(io.StringIO()):
+            main(["pro", "add", "ada@example.com"])
+        self.assertIn("More photos", self.ask().data.decode(), "so may a Pro account")
+        with redirect_stdout(io.StringIO()):
+            main(["pro", "remove", "ada@example.com"])
+        self.assertNotIn("More photos", self.ask().data.decode())
+        self.with_rules(more_only_on_yes=False)
+        self.assertIn("More photos", self.ask().data.decode(), "more_only_on_yes = false: on every outfit, as before")
+        self.ask(more="1", shown="front")
+        self.assertEqual(len(self.drawn), 6)
+
+    def test_the_switch_must_be_true_or_false(self):
+        data = copy.deepcopy(looks.load_rules())
+        data["pictures"]["more_only_on_yes"] = "yes"
+        with self.assertRaises(ConfigError):
+            looks._check(data)
