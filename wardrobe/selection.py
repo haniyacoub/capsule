@@ -16,7 +16,9 @@ Rules, in order:
                          goes to upgrades, best value first (see fit_budget below).
                          A piece's product therefore does not depend on which
                          outfits he said yes to: a yes adds exactly the products
-                         the outfit showed, at the prices it showed
+                         the outfit showed, at the prices it showed. A piece with
+                         nothing that reaches the minimum quality takes its
+                         cheapest option in your size, with a warning (_fit)
      "In stock in your size" first: a candidate whose store gave no sizes (COS)
      is considered only when none known to be in your size reaches the minimum
      quality. One known to be sold out in your size, or not made in it, is never
@@ -170,6 +172,9 @@ class SlotView:
     # where none fits. The piece's page says it: with a cheaper option in its list that the style passed over,
     # "the cheapest option rated 70 or more" alone would not be true.
     styled: str = ""
+    # "Best for budget" with nothing for this piece that reaches the minimum quality: it takes its cheapest option in
+    # his size (_fit), not the best-rated one a price level takes (choose). The piece's page says which.
+    cheapest_instead: bool = False
 
     @property
     def mine(self) -> bool:
@@ -592,6 +597,26 @@ def next_best(cands: list[Cand], sold_out: Cand, threshold: int) -> Cand | None:
 
 # ── best for budget: the wardrobe as a whole ──────────────────────────────────
 
+def cheapest_instead(cands: list[Cand]) -> Cand | None:
+    """"Best for budget" for a piece with nothing that reaches the minimum quality: its cheapest option in your
+    size (one whose sizes were not checked only where none is known to be in your size), never one sold out in your
+    size, not made in it, or without a price. At equal prices the better one. None when there is nothing to buy."""
+    available = [c for c in cands if c.available and c.price > 0]
+    if not available:
+        return None
+    return min(in_your_size_first(available), key=lambda c: (c.price, -c.score.total))
+
+
+def cheapest_words(cands: list[Cand], threshold: int) -> str:
+    """The warning on a piece that takes its cheapest option because nothing reaches the minimum quality
+    (cheapest_instead): 'Nothing reaches 70 — this is the cheapest in your size' where options whose sizes were not
+    checked were passed over (one of them might cost less), else '… — this is the cheapest available'."""
+    available = [c for c in cands if c.available and c.price > 0]
+    if len(in_your_size_first(available)) < len(available):
+        return f"Nothing reaches {threshold} — this is the cheapest in your size"
+    return f"Nothing reaches {threshold} — this is the cheapest available"
+
+
 def _worth_paying_for(pool: list[Cand]) -> list[Cand]:
     """A slot's candidates as a ladder, cheapest first: each rung costs more and scores higher than the last."""
     ladder: list[Cand] = []
@@ -763,11 +788,18 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         for view in views:
             if view.slot["id"] in picks:
                 view.chosen = picks[view.slot["id"]]
+                if view.chosen.score.total < threshold:     # nothing reaches it: the cheapest instead (_fit)
+                    view.cheapest_instead, view.warn = True, True
+                    view.note = cheapest_words(view.cands, threshold)
         if not fits:
+            # A piece with nothing that reaches the minimum quality is on its cheapest option all the same.
+            where = " where one does" if any(view.cheapest_instead for view in views) else ""
+            on = "the cheapest of those" if of_style else "its cheapest option"
+            if of_style and where:
+                on += " (its cheapest option where none does)"
             wardrobe.note = (
-                f"Even on their cheapest options that reach your minimum quality{of_style}, the pieces your outfits "
-                f"are made from come to more than your budget together, so every piece is on "
-                f"{'the cheapest of those' if of_style else 'its cheapest option'}. Lower the "
+                f"Even on their cheapest options that reach your minimum quality{of_style}{where}, the pieces your "
+                f"outfits are made from come to more than your budget together, so every piece is on {on}. Lower the "
                 "minimum quality, mark what you own, or raise the budget on the Profile page.")
         if not wardrobe.budget_known:
             wardrobe.note = (f"“Best for budget” is still fitted to {wardrobe.budget:,.0f} €, the budget your account "
@@ -837,13 +869,14 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
 
 
 def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
-    """Best for budget, for this wardrobe: (the pick per free slot, whether it fits, what it all costs).
+    """Best for budget, for this wardrobe: (the pick per automatic slot, whether it fits, what it all costs).
 
     The slots it may move are the automatic ones that have candidates reaching the minimum quality, and each
-    moves among those in your size first, as a price level does (choose). Everything else (owned, locked, a
-    best-available fallback) is money already spent. A locked product that is sold out in his size counts nothing
-    in the total, but its price is kept aside here: the swap offered for it costs about as much, and the money
-    must not be spent on upgrades that the swap would then take back.
+    moves among those in your size first, as a price level does (choose). An automatic slot with none that does
+    takes its cheapest option in your size (cheapest_instead), and is in the picks too. Everything else (owned,
+    locked, those cheapest options) is money already spent. A locked product that is sold out in his size counts
+    nothing in the total, but its price is kept aside here: the swap offered for it costs about as much, and the
+    money must not be spent on upgrades that the swap would then take back.
 
     Every piece counts as often as the plan has it (two white tees), whether or not his wardrobe holds the spare:
     what is picked must not depend on what he has said yes to so far (build).
@@ -853,22 +886,29 @@ def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
 
     free = [(view, [c for c in view.cands if c.available and c.price > 0 and c.score.total >= wardrobe.threshold])
             for view in wardrobe.slots if view.state == "auto"]
+    # A piece with nothing that reaches the minimum quality takes its cheapest option in his size (cheapest_instead),
+    # not the best-rated one a price level takes: the best-rated one, counted as money already spent, could break
+    # the budget by itself. It is money already spent all the same: there is nothing better for it to move to.
+    instead = {view.slot["id"]: cheapest for view, pool in free if not pool
+               and (cheapest := cheapest_instead(view.cands)) is not None}
     free = [(view, style.narrow(in_your_size_first(pool), view.slot["category"], wardrobe.brief))
             for view, pool in free if pool]
     moving = {view.slot["id"]: min(pool, key=lambda c: (c.price, -c.score.total)) for view, pool in free}
-    fixed = [view for view in wardrobe.slots if view.slot["id"] not in moving]
+    fixed = [replace(view, chosen=instead[view.slot["id"]]) if view.slot["id"] in instead else view
+             for view in wardrobe.slots if view.slot["id"] not in moving]
     spent = sum(planned(view) for view in fixed if not view.sold_out)
     aside = sum(planned(view) for view in fixed if view.sold_out)
     # How much each slot is worn is judged with every free slot on its cheapest candidate, whatever
     # is selected right now: the answer must not depend on the level the page happens to be on.
-    basis = replace(wardrobe, slots=[replace(view, chosen=moving[view.slot["id"]]) if view.slot["id"] in moving
+    start = {**instead, **moving}
+    basis = replace(wardrobe, slots=[replace(view, chosen=start[view.slot["id"]]) if view.slot["id"] in start
                                      else view for view in wardrobe.slots])
     slots, wear = [(view.slot["id"], view.planned, pool) for view, pool in free], _wear(basis)
     picks, fits = fit_budget(slots, wardrobe.budget - spent - aside, wear)
     if not fits and aside:      # only the money kept aside is in the way: what can be bought does fit
         picks, fits = fit_budget(slots, wardrobe.budget - spent, wear)
     total = spent + sum(picks[view.slot["id"]].price * view.planned for view, _ in free)
-    return picks, fits, round(total, 2)
+    return {**instead, **picks}, fits, round(total, 2)
 
 
 def _wear(wardrobe: Wardrobe) -> dict[str, float]:

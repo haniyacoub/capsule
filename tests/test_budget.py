@@ -4,13 +4,19 @@ What this round promises:
   * the usual price ranges start where budget stores sell (config/scoring.toml): a 7.99 € cotton tee reaches the
     minimum quality of 70, and cheap is still not always good enough;
   * the demo has a budget store's basics (OTTO, mock.py), every one of them read in the customer's own sizes;
+  * "Best for budget" gives a piece with nothing rated 70 or more its cheapest option in his size, and says so: the
+    best-rated one, which a price level takes, could break the budget by itself;
 """
+import html
 import unittest
 
-from wardrobe import mock, programmes, scoring, shared, sizes
+from wardrobe import catalog, db, mock, programmes, scoring, selection, shared, sizes
+from wardrobe import profile as profile_mod
 from wardrobe.garments import GARMENTS
 
+from .test_app import AppCase
 from .test_production import ProductionCase
+from .test_production import words as page_words
 from .test_store_picker import empty_rows, rows
 
 
@@ -89,3 +95,75 @@ class TheStoresTab(ProductionCase):
         page = self.member("ada@example.com").get("/profile").get_data(as_text=True)
         self.assertEqual([key for key, _, _ in rows(page)], ["cos", "weekday", "otto"])
         self.assertNotIn("otto", [key for key, _, _ in empty_rows(page)])
+
+
+EU = ["41", "42", "43", "44", "45"]
+
+
+def derby(store: str, number: int, price: float, in_stock: list[str], sizes_all: list[str] | None = None) -> dict:
+    """Dark brown derby shoes of polyurethane: rated far under 70 at any store."""
+    return {"id": f"{store}-{number}", "store": store, "name": "Derby-Schuhe", "price": price, "currency": "EUR",
+            "colour": "Dunkelbraun", "colour_hex": None, "composition_text": "100 % Polyurethan", "fit": "regular",
+            "description": "", "sizes_all": EU if sizes_all is None else sizes_all, "sizes_in_stock": in_stock,
+            "url": f"https://www.example.com/{store}/{number}", "image_url": "", "source": "collected",
+            "category": "shoes"}
+
+
+class NothingGoodEnough(AppCase):
+    """A piece whose every option is rated under 70: at a price level its best-rated option, as before; at "Best for
+    budget", fitted to his budget, its cheapest option in his size."""
+    PIECE = "dark-brown-derby-shoes"
+
+    def setUp(self):
+        super().setUp()
+        db.set_setting("sizes_confirmed", True)          # "in your size", not "in the example size"
+        options = [derby("weekday", 1, 90, ["43"]),       # rated 35: the best-rated in his size
+                   derby("otto", 2, 39.99, ["43"]),       # rated 34: the cheapest in his size
+                   derby("cos", 3, 25, [], sizes_all=[]),  # sizes not checked: passed over for those in his size
+                   derby("weekday", 4, 20, ["44"])]        # sold out in his size: never picked automatically
+
+        def only_these(cat: dict) -> None:
+            cat["candidates"] = [c for c in cat["candidates"] if c["slot_id"] != self.PIECE] + [
+                {**option, "slot_id": self.PIECE} for option in options]
+        catalog.update(only_these)
+
+    def piece_page(self) -> str:
+        return html.unescape(page_words(self.client.get(f"/slot/{self.PIECE}").data.decode()))
+
+    def test_best_for_budget_takes_the_cheapest_option_in_his_size_and_says_so(self):
+        self.set_mode("cheapest")
+        w = selection.build()
+        view = w.get(self.PIECE)
+        self.assertEqual((view.chosen.id, view.note), ("weekday-1", "Nothing reaches 70 — this is the best in your size"))
+        self.assertIn("Picked for you: the best-rated option in your size.", self.piece_page())
+        # A budget the cheapest level's total does not fit, with the best-rated shoes counted in it, but the plan
+        # on its cheapest options does: so "Best for budget" fits it only with the cheapest shoes.
+        budget = round(w.levels["cheapest"] - 20)
+        profile_mod.save({**profile_mod.load(), "example": False, "budget": budget})
+        profile_mod.answer("budget")
+        self.set_mode("budget")
+        w = selection.build()
+        view = w.get(self.PIECE)
+        self.assertEqual(view.chosen.id, "otto-2")
+        self.assertTrue(view.warn and view.cheapest_instead)
+        self.assertEqual(view.note, "Nothing reaches 70 — this is the cheapest in your size")
+        self.assertEqual(w.note, "", "it fits the budget")
+        self.assertLessEqual(w.total, budget)
+        said = self.piece_page()
+        self.assertIn("Picked for you: the cheapest option in your size. Choose another below to swap it in. "
+                      "Nothing reaches your minimum quality of 70.", said)
+        self.assertNotIn("best-rated", said)
+        self.assertNotIn("what your budget allows", said)
+        # What the price levels show for "Best for budget", seen from another level, is what it then costs.
+        total = w.total
+        self.set_mode("cheapest")
+        self.assertEqual(selection.build().levels["budget"], total)
+
+    def test_the_cheapest_in_his_size_is_never_one_he_cannot_buy(self):
+        view = selection.build().get(self.PIECE)
+        self.assertEqual(selection.cheapest_instead(view.cands).id, "otto-2", "not the sold-out one, nor the "
+                                                                              "one whose sizes were not checked")
+        unchecked = [c for c in view.cands if c.id == "cos-3"]
+        self.assertEqual(selection.cheapest_instead(unchecked).id, "cos-3", "where none is known to be in his size")
+        self.assertEqual(selection.cheapest_words(unchecked, 70), "Nothing reaches 70 — this is the cheapest available")
+        self.assertIsNone(selection.cheapest_instead([c for c in view.cands if c.id == "weekday-4"]))
