@@ -463,7 +463,7 @@ def run(base: str) -> None:
                 for what, name in (("adds", "what a yes adds"), ("yes", "'Add to my wardrobe'"), ("no", "'Not for me'")):
                     assert seen[what] and seen["dock"][0] <= seen[what][0] and seen[what][1] <= seen["tabs"], \
                         f"{size} {name} is not on the first screen above the tab bar ({seen['tabs']:.0f}px): {seen[what]}"
-                assert re.fullmatch(r"(\d+ new pieces? [\d.,]+\s€.*|Nothing new to buy: .+ in your wardrobe)", seen["adds"][2]), \
+                assert re.fullmatch(r"(\d+ new pieces? [\d.,]+\s€.*|You can already wear this: .+ yours)", seen["adds"][2]), \
                     f"{size} the bar says of what a yes adds: {seen['adds'][2]!r}"
                 assert seen["slide"] == f"outfit-{seen['key']}" and not seen["left_in_outfit"], \
                     f"{size} the bar's answers are not those of the outfit on screen, or they are there twice: {seen}"

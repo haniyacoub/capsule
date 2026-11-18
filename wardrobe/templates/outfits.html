@@ -42,7 +42,7 @@
 {% if answer and answer.kind == 'yes' %}
 {# After "Add to my wardrobe": what was added, with Undo (it takes the outfit out again) and the way to buy it. #}
 <div class="flash said short answered" role="status" data-answered>
-  <p>Added {{ answered_name(answer) }} to your wardrobe{% if answer.words.startswith('Nothing') %}. {{ answer.words }}.{% else %}: {{ answer.words[0]|lower }}{{ answer.words[1:] }}.{% endif %}</p>
+  <p>{% if answer.words.startswith('You can already wear this') %}Saved {{ answered_name(answer) }} to My outfits. All its pieces are yours already.{% elif answer.words.startswith('Nothing') %}Added {{ answered_name(answer) }} to your wardrobe. {{ answer.words }}.{% else %}Added {{ answered_name(answer) }} to your wardrobe: {{ answer.words[0]|lower }}{{ answer.words[1:] }}.{% endif %}</p>
   {{ answered_thumbs(answer) }}
   <form method="post" action="{{ url_for('outfits_save') }}">{{ csrf_field() }}
     <input type="hidden" name="key" value="{{ answer.key }}">
@@ -220,7 +220,8 @@
         {% endif %}
         <div class="answer">
           {% include "_save_button.html" %}
-          {% if o.sig and not o.saved %}
+          {# No "Not for me" under an outfit he can already wear, every piece his (review N6): it is his to save. #}
+          {% if o.sig and not o.saved and not (o.adds and o.adds.all_yours) %}
           {# Where the page comes back to after the no (app.py, outfits_no): the outfit that follows this one in the
              row ("next", its key); after the last one, whatever then stands in its place ("i", its place). #}
           <form class="no" method="post" action="{{ url_for('outfits_no') }}">{{ csrf_field() }}

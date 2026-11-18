@@ -66,12 +66,19 @@ class Adds:
             return "In your wardrobe"
         n = len(self.new) + len(self.have)
         if not self.new:
-            # (Short enough for one line of a phone's bar over the tabs, app.css .dock.)
-            return f"Nothing new to buy: {'its piece is' if n == 1 else f'all {n} are'} in your wardrobe"
+            # The capsule's promise come true, said as such (review N6). (Short enough for one line of a phone's bar
+            # over the tabs, app.css .dock.)
+            return f"You can already wear this: {'its piece is' if n == 1 else f'all {n} pieces are'} yours"
         said = f"{self.n_new} new {pieces_word(self.n_new)} {eur(self.cost)}"
         if self.have:
             said += f", {self.n_have} already in your wardrobe"
         return said
+
+    @property
+    def all_yours(self) -> bool:
+        """Every piece of it is in his wardrobe already, and he has not said yes to it: the yes saves it to My
+        outfits ("Save to My outfits"), and there is no "Not for me" to say."""
+        return not self.in_wardrobe and not self.new and bool(self.have)
 
     @property
     def over_short(self) -> str:

@@ -261,14 +261,26 @@ class SayingYes(YesCase):
         w = selection.build()
         adds = yes.adds(w, outfits.find_by_sig(w, small.sig))
         self.assertEqual((adds.cost, adds.new, adds.over_words), (0, [], ""))
-        self.assertEqual(adds.words, f"Nothing new to buy: all {len(small.slots)} are in your wardrobe")
-        self.assertIn(f'<span class="plus">+ {eur(0)}</span>', self.page("/outfits", at=small.sig))
+        # The capsule's promise come true, said as such (review N6): he can wear it already. Its yes saves it to My
+        # outfits, with no "+ 0 €", and there is no "Not for me" under it.
+        self.assertTrue(adds.all_yours)
+        self.assertEqual(adds.words, f"You can already wear this: all {len(small.slots)} pieces are yours")
+        page = self.page("/outfits", at=small.sig)
+        box = re.search(rf'<div class="yes-box" data-answer>.*?id="save-{small.key}".*?</div>\s*</div>', page, re.S).group(0)
+        self.assertIn(f"<p class=\"adds\">You can already wear this: all {len(small.slots)} pieces are yours</p>", box)
+        self.assertIn("<span>Save to My outfits</span>", box)
+        self.assertNotIn('class="plus"', box)
+        self.assertNotIn("Not for me", box)
+        self.assertEqual(page.count("Not for me</button>"), page.count('<div class="yes-box"') - 1, "the others keep theirs")
+        # Its Buy page says the same, with the same button.
+        buy = self.page("/outfits/buy", at=small.sig)
+        self.assertIn("You can already wear this", buy)
+        self.assertIn("<span>Save to My outfits</span>", buy)
         # After the yes the page says so in a sentence of its own, and the bar has not moved.
         total = selection.build().mine.total
         answer = self.say_yes(outfits.find_by_sig(selection.build(), small.sig))
-        self.assertRegex(self.answered_line(self.page(answer.headers["Location"])), "^Added " + self.called(small, 0)
-                         + re.escape(f" to your wardrobe. Nothing new to buy: all {len(small.slots)} are in your wardrobe. ")
-                         + self.its_pieces(small) + " Undo$")
+        self.assertRegex(self.answered_line(self.page(answer.headers["Location"])), "^Saved " + self.called(small, 0)
+                         + re.escape(" to My outfits. All its pieces are yours already. ") + self.its_pieces(small) + " Undo$")
         self.assertEqual(selection.build().mine.total, total)
 
     def test_a_piece_says_how_many_of_his_outfits_wear_it(self):
