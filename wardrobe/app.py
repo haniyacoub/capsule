@@ -1762,9 +1762,10 @@ def create_app() -> Flask:
 
     @app.get("/list.md")
     def list_markdown():
+        # "Download as plain text" (list.html): a .txt file, which every phone and computer opens (review N16).
         text = export.to_markdown(export.build(selection.build().mine))
-        return Response(text, mimetype="text/markdown; charset=utf-8",
-                        headers={"Content-Disposition": "attachment; filename=shopping-list.md"})
+        return Response(text, mimetype="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": "attachment; filename=shopping-list.txt"})
 
     @app.get("/list.csv")
     def list_csv():

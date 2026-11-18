@@ -86,6 +86,7 @@ class ShoppingList:
     demo: bool
     sold_out: list[Line] = field(default_factory=list)     # chosen, but sold out in your size: not to buy, not counted
     example_sizes: bool = False     # the sizes are still the example's: "in the example size"
+    budget_known: bool = True       # False until he gave a budget: then nothing is "left" or "over" (Wardrobe.budget_known)
 
     @property
     def remaining(self) -> float:
@@ -151,21 +152,36 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
     total = w.total if only is None else round(sum(g.subtotal for g in ordered), 2)
     return ShoppingList(groups=ordered, owned=owned, missing=missing, total=total, budget=w.budget,
                         collected=w.collected, demo=w.source == "mock", sold_out=sold_out,
-                        example_sizes=w.example_sizes)
+                        example_sizes=w.example_sizes, budget_known=w.budget_known)
 
 
 def _eur(value: float) -> str:
     return f"{value:,.0f} €" if abs(value - round(value)) < 0.005 else f"{value:,.2f} €"
 
 
+def _size_words(size: str, example: bool) -> str:
+    """A row's size as the page says it (_macros.html, order_words): "size M", "size M (example size)" while his sizes
+    are the example's, "size M (check)" where the store's sizes were not checked, "size M (example size, check)", and
+    where no size is known, "choose your size at the store"."""
+    if size == "check":
+        return "choose your size at the store"
+    if example and size.endswith(" (check)"):
+        return f"size {size[:-len(' (check)')]} (example size, check)"
+    return f"size {size}{' (example size)' if example else ''}"
+
+
 def to_markdown(sl: ShoppingList) -> str:
+    """The list as a text file (the page's "Download as plain text", saved as shopping-list.txt): Markdown, which
+    reads as plain text and can be ticked off in a notes app. As the page: the budget only once he gave one, and a
+    size that is still the example's says so."""
     out = [f"# Shopping list — {date.today().strftime('%-d %B %Y')}", ""]
     if sl.demo:
         out += ["> DEMO DATA: these items are invented. Run `python -m wardrobe refresh` for real ones.", ""]
     left = f"{_eur(sl.remaining)} left" if sl.remaining >= 0 else f"{_eur(-sl.remaining)} over budget"
+    budget = f" · budget {_eur(sl.budget)} · {left}" if sl.budget_known else ""
     gone = sl.pieces_sold_out
     sold = f" ({gone} more {'is' if gone == 1 else 'are'} {sl.gone_words} and not counted)" if gone else ""
-    out += [f"**{_eur(sl.total)}** for {sl.pieces} pieces{sold} · budget {_eur(sl.budget)} · {left}",
+    out += [f"**{_eur(sl.total)}** for {sl.pieces} pieces{sold}{budget}",
             f"Prices and stock as of {sl.collected}.",
             "Prices include VAT. Each store adds its own delivery costs at checkout.", ""]
     for g in sl.groups:
@@ -174,7 +190,8 @@ def to_markdown(sl: ShoppingList) -> str:
             qty = f"{line.qty} × " if line.qty > 1 else ""
             colour = f", {line.colour}" if line.colour else ""
             spare = f" ({line.spare_words})" if line.spares else ""
-            out.append(f"- [ ] **{line.slot}** — {qty}{line.product}{colour}{spare} — size {line.size} — {_eur(line.total)}")
+            out.append(f"- [ ] **{line.slot}** — {qty}{line.product}{colour}{spare} — {_size_words(line.size, sl.example_sizes)}"
+                       f" — {_eur(line.total)}")
             out.append(f"  <{line.url}>")
             out += [f"  - {note}" for note in line.notes]
         out.append("")

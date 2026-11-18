@@ -3,6 +3,7 @@ import csv
 import io
 import re
 import unittest
+from dataclasses import replace
 
 from wardrobe import catalog, db, export, outfits, paths, programmes, selection, sizecheck, sizes, yes
 from wardrobe import profile as profile_mod
@@ -305,6 +306,23 @@ class ShoppingList(AppCase):
         self.assertEqual(set(rows[0]), {"store", "slot", "product", "colour", "size", "quantity",
                                         "unit_price_eur", "total_eur", "link", "notes"})
 
+    def test_the_text_file_says_a_budget_only_once_given_and_sizes_as_the_page_does(self):
+        # It said "budget 1,500 € · 859.02 € left" to someone who had given no budget (the example's), and "size M"
+        # where the page says "M (example size)".
+        w = selection.build()
+        given = export.to_markdown(export.build(replace(w, budget_known=True, example_sizes=False)))
+        self.assertIn(f" · budget {export._eur(w.budget)} · ", given)
+        none = export.to_markdown(export.build(replace(w, budget_known=False, example_sizes=False)))
+        self.assertNotIn("budget", none)
+        self.assertNotRegex(none, r" left$|over budget")
+        sizes = [line.size for g in export.build(w).groups for line in g.lines]
+        example = export.to_markdown(export.build(replace(w, budget_known=False, example_sizes=True)))
+        for size in sizes:
+            words = ("choose your size at the store" if size == "check" else
+                     f"size {size[:-8]} (example size, check)" if size.endswith(" (check)") else f"size {size} (example size)")
+            self.assertIn(f" — {words} — ", example)
+        self.assertNotIn("(example size)", none)
+
     def test_things_to_check_travel_with_the_list(self):
         w = selection.build()
         view = next(s for s in w.slots if any(c.data["fit"] == "slim" and c.available for c in s.cands))
@@ -322,7 +340,9 @@ class ShoppingList(AppCase):
         self.assertIn(b'href="/list.csv">Download for a spreadsheet (.csv)', page.data)
         self.assertIn(b'href="/list.md">Download as plain text', page.data)
         md = self.client.get("/list.md")
-        self.assertIn("attachment", md.headers["Content-Disposition"])
+        # "Download as plain text" gives a plain text file (review N16): shopping-list.txt, not a .md.
+        self.assertEqual(md.headers["Content-Disposition"], "attachment; filename=shopping-list.txt")
+        self.assertEqual(md.mimetype, "text/plain")
         self.assertIn("# Shopping list", md.data.decode())
         data = self.client.get("/list.csv")
         self.assertTrue(data.data.decode("utf-8-sig").startswith("store,slot,product"))
