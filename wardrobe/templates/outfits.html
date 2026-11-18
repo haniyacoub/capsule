@@ -20,10 +20,11 @@
 </div>
 {% endif %}
 {% if news %}{% include "_news.html" %}{% endif %}
-{# Which row of outfits this is (how many, which shuffle, and after a yes the outfits that stay in front): every form
-   under an outfit carries it, so that an answer comes back to the same row (app.py, same_row). Nothing for the row
-   every visit starts with. #}
-{% set row_fields %}{% if n != 12 %}<input type="hidden" name="n" value="{{ n }}">{% endif %}{% if seed %}<input type="hidden" name="seed" value="{{ seed }}">{% endif %}{% if front %}<input type="hidden" name="front" value="{{ front|join('.') }}">{% endif %}{% endset %}
+{# Which row of outfits this is (how many, which shuffle, after a yes the outfits that stay in front, and an outfit
+   shown first out of the row's order, asked for by the address after a swap: app.py, offered_row): every form under
+   an outfit carries it, so that an answer comes back to the same row (app.py, same_row). Nothing for the row every
+   visit starts with. #}
+{% set row_fields %}{% if n != 12 %}<input type="hidden" name="n" value="{{ n }}">{% endif %}{% if seed %}<input type="hidden" name="seed" value="{{ seed }}">{% endif %}{% if front %}<input type="hidden" name="front" value="{{ front|join('.') }}">{% endif %}{% if shown_first %}<input type="hidden" name="at" value="{{ shown_first }}">{% endif %}{% endset %}
 {# The messages below name the one outfit that was answered by its title and its number in the row, as the page
    showed them over it ("outfit 2 (Office, smart casual)"), and show its pieces as a row of small photos, named for a
    screen reader (yes.answered): two outfits never read the same, even where they share their coat and jeans, and where

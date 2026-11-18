@@ -1075,6 +1075,27 @@ def create_app() -> Flask:
         front = front_of(source) if front is None else front
         return {"n": n if n != 12 else None, "seed": seed or None, "front": ".".join(front) or None}
 
+    def offered_row(w: selection.Wardrobe, occasion: str, source,
+                    front: list[str]) -> tuple[list[outfits.Outfit], int, int, int, outfits.Outfit | None]:
+        """The outfits on offer, as the page shows them: (those outfits in order, how many there are in all, how many
+        he said no to, how many stand in front, kept there after a yes (`front`), and the one asked for by its address).
+        The outfit asked for ("at", after a swap or "wear something else here") is shown right behind those kept in
+        front, and counted where it is not among those on offer. A page that shows one says so in the forms under its
+        outfits (outfits.html, row_fields), and the answers given there (outfits_save, outfits_no) work the row out
+        here as the page did: the outfits that stood in front of the one answered, that one among them, stay in front
+        after it, and the outfit that follows takes its number, as everywhere."""
+        n, seed = place(source)
+        chosen, total, n_declined = yes.offer(w, occasion, n, seed, front)
+        held = next((i for i, o in enumerate(chosen) if o.key not in front), len(chosen)) if front else 0
+        at = str(source.get("at", ""))[:400]
+        first = outfits.find_by_sig(w, at) if at else None
+        if first is not None:
+            if not first.suits(occasion) or first.sig in db.yes_sigs() or first.sig in db.declined_sigs():
+                total += 1              # shown although it is not among those on offer: count it
+            if first.key not in {o.key for o in chosen[:held]}:     # (first of those behind the ones in front)
+                chosen = chosen[:held] + [first] + [o for o in chosen[held:] if o.key != first.key]
+        return chosen, total, n_declined, held, first
+
     @app.get("/outfits")
     def outfits_page():
         w = selection.build()
@@ -1088,6 +1109,7 @@ def create_app() -> Flask:
         yes_sigs = {fav["sig"] for fav in rows if fav["sig"]}
         said = None             # what a change just made from an outfit did (change_said)
         n_declined = 0
+        first = None            # the outfit asked for by the address, shown out of the row's order (offered_row)
 
         # The outfit just taken out of the wardrobe (outfits_save): said with Undo, and which pieces went with it.
         removed = None
@@ -1132,20 +1154,12 @@ def create_app() -> Flask:
         else:
             # The outfits he has not answered yet; those that wear pieces he already has come first (yes.offer).
             # After a yes, the outfits that stood in front of that one are still in front (front_of): `held` of them.
-            chosen, total, n_declined = yes.offer(w, occasion, n, seed, front)
-            held = next((i for i, o in enumerate(chosen) if o.key not in front), len(chosen)) if front else 0
-            at = request.args.get("at", "")
-            first = None
-            if at:      # one particular combination, shown first: after a swap, or "wear something else here"
-                first = outfits.find_by_sig(w, at)
-                if first:
-                    if not first.suits(occasion) or first.sig in yes_sigs or first.sig in db.declined_sigs():
-                        total += 1              # shown although it is not among those on offer: count it
-                    if first.key not in {o.key for o in chosen[:held]}:     # (first of those behind the ones in front)
-                        chosen = chosen[:held] + [first] + [o for o in chosen[held:] if o.key != first.key]
-                else:
-                    flash("With that change the combination no longer passes the outfit rules, "
-                          "so it is not shown. These do.")
+            # One particular combination asked for by the address ("at": after a swap, or "wear something else
+            # here") is shown first of those behind them (offered_row).
+            chosen, total, n_declined, held, first = offered_row(w, occasion, request.args, front)
+            if request.args.get("at") and first is None:
+                flash("With that change the combination no longer passes the outfit rules, "
+                      "so it is not shown. These do.")
             said = change_said(w, first)
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
                        "saved": o.sig in yes_sigs, "yes_sig": o.sig, "adds": yes.adds(w, o, yes_sigs)}
@@ -1175,6 +1189,7 @@ def create_app() -> Flask:
                     reusing=bool(yes_sigs) and any(b.get("adds") and b["adds"].have and not b["adds"].in_wardrobe
                                                    for b in boards[held:]) and len(boards) - held > 1,
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
+                    shown_first=first.sig if first else "",     # said in every form under an outfit (row_fields)
                     front=front, held=held,     # the outfits kept in front after a yes, and how many of them show
                     # Pieces whose chosen product is sold out in his size: said under the piece, with the swap.
                     sold={s.slot["id"]: s for s in w.slots if s.sold_out},
@@ -1626,8 +1641,8 @@ def create_app() -> Flask:
                 added = yes.adds(w, outfit)
                 sig = outfit.sig
                 row_now: list[str] = []
-                if where not in ("saved", "buy"):       # in the row: what stood in front of it stays in front
-                    row_now = [o.key for o in yes.offer(w, occasion or usual_occasion(), *place(request.form), stays)[0]]
+                if where not in ("saved", "buy"):       # in the row as the page showed it: what stood in front stays there
+                    row_now = [o.key for o in offered_row(w, occasion or usual_occasion(), request.form, stays)[0]]
                     if key in row_now:
                         stays = row_now[:row_now.index(key)]
                 for view in added.new:          # a yes adds one of each piece: never a spare left from earlier
@@ -1706,8 +1721,8 @@ def create_app() -> Flask:
         # The row as it stands now. After the no every other outfit of it stays in front, in its place, and one more
         # joins at the end: he goes on from where he was, and none he passed moves (a row sorted by what he has
         # would put the newcomer among them). Its Undo puts back the row as it was.
-        row_was = [o.key for o in yes.offer(selection.build(), occasion or usual_occasion(), *place(request.form),
-                                            front_of(request.form))[0]]
+        row_was = [o.key for o in offered_row(selection.build(), occasion or usual_occasion(), request.form,
+                                              front_of(request.form))[0]]
         row = same_row(request.form, [k for k in row_was if k != outfit.key])
         db.decline_outfit(sig)
         pieces = outfits.snapshot(outfit)

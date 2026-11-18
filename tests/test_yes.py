@@ -220,15 +220,27 @@ class BeforeAnyYes(YesCase):
         self.assertEqual([s["save"]["shown"] for s in seen], [str(i) for i in range(1, len(row) + 2)])
         third = outfits.find_by_sig(selection.build(), seen[2]["save"]["sig"])
         self.assertEqual(row.index(third.sig), 1, "second in the row without it")
-        said = self.answered_line(self.page(self.client.post("/outfits/save", data=seen[2]["save"]).headers["Location"]))
-        self.assertRegex(said, "^Added " + self.called(third, 3) + " to your wardrobe")
+        self.assertEqual(seen[2]["save"]["at"], apart.sig, "the form says which outfit the page showed first")
+        went = self.client.post("/outfits/save", data=seen[2]["save"]).headers["Location"]
+        page = self.page(went)
+        self.assertRegex(self.answered_line(page), "^Added " + self.called(third, 3) + " to your wardrobe")
+        # He goes on from where he was: the outfits in front of it stay there, the one asked for among them, and the
+        # page comes back on the next in line, which takes the number of the one he answered.
+        after = self.shown(page)
+        self.assertEqual(after[0]["save"]["sig"], apart.sig)
+        on = re.search(r"#outfit-(\w+)$", went).group(1)
+        self.assertEqual(next(s["number"] for s in after if s["save"]["key"] == on), 3)
         # A no, from the same kind of page: the first outfit behind the third that has a "Not for me".
         seen = self.shown(self.page("/outfits", at=apart.sig))
         answered = next(s for s in seen[3:] if "no" in s)
         self.assertEqual(answered["no"]["shown"], str(answered["number"]))
-        said = self.answered_line(self.page(self.client.post("/outfits/no", data=answered["no"]).headers["Location"]))
-        self.assertRegex(said, "^O" + self.called(outfits.find_by_sig(selection.build(), answered["no"]["sig"]),
-                                                  answered["number"])[1:] + " will not be offered again")
+        went = self.client.post("/outfits/no", data=answered["no"]).headers["Location"]
+        page = self.page(went)
+        self.assertRegex(self.answered_line(page), "^O" + self.called(outfits.find_by_sig(selection.build(), answered["no"]["sig"]),
+                                                                      answered["number"])[1:] + " will not be offered again")
+        on = re.search(r"#outfit-(\w+)$", went).group(1)
+        self.assertEqual(next(s["number"] for s in self.shown(page) if s["save"]["key"] == on), answered["number"],
+                         "the outfit that followed it takes its number")
         # And the outfit asked for, shown first: "outfit 1", where it used to be "this outfit".
         seen = self.shown(self.page("/outfits", at=apart.sig))
         self.assertEqual(seen[0]["save"]["sig"], apart.sig)
