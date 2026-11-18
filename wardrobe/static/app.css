@@ -1601,7 +1601,8 @@ details[open] > summary .edit { visibility: hidden; }
    account" right under it (before the longer words: order, below), and is as tall as the first screen allows once
    the header, the headline and that button are there: about 330px on a 390 x 664 phone, 510px on 390 x 844, so the
    whole model and the way in show at once. Its white studio ground keeps a thin edge in dark mode, so it reads as a
-   picture rather than a light box. */
+   picture rather than a light box. (Its `sizes` in landing.html says these widths too, so that the browser takes
+   the smaller file wherever it is enough: change both together.) */
 .hero:has(.hero-pic) { display: flex; flex-direction: column; }
 .hero-pic { order: 1; margin: var(--s-4) auto 0; width: min(100%, max(240px, 100svh - 334px) * 2 / 3); }
 .hero:has(.hero-pic) .hero-cta { order: 2; }

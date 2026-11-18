@@ -2946,6 +2946,9 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertIn("<figcaption>An example outfit</figcaption>", hero)
         self.assertRegex(hero, r'src="/static/landing-model\.jpg\?v=\w+"')
         self.assertRegex(hero, r'srcset="/static/landing-model-760\.jpg\?v=\w+ 510w, /static/landing-model\.jpg\?v=\w+ 805w"')
+        # How wide it is drawn, as app.css works it out (.hero-pic): 400px on a computer, on a phone two thirds of the
+        # screen's height less 334px. (Said wider, a phone takes the larger file where the smaller one is enough.)
+        self.assertIn('sizes="(min-width: 760px) 400px, calc((100vh - 334px) * 2 / 3)"', hero)
         self.assertRegex(hero, r'alt="AI picture of a model in [^"]+loafers"')
         self.assertNotRegex(words(hero), r"€|COS|Weekday")
         for name in ("landing-model.jpg", "landing-model-760.jpg"):

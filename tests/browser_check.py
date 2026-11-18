@@ -609,7 +609,8 @@ def run(base: str) -> None:
                             picture: (() => { const box = document.querySelector('.hero-pic-box'), img = box && box.querySelector('img');
                                 if (!box) return null; const b = box.getBoundingClientRect(), h = document.querySelector('main h1').getBoundingClientRect();
                                 return {top: b.top, bottom: b.bottom, left: b.left, height: b.height, loaded: img.complete && img.naturalWidth > 0,
-                                        label: box.querySelector('.ai-chip').textContent, words_right: h.right};})(),
+                                        label: box.querySelector('.ai-chip').textContent, words_right: h.right,
+                                        file: img.currentSrc.split('/').pop().split('?')[0]};})(),
                             cut: [...document.querySelectorAll('main h1, main h2, main p, main .btn')]
                                  .filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.textContent.trim().slice(0, 30))};
                 })""")
@@ -640,6 +641,18 @@ def run(base: str) -> None:
                     assert shown["height"] >= 400, f"the picture is {shown['height']:.0f}px tall on a 390 x 844 phone"
                 else:
                     assert shown["left"] >= shown["words_right"], f"the picture is not beside the words at {width}px: {shown}"
+                # The smaller of its two files where that is enough (`sizes`, landing.html): on both screens here, one
+                # pixel to a point (drawn 340 and 400px wide; the small file is 510px).
+                assert shown["file"] == "landing-model-760.jpg", f"at {width}px the browser took {shown['file']}"
+            # … and on a short phone with twice the pixels (drawn 220px wide: 440 of its pixels); with three times
+            # (660), the larger.
+            for scale, wanted in ((2, "landing-model-760.jpg"), (3, "landing-model.jpg")):
+                context = browser.new_context(viewport={"width": 390, "height": 664}, device_scale_factor=scale, is_mobile=True, has_touch=True)
+                visitor = context.new_page()
+                visitor.goto(base + "/", wait_until="networkidle")
+                took = visitor.evaluate("() => document.querySelector('.hero-pic-box img').currentSrc.split('/').pop().split('?')[0]")
+                context.close()
+                assert took == wanted, f"on a 390 x 664 phone at {scale} times its pixels the browser took {took}, not {wanted}"
             page.goto(base + "/legal/privacy", wait_until="networkidle")    # the customer is logged in here
             page.locator(".public-nav a", has_text="Open my outfits").click()
             page.wait_for_url(base + "/outfits")
