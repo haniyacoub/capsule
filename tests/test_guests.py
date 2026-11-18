@@ -323,6 +323,25 @@ class TheOpenDoor(GuestCase):
         self.assertEqual(visitor.get("/outfits").headers["Location"], "/login?next=/outfits")
         self.assertNotIn("Explore outfits", visitor.get("/").get_data(as_text=True))
 
+    def test_a_fault_in_the_example_never_keeps_the_site_from_starting(self):
+        # Should setting up the example wardrobe fail at start-up (a typo in a config file, a locked database), the
+        # site starts all the same: customers sign up and see their own outfits, and visitors are sent to log in, as
+        # before the door opened, until a start-up sets it up.
+        paths.DB_PATH.unlink(missing_ok=True)
+        with mock.patch.object(guests.capsule, "propose", side_effect=RuntimeError("boom")), \
+                redirect_stderr(StringIO()) as said:
+            self.app = create_app()
+        self.assertIn("the example wardrobe for visitors could not be set up (RuntimeError: boom)", said.getvalue())
+        self.assertIsNone(guests.example_id())
+        visitor = self.app.test_client()
+        self.assertEqual(visitor.get("/outfits").headers["Location"], "/login?next=/outfits")
+        self.assertNotIn("Explore outfits", self.page("/", visitor))
+        ada = self.member("ada@example.com")
+        self.assertIn('class="tabs"', self.page("/outfits", ada), "customers are not held up")
+        self.app = create_app()         # the next start-up sets it up
+        self.assertIsNotNone(guests.example_id())
+        self.assertEqual(self.app.test_client().get("/outfits").status_code, 200)
+
     def test_a_customer_still_has_his_own_outfits(self):
         ada = self.member("ada@example.com")
         page = self.page("/outfits", ada)

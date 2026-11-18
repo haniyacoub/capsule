@@ -41,7 +41,7 @@
     {% for name, label in legal_pages.items() %}<a href="{{ url_for('legal_page', name=name) }}">{{ label }}</a>{% endfor %}
     {% set partners = partner_stores() %}
     {% if partners == [] %}<span>Not affiliated with any retailer.</span>
-    {% elif partners %}<span class="partner-note">Partner links: {{ site_name }} may earn a commission when you buy at {{ partners[:-1]|join(', ') }}{{ ' or ' if partners|length > 1 }}{{ partners[-1] }}. You pay the same.</span>{% endif %}
+    {% elif partners and not guest %}<span class="partner-note">Partner links: {{ site_name }} may earn a commission when you buy at {{ partners[:-1]|join(', ') }}{{ ' or ' if partners|length > 1 }}{{ partners[-1] }}. You pay the same.</span>{% endif %}
   </footer>
   {% endif %}
 </body>

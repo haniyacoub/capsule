@@ -2082,15 +2082,20 @@ a.quiet { display: inline-flex; align-items: center; }   /* 44px tall to tap, li
 /* The landing page's two ways in: side by side on a computer, one under the other on a phone. */
 .hero-cta { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s-3); }
 /* On a phone a visitor has no tab bar: the bar with the line and the two answers stands at the foot of the screen,
-   and the picture takes the tab bar's room (--tabs-h, "Outfits on a phone"). The bar is as tall as the line, its
-   button and the answers take (--dock-room): the picture is as large as a customer's. */
+   and the picture takes the tab bar's room (--tabs-h, "Outfits on a phone"). The bar is as tall as what is in it, the
+   same on every outfit, and the picture ends above it: the bar's height as app.js measures it (--dock-h, which
+   includes the phone's own bottom edge, already counted in the picture's size), and until then the height it has on
+   that width: 108px from 375px wide, 118px from 360px (the line takes three lines), 152px below (its button goes
+   under it). */
 @media (max-width: 759.98px) {
-  main:has(> .looks.guest) { --tabs-h: 0px; --dock-room: 118px; }
-  body:has(.looks.guest) .dock:not([hidden]) { bottom: 0; padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
-  body:has(.looks.guest):has(.dock:not([hidden])) { padding-bottom: calc(var(--s-2) + var(--dock-h, 118px)); }
-  html:has(.looks.guest):has(.dock:not([hidden])) { scroll-padding-bottom: calc(var(--s-4) + var(--dock-h, 118px)); }
+  main:has(> .looks.guest) {
+    --tabs-h: 0px; --dock-guess: 108px;
+    --dock-room: calc(var(--dock-h, calc(var(--dock-guess) + env(safe-area-inset-bottom))) - env(safe-area-inset-bottom));
+  }
+  body:has(.looks.guest) .dock:not([hidden]) { bottom: 0; min-height: 0; padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+  body:has(.looks.guest):has(.dock:not([hidden])) { padding-bottom: calc(var(--s-2) + var(--dock-h, 108px)); }
+  html:has(.looks.guest):has(.dock:not([hidden])) { scroll-padding-bottom: calc(var(--s-4) + var(--dock-h, 108px)); }
   .dock .locked { margin: 0 0 var(--s-1); }
 }
-@media (max-width: 379.98px) {
-  main:has(> .looks.guest) { --dock-room: 164px; }      /* the line's button under its words */
-}
+@media (max-width: 374.98px) { main:has(> .looks.guest) { --dock-guess: 118px; } }
+@media (max-width: 359.98px) { main:has(> .looks.guest) { --dock-guess: 152px; } }

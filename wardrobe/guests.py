@@ -109,11 +109,18 @@ def sign_up(why: str | None = None) -> str:
 # ── the example wardrobe ──────────────────────────────────────────────────────
 
 
+# Whether this server process has the example wardrobe: set at start-up once ensure_example has gone through. Until
+# then (or if it failed: app.bootstrap says why in the log) visitors are sent to log in, as before the door opened.
+_ready = False
+
+
 def ensure_example() -> None:
     """At start-up on the public site: make the example wardrobe, or bring it up to date. It is what a new customer
     starts with (onboarding.ensure_setup: the example profile, the plan proposed for it, its products from the
     published list, or the demo ones while there is none), at the price level Medium. Written only where something
     differs, so a restart usually writes nothing. Several server processes may start at once: each writes the same."""
+    global _ready
+    _ready = False
     user_id = db.internal_account(EXAMPLE_EMAIL, make=True)
     if user_id is None:     # (only if a customer got this address first: his wardrobe is never shown to visitors)
         print(f"Warning: {EXAMPLE_EMAIL} belongs to an account with a password, so it cannot be the example "
@@ -135,11 +142,12 @@ def ensure_example() -> None:
             real = shared.build_catalog(db.list_slots(), None) if products != "demo" else None
             catalog.save(real or mock.build(db.list_slots()))
             db.set_setting("pool", products)
+    _ready = True
 
 
 def example_id() -> int | None:
-    """The example wardrobe's account, or None while there is none."""
-    return db.internal_account(EXAMPLE_EMAIL)
+    """The example wardrobe's account, or None while there is none (or it could not be set up at start-up)."""
+    return db.internal_account(EXAMPLE_EMAIL) if _ready else None
 
 
 def outfit(w, o, board: dict) -> dict:

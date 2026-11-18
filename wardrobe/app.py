@@ -74,7 +74,11 @@ def bootstrap() -> None:
     if not conf.PRODUCTION:
         ensure_setup()
     else:                   # the example wardrobe visitors without an account look through (guests.py)
-        guests.ensure_example()
+        try:
+            guests.ensure_example()
+        except Exception as problem:  # noqa: BLE001 - it must never keep the site from starting, for customers too
+            print(f"Warning: the example wardrobe for visitors could not be set up ({type(problem).__name__}: "
+                  f"{problem}). Visitors without an account are sent to log in.", file=sys.stderr, flush=True)
 
 
 def sync_catalog(changed_slot: str | None = None) -> bool:
