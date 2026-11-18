@@ -335,7 +335,7 @@ class Accounts(ProductionCase):
         self.assertIn(b"Minimum quality", page.data)
         self.assertIn(b"Demo data", page.data)
         with db.as_user(self.user_id("ada@example.com")):
-            self.assertTrue(15 <= len(db.list_slots()) <= 20)
+            self.assertEqual(sum(s["qty"] for s in db.list_slots()), 24, "what the example's 1,500 € buy")
         stored = db.get_user_by_email("ADA@example.com")          # addresses are case-insensitive
         self.assertNotIn(PASSWORD, stored["password_hash"])
         self.assertTrue(stored["password_hash"].startswith(("scrypt:", "pbkdf2:")))
@@ -1495,7 +1495,8 @@ class SharedStoreCatalogue(ProductionCase):
         with db.as_user(self.user_id("ada@example.com")):
             self.assertIs(db.get_setting("plan_edited"), False, "the tap was no edit of the plan")
             self.assertIn("navy", {s["colour"] for s in db.list_slots()})
-            self.assertNotIn("black", {s["colour"] for s in db.list_slots()}, "the plan follows the new colours")
+            self.assertNotIn("black", {s["colour"] for s in db.list_slots() if s["category"] != "jeans"},
+                             "the plan follows the new colours (black jeans are a classic, liked or not)")
 
     # Jeans for a jeans piece in the operator's plan: denim's blues all match one another (collect/matching.py).
     DENIM = [product("weekday", "j1", "Jeans Straight Fit", 39.95, "Blau", slot_id="denim", sizes_all=[], sizes_in_stock=[]),
@@ -1513,7 +1514,7 @@ class SharedStoreCatalogue(ProductionCase):
         not for the jeans the plan has, nor through a "Use …" offer on jeans the list has nothing for. A piece he keeps
         or adds in navy himself is another matter: it keeps its navy options."""
         self.publish(extra=self.DENIM, slots=[self.DENIM_SLOT])
-        form = self.ANSWERS
+        form = {**self.ANSWERS, "budget": "1000"}         # plans with one pair of jeans (1,500 € buys black ones too)
 
         def jeans(email) -> dict:
             """Each jeans piece of the plan: its options' ids, and the products each colour offered for it reaches."""

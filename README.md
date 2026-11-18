@@ -152,7 +152,7 @@ The score is a weighted average of three parts, all in that file:
 | Part | What to edit | Example |
 | --- | --- | --- |
 | Fabric | `[fabric.fibres]` is the value of each fibre; `[fabric.by_category.<garment>]` overrides it per garment | make polyester hurt more in trousers: lower `polyester` under `[fabric.by_category.trousers]` |
-| Brand | `[brand.cos]`, `[brand.weekday]`: 0–100 per garment type | trust Weekday more for knitwear: raise `knit` under `[brand.weekday]` |
+| Brand | `[brand.cos]`, `[brand.weekday]`, `[brand.otto]`: 0–100 per garment type | trust Weekday more for knitwear: raise `knit` under `[brand.weekday]` |
 | Price | `[price.bands.<garment>]`: the fair price band | accept pricier coats: raise the upper `fair` value and `steep_above` under `[price.bands.coat]` |
 
 `[weights]` sets how much each part counts. `[fabric.adjustments]` holds the
@@ -161,6 +161,24 @@ the estimate used when a store gives no composition. If you make a typo, the app
 shows a page naming the file and the problem instead of crashing (on a live site
 the page is Stilsmith's own error page and the file and line are in the log).
 
+## How big the plan is
+
+The budget decides, step by step, with the numbers in [config/budget.toml](config/budget.toml):
+
+1. The money for pieces is the whole budget up to 200 €, plus half of what is above it (300 € gives 250 €; the
+   other half buys better versions of the same pieces).
+2. Each piece counts at its usual price at a budget store (a tee 9 €, jeans 25 €; only the tee's was read on
+   shops' pages, the others are estimates).
+3. A kind of wardrobe joins when its first three pieces (a top, trousers and shoes) fit in that money. "Both" is
+   everyday, then office.
+4. The pieces of the kinds that joined stand in one line, most needed first, a shared piece once, and the plan is
+   the line for as long as the money lasts, with at most 24 pieces. Under 450 € the names leave out merino, wool
+   and leather; the ids keep the full names.
+
+The pieces of each kind, in order, are `RANKED` in `wardrobe/capsule.py`. A plan that exists never changes when the
+file does: the next plan made from a profile follows it (a new account, "Start over from my profile", or a Profile
+save that rebuilds the plan).
+
 ## Price levels
 
 Two controls on the Wardrobe page decide what fills each slot. Neither is a
@@ -168,7 +186,8 @@ config value. Under each choice is what your wardrobe would cost with it, and
 under the row of levels the chosen one's meaning is said in words (`HINTS` in
 `wardrobe/selection.py`, also each level's mouse-over note). (Your
 wardrobe is the pieces of the outfits you said yes to: see "Outfits and the
-shopping list". The plan, the 15 to 20 slots, is what outfits are made from.)
+shopping list". The plan, as many slots as your budget buys, is what outfits are made from: see "How big the
+plan is".)
 
 - **Price level**: Cheapest, Cheap, Medium, Expensive, Top. For each slot the
   candidates in stock are lined up by price and the level says where on that

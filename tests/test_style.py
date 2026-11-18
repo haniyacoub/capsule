@@ -1342,8 +1342,8 @@ class Chat(NoNetwork, AppCase):
                                 follow_redirects=True).get_data(as_text=True)
         w = selection.build()
         self.assertEqual(w.brief, {**style.EMPTY, "styles": ["tailored"], "not_wanted": ["leather"]})
-        shoes = [view for view in w.slots if view.slot["category"] in ("shoes", "sneakers")]
-        self.assertEqual(len(shoes), 2)
+        shoes = [view for view in w.slots if view.slot["category"] in ("shoes", "sneakers", "boots")]
+        self.assertEqual(len(shoes), 3)
         for view in shoes:
             self.assertTrue(style.against(view.chosen.data, view.slot["category"], w.brief), view.chosen.data["name"])
             good = [c for c in view.cands if c.score.total >= w.threshold]
@@ -1355,7 +1355,7 @@ class Chat(NoNetwork, AppCase):
                    if view.chosen and style.against(view.chosen.data, view.slot["category"], w.brief)]
         self.assertEqual(against, [view.slot["name"] for view in shoes], "only the shoes go against it")
         said = words(page.split('id="style-chat"', 1)[1])
-        self.assertIn(f"2 pieces still go against it: {', '.join(against)}. See your outfits", said)
+        self.assertIn(f"3 pieces still go against it: {', '.join(against)}. See your outfits", said)
         self.assertIn("Style brief saved.", said)
         # Every outfit has shoes or sneakers, so none fits "no leather" as a whole, and none says "Tailored".
         outfits_page = self.client.get("/outfits").get_data(as_text=True)

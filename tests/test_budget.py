@@ -6,11 +6,13 @@ What this round promises:
   * the demo has a budget store's basics (OTTO, mock.py), every one of them read in the customer's own sizes;
   * "Best for budget" gives a piece with nothing rated 70 or more its cheapest option in his size, and says so: the
     best-rated one, which a price level takes, could break the budget by itself;
+  * on the demo, the plan each budget proposes (capsule.py, config/budget.toml; its rule is tested in test_rules.py)
+    fits that budget at "Best for budget", with nothing rated under 70.
 """
 import html
 import unittest
 
-from wardrobe import catalog, db, mock, programmes, scoring, selection, shared, sizes
+from wardrobe import capsule, catalog, db, mock, programmes, scoring, selection, shared, sizes
 from wardrobe import profile as profile_mod
 from wardrobe.garments import GARMENTS
 
@@ -134,7 +136,8 @@ class NothingGoodEnough(AppCase):
         self.set_mode("cheapest")
         w = selection.build()
         view = w.get(self.PIECE)
-        self.assertEqual((view.chosen.id, view.note), ("weekday-1", "Nothing reaches 70 — this is the best in your size"))
+        self.assertEqual((view.chosen.id, view.note),
+                         ("weekday-1", "Nothing reaches 70 — this is the best in your size"))
         self.assertIn("Picked for you: the best-rated option in your size.", self.piece_page())
         # A budget the cheapest level's total does not fit, with the best-rated shoes counted in it, but the plan
         # on its cheapest options does: so "Best for budget" fits it only with the cheapest shoes.
@@ -165,5 +168,47 @@ class NothingGoodEnough(AppCase):
                                                                               "one whose sizes were not checked")
         unchecked = [c for c in view.cands if c.id == "cos-3"]
         self.assertEqual(selection.cheapest_instead(unchecked).id, "cos-3", "where none is known to be in his size")
-        self.assertEqual(selection.cheapest_words(unchecked, 70), "Nothing reaches 70 — this is the cheapest available")
+        self.assertEqual(selection.cheapest_words(unchecked, 70),
+                         "Nothing reaches 70 — this is the cheapest available")
         self.assertIsNone(selection.cheapest_instead([c for c in view.cands if c.id == "weekday-4"]))
+
+
+class TheDemoFitsEachBudget(AppCase):
+    """The plans of five budgets for each use, on the demo's products, the example's sizes and colours."""
+    BUDGETS = (150, 300, 600, 1000, 1500)
+    MARGINS: dict = {}          # what is left of each budget: read by the round's report (python -m unittest -v)
+
+    def fitted(self, use: str, budget: int) -> selection.Wardrobe:
+        answers = {**profile_mod.EXAMPLE, "example": False, "use": use, "budget": budget}
+        profile_mod.save(answers)
+        profile_mod.answer("budget")                     # a budget he gave: "Best for budget" fits to it
+        slots, _ = capsule.propose(answers)
+        db.replace_slots(slots)
+        catalog.save(mock.build(slots))
+        self.set_mode("budget")
+        return selection.build()
+
+    def test_best_for_budget_fits_every_budget_with_nothing_rated_under_70(self):
+        for use in ("everyday", "office", "both"):
+            for budget in self.BUDGETS:
+                with self.subTest(use=use, budget=budget):
+                    w = self.fitted(use, budget)
+                    self.assertEqual(w.note, "", "it fits")
+                    self.assertLessEqual(w.total, budget)
+                    for view in w.slots:
+                        self.assertIsNotNone(view.chosen, view.slot["name"])
+                        self.assertGreaterEqual(view.chosen.score.total, 70, view.slot["name"])
+                        self.assertFalse(view.warn, f"{view.slot['name']}: {view.note}")
+                    self.MARGINS[use, budget] = (sum(view.planned for view in w.slots), w.total)
+
+    def test_each_usual_price_buys_a_demo_product_rated_70_or_more(self):
+        # The plan counts each piece at its usual price at a budget store (config/budget.toml). The demo's budget
+        # store sells one rated 70 or more at that price or less, for every garment of the lists.
+        usual = capsule.budget_rules()["usual_price"]
+        slots = [{"id": f"piece-{category}", "category": category, "colour": "navy"} for category in usual]
+        demo = mock.build(slots)
+        for category, price in usual.items():
+            with self.subTest(category):
+                good = [c["price"] for c in demo["candidates"] if c["slot_id"] == f"piece-{category}"
+                        and c["store"] == "otto" and scoring.score(c, category).total >= 70]
+                self.assertLessEqual(min(good), price)

@@ -52,7 +52,7 @@ class Pages(AppCase):
     def test_first_run_is_demo_data_with_a_capsule(self):
         w = selection.build()
         self.assertEqual(w.source, "mock")
-        self.assertTrue(15 <= len(w.slots) <= 20)
+        self.assertEqual(sum(view.planned for view in w.slots), 24, "what the example's 1,500 € buy (config/budget.toml)")
         self.assertEqual(w.n_unfilled, 0)
         self.assertIn(b"Demo data", self.client.get("/").data)
 
@@ -679,11 +679,11 @@ class RebuildingThePlan(AppCase):
         jumper = self.view("grey-merino-jumper")
         self.post("/slot/grey-merino-jumper/lock")          # freeze what the price level picked
         self.post("/slot/navy-tee/own")                      # "Own it" on the Wardrobe page
-        self.save_profile(**self.NEW)
+        self.save_profile(**{**self.NEW, "use": "both"})     # (both: two white tees; the office list has one)
         after = self.view("grey-merino-jumper")
         self.assertEqual((after.state, after.chosen.id), ("locked", jumper.chosen.id))
         tees = [(s.slot["colour"], s.qty, s.state) for s in selection.build().slots if s.garment.key == "tee"]
-        self.assertEqual(tees, [("white", 1, "auto"), ("navy", 1, "owned")],
+        self.assertEqual(tees, [("white", 1, "auto"), ("navy", 1, "owned"), ("black", 1, "auto"), ("grey", 1, "auto")],
                          "the navy tee you own takes the place of one of the two white tees, not both")
         self.assertIn("Kept your 1 hand-picked piece and the 1 you own.", self.messages())
 
@@ -725,12 +725,13 @@ class RebuildingThePlan(AppCase):
     def test_something_owned_never_takes_the_place_of_a_piece_picked_by_hand(self):
         old, _ = capsule.propose(profile_mod.EXAMPLE)
         next(s for s in old if s["id"] == "white-tee").update(locked=True, pick="my-white-tee")
-        plan = capsule.rebuild({**profile_mod.EXAMPLE, "use": "office", "owned": "black tee"}, old)
+        two_white_tees = {**profile_mod.EXAMPLE, "use": "everyday", "budget": 90}      # and no other tee
+        plan = capsule.rebuild({**two_white_tees, "owned": "black tee"}, old)
         tees = [(s["name"], s["qty"], s["owned"], s.get("pick")) for s in plan.slots if s["category"] == "tee"]
         self.assertEqual(tees, [("White tee", 2, False, "my-white-tee"), ("Black tee", 1, True, None)])
         self.assertEqual([s["id"] for s in plan.picked], ["white-tee"])
         # Without a choice made by hand, the black tee takes the place of one of the two white ones.
-        slots, _ = capsule.propose({**profile_mod.EXAMPLE, "use": "office", "owned": "black tee"})
+        slots, _ = capsule.propose({**two_white_tees, "owned": "black tee"})
         self.assertEqual([(s["name"], s["qty"], s["owned"]) for s in slots if s["category"] == "tee"],
                          [("White tee", 1, False), ("Black tee", 1, True)])
 
