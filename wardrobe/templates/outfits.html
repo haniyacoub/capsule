@@ -41,9 +41,14 @@
 {% endif %}
 {%- endmacro %}
 {% if answer and answer.kind == 'yes' %}
-{# After "Add to my wardrobe": what was added, with Undo (it takes the outfit out again) and the way to buy it. #}
+{# After "Add to my wardrobe": what was added, with Undo (it takes the outfit out again) and the way to buy it. After
+   "Save to My outfits" (an outfit that added nothing, yes.Adds.all_yours): that it was saved, and why nothing was
+   added: he owns every piece ("All its pieces are yours already"), or they are all in his wardrobe already. (An
+   answer kept from before these flags: by its words.) #}
+{% set saved_only = answer.all_yours if answer.all_yours is defined else answer.words.startswith('You can already wear this') %}
+{% set owned_all = answer.all_owned if answer.all_owned is defined else answer.words.startswith('You can already wear this') %}
 <div class="flash said short answered" role="status" data-answered>
-  <p>{% if answer.words.startswith('You can already wear this') %}Saved {{ answered_name(answer) }} to My outfits. All its pieces are yours already.{% elif answer.words.startswith('Nothing') %}Added {{ answered_name(answer) }} to your wardrobe. {{ answer.words }}.{% else %}Added {{ answered_name(answer) }} to your wardrobe: {{ answer.words[0]|lower }}{{ answer.words[1:] }}.{% endif %}</p>
+  <p>{% if saved_only %}Saved {{ answered_name(answer) }} to My outfits. {% if owned_all %}All its pieces are yours already.{% else %}{{ answer.words }}.{% endif %}{% elif answer.words.startswith('Nothing') %}Added {{ answered_name(answer) }} to your wardrobe. {{ answer.words }}.{% else %}Added {{ answered_name(answer) }} to your wardrobe: {{ answer.words[0]|lower }}{{ answer.words[1:] }}.{% endif %}</p>
   {{ answered_thumbs(answer) }}
   <form method="post" action="{{ url_for('outfits_save') }}">{{ csrf_field() }}
     <input type="hidden" name="key" value="{{ answer.key }}">

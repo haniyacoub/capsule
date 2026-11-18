@@ -13,9 +13,13 @@
    (_save_button.html), which leads back here. #}
 {% if not adds.in_wardrobe %}
 <div class="not-yet">
-  {# Every piece his already (yes.Adds.all_yours): nothing it adds, and nothing new to buy. #}
-  {% if adds.all_yours %}
+  {# Every piece in his wardrobe already (yes.Adds.all_yours): it adds nothing. Where he owns them all, he can wear it
+     today (and there is nothing to buy below); else they are on his shopping list already, and what follows is
+     what they cost: so the line says it adds nothing to that list or his total, never that nothing is to buy. #}
+  {% if adds.all_owned %}
   <p>{{ adds.words }}. Save it to keep it among your outfits.</p>
+  {% elif adds.all_yours %}
+  <p>{{ 'Its piece is' if adds.n_have == 1 else 'All ' ~ adds.n_have ~ ' pieces are' }} in your wardrobe already, so this outfit adds nothing to your shopping list or your total. Save it to keep it among your outfits.</p>
   {% else %}
   <p>This outfit is not in your wardrobe yet, so it is not on your shopping list or in your total. {{ adds.words }}.</p>
   {% endif %}

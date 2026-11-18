@@ -450,7 +450,8 @@ def run(base: str) -> None:
                             line: Math.max(...[...slide.querySelectorAll('.about-head h2, .count, .board-cost')].map(el => box(el).bottom)),
                             dock: [box(dock).top, box(dock).bottom], fixed: getComputedStyle(dock).position,
                             adds: inside('.adds') && [box(inside('.adds')).top, box(inside('.adds')).bottom, inside('.adds').textContent.trim()],
-                            yes: inside('.btn.yes') && [box(inside('.btn.yes')).top, box(inside('.btn.yes')).bottom],
+                            yes: inside('.btn.yes') && [box(inside('.btn.yes')).top, box(inside('.btn.yes')).bottom,
+                                                        inside('.btn.yes').textContent.replace(/\s+/g, ' ').trim()],
                             no: inside('form.no button') && [box(inside('form.no button')).top, box(inside('form.no button')).bottom],
                             key: (inside('input[name=key]') || {}).value, slide: slide.id, left_in_outfit: slide.querySelectorAll('[data-answer]').length,
                             tabs: box(document.querySelector('nav.tabs')).top, wide: document.documentElement.scrollWidth};
@@ -460,15 +461,17 @@ def run(base: str) -> None:
                 assert seen["height"] <= 96, f"{size} the bar at the top is {seen['height']:.0f}px tall"
                 assert seen["fixed"] == "fixed" and seen["dock"][1] <= seen["tabs"] + 1 and seen["dock"][0] > 0, \
                     f"{size} the bar with the answers is not above the tab bar ({seen['tabs']:.0f}px): {seen['dock']} ({seen['fixed']})"
-                # An outfit of pieces that are all his already has no "Not for me" (review N6): it is his to save.
-                yours = bool(seen["adds"]) and seen["adds"][2].startswith("You can already wear this")
-                assert not (yours and seen["no"]), f"{size} 'Not for me' under an outfit he can already wear"
+                # An outfit whose pieces are all in his wardrobe already adds nothing: its yes is "Save to My outfits",
+                # and it has no "Not for me" (review N6). (Such an outfit can lead the row once he has said a yes.)
+                yours = bool(seen["yes"]) and seen["yes"][2] == "Save to My outfits"
+                assert not (yours and seen["no"]), f"{size} 'Not for me' under an outfit that adds nothing"
                 for what, name in (("adds", "what a yes adds"), ("yes", "'Add to my wardrobe'"), ("no", "'Not for me'")):
                     if what == "no" and yours:
                         continue
                     assert seen[what] and seen["dock"][0] <= seen[what][0] and seen[what][1] <= seen["tabs"], \
                         f"{size} {name} is not on the first screen above the tab bar ({seen['tabs']:.0f}px): {seen[what]}"
-                assert re.fullmatch(r"(\d+ new pieces? [\d.,]+\s€.*|You can already wear this: .+ yours)", seen["adds"][2]), \
+                assert re.fullmatch(r"(\d+ new pieces? [\d.,]+\s€.*|You can already wear this: .+ yours|Nothing new to buy: .+ in your wardrobe)",
+                                    seen["adds"][2]) and yours == (not seen["adds"][2][0].isdigit()), \
                     f"{size} the bar says of what a yes adds: {seen['adds'][2]!r}"
                 assert seen["slide"] == f"outfit-{seen['key']}" and not seen["left_in_outfit"], \
                     f"{size} the bar's answers are not those of the outfit on screen, or they are there twice: {seen}"

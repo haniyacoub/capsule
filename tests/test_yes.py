@@ -271,28 +271,64 @@ class SayingYes(YesCase):
         w = selection.build()
         adds = yes.adds(w, outfits.find_by_sig(w, small.sig))
         self.assertEqual((adds.cost, adds.new, adds.over_words), (0, [], ""))
-        # The capsule's promise come true, said as such (review N6): he can wear it already. Its yes saves it to My
-        # outfits, with no "+ 0 €", and there is no "Not for me" under it.
+        # Its yes adds nothing (review N6): it saves the outfit to My outfits, with no "+ 0 €", and there is no "Not
+        # for me" under it. His pieces are in his wardrobe through his yes, not bought: so it says nothing is new to
+        # buy, never that the pieces are his ("You can already wear this" is for pieces he owns, below).
+        n = len(small.slots)
         self.assertTrue(adds.all_yours)
-        self.assertEqual(adds.words, f"You can already wear this: all {len(small.slots)} pieces are yours")
+        self.assertFalse(adds.all_owned)
+        self.assertEqual(adds.words, f"Nothing new to buy: all {n} are in your wardrobe")
         page = self.page("/outfits", at=small.sig)
         box = re.search(rf'<div class="yes-box" data-answer>.*?id="save-{small.key}".*?</div>\s*</div>', page, re.S).group(0)
-        self.assertIn(f"<p class=\"adds\">You can already wear this: all {len(small.slots)} pieces are yours</p>", box)
+        self.assertIn(f"<p class=\"adds\">Nothing new to buy: all {n} are in your wardrobe</p>", box)
         self.assertIn("<span>Save to My outfits</span>", box)
         self.assertNotIn('class="plus"', box)
         self.assertNotIn("Not for me", box)
+        self.assertNotIn("yours", read(page), "nothing on the page calls pieces he has not bought his")
         self.assertEqual(page.count("Not for me</button>"), page.count('<div class="yes-box"') - 1, "the others keep theirs")
-        # Its Buy page says the same, with the same button.
-        buy = self.page("/outfits/buy", at=small.sig)
-        self.assertIn(f"You can already wear this: all {len(small.slots)} pieces are yours. Save it to keep it among your outfits.", read(buy))
+        # Its Buy page, over what its pieces cost and the buttons to buy them: it adds nothing to his list or total.
+        buy = read(self.page("/outfits/buy", at=small.sig))
+        said = (f"All {n} pieces are in your wardrobe already, so this outfit adds nothing to your shopping list or "
+                "your total. Save it to keep it among your outfits.")
+        self.assertIn(said, buy)
+        self.assertLess(buy.index(said), buy.index("Open at "), "said over the buttons to buy its pieces")
         self.assertNotIn("not in your wardrobe yet", buy, "its pieces are")
-        self.assertIn("<span>Save to My outfits</span>", buy)
+        self.assertNotIn("yours", buy)
+        self.assertIn("Save to My outfits", buy)
         # After the yes the page says so in a sentence of its own, and the bar has not moved.
         total = selection.build().mine.total
         answer = self.say_yes(outfits.find_by_sig(selection.build(), small.sig))
         self.assertRegex(self.answered_line(self.page(answer.headers["Location"])), "^Saved " + self.called(small, 0)
-                         + re.escape(" to My outfits. All its pieces are yours already. ") + self.its_pieces(small) + " Undo$")
+                         + re.escape(f" to My outfits. Nothing new to buy: all {n} are in your wardrobe. ")
+                         + self.its_pieces(small) + " Undo$")
         self.assertEqual(selection.build().mine.total, total)
+
+    def test_an_outfit_of_pieces_he_owns_he_can_already_wear(self):
+        # The capsule's promise come true, said as such (review N6): every piece is one he owns ("I already own
+        # this"), so he can wear it today. Its yes saves it to My outfits; there is nothing to buy on its Buy page.
+        outfit = outfits.find_by_sig(selection.build(), self.offered()[0])
+        for slot_id in outfit.slots:
+            self.post(f"/slot/{slot_id}/own")
+        n = len(outfit.slots)
+        w = selection.build()
+        adds = yes.adds(w, outfits.find_by_sig(w, outfit.sig))
+        self.assertTrue(adds.all_yours and adds.all_owned)
+        self.assertEqual(adds.words, f"You can already wear this: all {n} pieces are yours")
+        page = self.page("/outfits", at=outfit.sig)
+        key = outfits.find_by_sig(w, outfit.sig).key
+        box = re.search(rf'<div class="yes-box" data-answer>.*?id="save-{key}".*?</div>\s*</div>', page, re.S).group(0)
+        self.assertIn(f"<p class=\"adds\">You can already wear this: all {n} pieces are yours</p>", box)
+        self.assertIn("<span>Save to My outfits</span>", box)
+        self.assertNotIn("Not for me", box)
+        buy = read(self.page("/outfits/buy", at=outfit.sig))
+        self.assertIn(f"You can already wear this: all {n} pieces are yours. Save it to keep it among your outfits.", buy)
+        self.assertIn("Nothing to buy: you own every piece of this outfit.", buy)
+        self.assertNotIn("Open at ", buy)
+        # (Owned, a piece is called by its own name: he said he owns that, not the product once picked for it.)
+        now = outfits.find_by_sig(selection.build(), outfit.sig)
+        answer = self.say_yes(now)
+        self.assertRegex(self.answered_line(self.page(answer.headers["Location"])), "^Saved " + self.called(now, 1)
+                         + re.escape(" to My outfits. All its pieces are yours already. ") + self.its_pieces(now) + " Undo$")
 
     def test_a_piece_says_how_many_of_his_outfits_wear_it(self):
         a, b = self.two_that_share()

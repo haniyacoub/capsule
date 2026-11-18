@@ -1631,8 +1631,10 @@ def create_app() -> Flask:
                 db.undecline_outfit(sig)        # (a yes to something he had said no to: the yes counts)
                 # (`row`: the row as it stood before the yes, so that its Undo puts back every outfit where it was.)
                 said_before = db.get_setting("last_answer")     # the message before: called the same? (yes.answered)
+                # (`all_yours`: the yes added nothing and saved it to My outfits; `all_owned`: he owns every piece.)
                 db.set_setting("last_answer", {"kind": "yes", "key": key, "sig": sig, "label": outfit.label,
                                                "name": yes.name(pieces), "words": added.words, "row": row_now,
+                                               "all_yours": added.all_yours, "all_owned": added.all_owned,
                                                **yes.answered(outfit.label, occasion or usual_occasion(), pieces,
                                                               row_now, key, said_before)})
         if request.headers.get("HX-Request"):
