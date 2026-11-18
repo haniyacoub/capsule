@@ -566,8 +566,8 @@ main:has(> .flash ~ .flash, > .flash ~ .above-looks > .demo) .looks { --told: ca
                    (100svh - 54px - 4px - var(--told) - var(--dock-room) - 57px - env(safe-area-inset-bottom) - 6px) * 2 / 3));
     --row-room: calc(var(--s-2) + 44px + var(--s-2));                  /* the row of words, 8px above and below it */
   }
-  main:has(.over-short) { --dock-room: 98px; }
-  main:has(> .looks.saved) { --dock-room: 0px; }
+  main:has(> .looks):has(.over-short) { --dock-room: 98px; }
+  main:has(> .looks.saved) { --dock-room: 0px; }     /* (after the rule above: My outfits has no bar at all) */
   main:has(> .above-looks > .demo) { --row-room: calc(var(--s-2) + 44px + var(--s-1) + var(--t-s) * var(--lh-s) + 2 * var(--s-2) + var(--s-2)); }
   .looks { --stage-w: inherit; }
   /* A message at the top of the page (what a change made from an outfit did, with its way back; a save that rebuilt
@@ -578,7 +578,9 @@ main:has(> .flash ~ .flash, > .flash ~ .above-looks > .demo) .looks { --told: ca
   main:has(> .flash ~ .flash, > .said:not(.short)) { --told: var(--told-h, calc(4 * var(--t-m) * var(--lh-m) + 2 * var(--s-6))); }
 }
 @media (max-width: 379.98px) {
-  main:has(.adds.in) { --dock-room: 98px; }   /* "1 new piece 129 €, 4 already in your wardrobe" takes two lines there */
+  /* Once his wardrobe has pieces (the hidden budget bar counts them), what a yes adds says how many are already in it
+     ("1 new piece 129 €, 4 already in your wardrobe"), which takes two lines there. */
+  :root:has(#summary .nums) main:has(> .looks:not(.saved)) { --dock-room: 98px; }
 }
 /* The stage is also the box the line under the picture measures itself against (see .look-line). */
 .stage {
@@ -926,8 +928,9 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
      height. It is the same on every outfit, so the row stays put while they are swiped. */
   .slide .collage { margin-bottom: var(--row-room); }
   /* Until the AI picture is there, the pieces' photos fill the same box. Their prices are at the foot of each photo,
-     so the photos end above a strip at the box's foot (the box's own grey), where the name and the price lie. */
-  .slide .collage { padding-bottom: calc(2 * var(--t-m) * 1.25 + 2 * var(--s-1) + 2 * var(--s-2)); }
+     so the photos end above a strip at the box's foot (the box's own grey), where the name and the price lie: as tall
+     as the longest name takes ("Everyday, smart casual", three lines in the 36% it has). */
+  .slide .collage { padding-bottom: calc(3 * var(--t-m) * 1.25 + 2 * var(--s-1) + 2 * var(--s-2)); }
   main:has(> .looks) { position: relative; }
   main:has(> .looks) > .above-looks {
     position: absolute; z-index: 2; left: var(--side-l); right: var(--side-r);
@@ -1954,7 +1957,7 @@ details[open] > summary .edit { visibility: hidden; }
 /* On a phone: what a yes adds and the two answers, for the outfit that is showing, in a bar that stays above the tab
    bar (56px high, see .tabs), so they are in reach on every phone and wherever the page is scrolled to. app.js (17a)
    moves the outfit's box in here and tells the page the bar's height (--dock-h), which the page's foot makes room
-   for. The outfit's name and price stand above the picture on a phone (see .about), so the bar never covers them.
+   for. The picture ends above it (--dock-room, "Outfits on a phone"), with the outfit's name and price on it.
    The button does not repeat the sum: the line right above it says it. Never on a computer, where the box is beside
    the picture. */
 .dock { display: none; }

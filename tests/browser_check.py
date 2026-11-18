@@ -1703,6 +1703,8 @@ def run(base: str) -> None:
             assert offer.startswith("AI video of the Café picture, 5 seconds: he moves naturally. 1 video left today."), \
                 f"on the Café picture the offer says {offer!r}"
             assert len(made) == before, "opening the offer made a video"
+            # (A key pressed before HTMX has hooked up the offer it just put in sends the form without it: wait.)
+            page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling')")
             page.locator(f"{first} .vid-bar.ask button.btn").press("Enter")           # Make the video
             page.wait_for_selector(f"{first} .vid.on", timeout=20000)
             assert len(made) == before + 1 and made[-1] == videos.clip_of("cafe").text and "lifts the cup" in made[-1], \
@@ -4910,7 +4912,7 @@ def run(base: str) -> None:
             # says how to see the next one (swipe on a touch screen, the arrows with a mouse), each outfit's title is a
             # heading that agrees with the chip, 'Buy this outfit' is the main button, and the outfit row does not cut
             # off the focus ring of 'Add to my wardrobe' or of 'Buy this outfit'.
-            def opened(width: int, height: int, touch: bool, path: str = "/outfits"):
+            def opened(width: int, height: int, touch: bool, path: str = "/outfits", demo: bool = False):
                 context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=touch, has_touch=touch)
                 other = context.new_page()
                 other.goto(base + "/login", wait_until="networkidle")
@@ -4921,8 +4923,9 @@ def run(base: str) -> None:
                 other.goto(base + path, wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
                 # This check runs on invented products, so the page opens with the "Demo data" notice, which customers
-                # of the real catalogue never see: it is taken away to measure the page as they get it.
-                other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
+                # of the real catalogue never see: it is taken away to measure the page as they get it (but see below).
+                if not demo:
+                    other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                 return context, other
 
             def screen(other) -> dict:
@@ -5050,6 +5053,37 @@ def run(base: str) -> None:
                 assert seen["dock"] <= seen["tabs"] + 1 and seen["dock"] <= seen["yes"][0] and seen["yes"][1] <= seen["tabs"], \
                     f"{where} 'Add to my wardrobe' is not whole in its bar above the tab bar: {seen}"
                 assert seen["bar"] <= 100, f"{where} the bar with the answers is {seen['bar']:.0f}px high: not compact"
+
+            # With the "Demo data" notice (invented products): on a phone it is one short line under the row of words,
+            # "Demo data — invented items." (the rest still read out), and costs the picture nothing: the picture is as
+            # large as without it, and the picture's own line comes after the notice.
+            for width, height in ((390, 664), (320, 568)):
+                context, other = opened(width, height, True, demo=True)
+                seen = screen(other)
+                seen.update(other.evaluate("""s => { const box = el => el.getBoundingClientRect(), demo = document.querySelector('main .demo');
+                    // What shows: the notice without the part that only a screen reader reads (1px, clipped).
+                    const shown = demo && demo.cloneNode(true), rest = demo && demo.querySelector('.demo-more');
+                    if (rest && box(rest).width <= 1) shown.querySelector('.demo-more').remove();
+                    return {demo: demo && [box(demo).top, box(demo).bottom, box(demo).height, shown.textContent.trim(), demo.textContent.trim()],
+                            row_bottom: box(document.querySelector('.toolbar')).bottom, line_top: box(document.querySelector(s + ' .look-line')).top,
+                            wide: box(document.querySelector(s + ' .look-pic')).width}; }""", first))
+                context.close()
+                where = f"at {width} x {height} with the demo notice"
+                assert seen["demo"] and seen["demo"][3] == "Demo data — invented items." \
+                    and seen["demo"][4] == "Demo data — invented items, not real products, prices or stock." and seen["demo"][2] <= 40, \
+                    f"{where}: the notice is not one short line that still says it all to a screen reader: {seen['demo']}"
+                assert seen["row_bottom"] <= seen["demo"][0] and seen["demo"][1] <= seen["line_top"], \
+                    f"{where}: the notice is not under the row of words, above the picture's own line: {seen}"
+                assert seen["wide"] >= min(width - 32, (height - 220) * 2 / 3) - 1 and seen["bottom"] <= seen["dock"] + 1, \
+                    f"{where}: the notice took room from the picture, or the picture ends under the bar with the answers: {seen}"
+
+            # The longest name, "Everyday, smart casual", on the narrowest phone: on the picture, clear of the dots and of
+            # the label, readable.
+            context, other = opened(320, 568, True, "/outfits?occasion=everyday")
+            seen = screen(other)
+            context.close()
+            assert seen["on_picture"] and not seen["crossed"] and seen["veil"] >= 4.5, \
+                f"at 320 x 568 under Everyday the title or price is off the picture, on a dot or the label, or hard to read: {seen}"
 
             context, other = opened(390, 664, True, "/outfits?at=no~such~outfit")
             seen = screen(other)
