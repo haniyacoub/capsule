@@ -1407,8 +1407,10 @@ class SharedStoreCatalogue(ProductionCase):
         self.assertNotIn("unfilled", page)
         card = re.search(r'<article [^>]*id="card-black-merino-jumper">.*?</article>', page, re.S).group(0)
         self.assertIn("Not in Stilsmith's product list in black yet", card)
-        # The card's link is named by its aria-label, which hides the note inside it: the note is pointed at instead.
-        self.assertIn('aria-label="Black merino jumper: see all options" aria-describedby="note-black-merino-jumper"', card)
+        # The card's link is named by all it holds, the price and the note too: no aria-label stands in for them
+        # (one hid the price from a screen reader). Where it leads is said to a screen reader only, at its end.
+        self.assertNotIn("aria-label", re.search(r'<a class="slot-main"[^>]*>', card).group(0))
+        self.assertIn('<span class="sr">. See all options</span>', card)
         self.assertIn('<span class="note" id="note-black-merino-jumper">Not in Stilsmith\'s product list in black yet</span>', card)
         self.assertIn("Use navy<span class=\"sr\"> for Black merino jumper</span>", card)
         self.assertEqual(self.offered(page, "black-merino-jumper"), ["navy"],

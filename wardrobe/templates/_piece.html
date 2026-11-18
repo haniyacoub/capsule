@@ -13,7 +13,7 @@
    price. Then the store's name for the product in English where every word is known (english.py), with the
    original under it in small print: it is how the customer finds the product at the store. #}
 <div class="piece-top">
-  <h2 id="piece-title">{{ s.slot.name }}</h2>
+  <h2 id="piece-title">{{ s.slot.name|as_picked(s.slot.keywords, c.data.name) }}</h2>
   <b class="sheet-price">{{ c.price|eur }}</b>
 </div>
 <div class="piece-head">
@@ -69,7 +69,7 @@
 <h3 class="sec">In this outfit</h3>
 <div class="chips">
   {% for other, target in swaps %}
-  <a class="chip-link" href="{{ url_for('outfits_page', at=target, occasion=occasion or None, instead=s.slot.id, back=sig) }}"><i class="dot" style="background:{{ other.hex }}"></i>Wear the {{ other.view.slot.name|lower }} instead</a>
+  <a class="chip-link" href="{{ url_for('outfits_page', at=target, occasion=occasion or None, instead=s.slot.id, back=sig) }}"><i class="dot" style="background:{{ other.hex }}"></i>Wear the {{ other.view.shown_name|lower }} instead</a>
   {% endfor %}
   {% if without %}
   <a class="chip-link" href="{{ url_for('outfits_page', at=without, occasion=occasion or None, left=s.slot.id, back=sig) }}">Leave the {{ s.garment.label|lower }} off</a>

@@ -261,10 +261,16 @@ def left() -> int:
     return max(0, room)
 
 
+NEARLY = 1      # videos left today at or under which the day's allowance is said (review N14): the last one
+
+
 def left_words(number: int) -> str:
-    """'1 video left today', '5 videos left today', or 'No videos left today: more tomorrow'."""
+    """'1 video left today' for the last, or 'No videos left today: more tomorrow'; nothing ("") while more are
+    left, so the offer does not read as rationed before it is used (review N14)."""
     if number <= 0:
         return NONE_LEFT
+    if number > NEARLY:
+        return ""
     return f"{number} video{'' if number == 1 else 's'} left today"
 
 

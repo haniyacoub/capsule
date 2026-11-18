@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{# "Full size" under an outfit's AI picture (app.py, look_full): the picture larger than on Outfits, as tall as the
+   window (app.css, .full-pic), with its "AI picture" label on it, as everywhere (here at its top, on the first
+   screen), and the way back to the outfits. Never the bare file: that would show a realistic picture, perhaps made
+   from his own photo, with no label. #}
+{% block title %}AI picture · {{ site_name }}{% endblock %}
+{% block summary %}{% endblock %}
+{% block notices %}{% endblock %}
+{% block main %}
+{% from "_macros.html" import icon %}
+<p class="crumb"><a href="{{ back }}">{{ icon('back') }} Back to the outfits</a></p>
+<h1 class="sr">AI picture of an outfit</h1>
+<figure class="full-pic">
+  <div class="full-pic-box">
+    <img src="{{ url_for('look_image', name=name) }}" alt="AI-generated picture of a model wearing this outfit" width="848" height="1264" decoding="async">
+    <span class="ai-chip">AI picture</span>
+  </div>
+  <figcaption>AI picture: look and fit will differ on the real pieces.</figcaption>
+</figure>
+{% endblock %}

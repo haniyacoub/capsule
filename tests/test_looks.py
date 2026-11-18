@@ -296,7 +296,7 @@ class Viewer(AppCase):
             self.assertIn(f'id="outfit-{o.key}"', page)
         first = shown[0]
         for p in outfits.snapshot(first):
-            self.assertIn(p["slot_name"], page)
+            self.assertIn(p["shown_name"], page)        # by its name as shown with its product (english.as_picked)
         self.assertEqual(page.count("Buy this outfit"), 12)
         self.assertIn('<dialog class="sheet" id="piece"', page)
 
@@ -453,14 +453,17 @@ class Viewer(AppCase):
         stores = [part for part in page.split('<section class="card store-list">')[1:]]
         buttons = 0
         for store in stores:
-            pages = re.findall(r'<a class="buy-product" href="(https?://[^"]+)"', store)
-            button = re.search(r'<a class="btn ghost small" href="([^"]+)" target="_blank" rel="noopener noreferrer" data-open-next', store)
+            pages = re.findall(r'<a class="btn buy-go" href="(https?://[^"]+)"', store)
+            found = re.findall(r'<a class="btn ghost small" href="([^"]+)" target="_blank" rel="noopener noreferrer" data-open-next', store)
             if len(pages) < 2:
-                self.assertIsNone(button, "one product is its own link: no button to step through it")
+                self.assertEqual(found, [], "one product is its own link: no button to step through it")
                 continue
             buttons += 1
-            self.assertIsNotNone(button, "a store with several products has no button to open them")
-            self.assertEqual(button.group(1), pages[0])
+            # Twice (review N1): under the store's name, before its first line, and again after its last.
+            self.assertEqual(found, [pages[0], pages[0]], "a store with several products has not its two buttons to open them")
+            self.assertLess(store.index("data-open-next"), store.index('<li class="buy"'), "the first button is not under the store's name")
+            self.assertGreater(store.rindex("data-open-next"), store.rindex('<li class="buy"'), "the second button is not after the last line")
+            self.assertEqual(store.count('role="status"'), 1, "how many are open would be read out twice")
             self.assertIn(f"Open the first of {len(pages)} at ", store)
             self.assertEqual(len(re.findall(r'class="buy-opened no-print" data-line="[^"]+" hidden', store)), store.count('<li class="buy"'))
         self.assertGreater(buttons, 0, "the example list has no store with several products")
@@ -576,6 +579,40 @@ class SaidWithUndo(AppCase):
         form = re.search(r'<form method="post" action="(/slot/[^"]+/restore)">(.*?)</form>', page, re.S)
         self.assertIsNotNone(form, "no Undo")
         return self.client.post(form.group(1), data=dict(re.findall(r'name="(\w+)" value="([^"]*)"', form.group(2))))
+
+    def test_the_lines_over_the_outfits_call_a_piece_as_its_tiles_do(self):
+        # Review N4, found by the round's second check: a "Dark brown derby shoes" piece filled by a loafer is
+        # "Dark brown loafers" on the tiles, so the chip "Wear the … instead", the line after it and the line after
+        # Choose call it that too, not by the plan's name beside a list that says "Dark brown loafers".
+        for level in ("cheapest", "cheap", "medium", "expensive", "top"):
+            self.set_mode(level, 0)
+            w = selection.build()
+            view = next((v for v in w.slots if v.chosen and v.shown_name != v.slot["name"]), None)
+            if view:
+                break
+        else:
+            self.skipTest("no price level of the demo picks another kind for a piece")
+        sid, shown = view.slot["id"], view.shown_name
+        swap = next(((outfit, piece) for outfit in outfits.all_outfits(w) if sid not in outfit.slots
+                     for piece in outfit.pieces
+                     if any(other.view.slot["id"] == sid for other, _ in outfits.alternatives(w, outfit, piece.view.slot["id"])[0])),
+                    None)
+        if swap:
+            outfit, piece = swap
+            popup = html_mod.unescape(self.client.get("/outfits/piece", headers=HX, query_string={
+                "at": outfit.sig, "slot": piece.view.slot["id"], "occasion": "all"}).data.decode())
+            chip = re.search(rf'<a class="chip-link" href="([^"]+)"><i class="dot"[^>]*></i>Wear the {re.escape(shown.lower())} '
+                             'instead</a>', popup)
+            self.assertIsNotNone(chip, f"the chip calls it {shown.lower()}")
+            page = self.client.get(chip.group(1)).data.decode()
+            self.assertEqual(status_line(page), f"Wearing the {shown.lower()} instead of the {piece.view.garment.label.lower()}. Undo")
+        outfit = next(outfit for outfit in outfits.all_outfits(w) if sid in outfit.slots)
+        other = next(c for c in view.cands if c.available and c.price > 0 and c.id != view.chosen.id)
+        _, where = self.choose(outfit, sid, other)
+        page = self.client.get(where).data.decode()
+        now = self.view(sid).shown_name          # (the name the new pick gives it, as on the tiles now)
+        self.assertTrue(status_line(page).startswith(f"{now} changed in all your outfits: "), status_line(page))
+        self.assertIn(f"<b>{escape(now)}</b>", page, "the same name as the outfit's own list")
 
     def test_choose_says_the_piece_the_product_its_price_and_the_old_price_and_undo_makes_it_automatic_again(self):
         having.the_whole_plan()         # the piece is in his wardrobe, so its card is on the Wardrobe page
@@ -1388,6 +1425,30 @@ class Pictures(WithPictures, AppCase):
             self.assertEqual(self.client.get(f"/looks/{name}").status_code, 404, name)
         self.assertEqual(self.client.get("/outfits/look/not-a-key").status_code, 404)
 
+    def test_full_size_is_a_page_with_the_label_and_the_way_back_not_the_bare_file(self):
+        # Review N13: "Full size" opened the bare file in a new tab, a realistic picture with no "AI picture" on it.
+        outfit = some_outfits(1)[0]
+        shown = self.post("/outfits/look", key=outfit.key).data.decode()
+        real = self.pictures_on_disk()[0]
+        link = re.search(r'<a class="link" href="([^"]+)"[^>]*>Full size</a>', shown)
+        self.assertEqual(html_mod.unescape(link.group(1)), f"/looks/{real}/full?outfit={outfit.key}")
+        self.assertNotIn("target=", link.group(0), "it opens in the same tab, where Back works too")
+        page = self.client.get(f"/looks/{real}/full", query_string={"outfit": outfit.key},
+                               headers={"Referer": "http://localhost/outfits?occasion=office"}).data.decode()
+        box = re.search(r'<div class="full-pic-box">.*?</div>', page, re.S).group(0)
+        self.assertIn(f'<img src="/looks/{real}" alt="AI-generated picture', box)
+        self.assertIn('<span class="ai-chip">AI picture</span>', box, "the label is on the picture")
+        self.assertIn(f'<a href="/outfits?occasion=office#outfit-{outfit.key}">', page, "the way back, to where he was")
+        self.assertIn("Back to the outfits", page)
+        # Without a page he came from: that outfit on Outfits. From elsewhere: never back to another site.
+        alone = self.client.get(f"/looks/{real}/full", query_string={"outfit": outfit.key},
+                                headers={"Referer": "https://example.org/outfits"}).data.decode()
+        self.assertIn(f'<a href="/outfits#outfit-{outfit.key}">', alone)
+        self.assertNotIn("example.org", alone)
+        # Only a picture there is, as for the file itself.
+        for name in ("0" * 24 + "-1.jpg", "wardrobe.db"):
+            self.assertEqual(self.client.get(f"/looks/{name}/full").status_code, 404, name)
+
     def test_the_dots_sit_where_the_settings_say(self):
         outfit = next(o for o in outfits.all_outfits(selection.build())
                       if any(r == "mid" for r in outfits.roles([p.layer for p in o.pieces])))
@@ -1514,9 +1575,19 @@ class Photos(WithPictures, AppCase):
                           r'<span class="shots-note" id="(more-said-\w+)">([^<]+)</span>', front)
         self.assertIsNotNone(offer, "More photos, with what it costs beside it")
         self.assertEqual(offer.group(1), offer.group(2), "a screen reader hears the cost with the button")
-        self.assertEqual(html_mod.unescape(offer.group(3)), "5 pictures of the day's 300")
+        # What it draws; not yet the day's allowance, which is said only once it is nearly used up (review N14).
+        self.assertEqual(html_mod.unescape(offer.group(3)), "5 pictures")
         self.assertEqual(len(self.drawn), 1, "nothing more is drawn until it is tapped")
         self.assertEqual(self.client.get("/outfits").data.decode().count("More photos"), 1, "only under a front picture that is there")
+
+    def test_more_photos_says_how_many_are_left_today_once_five_or_fewer_are(self):
+        self.with_rules(per_day=6)
+        outfit = some_outfits(1)[0]
+        front = self.ask(outfit)                                    # one of the day's six: five are left
+        note = html_mod.unescape(re.search(r'<span class="shots-note" id="more-said-\w+">([^<]+)</span>', front).group(1))
+        self.assertEqual(note, "5 pictures · 5 left today")
+        self.with_rules(per_day=7)                                  # six left: not said
+        self.assertEqual(looks.more_words(5), "5 pictures")
 
     def test_more_photos_says_how_many_pictures_are_really_left_today(self):
         self.with_rules(per_day=4)
@@ -1803,7 +1874,7 @@ class Photos(WithPictures, AppCase):
         self.assertIn('<div class="look-pic more">', street)
         self.assertEqual([what for _, _, what in self.cells(street)], ["picture"] * 4 + ["plus"] * 2)
         self.with_rules(per_day=5)                                   # one more left: a cell says what it costs
-        self.assertIn('aria-label="Draw the Café photo: 1 picture of the day&#39;s 5"', self.ask(outfit))
+        self.assertIn('aria-label="Draw the Café photo: 1 picture · 1 left today"', self.ask(outfit))
         self.assertEqual(len(self.drawn), 4)
 
     def test_a_further_picture_asked_for_before_the_front_one_asks_for_the_front_one(self):

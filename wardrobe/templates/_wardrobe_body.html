@@ -17,20 +17,23 @@
 <div class="grid">
   {% for s in items %}
   {% set c = s.chosen %}
-  {# The link's aria-label stands in for all it holds, so its note ('Not in Stilsmith's product list in black yet') is pointed at, to be read out too. #}
+  {# The card is one link, named by all it holds: the piece, its price, the product, the size and its note ('Not in
+     Stilsmith's product list in black yet'), then where it leads, said only to a screen reader ("See all options").
+     No aria-label: one would stand in for all of that and hide the price. #}
   {% set noted = s.note and s.state != 'owned' %}
   {# A product sold out in his size says so under the card, with the swap (_sold_out.html): that is its note. #}
   {% set gone = s.sold_out %}
   <article class="slot is-{{ s.state }}{% if s.warn %} has-warn{% endif %}" id="card-{{ s.slot.id }}">
-    <a class="slot-main" href="{{ url_for('slot_page', slot_id=s.slot.id) }}" aria-label="{{ s.slot.name }}: see all options"{% if noted %} aria-describedby="note-{{ s.slot.id }}"{% endif %}{% if focus == s.slot.id %} autofocus{% endif %}>
+    <a class="slot-main" href="{{ url_for('slot_page', slot_id=s.slot.id) }}"{% if focus == s.slot.id %} autofocus{% endif %}>
       {% if c and s.state != 'owned' %}
-        {{ pic(c.data.image_url, c.colour_hex, c.data.name|english or c.data.name) }}
+        {# No alt: the product's name is in the card's words, and the link's name starts with the piece. #}
+        {{ pic(c.data.image_url, c.colour_hex) }}
       {% else %}
         {{ pic('', s.colour.hex) }}
       {% endif %}
       <span class="slot-text">
         <span class="line">
-          <span class="slot-name">{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</span>
+          <span class="slot-name">{{ s.shown_name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</span>
           {# A quantity's price for one goes under the total, so the store and its quality have the card's width. #}
           <span class="slot-price">{% if s.state == 'owned' %}0&nbsp;€{% elif c %}{% if gone %}<s>{{ s.price|eur }}</s><span class="sr"> (not counted in the total)</span>{% else %}{{ s.cost|eur }}{% endif %}{% if s.qty > 1 %}<span class="each">{{ s.qty }} × {{ c.price|eur }}</span>{% endif %}{% else %}—{% endif %}</span>
         </span>
@@ -56,6 +59,7 @@
         {# selection.choose says "in your size"; while the sizes are the example's it is the example size, as on the
            piece's page. #}
         {% if noted and not gone %}<span class="note" id="note-{{ s.slot.id }}">{{ s.note|replace(' in your size', ' in the example size') if example_sizes else s.note }}</span>{% endif %}
+        <span class="sr">. See all options</span>
       </span>
     </a>
     <div class="slot-actions">

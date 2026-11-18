@@ -15,23 +15,42 @@
   {% elif said.kind == 'left' %}
   Showing this outfit without the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Put it back</a>
   {% else %}
-  Wearing the {{ said.new.slot.name|lower }} instead of the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Undo</a>
+  Wearing the {{ said.new.shown_name|lower }} instead of the {{ said.piece.garment.label|lower }}. <a href="{{ url_for('outfits_page', at=said.back, occasion=occasion) }}">Undo</a>
   {% endif %}
 </div>
 {% endif %}
 {% if news %}{% include "_news.html" %}{% endif %}
-{# Which row of outfits this is (how many, which shuffle, and after a yes the outfits that stay in front): every form
-   under an outfit carries it, so that an answer comes back to the same row (app.py, same_row). Nothing for the row
-   every visit starts with. #}
-{% set row_fields %}{% if n != 12 %}<input type="hidden" name="n" value="{{ n }}">{% endif %}{% if seed %}<input type="hidden" name="seed" value="{{ seed }}">{% endif %}{% if front %}<input type="hidden" name="front" value="{{ front|join('.') }}">{% endif %}{% endset %}
-{# The messages below name the one outfit that was answered by its two main pieces ("the outfit with the charcoal
-   wool coat and indigo jeans", yes.name): its occasion alone, “Everyday”, is also the name of a filter and of dozens
-   of outfits. data-answered: app.js reads it out, and after an answer given with the keyboard puts the keyboard on
+{# Which row of outfits this is (how many, which shuffle, after a yes the outfits that stay in front, and an outfit
+   shown first out of the row's order, asked for by the address after a swap: app.py, offered_row): every form under
+   an outfit carries it, so that an answer comes back to the same row (app.py, same_row). Nothing for the row every
+   visit starts with. #}
+{% set row_fields %}{% if n != 12 %}<input type="hidden" name="n" value="{{ n }}">{% endif %}{% if seed %}<input type="hidden" name="seed" value="{{ seed }}">{% endif %}{% if front %}<input type="hidden" name="front" value="{{ front|join('.') }}">{% endif %}{% if shown_first %}<input type="hidden" name="at" value="{{ shown_first }}">{% endif %}{% endset %}
+{# The messages below name the one outfit that was answered by its title and its number in the row, as the page
+   showed them over it ("outfit 2 (Office, smart casual)"), and show its pieces as a row of small photos, named for a
+   screen reader (yes.answered): two outfits never read the same, even where they share their coat and jeans, and where
+   the outfit answered before had the same number and title, what tells this one apart: ", with the stone chinos,". (An
+   answer kept from before that, by its two main pieces: "the outfit with the charcoal wool coat and indigo jeans",
+   yes.name.) data-answered: app.js reads it out, and after an answer given with the keyboard puts the keyboard on
    the answer of the outfit now showing (app.js, 17b). #}
+{% macro answered_name(answer, first=false) -%}
+{%- if answer.title %}{{ answer.title[0]|upper ~ answer.title[1:] if first else answer.title }}{{ ',' if answer.called and answer.title != answer.called }}{% else %}{{ 'The' if first else 'the' }} {{ answer.name or 'outfit' }}{% endif -%}
+{%- endmacro %}
+{% macro answered_thumbs(answer) -%}
+{% if answer.thumbs %}
+  <p class="answered-pieces"><span class="sr">Its pieces: {{ answer.thumbs|map(attribute='name')|join(', ') }}.</span>
+    {%- for t in answer.thumbs %}{{ pic(t.image_url, t.hex) }}{% endfor %}</p>
+{% endif %}
+{%- endmacro %}
 {% if answer and answer.kind == 'yes' %}
-{# After "Add to my wardrobe": what was added, with Undo (it takes the outfit out again) and the way to buy it. #}
-<div class="flash said short" role="status" data-answered>
-  Added the {{ answer.name or 'outfit' }} to your wardrobe{% if answer.words.startswith('Nothing') %}. {{ answer.words }}.{% else %}: {{ answer.words[0]|lower }}{{ answer.words[1:] }}.{% endif %}
+{# After "Add to my wardrobe": what was added, with Undo (it takes the outfit out again) and the way to buy it. After
+   "Save to My outfits" (an outfit that added nothing, yes.Adds.all_yours): that it was saved, and why nothing was
+   added: he owns every piece ("All its pieces are yours already"), or they are all in his wardrobe already. (An
+   answer kept from before these flags: by its words.) #}
+{% set saved_only = answer.all_yours if answer.all_yours is defined else answer.words.startswith('You can already wear this') %}
+{% set owned_all = answer.all_owned if answer.all_owned is defined else answer.words.startswith('You can already wear this') %}
+<div class="flash said short answered" role="status" data-answered>
+  <p>{% if saved_only %}Saved {{ answered_name(answer) }} to My outfits. {% if owned_all %}All its pieces are yours already.{% else %}{{ answer.words }}.{% endif %}{% elif answer.words.startswith('Nothing') %}Added {{ answered_name(answer) }} to your wardrobe. {{ answer.words }}.{% else %}Added {{ answered_name(answer) }} to your wardrobe: {{ answer.words[0]|lower }}{{ answer.words[1:] }}.{% endif %}</p>
+  {{ answered_thumbs(answer) }}
   <form method="post" action="{{ url_for('outfits_save') }}">{{ csrf_field() }}
     <input type="hidden" name="key" value="{{ answer.key }}">
     <input type="hidden" name="sig" value="{{ answer.sig }}">
@@ -42,8 +61,9 @@
 </div>
 {% elif answer %}
 {# After "Not for me": that this one outfit is not offered again, with Undo (it is back in its place, and shown). #}
-<div class="flash said short" role="status" data-answered>
-  The {{ answer.name or 'outfit' }} will not be offered again.
+<div class="flash said short answered" role="status" data-answered>
+  <p>{{ answered_name(answer, true) }} will not be offered again.</p>
+  {{ answered_thumbs(answer) }}
   <form method="post" action="{{ url_for('outfits_no') }}">{{ csrf_field() }}
     <input type="hidden" name="sig" value="{{ answer.sig }}">
     <input type="hidden" name="want" value="undo">
@@ -138,8 +158,8 @@
         {# The pieces as pictures, until the AI picture of the outfit lies over them in the same box. #}
         <div class="collage c{{ o.pieces|length }}">
           {% for p in o.pieces %}
-          {% call piece(o, p, 'tile', p.slot_name ~ (' — you own this' if p.owned else ' — no longer offered' if p.gone else ': ' ~ p.name)) %}
-            {{ pic('' if p.owned else p.image_url, p.hex, p.name, p.slot_name) }}
+          {% call piece(o, p, 'tile', (p.shown_name or p.slot_name) ~ (' — you own this' if p.owned else ' — no longer offered' if p.gone else ': ' ~ p.name)) %}
+            {{ pic('' if p.owned else p.image_url, p.hex, p.name, (p.shown_name or p.slot_name)) }}
             {# The store's name is left off a tile too narrow for it (a phone's: app.css, .cap-store), rather than cut
                to "WEEKDA…"; the price stays, and the list of pieces under the picture names the store. #}
             <span class="cap">{% if p.owned %}Owned{% elif p.gone %}No longer offered · {{ p.price|eur }}{% else %}<span class="cap-store">{{ STORES.get(p.store, p.store) }} · </span>{{ p.price|eur }}{% if p.changed %} · changed{% endif %}{% endif %}</span>
@@ -159,9 +179,9 @@
            label 'AI picture' in its corner (app.css, .spot.low). #}
         <div class="spots">
           {% for p in o.pieces %}
-          {% call piece(o, p, 'spot low' if p.spot[1] >= 70 else 'spot', p.slot_name, '--x:' ~ p.spot[0] ~ '%;--y:' ~ p.spot[1] ~ '%',
-                        p.slot_name ~ ', ' ~ ('owned' if p.owned else 'no longer offered' if p.gone else STORES.get(p.store, p.store) ~ ', ' ~ p.price|eur)) %}
-            <span class="tip"><b>{{ p.slot_name }}</b>{% if p.owned %}Owned{% elif p.gone %}No longer offered{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% endif %}</span>
+          {% call piece(o, p, 'spot low' if p.spot[1] >= 70 else 'spot', (p.shown_name or p.slot_name), '--x:' ~ p.spot[0] ~ '%;--y:' ~ p.spot[1] ~ '%',
+                        (p.shown_name or p.slot_name) ~ ', ' ~ ('owned' if p.owned else 'no longer offered' if p.gone else STORES.get(p.store, p.store) ~ ', ' ~ p.price|eur)) %}
+            <span class="tip"><b>{{ (p.shown_name or p.slot_name) }}</b>{% if p.owned %}Owned{% elif p.gone %}No longer offered{% else %}{{ STORES.get(p.store, p.store) }} · {{ p.price|eur }}{% endif %}</span>
           {% endcall %}
           {% endfor %}
         </div>
@@ -179,11 +199,11 @@
           {% set g = sold.get(p.slot_id) if not p.owned and not p.gone else none %}
           {% if g and (o.sig or p.cand_id == g.chosen.id) %}
             {% set off.sum = off.sum + p.price %}
-            {% set off.said = off.said + [p.slot_name ~ ', ' ~ g.sold_words[0]|lower ~ g.sold_words[1:]] %}
+            {% set off.said = off.said + [(p.shown_name or p.slot_name) ~ ', ' ~ g.sold_words[0]|lower ~ g.sold_words[1:]] %}
           {% endif %}
         {% endfor %}
         <header class="about-head">
-          <h2>{{ OCCASIONS[occasion] ~ ', smart casual' if o.label == 'Smart casual' and occasion in ('everyday', 'office') else o.label }}<span class="sr">, outfit {{ loop.index }} of {{ boards|length }}</span></h2>
+          <h2>{{ outfit_title(o.label, occasion) }}<span class="sr">, outfit {{ loop.index }} of {{ boards|length }}</span></h2>
           <div class="about-meta">
             <span class="count" aria-hidden="true">{{ loop.index }} / {{ boards|length }}</span>
             <b class="board-cost" title="{{ 'What the pieces of this outfit that can be bought cost together' if off.said else 'What the pieces in this outfit cost together' }}">{{ (o.cost - off.sum)|round(2)|eur }}</b>
@@ -206,14 +226,20 @@
         {% if o.adds.over_words %}<p class="adds over">{{ icon('flag') }} {{ o.adds.over_words }}</p>{% endif %}
         {% endif %}
         <div class="answer">
+          {# The number the page shows over this outfit ("3 / 13"), sent with both answers: the message after one names
+             the outfit by it (yes.answered), also where an outfit was shown out of the row's order (?at=…, after a
+             swap), so that it is always the number he saw. #}
+          {% set shown_at = loop.index %}
           {% include "_save_button.html" %}
-          {% if o.sig and not o.saved %}
+          {# No "Not for me" under an outfit he can already wear, every piece his (review N6): it is his to save. #}
+          {% if o.sig and not o.saved and not (o.adds and o.adds.all_yours) %}
           {# Where the page comes back to after the no (app.py, outfits_no): the outfit that follows this one in the
              row ("next", its key); after the last one, whatever then stands in its place ("i", its place). #}
           <form class="no" method="post" action="{{ url_for('outfits_no') }}">{{ csrf_field() }}
             <input type="hidden" name="sig" value="{{ o.sig }}">
             <input type="hidden" name="occasion" value="{{ occasion }}">{{ row_fields }}
             {% if not loop.last %}<input type="hidden" name="next" value="{{ boards[loop.index].key }}">{% else %}<input type="hidden" name="i" value="{{ loop.index0 }}">{% endif %}
+            <input type="hidden" name="shown" value="{{ shown_at }}">
             <button class="quiet" id="no-{{ o.key }}">Not for me</button>
           </form>
           {% endif %}
@@ -222,13 +248,13 @@
         <ul class="pieces">
           {% for p in o.pieces %}
           <li>
-            {% call piece(o, p, 'piece-row', p.slot_name) %}
+            {% call piece(o, p, 'piece-row', (p.shown_name or p.slot_name)) %}
               {{ pic('' if p.owned else p.image_url, p.hex) }}
               {# The piece, then its store and the product's name in one language: English where every word is
                  known (english.py), else the store's own. The store's own name is on the piece's card (the pop-up). #}
               {% set theirs = p.store_name or (p.name if p.name != p.slot_name else '') %}
               {% set en = theirs|english if theirs else none %}
-              <span class="piece-text"><b>{{ p.slot_name }}</b>{% if p.owned %}<span>You own this</span>{% elif p.gone %}<span>No longer offered</span>{% else %}<span class="row-product"><span class="store">{{ STORES.get(p.store, p.store) }}</span>{% if theirs %} <span aria-hidden="true">·</span> <span lang="{{ 'en' if en else 'de' }}">{{ en or theirs }}</span>{% endif %}</span>{% endif %}</span>
+              <span class="piece-text"><b>{{ (p.shown_name or p.slot_name) }}</b>{% if p.owned %}<span>You own this</span>{% elif p.gone %}<span>No longer offered</span>{% else %}<span class="row-product"><span class="store">{{ STORES.get(p.store, p.store) }}</span>{% if theirs %} <span aria-hidden="true">·</span> <span lang="{{ 'en' if en else 'de' }}">{{ en or theirs }}</span>{% endif %}</span>{% endif %}</span>
               {% set out = sold.get(p.slot_id) if not p.owned and not p.gone else none %}
               {% set out = out and (o.sig or p.cand_id == out.chosen.id) %}
               <span class="piece-price">{% if p.owned %}0 €{% else %}{% if out %}<s>{{ p.price|eur }}</s><span class="sr"> (not counted in the outfit's price)</span>{% else %}{{ p.price|eur }}{% endif %}{% if not p.gone and (p.unplanned or p.changed) %}<small>{{ 'removed' if p.unplanned else 'changed' }}</small>{% endif %}{% endif %}</span>

@@ -298,3 +298,44 @@ def name(original: str | None) -> str | None:
     if not said or said.lower().replace("-", " ") == text.lower().replace("-", " "):
         return None                            # nothing to say, or already English: the name is shown once
     return said[0].upper() + said[1:]
+
+
+# ── a piece named by what was picked for it ──────────────────────────────────
+# A plan's piece names one kind of a garment ("Dark brown derby shoes"), but a product is matched to it by the
+# garment (shoes) and the colour, with the kind only preferred (the piece's keywords, "leather derby"). So a derby
+# shoes piece can be filled by a loafer, and a page that said "Dark brown derby shoes" over "Penny loafers" read as
+# an error (review N4). Where the product is plainly another kind than the piece's name says, the piece is called
+# by the product's kind wherever it is shown with that product: "Dark brown loafers".
+# The kinds: (words that name it in a product's name, German or English; what it is called in a piece's name).
+KINDS = {
+    "derby": (("derby", "derbies"), "derby shoes"),
+    "loafer": (("loafer", "mokassin", "slipper"), "loafers"),
+    "chelsea": (("chelsea",), "Chelsea boots"),
+    "harrington": (("harrington",), "Harrington jacket"),
+    "bomber": (("bomber",), "bomber jacket"),
+}
+
+
+def _kind_of(text: str) -> list[str]:
+    text = text.lower()
+    return [kind for kind, (words, _) in KINDS.items() if any(word in text for word in words)]
+
+
+def as_picked(piece: str, keywords: str, product: str) -> str:
+    """A piece's name as it is shown with the product picked for it: its own name ("Dark brown derby shoes"), or,
+    where the product is plainly another kind than that name says, the product's kind in its place ("Dark brown
+    loafers"). Only a kind the piece's own keywords name ("leather derby") and the product's name plainly says is
+    another one ("Loafer aus Leder") changes anything: a product whose name says no kind ("Leather shoes") may be
+    the piece's kind, and keeps the piece's name. A name he wrote himself that does not say the kind as the plan does
+    gets the product's kind after it: "Brown derbies (loafers)"."""
+    wanted = [kind for kind in str(keywords or "").lower().split() if kind in KINDS]
+    if not wanted:
+        return piece
+    said = _kind_of(product or "")
+    if not said or wanted[0] in said:
+        return piece
+    was, now = KINDS[wanted[0]][1], KINDS[said[0]][1]
+    at = piece.lower().find(was.lower())
+    if at < 0:
+        return f"{piece} ({now})"
+    return piece[:at] + now + piece[at + len(was):]

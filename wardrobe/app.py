@@ -343,6 +343,8 @@ def create_app() -> Flask:
     app.jinja_env.lstrip_blocks = True
     app.jinja_env.filters["eur"] = eur
     app.jinja_env.filters["weblink"] = weblink
+    app.jinja_env.filters["as_picked"] = english.as_picked     # 'Dark brown derby shoes' filled by a loafer -> 'Dark brown loafers'
+    app.jinja_env.globals["outfit_title"] = yes.title     # "Office, smart casual", over an outfit
     app.jinja_env.filters["outfit_name"] = yes.name       # an outfit's pieces -> 'outfit with the navy blazer and grey trousers'
     app.jinja_env.filters["english"] = english.name      # a store's German product name in English, or None
     app.jinja_env.globals.update(
@@ -1059,12 +1061,40 @@ def create_app() -> Flask:
         outfit; outfits.generate). None for a row he has not said yes in."""
         return [key for key in str(source.get("front", "")).split(".") if re.fullmatch(r"[0-9a-f]{12}", key)][:60]
 
+    def shown_number(source) -> int:
+        """The number the page showed over the outfit answered ("3 / 13"), which both answers' forms carry
+        (outfits.html, shown_at): the message after the answer names the outfit by it (yes.answered). 0 for a form
+        without it."""
+        value = str(source.get("shown", ""))
+        return int(value) if re.fullmatch(r"[1-9][0-9]{0,2}", value) else 0
+
     def same_row(source, front: list[str] | None = None) -> dict:
         """`place` and `front_of` as address arguments, to go back to that row (none for the row every visit starts
         with). `front`: the outfits that now stay in front, when that has just changed (a yes)."""
         n, seed = place(source)
         front = front_of(source) if front is None else front
         return {"n": n if n != 12 else None, "seed": seed or None, "front": ".".join(front) or None}
+
+    def offered_row(w: selection.Wardrobe, occasion: str, source,
+                    front: list[str]) -> tuple[list[outfits.Outfit], int, int, int, outfits.Outfit | None]:
+        """The outfits on offer, as the page shows them: (those outfits in order, how many there are in all, how many
+        he said no to, how many stand in front, kept there after a yes (`front`), and the one asked for by its address).
+        The outfit asked for ("at", after a swap or "wear something else here") is shown right behind those kept in
+        front, and counted where it is not among those on offer. A page that shows one says so in the forms under its
+        outfits (outfits.html, row_fields), and the answers given there (outfits_save, outfits_no) work the row out
+        here as the page did: the outfits that stood in front of the one answered, that one among them, stay in front
+        after it, and the outfit that follows takes its number, as everywhere."""
+        n, seed = place(source)
+        chosen, total, n_declined = yes.offer(w, occasion, n, seed, front)
+        held = next((i for i, o in enumerate(chosen) if o.key not in front), len(chosen)) if front else 0
+        at = str(source.get("at", ""))[:400]
+        first = outfits.find_by_sig(w, at) if at else None
+        if first is not None:
+            if not first.suits(occasion) or first.sig in db.yes_sigs() or first.sig in db.declined_sigs():
+                total += 1              # shown although it is not among those on offer: count it
+            if first.key not in {o.key for o in chosen[:held]}:     # (first of those behind the ones in front)
+                chosen = chosen[:held] + [first] + [o for o in chosen[held:] if o.key != first.key]
+        return chosen, total, n_declined, held, first
 
     @app.get("/outfits")
     def outfits_page():
@@ -1079,6 +1109,7 @@ def create_app() -> Flask:
         yes_sigs = {fav["sig"] for fav in rows if fav["sig"]}
         said = None             # what a change just made from an outfit did (change_said)
         n_declined = 0
+        first = None            # the outfit asked for by the address, shown out of the row's order (offered_row)
 
         # The outfit just taken out of the wardrobe (outfits_save): said with Undo, and which pieces went with it.
         removed = None
@@ -1123,20 +1154,12 @@ def create_app() -> Flask:
         else:
             # The outfits he has not answered yet; those that wear pieces he already has come first (yes.offer).
             # After a yes, the outfits that stood in front of that one are still in front (front_of): `held` of them.
-            chosen, total, n_declined = yes.offer(w, occasion, n, seed, front)
-            held = next((i for i, o in enumerate(chosen) if o.key not in front), len(chosen)) if front else 0
-            at = request.args.get("at", "")
-            first = None
-            if at:      # one particular combination, shown first: after a swap, or "wear something else here"
-                first = outfits.find_by_sig(w, at)
-                if first:
-                    if not first.suits(occasion) or first.sig in yes_sigs or first.sig in db.declined_sigs():
-                        total += 1              # shown although it is not among those on offer: count it
-                    if first.key not in {o.key for o in chosen[:held]}:     # (first of those behind the ones in front)
-                        chosen = chosen[:held] + [first] + [o for o in chosen[held:] if o.key != first.key]
-                else:
-                    flash("With that change the combination no longer passes the outfit rules, "
-                          "so it is not shown. These do.")
+            # One particular combination asked for by the address ("at": after a swap, or "wear something else
+            # here") is shown first of those behind them (offered_row).
+            chosen, total, n_declined, held, first = offered_row(w, occasion, request.args, front)
+            if request.args.get("at") and first is None:
+                flash("With that change the combination no longer passes the outfit rules, "
+                      "so it is not shown. These do.")
             said = change_said(w, first)
             boards = [{"key": o.key, "sig": o.sig, "label": o.label, "pieces": outfits.snapshot(o), "cost": o.cost,
                        "saved": o.sig in yes_sigs, "yes_sig": o.sig, "adds": yes.adds(w, o, yes_sigs)}
@@ -1166,11 +1189,11 @@ def create_app() -> Flask:
                     reusing=bool(yes_sigs) and any(b.get("adds") and b["adds"].have and not b["adds"].in_wardrobe
                                                    for b in boards[held:]) and len(boards) - held > 1,
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
+                    shown_first=first.sig if first else "",     # said in every form under an outfit (row_fields)
                     front=front, held=held,     # the outfits kept in front after a yes, and how many of them show
                     # Pieces whose chosen product is sold out in his size: said under the piece, with the swap.
                     sold={s.slot["id"]: s for s in w.slots if s.sold_out},
                     looks_on=looks_on, videos_on=videos_on, turn_seconds=(videos.rules() or {}).get("turn_seconds", 6),
-                    allowance=looks.allowance_words() if looks_on else "",    # said beside "More photos"
                     said=said,      # what a change just made from an outfit did, over the outfits (change_said)
                     auto=looks_on and looks.load_rules()["pictures"]["auto"] and not looks.held_off())
 
@@ -1259,7 +1282,6 @@ def create_app() -> Flask:
         large = looks.shown(photos, shot)
         return render_template("_look.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
                                shots_said=said,
-                               allowance=looks.allowance_words(),
                                auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off(),
                                videos_on=videos.service() is not None, video=videos.of(large.look, large.name),
                                clip=videos.clip_of(large.name),
@@ -1293,7 +1315,7 @@ def create_app() -> Flask:
         stays as it is). `said`: why "More photos" did not start all of them."""
         large = looks.shown(photos, shot)
         return render_template("_shots.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
-                               allowance=looks.allowance_words(), said=said)
+                               said=said)
 
     @app.post("/outfits/look")
     def outfits_look():
@@ -1531,6 +1553,25 @@ def create_app() -> Flask:
         response.headers["Cache-Control"] = "private, max-age=31536000, immutable"   # a new version gets a new name
         return response
 
+    @app.get("/looks/<name>/full")
+    def look_full(name: str):
+        """'Full size' under an outfit's AI picture: the picture larger, on a small page of Stilsmith's own with its
+        "AI picture" label and the way back, never the bare file, which would show a realistic picture (perhaps made
+        from his photo) with no label (review N13; EU AI Act, Article 50). Who may see the page is exactly who may
+        see the file itself (looks.image, the same check): a picture made from a customer's photo only by him; one
+        of the house model (made from no photo) by any signed-in customer with its address, as the file always
+        could be (looks._view). `outfit`: the outfit it is of, for the way back; the way back is to the Outfits page
+        he came from, where there is one, else to that outfit on Outfits."""
+        if looks.image(name) is None:
+            abort(404)
+        key = request.args.get("outfit", "")
+        key = key if re.fullmatch(r"[0-9a-f]{12}", key) else ""
+        back = url_for("outfits_page", _anchor=f"outfit-{key}" if key else None)
+        came = urlsplit(request.referrer or "")
+        if came.netloc == request.host and came.path.startswith("/outfits") and not came.path.startswith("/outfits/"):
+            back = came.path + (f"?{came.query}" if came.query else "") + (f"#outfit-{key}" if key else "")
+        return page("look_full.html", tab="outfits", name=name, back=back)
+
     @app.post("/outfits/save")
     def outfits_save():
         """'Add to my wardrobe' under an outfit (a yes), and 'Take out' again. The heart that saved an outfit was the
@@ -1602,8 +1643,8 @@ def create_app() -> Flask:
                 added = yes.adds(w, outfit)
                 sig = outfit.sig
                 row_now: list[str] = []
-                if where not in ("saved", "buy"):       # in the row: what stood in front of it stays in front
-                    row_now = [o.key for o in yes.offer(w, occasion or usual_occasion(), *place(request.form), stays)[0]]
+                if where not in ("saved", "buy"):       # in the row as the page showed it: what stood in front stays there
+                    row_now = [o.key for o in offered_row(w, occasion or usual_occasion(), request.form, stays)[0]]
                     if key in row_now:
                         stays = row_now[:row_now.index(key)]
                 for view in added.new:          # a yes adds one of each piece: never a spare left from earlier
@@ -1613,8 +1654,13 @@ def create_app() -> Flask:
                 db.save_outfit(key, catalog.now_iso(), outfit.label, pieces, sig)
                 db.undecline_outfit(sig)        # (a yes to something he had said no to: the yes counts)
                 # (`row`: the row as it stood before the yes, so that its Undo puts back every outfit where it was.)
+                said_before = db.get_setting("last_answer")     # the message before: called the same? (yes.answered)
+                # (`all_yours`: the yes added nothing and saved it to My outfits; `all_owned`: he owns every piece.)
                 db.set_setting("last_answer", {"kind": "yes", "key": key, "sig": sig, "label": outfit.label,
-                                               "name": yes.name(pieces), "words": added.words, "row": row_now})
+                                               "name": yes.name(pieces), "words": added.words, "row": row_now,
+                                               "all_yours": added.all_yours, "all_owned": added.all_owned,
+                                               **yes.answered(outfit.label, occasion or usual_occasion(), pieces,
+                                                              row_now, key, said_before, shown_number(request.form))})
         if request.headers.get("HX-Request"):
             # A page from before the button was a plain form: its new state and the chip with its new number.
             return render_template("_save_button.html", key=key, saved=want != "remove", yes_sig=sig,
@@ -1677,12 +1723,15 @@ def create_app() -> Flask:
         # The row as it stands now. After the no every other outfit of it stays in front, in its place, and one more
         # joins at the end: he goes on from where he was, and none he passed moves (a row sorted by what he has
         # would put the newcomer among them). Its Undo puts back the row as it was.
-        row_was = [o.key for o in yes.offer(selection.build(), occasion or usual_occasion(), *place(request.form),
-                                            front_of(request.form))[0]]
+        row_was = [o.key for o in offered_row(selection.build(), occasion or usual_occasion(), request.form,
+                                              front_of(request.form))[0]]
         row = same_row(request.form, [k for k in row_was if k != outfit.key])
         db.decline_outfit(sig)
+        pieces = outfits.snapshot(outfit)
         db.set_setting("last_answer", {"kind": "no", "sig": sig, "label": outfit.label,
-                                       "name": yes.name(outfits.snapshot(outfit)), "row": row_was})
+                                       "name": yes.name(pieces), "row": row_was,
+                                       **yes.answered(outfit.label, occasion or usual_occasion(), pieces, row_was,
+                                                      outfit.key, db.get_setting("last_answer"), shown_number(request.form))})
         following = request.form.get("next", "")
         if not re.fullmatch(r"[0-9a-f]{12}", following):
             # It was the last of the row: whatever stands in its place now, or the one before it.
@@ -1713,9 +1762,10 @@ def create_app() -> Flask:
 
     @app.get("/list.md")
     def list_markdown():
+        # "Download as plain text" (list.html): a .txt file, which every phone and computer opens (review N16).
         text = export.to_markdown(export.build(selection.build().mine))
-        return Response(text, mimetype="text/markdown; charset=utf-8",
-                        headers={"Content-Disposition": "attachment; filename=shopping-list.md"})
+        return Response(text, mimetype="text/plain; charset=utf-8",
+                        headers={"Content-Disposition": "attachment; filename=shopping-list.txt"})
 
     @app.get("/list.csv")
     def list_csv():

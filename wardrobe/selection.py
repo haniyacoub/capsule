@@ -41,7 +41,7 @@ from functools import cached_property
 
 from . import capsule
 from . import catalog as catalog_mod
-from . import colours, db, programmes, scoring, shared, sizecheck, sizes, style
+from . import colours, db, english, programmes, scoring, shared, sizecheck, sizes, style
 from . import profile as profile_mod
 from .garments import GARMENTS, SECTIONS, Garment
 from . import settings
@@ -175,6 +175,15 @@ class SlotView:
     def mine(self) -> bool:
         """Whether the piece is in his wardrobe: an outfit he said yes to wears it, he owns it, or he kept it."""
         return self.outfits_in > 0 or self.state == "owned" or self.kept
+
+    @property
+    def shown_name(self) -> str:
+        """The piece's name as shown with its product: its own, or the product's kind where that plainly differs
+        from it ("Dark brown loafers" for "Dark brown derby shoes" filled by a loafer: english.as_picked). A piece he
+        owns, or with nothing picked, keeps its own name."""
+        if self.chosen is None or self.state == "owned":
+            return self.slot["name"]
+        return english.as_picked(self.slot["name"], self.slot.get("keywords", ""), self.chosen.data.get("name", ""))
 
     @property
     def in_outfits_words(self) -> str:

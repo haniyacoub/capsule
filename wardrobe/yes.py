@@ -18,6 +18,9 @@ This module works out what follows from a yes before and after it is given:
     leaving(w, sig)       taking an outfit out again: the pieces no other yes-outfit wears, which go with it
     offer(...)            the outfits to offer: none he answered, and those that reuse his pieces first
     name(pieces)          how a message names one outfit: by its two main pieces, never by its occasion alone
+    title(label, occ)     the outfit's title as the page shows it over the outfit: "Office, smart casual"
+    answered(...)         what the message after a yes or a no names the outfit by: its number in the row and its
+                          title ("outfit 2 (Office, smart casual)") and its pieces, shown as small photos
 """
 from __future__ import annotations
 
@@ -63,12 +66,29 @@ class Adds:
             return "In your wardrobe"
         n = len(self.new) + len(self.have)
         if not self.new:
-            # (Short enough for one line of a phone's bar over the tabs, app.css .dock.)
+            # (Both short enough for one line of a phone's bar over the tabs, app.css .dock.)
+            if self.all_owned:
+                # He owns every piece: the capsule's promise come true, said as such (review N6).
+                return f"You can already wear this: {'its piece is' if n == 1 else f'all {n} pieces are'} yours"
+            # In his wardrobe is not bought: a piece is in it once an outfit he said yes to wears it. So "yours"
+            # only where he owns them all (above); here, that the outfit adds nothing to what he has to buy.
             return f"Nothing new to buy: {'its piece is' if n == 1 else f'all {n} are'} in your wardrobe"
         said = f"{self.n_new} new {pieces_word(self.n_new)} {eur(self.cost)}"
         if self.have:
             said += f", {self.n_have} already in your wardrobe"
         return said
+
+    @property
+    def all_yours(self) -> bool:
+        """Every piece of it is in his wardrobe already, and he has not said yes to it: the yes adds nothing, so it
+        saves the outfit to My outfits ("Save to My outfits"), and there is no "Not for me" to say (review N6)."""
+        return not self.in_wardrobe and not self.new and bool(self.have)
+
+    @property
+    def all_owned(self) -> bool:
+        """… and he owns every one of those pieces ("I already own this"): he can wear the outfit today. Only then
+        does the page call its pieces his: "You can already wear this: all 5 pieces are yours"."""
+        return self.all_yours and all(view.state == "owned" for view in self.have)
 
     @property
     def over_short(self) -> str:
@@ -166,3 +186,43 @@ def owned_from_outside(slot_id: str) -> bool:
 def remember_outside(slot_id: str, outside: bool) -> None:
     now = [key for key in (db.get_setting("owned_from_outside") or []) if key != slot_id]
     db.set_setting("owned_from_outside", now + [slot_id] if outside else now)
+
+
+def title(label: str, occasion: str) -> str:
+    """An outfit's title as the page shows it over the outfit (outfits.html): its kind ("Smart casual"), and under
+    the Everyday and Office filters the filter's name before it, "Office, smart casual"."""
+    if label == "Smart casual" and occasion in ("everyday", "office"):
+        return f"{outfits.OCCASIONS[occasion]}, smart casual"
+    return label
+
+
+def answered(label: str, occasion: str, pieces: list[dict], row: list[str], key: str,
+             before: dict | None = None, seen_as: int = 0) -> dict:
+    """What the message after a yes or a no names the one outfit answered by, so that two outfits never read the
+    same (review N2): its number in the row as he saw it and its title, "outfit 2 (Office, smart casual)", and every
+    piece of it, as a row of small photos and, for a screen reader, by name.
+    The number is the one the page showed over it (`seen_as`, which the answer's form carries): the page may show an
+    outfit out of the row's order (the one asked for by its address after a swap, put first), and then every outfit
+    behind it stands one place further on than in `row`. Without it (a form from before it was sent), its place in
+    `row`, the keys of the outfits of the row before the answer, in order; "this outfit (Smart casual)" where it
+    stood in no row.
+    After an answer the next outfit moves up into the place of the one answered, and so takes its number: a yes to
+    outfit 1 and then a no to the outfit now first would both say "outfit 1 (Smart casual)". So where the answer
+    before (`before`, the last message's) was called the same, this one says what tells it apart, in words: the
+    pieces it has that the other had not, "outfit 1 (Smart casual), with the stone chinos", or, where it only has
+    fewer, what it has not, "…, without the navy wool blazer"."""
+    number = seen_as or (row.index(key) + 1 if key in row else 0)
+    called = f"{f'outfit {number}' if number else 'this outfit'} ({title(label, occasion)})"
+    names = [str(piece.get("shown_name") or piece.get("slot_name") or "") for piece in pieces]
+    shown = called
+    if before and before.get("called") == called:
+        theirs = [str(t.get("name") or "") for t in before.get("thumbs") or []]
+        more = [name for name in names if name not in theirs]
+        fewer = [name for name in theirs if name not in names]
+        if more:
+            shown = f"{called}, with the {names_of([name.lower() for name in more[:2]])}"
+        elif fewer:
+            shown = f"{called}, without the {names_of([name.lower() for name in fewer[:2]])}"
+    return {"title": shown, "called": called,
+            "thumbs": [{"name": name, "image_url": piece.get("image_url") or "", "hex": piece.get("hex") or "#cccccc"}
+                       for name, piece in zip(names, pieces)]}

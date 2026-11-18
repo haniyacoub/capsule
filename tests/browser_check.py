@@ -450,7 +450,8 @@ def run(base: str) -> None:
                             line: Math.max(...[...slide.querySelectorAll('.about-head h2, .count, .board-cost')].map(el => box(el).bottom)),
                             dock: [box(dock).top, box(dock).bottom], fixed: getComputedStyle(dock).position,
                             adds: inside('.adds') && [box(inside('.adds')).top, box(inside('.adds')).bottom, inside('.adds').textContent.trim()],
-                            yes: inside('.btn.yes') && [box(inside('.btn.yes')).top, box(inside('.btn.yes')).bottom],
+                            yes: inside('.btn.yes') && [box(inside('.btn.yes')).top, box(inside('.btn.yes')).bottom,
+                                                        inside('.btn.yes').textContent.replace(/\\s+/g, ' ').trim()],
                             no: inside('form.no button') && [box(inside('form.no button')).top, box(inside('form.no button')).bottom],
                             key: (inside('input[name=key]') || {}).value, slide: slide.id, left_in_outfit: slide.querySelectorAll('[data-answer]').length,
                             tabs: box(document.querySelector('nav.tabs')).top, wide: document.documentElement.scrollWidth};
@@ -460,10 +461,17 @@ def run(base: str) -> None:
                 assert seen["height"] <= 96, f"{size} the bar at the top is {seen['height']:.0f}px tall"
                 assert seen["fixed"] == "fixed" and seen["dock"][1] <= seen["tabs"] + 1 and seen["dock"][0] > 0, \
                     f"{size} the bar with the answers is not above the tab bar ({seen['tabs']:.0f}px): {seen['dock']} ({seen['fixed']})"
+                # An outfit whose pieces are all in his wardrobe already adds nothing: its yes is "Save to My outfits",
+                # and it has no "Not for me" (review N6). (Such an outfit can lead the row once he has said a yes.)
+                yours = bool(seen["yes"]) and seen["yes"][2] == "Save to My outfits"
+                assert not (yours and seen["no"]), f"{size} 'Not for me' under an outfit that adds nothing"
                 for what, name in (("adds", "what a yes adds"), ("yes", "'Add to my wardrobe'"), ("no", "'Not for me'")):
+                    if what == "no" and yours:
+                        continue
                     assert seen[what] and seen["dock"][0] <= seen[what][0] and seen[what][1] <= seen["tabs"], \
                         f"{size} {name} is not on the first screen above the tab bar ({seen['tabs']:.0f}px): {seen[what]}"
-                assert re.fullmatch(r"(\d+ new pieces? [\d.,]+\s€.*|Nothing new to buy: .+ in your wardrobe)", seen["adds"][2]), \
+                assert re.fullmatch(r"(\d+ new pieces? [\d.,]+\s€.*|You can already wear this: .+ yours|Nothing new to buy: .+ in your wardrobe)",
+                                    seen["adds"][2]) and yours == (not seen["adds"][2][0].isdigit()), \
                     f"{size} the bar says of what a yes adds: {seen['adds'][2]!r}"
                 assert seen["slide"] == f"outfit-{seen['key']}" and not seen["left_in_outfit"], \
                     f"{size} the bar's answers are not those of the outfit on screen, or they are there twice: {seen}"
@@ -936,7 +944,7 @@ def run(base: str) -> None:
         def more_photos_of_the_outfit():
             # Under each outfit's picture, a row of its small pictures. At first the front picture alone (the one drawn
             # by itself, on white, with the dots), and "More photos", with what it costs said beside it before the tap:
-            # "5 pictures of your 30 a day". Tapped (here by keyboard), it has five more pictures made FROM the front
+            # "5 pictures". Tapped (here by keyboard), it has five more pictures made FROM the front
             # picture, which goes to the image service with the words: walking, turned, on a street, in a café, in a
             # library. The large picture stays as it is meanwhile; each small picture shows as it arrives; keyboard
             # focus goes to the picture shown. Tapping a small picture shows it large, without dots (they are placed for
@@ -1201,7 +1209,9 @@ def run(base: str) -> None:
             assert not any(sent["references"] for sent in asked), "a picture was made from a front picture without 'More photos'"
             assert all("Seamless pure white studio background" in sent["prompt"] for sent in asked), \
                 "a front picture was not asked for on a white studio background"
-            cost = f"5 pictures of your {rules['pictures']['per_customer_per_day']} a day"
+            # What it draws; the day's allowance only once it is nearly used up (review N14): here 30 a day, unsaid.
+            cost = "5 pictures"
+            assert rules['pictures']['per_customer_per_day'] > 5 + 5, "the walk-through's allowance is nearly used up"
             said = page.inner_text(f"{row} .shots-note")
             assert said == cost, f"beside 'More photos' the cost reads {said!r}, not {cost!r}"
             described = page.get_attribute(f"{row} .btn", "aria-describedby")
@@ -2861,17 +2871,19 @@ def run(base: str) -> None:
                 # pressed with Enter takes the outfit out again (the walk-through adds one later). The button is called by
                 # its own words.
                 yes_button = page.locator(f"{first} .btn.yes")
-                assert yes_button.inner_text().split("+")[0].strip() == "Add to my wardrobe" and not yes_button.get_attribute("aria-label"), \
+                # ("Save to My outfits" where every piece of it is his already: review N6.)
+                called = yes_button.inner_text().split("+")[0].strip()
+                assert called in ("Add to my wardrobe", "Save to My outfits") and not yes_button.get_attribute("aria-label"), \
                     f"the yes is called {yes_button.inner_text()!r}, or by a label that says something else"
                 yes_button.focus()
                 page.keyboard.press("Enter")
                 page.wait_for_url("**added=*")
-                in_view("main > .said", "Added the outfit with the ")
+                in_view("main > .said", "Added outfit " if called == "Add to my wardrobe" else "Saved outfit ")
                 page.locator("main > .said button:has-text('Undo')").focus()
                 page.keyboard.press("Enter")
                 page.wait_for_url("**removed=*")
                 in_view("main > .said", "Took the outfit with the ")
-                assert page.locator(f"{first} .btn.yes").inner_text().startswith("Add to my wardrobe"), "after Undo the outfit is not on offer again, first"
+                assert page.locator(f"{first} .btn.yes").inner_text().startswith(called), "after Undo the outfit is not on offer again, first"
                 page.goto(base + "/outfits", wait_until="networkidle")
 
                 page.wait_for_selector(f"{first} .look-pic img")       # the dots show on the picture (drawn by itself)
@@ -2950,9 +2962,10 @@ def run(base: str) -> None:
                     + (other.locator(".open-all").first.inner_text().strip() if other.locator(".open-all").count() else "no button at all") \
                     + "), which a browser's pop-up blocker cuts down to the first page"
                 store = other.locator(".store-list").filter(has=other.locator("[data-open-next]")).first
-                button = store.locator("[data-open-next]")
+                button = store.locator("[data-open-next]").first     # under the store's name; the same again after its last line
+                after = store.locator("[data-open-next]").last
                 name = button.get_attribute("data-store")
-                pages = store.locator("a.buy-product").evaluate_all("links => links.map(a => a.href)")
+                pages = store.locator("a.buy-go").evaluate_all("links => links.map(a => a.href)")
                 total = len(pages)
                 assert total >= 2, "the example list has no store with two products"
                 assert "Open all" not in other.locator("main").inner_text(), "the page still promises to open all at once"
@@ -2961,6 +2974,16 @@ def run(base: str) -> None:
                 assert store.locator(".buy-opened:visible").count() == 0, "a line is ticked before anything was opened"
                 size = button.bounding_box()
                 assert size["height"] >= 24, f"the button is {size['height']:.0f}px tall: under 24px to tap"
+                # Each line's own main action (review N1): "Open at <store>, order <size>", an ink button at least 44px
+                # tall across the whole row, under the store's own button, which comes again after the last line.
+                rows = other.evaluate("""() => [...document.querySelectorAll('.store-list:not(.sold-list) .buy')].map(row => {
+                    const go = row.querySelector('.buy-go'); if (!go) return null; const b = go.getBoundingClientRect(), r = row.getBoundingClientRect();
+                    return {text: go.innerText.trim(), height: b.height, whole: Math.abs(b.width - r.width) < 1, ink: getComputedStyle(go).backgroundColor}; })""")
+                assert rows and all(rows), f"a line of the list has no button to its store: {rows}"
+                for row in rows:
+                    assert re.match(r"Open at \w+, (order |choose your size)", row["text"]) and row["height"] >= 44 and row["whole"], \
+                        f"a line's button: {row}"
+                assert store.locator("[data-open-next]").count() == 2, "the store's 'Open the first of' is not there twice"
                 for number, address in enumerate(pages, start=1):
                     before = len(context.pages)
                     with context.expect_page() as opened:
@@ -2975,7 +2998,8 @@ def run(base: str) -> None:
                     ticks = store.locator(".buy").evaluate_all("lines => lines.map(line => !line.querySelector('.buy-opened').hidden)")
                     assert ticks == [at < number for at in range(total)], \
                         f"after tap {number} the ticked lines are {ticks}: not the first {number} and only those"
-                    said = store.locator("[data-open-status]").inner_text()
+                    said = store.locator("[data-open-status]").first.inner_text()
+                    assert after.inner_text() == button.inner_text(), "the store's two buttons say different things"
                     if number < total:
                         assert f"{number} of {total} opened" in said, f"after tap {number} it says '{said}'"
                         # Said for a finger and for a mouse alike: neither "tap" nor "click".
@@ -2988,7 +3012,7 @@ def run(base: str) -> None:
                         assert button.inner_text().strip() == "Start again", \
                             f"after all {total} were opened the button says '{button.inner_text().strip()}', not 'Start again'"
                 # A product's own link ticks its line too, and the ticks are still there after a look at another page.
-                lone = other.locator(".store-list").filter(has_not=other.locator("[data-open-next]")).locator("a.buy-product").first
+                lone = other.locator(".store-list").filter(has_not=other.locator("[data-open-next]")).locator("a.buy-go").first
                 if lone.count():
                     with context.expect_page():
                         lone.tap()
@@ -3002,7 +3026,7 @@ def run(base: str) -> None:
                 assert wide <= screen, f"the list with its ticks is {wide}px wide on a {screen}px phone"
                 # "Start again" opens nothing: only then do that store's ticks go, and the button offers the first again.
                 store = other.locator(".store-list").filter(has=other.locator("[data-open-next]")).first
-                button = store.locator("[data-open-next]")
+                button = store.locator("[data-open-next]").first
                 assert button.inner_text().strip() == "Start again", "back on the list, the button no longer says 'Start again'"
                 before = len(context.pages)
                 button.tap()
@@ -3012,7 +3036,7 @@ def run(base: str) -> None:
                 assert len(context.pages) == before, "'Start again' opened a store's page"
                 assert button.inner_text().strip().startswith(f"Open the first of {total} at {name}"), \
                     f"after 'Start again' the button says '{button.inner_text().strip()}'"
-                assert store.locator("[data-open-status]").inner_text().strip() == "", "after 'Start again' it still says how many are open"
+                assert store.locator("[data-open-status]").first.inner_text().strip() == "", "after 'Start again' it still says how many are open"
                 with context.expect_page() as opened:                 # and it works again from the first
                     button.tap()
                 assert opened.value.url == pages[0], f"after 'Start again' the button opened {opened.value.url}, not the first page"
@@ -3038,7 +3062,9 @@ def run(base: str) -> None:
             page.emulate_media(media="print")
             try:
                 assert not any(pic.is_visible() for pic in page.locator(".buy .pic").all()), "photos are printed"
-                assert page.locator(".buy-product").first.is_visible(), "the product names are not printed"
+                assert page.locator(".buy .row-product").first.is_visible(), "the product names are not printed"
+                assert "https://" in page.locator(".buy-go").first.evaluate("a => getComputedStyle(a, '::after').content"), \
+                    "the product's address is not printed"
                 assert not page.locator("#summary").is_visible(), "the budget bar is printed"
             finally:
                 page.emulate_media(media="screen")
@@ -3891,10 +3917,10 @@ def run(base: str) -> None:
                 before = missing()
                 assert phone.locator(f"#{card} .note").inner_text().startswith("Not in Stilsmith's product list in "), \
                     "the empty piece does not say what is missing"
-                # The card's link is named "<piece>: see all options"; a screen reader hears its note as well.
+                # The card's link is named by all it holds: a screen reader hears its note as well.
                 link = phone.locator(f"#{card} .slot-main")
-                expect(link, "a screen reader is not told why the piece is empty").to_have_accessible_description(
-                    re.compile(r"^Not in Stilsmith's product list in \w"))
+                expect(link, "a screen reader is not told why the piece is empty").to_have_accessible_name(
+                    re.compile(r"Not in Stilsmith's product list in \w"))
                 phone.evaluate("() => { window.stayed = true; }")
                 offer.focus()
                 phone.keyboard.press("Enter")
@@ -3907,8 +3933,9 @@ def run(base: str) -> None:
                 assert missing() == before - pieces, f"the bar still counts {missing()} missing pieces, not {before - pieces}"
                 assert phone.evaluate("id => document.activeElement === document.querySelector('#' + id + ' .slot-main')", card), \
                     "keyboard focus did not move to the piece once its button was gone"
+                # Named by its piece first and its price too (no aria-label hides it), and by where it leads, last.
                 expect(link, "the piece's link does not say what it leads to").to_have_accessible_name(
-                    re.compile(r"^" + re.escape(colour.label) + r" .*: see all options$"))
+                    re.compile(r"^" + re.escape(colour.label) + r" .*\d[\d.,]*\s?€.*\. See all options$"))
             finally:
                 listed.unlink(missing_ok=True)
                 context.close()
@@ -4095,6 +4122,8 @@ def run(base: str) -> None:
                         return scrolled
 
                     def money(text: str) -> float:
+                        if text == "":          # the yes of an outfit all his already says no sum: it adds 0 € (review N6)
+                            return 0.0
                         return float(re.search(r"([\d.,]+)\s€", text).group(1).replace(",", ""))
 
                     def bar() -> dict:
@@ -4115,12 +4144,14 @@ def run(base: str) -> None:
                     def offered() -> list[dict]:
                         """Every outfit on offer, in the order shown: its pieces, its price, what it says it adds."""
                         return view.evaluate("() => {" + BOXES + """
-                            return slides.filter(s => box(s) && box(s).querySelector('form.no')).map(slide => ({
+                            // (On offer: not yet in his wardrobe. An outfit of pieces all his has no "Not for me", review N6.)
+                            return slides.filter(s => box(s) && box(s).querySelector('form.save input[name=want][value=save]')).map(slide => ({
                                 pieces: box(slide).querySelector('form.save input[name=sig]').value.split('~'),
+                                no: Boolean(box(slide).querySelector('form.no')),
                                 cost: slide.querySelector('.board-cost').textContent.trim(),
                                 adds: [...box(slide).querySelectorAll('.adds')].map(p => { const c = p.cloneNode(true);
                                     c.querySelectorAll('.over-short').forEach(x => x.remove()); return c.textContent.trim(); }),   // (its short form in the bar aside)
-                                plus: box(slide).querySelector('.btn.yes .plus').textContent.trim()})); }""")
+                                plus: (box(slide).querySelector('.btn.yes .plus') || {textContent: ''}).textContent.trim()})); }""")
 
                     def answer(what: str, index: int = 0) -> str:
                         """The button to tap for an answer ("yes" or "no") to the outfit at this place in the row, which is
@@ -4197,11 +4228,14 @@ def run(base: str) -> None:
                         f"{where}: the outfit costs {one['cost']!r}, its button says {one['plus']!r}, the line {one['adds'][0]!r}"
                     tap(answer("yes"))
                     assert "added=" in view.url, f"{where}: a yes led to {view.url}"
-                    # The message names the outfit by its main pieces, never by its occasion alone ("Everyday" is a
-                    # filter, and dozens of outfits).
-                    assert re.match(r"Added the outfit with the [a-z' -]+ and [a-z' -]+ to your wardrobe: ", said()) \
-                        and " ".join(one["adds"][0].split())[1:] in said() and said().endswith("Undo") and "“" not in said() \
-                        and not re.search(r"Everyday|Smart casual|Office", said()), f"{where}: after a yes the page says {said()!r}"
+                    # The message names the outfit by its number and title, never by its title alone ("Everyday" is a
+                    # filter, and dozens of outfits), and shows its pieces as a row of small photos (review N2).
+                    assert re.match(r"Added outfit 1 \([A-Z][a-z ,]+\) to your wardrobe: ", said()) \
+                        and " ".join(one["adds"][0].split())[1:] in said() and said().endswith("Undo") and "“" not in said(), \
+                        f"{where}: after a yes the page says {said()!r}"
+                    thumbs = view.locator("main > .said .answered-pieces .pic")
+                    assert thumbs.count() == len(one["pieces"]) and all(t.is_visible() for t in thumbs.all()), \
+                        f"{where}: after a yes the message shows {thumbs.count()} small photos for {len(one['pieces'])} pieces"
                     assert chip() == "My outfits 1", f"{where}: after a yes the chip says {chip()!r}"
                     figures = bar()
                     assert money(figures["Total"]) == money(one["adds"][0]), f"{where}: the outfit added {one['adds'][0]!r}, the bar's total is {figures['Total']}"
@@ -4313,18 +4347,24 @@ def run(base: str) -> None:
                     # was. The page comes back on the outfit that followed, the four he had passed still in front of it,
                     # scrolled to where it was, and it says what was done, with Undo.
                     view.goto(base + "/outfits", wait_until="networkidle")
-                    row = [o["pieces"] for o in offered()]
-                    show(4)
-                    assert answers()["pieces"] == row[4], f"{where}: the fifth outfit is not the one on screen: {answers()}"
-                    was_at = tap(answer("no", 4))
+                    listed = offered()
+                    row = [o["pieces"] for o in listed]
+                    # (The fifth, or the first after it with a "Not for me" and one after it: an outfit of pieces that
+                    # are all his already has none, review N6, and those come first in the row.)
+                    k = next(i for i in range(4, len(listed) - 1) if listed[i]["no"] and listed[i + 1]["no"])
+                    show(k)
+                    assert answers()["pieces"] == row[k], f"{where}: the fifth outfit is not the one on screen: {answers()}"
+                    was_at = tap(answer("no", k))
                     assert "declined=" in view.url and re.search(r"#outfit-[0-9a-f]{12}$", view.url), f"{where}: 'Not for me' led to {view.url}"
-                    assert re.fullmatch(r"The outfit with the [a-z' -]+ and [a-z' -]+ will not be offered again\. Undo", said()) \
-                        and not re.search(r"Everyday|Smart casual|Office", said()), f"{where}: after 'Not for me' the page says {said()!r}"
+                    assert re.fullmatch(rf"Outfit {k + 1} \([A-Z][a-z ,]+\)(?:, with(?:out)? the [^,]+,)? will not be offered again\. Its pieces: [^.]+\. Undo", said()), \
+                        f"{where}: after 'Not for me' the page says {said()!r}"
+                    assert view.locator("main > .said .answered-pieces .pic").count() == len(row[k]), \
+                        f"{where}: after 'Not for me' the message does not show the outfit's pieces"
                     now = [o["pieces"] for o in offered()]
-                    assert row[4] not in now, f"{where}: the outfit he said no to is offered again"
-                    assert [o for o in now if o in row] == row[:4] + row[5:], f"{where}: after a no the other outfits are not in the order they were in"
+                    assert row[k] not in now, f"{where}: the outfit he said no to is offered again"
+                    assert [o for o in now if o in row] == row[:k] + row[k + 1:], f"{where}: after a no the other outfits are not in the order they were in"
                     seen = answers()
-                    assert seen["pieces"] == row[5] and all(o in now[:seen["index"]] for o in row[:4]), \
+                    assert seen["pieces"] == row[k + 1] and all(o in now[:seen["index"]] for o in row[:k]), \
                         f"{where}: after a no to the fifth outfit the page shows outfit {seen['index'] + 1}, not the one that followed it"
                     assert abs(seen["scrolled"] - (was_at if script else 0)) <= 1, \
                         f"{where}: he said no with the page scrolled {was_at:.0f}px down, and it came back at {seen['scrolled']:.0f}px"
@@ -4339,7 +4379,7 @@ def run(base: str) -> None:
                             f"{where}: after a no the next outfit's answers are not in reach above the tab bar: {seen}"
                     assert "You said no to 1 outfit" in view.locator("form.declined").inner_text(), f"{where}: no word of the outfit he said no to"
                     tap("main > .said button:has-text('Undo')")
-                    assert [o["pieces"] for o in offered()] == row and answers()["pieces"] == row[4], \
+                    assert [o["pieces"] for o in offered()] == row and answers()["pieces"] == row[k], \
                         f"{where}: Undo after 'Not for me' does not put the outfit back in its place and show it (outfit {answers()['index'] + 1} shows)"
                     assert not view.locator("form.declined").count(), f"{where}: after Undo the page still counts an outfit he said no to"
 
@@ -4348,20 +4388,25 @@ def run(base: str) -> None:
                         # now shows (it was back at the page's top, some twenty presses of Tab away), and the line that
                         # says what was done is read out. Enter there answers that outfit.
                         view.goto(base + "/outfits", wait_until="networkidle")
-                        row = [o["pieces"] for o in offered()]
+                        listed = offered()
+                        row = [o["pieces"] for o in listed]
+                        # (The second, or the first after it with a "Not for me", as above.)
+                        j = next(i for i in range(1, len(listed) - 1) if listed[i]["no"])
                         view.keyboard.press("Tab")
-                        view.keyboard.press("ArrowRight")
-                        view.wait_for_function("() => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth) === 1; }")
+                        for _ in range(j):
+                            view.keyboard.press("ArrowRight")
+                            view.wait_for_timeout(120)
+                        view.wait_for_function("j => { const r = document.getElementById('reel'); return Math.round(r.scrollLeft / r.clientWidth) === j; }", arg=j)
                         view.wait_for_timeout(350)
-                        view.locator(answer("no", 1)).focus()
+                        view.locator(answer("no", j)).focus()
                         with view.expect_navigation(wait_until="networkidle"):
                             view.keyboard.press("Enter")
                         view.wait_for_function("() => document.activeElement && document.activeElement.matches('.btn.yes')")
                         seen = answers()
-                        assert seen["pieces"] == row[2] and seen["keyboard"] == "yes of the outfit on screen", \
+                        assert seen["pieces"] == row[j + 1] and seen["keyboard"] == "yes of the outfit on screen", \
                             f"{where}: after a no given with the keyboard, the keyboard is on {seen['keyboard']} (outfit {seen['index'] + 1} shows)"
                         heard = view.wait_for_function("() => document.getElementById('announce').textContent").json_value()
-                        assert re.fullmatch(r"The outfit with the [a-z' -]+ and [a-z' -]+ will not be offered again\. Undo is at the top of the page\.", heard), \
+                        assert re.fullmatch(r"Outfit \d+ \([A-Z][a-z ,]+\)(?:, with(?:out)? the [^,]+,)? will not be offered again\. Its pieces: [^.]+\. Undo is at the top of the page\.", heard), \
                             f"{where}: after a no given with the keyboard a screen reader hears {heard!r}"
                         tap("main > .said button:has-text('Undo')")
 
@@ -4697,7 +4742,7 @@ def run(base: str) -> None:
                         view.goto(outfit, wait_until="networkidle")
                         # (On a phone the answers of the outfit on screen stand in the bar over the tabs, app.js 17a.)
                         yes_button = view.locator(f"#dock .btn.yes, {first} .btn.yes").first
-                        if yes_button.inner_text().startswith("Add"):
+                        if yes_button.inner_text().startswith(("Add", "Save to")):     # ("Save to My outfits": all his, review N6)
                             with view.expect_navigation(wait_until="networkidle"):
                                 yes_button.click()
                         view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
@@ -6059,7 +6104,7 @@ def run(base: str) -> None:
                     wide.click("button:has-text('Use this brief')")
                 after = bought(wide)
                 sentence = said_on_screen(wide, "Style brief saved.", "/outfits", "Use this brief with no leather")
-                shoes = {piece: product for piece, (product, _, _) in after.items() if "sneakers" in piece or "shoes" in piece}
+                shoes = {piece: product for piece, (product, _, _) in after.items() if "sneakers" in piece or "shoes" in piece or "loafers" in piece}
                 assert len(shoes) == 2 and all(before[piece][0] == product for piece, product in shoes.items()), \
                     f"no leather changed the shoes to other shoes: {[(before[piece][0], product) for piece, product in shoes.items()]}"
                 expected = (f"Style brief saved. {change(before, after, 'Your brief', 'It changed none of your pieces.')} "
@@ -6172,6 +6217,50 @@ def run(base: str) -> None:
                     assert [s for s in seen if s["store"]], f"no tile at {width}px names its store: {seen}"
             page.set_viewport_size({"width": 1280, "height": 860})
 
+        def full_size_is_larger_and_labelled():
+            # "Full size" under an outfit's picture opens a page of Stilsmith's own, in the same tab (review N13): the
+            # picture never smaller than on Outfits and as tall as the window less 24px, so the whole of it fits on
+            # the screen once the page is scrolled to it; its label 'AI picture' on it and "Back to the outfits" on the
+            # first screen; its caption can be scrolled clear of a phone's tab bar; the browser's Back leads back. On
+            # a computer and on a short phone; nothing wider than the screen.
+            measure = """() => {
+                const box = el => el.getBoundingClientRect(), tabs = document.querySelector('nav.tabs');
+                const foot = tabs && getComputedStyle(tabs).position === 'fixed' ? box(tabs).top : innerHeight;
+                const pic = box(document.querySelector('.full-pic-box')), chip = box(document.querySelector('.full-pic .ai-chip'));
+                const back = box(document.querySelector('.crumb a'));
+                return {pic: [pic.width, pic.height], chip: [document.querySelector('.full-pic .ai-chip').textContent.trim(),
+                        chip.top >= pic.top && chip.bottom <= Math.min(pic.bottom, foot) && chip.left >= pic.left && chip.right <= pic.right],
+                        back: [document.querySelector('.crumb a').textContent.trim(), back.top >= 0 && back.bottom <= foot],
+                        room: foot, wide: document.documentElement.scrollWidth};
+            }"""
+            caption = """() => { const tabs = document.querySelector('nav.tabs'), cap = document.querySelector('.full-pic figcaption').getBoundingClientRect();
+                const foot = tabs && getComputedStyle(tabs).position === 'fixed' ? tabs.getBoundingClientRect().top : innerHeight;
+                return cap.top >= 0 && cap.bottom <= foot + 0.5; }"""
+            for width, height, phone in ((1280, 800, False), (390, 664, True)):
+                context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=phone, has_touch=phone)
+                where = f"at {width} x {height}"
+                try:
+                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.wait_for_selector(f"{first} .look-pic img")
+                    on_outfits = other.evaluate("s => document.querySelector(s + ' .look-pic').getBoundingClientRect().width", first)
+                    outfits_at = other.url
+                    with other.expect_navigation(wait_until="networkidle"):
+                        other.locator(f"{first} .look-links a:has-text('Full size')").click()
+                    assert re.search(r"/looks/[^/]+/full\?outfit=", other.url), f"{where}: Full size opened {other.url}"
+                    seen = other.evaluate(measure)
+                    assert seen["pic"][0] >= on_outfits - 0.5, f"{where}: Full size shows the picture {seen['pic']}, smaller than on Outfits ({on_outfits:.0f}px wide)"
+                    assert seen["pic"][1] <= height - 24 + 0.5 and seen["pic"][1] <= seen["room"] + 0.5, \
+                        f"{where}: the picture ({seen['pic']}) does not fit on the screen ({seen['room']:.0f}px above the tab bar)"
+                    assert seen["chip"] == ["AI picture", True], f"{where}: the label is not on the picture on the first screen: {seen['chip']}"
+                    assert seen["back"] == ["Back to the outfits", True], f"{where}: the way back is not on the first screen: {seen['back']}"
+                    assert seen["wide"] <= width, f"{where}: the page is {seen['wide']}px wide"
+                    other.evaluate("() => scrollTo(0, document.documentElement.scrollHeight)")
+                    assert other.evaluate(caption), f"{where}: the caption cannot be scrolled clear of the tab bar"
+                    other.go_back(wait_until="networkidle")
+                    assert other.url == outfits_at, f"{where}: Back led to {other.url}, not {outfits_at}"
+                finally:
+                    context.close()
+
         def photos_full_screen_on_a_phone():
             # On a phone the small pictures under an outfit are small (30 by 40px on a short one): a tap on one opens the
             # outfit's photos full screen, at that one, and shows it large in the outfit as before. Each photo is whole
@@ -6256,6 +6345,7 @@ def run(base: str) -> None:
                  ("more photos and a video only on an outfit said yes to", more_only_on_a_yes),
                  ("more photos: five made from the front picture", more_photos_of_the_outfit),
                  ("the photos full screen on a phone", photos_full_screen_on_a_phone),
+                 ("Full size: larger, labelled, with the way back", full_size_is_larger_and_labelled),
                  ("a small picture tapped: never undone, and without JavaScript", a_tap_on_a_small_picture_is_kept),
                  ("see it move: a video, played, dragged, limited", see_it_move),
                  ("see it move from the picture showing: its own movement, one clip each", see_it_move_from_the_picture_showing),

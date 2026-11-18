@@ -173,5 +173,22 @@ class WholeNames(unittest.TestCase):
                 self.assertEqual(english.name(german), said)
 
 
+
+class APieceNamedByWhatWasPicked(unittest.TestCase):
+    # Review N4: "Dark brown derby shoes" over "Penny loafers" read as an error. Where the product plainly is another
+    # kind than the piece's name says, the piece is called by the product's kind; otherwise it keeps its name.
+    def test_the_products_kind_takes_the_place_of_the_pieces(self):
+        self.assertEqual(english.as_picked("Dark brown derby shoes", "leather derby", "Loafer aus Leder"), "Dark brown loafers")
+        self.assertEqual(english.as_picked("Black Chelsea boots", "leather chelsea", "Derby-Schuhe"), "Black derby shoes")
+
+    def test_a_product_of_the_pieces_kind_or_of_no_kind_said_keeps_the_name(self):
+        for product in ("Derby-Schuhe aus Leder", "Schuhe aus Leder", "", "Leather shoes"):
+            with self.subTest(product):
+                self.assertEqual(english.as_picked("Dark brown derby shoes", "leather derby", product), "Dark brown derby shoes")
+        self.assertEqual(english.as_picked("Navy tee", "heavyweight", "Loafer"), "Navy tee", "a piece of no kind")
+
+    def test_a_name_he_wrote_himself_gets_the_kind_after_it(self):
+        self.assertEqual(english.as_picked("Brown derbies", "leather derby", "Penny Loafer"), "Brown derbies (loafers)")
+
 if __name__ == "__main__":
     unittest.main()

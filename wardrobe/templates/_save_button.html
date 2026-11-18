@@ -17,11 +17,15 @@
   {% if occasion is defined and occasion != 'saved' %}<input type="hidden" name="occasion" value="{{ occasion }}">{% endif %}
   {# The row of outfits it was pressed in (outfits.html, row_fields): the answer comes back to the same row. #}
   {% if row_fields is defined %}{{ row_fields }}{% endif %}
+  {# … and the number the page shows over the outfit (outfits.html, shown_at), which the message names it by. #}
+  {% if shown_at is defined %}<input type="hidden" name="shown" value="{{ shown_at }}">{% endif %}
   <button class="btn yes{% if is_saved %} ghost small on{% endif %}" id="save-{{ key }}">
     <svg viewBox="0 0 24 24" width="18" height="18" fill="{{ 'currentColor' if is_saved else 'none' }}" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>
-    <span>{{ 'Take out of my wardrobe' if is_saved else 'Add to my wardrobe' }}</span>
-    {# What the yes adds to his wardrobe's total, where the page knows it (yes.adds). #}
-    {% if not is_saved and o is defined and o.adds %}<span class="plus">+ {{ o.adds.cost|eur }}</span>{% endif %}
+    {# An outfit of pieces that are all his already is saved, not added: nothing is to buy (yes.Adds.all_yours). #}
+    {% set all_yours = not is_saved and ((o is defined and o.adds and o.adds.all_yours) or (o is not defined and adds is defined and adds.all_yours)) %}
+    <span>{{ 'Take out of my wardrobe' if is_saved else 'Save to My outfits' if all_yours else 'Add to my wardrobe' }}</span>
+    {# What the yes adds to his wardrobe's total, where the page knows it (yes.adds); nothing where it adds nothing. #}
+    {% if not is_saved and not all_yours and o is defined and o.adds %}<span class="plus">+ {{ o.adds.cost|eur }}</span>{% endif %}
   </button>
 </form>
 {% if chip is defined %}{{ saved_chip(chip, swap=true) }}{% endif %}

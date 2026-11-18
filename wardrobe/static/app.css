@@ -203,6 +203,13 @@ html { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
    line, kept whole on the line, and reaches 44px tall and a little wider than its words, without making the line
    taller. */
 .said form { display: inline; }
+/* After a yes or a no (outfits.html): the outfit by its title and number, then a row of small photos of its pieces
+   with Undo after them, so that two outfits that share a coat and jeans never read the same (review N2). */
+.said.answered { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-3); }
+.said.answered > p:not(.answered-pieces) { flex: 1 1 100%; margin: 0; }   /* the sentence; the photos and Undo share the next line */
+.answered-pieces { display: flex; gap: 4px; margin: 0; }
+.answered-pieces .pic { width: 26px; aspect-ratio: 4 / 5; border-radius: 2px; }
+.answered-pieces .pic .fb { display: none; }
 .said button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 /* 24px tall at least (the line alone is 22.5px): 2px of padding above and below, taken back by the margin, so the
    line is no taller for it. */
@@ -399,6 +406,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .slot-head { display: grid; gap: 8px; margin-bottom: 16px; }
 .slot-head h1 { font: var(--w-strong) expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; }
 .state { font-size: var(--t-m); color: var(--muted); }
+.slot-head .as-picked { font-size: var(--t-m); line-height: var(--lh-m); }   /* what the card calls it, with this pick (review N4) */
 .state .note { display: block; font-size: var(--t-s); margin-top: 2px; }
 .slot-head .left-out { font-size: var(--t-m); line-height: var(--lh-m); }   /* as large as the line it explains */
 .slot-head .left-out a { padding: var(--s-1) 0; text-underline-offset: 3px; }   /* "Edit the plan", at the end of the reason: 24px or more to tap */
@@ -1016,6 +1024,17 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
    shown: each photo as large as the screen allows, whole (2 wide by 3 high), side by side in a row that snaps to one
    at a time. At the top: which photo it is and Close, white on a dark veil (as the label 'AI picture', which each
    photo carries at its foot), each 44px to a finger. The arrows beside the photo are for a mouse; a finger swipes. */
+/* "Full size" (look_full.html): the AI picture under the way back, 2 wide by 3 high, as tall as the window less 24px
+   (as on Outfits on a computer, where it is also never wider than half the page), so that the whole picture fits on
+   the screen once the page is scrolled to it; never wider than the page or than the file (848px). So never smaller
+   than on Outfits: 517 x 776 in a window of 1280 x 800 (the same), 584 x 876 at 1440 x 900 (Outfits 536 x 804),
+   358 x 537 on a 390 x 664 phone (Outfits 309 x 463). Its top shows on the first screen, so its label "AI picture"
+   is at its top here, not at its foot as elsewhere. */
+.full-pic { margin: 0 auto; width: min(100%, 848px, (100svh - 24px) * 2 / 3); min-width: min(100%, 260px); }
+.full-pic .ai-chip { top: var(--s-2); bottom: auto; }
+.full-pic-box { position: relative; aspect-ratio: 2 / 3; background: var(--photo); }
+.full-pic-box img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.full-pic figcaption { margin-top: var(--s-2); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .viewer {
   position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0;
   border: 0; background: #111; color: #fff; overflow: hidden;
@@ -1171,9 +1190,11 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); font-weight: var
 .buy-slot a { text-decoration: none; }                /* the piece: leads to its own page, where its fabric, fit and quality are said in full */
 .buy-slot a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .buy-total { flex: none; font-weight: var(--w-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* The whole of the product's name is the link to it at the store, with the external-link sign at its end. */
-.buy-product { justify-self: start; padding: 3px 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); text-underline-offset: 3px; }
-.buy-product .ic { width: 13px; height: 13px; color: var(--muted); }
+/* A line's one main action, "Open at COS, order M": ink, under the photo and the words across the whole row, at
+   least 44px tall, its words wrapping where a phone is narrow, with the external-link sign at their end. */
+.buy > .buy-go, .buy > .buy-opened { grid-column: 1 / -1; }
+.btn.buy-go { display: flex; width: 100%; min-height: 44px; margin-top: 0; padding: 10px var(--s-3); font-size: var(--t-s); line-height: var(--lh-s); text-align: center; }
+.btn.buy-go .ic { flex: none; width: 14px; height: 14px; }
 .buy-meta { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .buy-meta b { color: var(--ink); }
 .buy-note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
@@ -1192,7 +1213,9 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); font-weight: var
   body { background: #fff; padding: 0; font-size: var(--t-s); }
   main { padding: 0; max-width: none; }
   main .card { border: 0; border-top: 1px solid #999; break-inside: avoid; }   /* "main": .card's own rule comes later */
-  .buy-product::after { content: " — " attr(href); font-size: var(--t-xs); color: #555; word-break: break-all; }
+  .btn.buy-go { display: block; width: auto; min-height: 0; margin: 0; padding: 0; background: none; border: 0; color: #000; text-align: left; font-weight: var(--w-text); }   /* on paper, words with the address */
+  .btn.buy-go .ic { display: none; }
+  .buy-go::after { content: " — " attr(href); font-size: var(--t-xs); color: #555; word-break: break-all; }
   .buy { grid-template-columns: minmax(0, 1fr); }
   .buy .pic { display: none; }      /* paper gets the words, not the photos */
   .your-sizes { padding: 0; background: none; }
@@ -1321,6 +1344,7 @@ details[open] > summary .edit { visibility: hidden; }
 .check input { flex: none; }
 .check span { flex: 1; min-width: 0; }
 .open-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: var(--s-3) 0 0; }
+.store-head + .open-all, .once + .open-all { padding: var(--s-2) 0 var(--s-1); }   /* the first, under the store's name */
 .open-all [data-start-again] :is(.ic, .sr) { display: none; }   /* "Start again" opens no tab (app.js, 9) */
 .open-status { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .buy-opened { display: flex; align-items: center; gap: 4px; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); }

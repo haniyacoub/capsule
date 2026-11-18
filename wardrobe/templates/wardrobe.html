@@ -11,7 +11,7 @@
 {% if taken %}
 {% set with_spare = request.args.get('with_spare') == '1' and taken.n_spare %}
 <div class="flash said short" role="status">
-  Took “{{ taken.slot.name }}”{% if with_spare %} with its {{ 'spare' if taken.n_spare == 1 else 'spares' }}{% endif %} out of your wardrobe. Outfits are still made with it.
+  Took “{{ taken.shown_name }}”{% if with_spare %} with its {{ 'spare' if taken.n_spare == 1 else 'spares' }}{% endif %} out of your wardrobe. Outfits are still made with it.
   <form method="post" action="{{ url_for('slot_keep', slot_id=taken.slot.id) }}">{{ csrf_field() }}
     <input type="hidden" name="want" value="in">
     {% if with_spare %}<input type="hidden" name="spare" value="1">{% endif %}
@@ -25,9 +25,9 @@
 {% set one = spared.n == 1 %}
 <div class="flash said short" role="status">
   {% if spared.did == 'in' %}
-  Added {{ 'a spare' if one else spared.n ~ ' spares of' }} “{{ spared.view.slot.name }}” to your wardrobe{% if spared.cost %}: {{ spared.cost|eur }}{% endif %}.
+  Added {{ 'a spare' if one else spared.n ~ ' spares of' }} “{{ spared.view.shown_name }}” to your wardrobe{% if spared.cost %}: {{ spared.cost|eur }}{% endif %}.
   {% else %}
-  Took the {{ 'spare' if one else spared.n ~ ' spares of' }} “{{ spared.view.slot.name }}” out of your wardrobe{% if spared.cost %}: {{ spared.cost|eur }} less{% endif %}.
+  Took the {{ 'spare' if one else spared.n ~ ' spares of' }} “{{ spared.view.shown_name }}” out of your wardrobe{% if spared.cost %}: {{ spared.cost|eur }} less{% endif %}.
   {% endif %}
   <form method="post" action="{{ url_for('slot_spare', slot_id=spared.view.slot.id) }}">{{ csrf_field() }}
     <input type="hidden" name="want" value="{{ 'out' if spared.did == 'in' else 'in' }}">
