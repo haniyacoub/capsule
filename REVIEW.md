@@ -67,8 +67,8 @@ These are the five changes that would matter most, in order of importance:
   by mouse, by touch (touch screen emulated in Chromium) and by keyboard alone. Playwright drove a real Chromium.
 - **Measurements.** Tap-target sizes, text sizes, page weight and timings measured in the browser; accessibility
   checked with axe-core 4.14.1 on 12 pages, on a phone and a computer, light and dark (48 runs).
-- **Checks.** `./check.sh browser` before and after the changes. It passes: 943 unit tests, 94% coverage, and all
-  50 walk-through steps (one new).
+- **Checks.** `./check.sh browser` before and after the changes. Before: 939 unit tests and 57 walk-through steps,
+  all passing. After: 943 unit tests (94% coverage) and all 58 walk-through steps (one new) pass.
 - **Competitors.** Web research, and one look at each public site from a normal browser: one page load, nothing
   clicked, no sign-up, no consent given. COS, Arket, Uniqlo and Mr Porter answered "Access Denied" (HTTP 403) to
   an automated browser, and Ssense and Lyst showed a bot check; I left them alone, as the collector rule says.
@@ -94,7 +94,7 @@ a friction many customers meet. Low = polish, or a rare case.
 - **Privacy by design:** one strictly necessary cookie, self-hosted font, body numbers sent to the AI only as
   words, photo consent dated, data export and account deletion on the Account page.
 - **Speed:** pages are built in 30 to 80 ms on this machine; no page is wider than a phone.
-- **Tests:** 943 unit tests at 94% coverage and a 50-step browser walk-through that checks real promises.
+- **Tests:** 939 unit tests at 94% coverage and a 57-step browser walk-through that checks real promises.
 
 ---
 
@@ -383,7 +383,7 @@ a friction many customers meet. Low = polish, or a rare case.
 
 - **Problem.** The pages explain everything in full sentences, and most of it is small. Measured on a phone: 85%
   of the Wardrobe page's text is 13 pixels or smaller, and 21% of the Outfits page's text is 11-pixel labels.
-  The landing page's first paragraph is one sentence of 34 words. Each outfit shows two prices (the outfit, 545 €,
+  The landing page's first paragraph (as it reads with real products) is one sentence of 34 words. Each outfit shows two prices (the outfit, 545 €,
   and what a yes adds, 40 €) and the bigger one is the less useful one. The result reads like documentation. Premium sites use few words and let
   the photograph speak.
 - **Where.** Every page; the type scale in `app.css` (`--t-xs` 11 px to `--t-3xl` 27 px).
@@ -815,6 +815,7 @@ stand-ins.
 | [profile-body-desktop.png](review/shots/profile-body-desktop.png) | F10 |
 | [piece-and-video.png](review/shots/piece-and-video.png) | what works; F28 |
 | [dark-mode.png](review/shots/dark-mode.png) | what works |
+| [quick-wins-dark.png](review/shots/quick-wins-dark.png) | the built changes in dark mode (F1, F6, F7, F8) |
 | [competitors/](review/shots/competitors/) | Doji, Daydream, Alta, Google try-on, Stitch Fix, Cladwell, Whering, Indyx, Acloset |
 
 The competitor screenshots show other companies' public pages, included here for comparison. The repository is
