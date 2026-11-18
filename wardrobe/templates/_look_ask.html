@@ -19,7 +19,7 @@
   {% if p.look and p.look.status in ('ready', 'working') %}{% set ns.others = ns.others + 1 %}{% endif %}
   {% if p.name == wanted and p.look and p.look.status == 'ready' %}{% set ns.there = true %}{% endif %}
 {% endfor %}
-{% set redraw, n_gone = redraw_words(photos) if what == 'again' else ('', 0) %}
+{% set redraw, n_gone = redraw_words(photos, more_offered(key)) if what == 'again' else ('', 0) %}
 {% if what == 'again' and redraw %}
 <form class="look-ask" method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:abort">{{ csrf_field() }}
   <input type="hidden" name="key" value="{{ key }}">

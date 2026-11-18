@@ -14,6 +14,10 @@
    if it cannot be drawn now, the picture shown large stays and the reason is said under the row (app.outfits_look).
    Each button keeps its id when the row or the box is replaced, so keyboard focus stays where it was.
 
+   On an outfit he has not said yes to (app.more_offered; config/looks.toml, more_only_on_yes) there is no "More
+   photos" and a picture not drawn has no cell: one short line says that adding the outfit to his wardrobe brings
+   them (looks.NOT_YET_SHORT). Photos of it that are there already are shown and can be tapped as always.
+
    `said`: why "More photos" did not start every picture, under the row. It stays there, through every later
    answer and a reload (app.photos_said keeps it), while a picture is still missing, until "OK" is tapped. #}
 {% set front = photos[0].look if photos else none %}
@@ -25,7 +29,8 @@
 {% endfor %}
 {# What drawing one more would cost, said to a screen reader on a cell not drawn: "1 picture of your 30 a day", or
    that none are left today (looks.more_words). #}
-{% set one = more_words(1) if ns.todo and ns.started else '' %}
+{% set offered = more_offered(key) %}
+{% set one = more_words(1) if ns.todo and ns.started and offered else '' %}
 {# While the picture shown large is itself being drawn, the whole box asks (the band in _look.html), not the row. #}
 {% set asks = ns.working and not (look and look.status == 'working') %}
 <div class="shots" id="shots-{{ key }}"{% if asks %} hx-get="{{ url_for('outfits_photos', outfit=key, shot=shot if shot != 'front' else None) }}" hx-trigger="load delay:3s" hx-target="this" hx-swap="outerHTML"{% endif %}>
@@ -33,8 +38,7 @@
     {% if front and front.status == 'ready' %}
     <form method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-sync="closest .look:replace" role="group" aria-label="Photos of this outfit">{{ csrf_field() }}
       <input type="hidden" name="key" value="{{ key }}">
-      {% for p in photos %}{% if loop.first or ns.started %}
-      {% set state = p.look.status if p.look else '' %}
+      {% for p in photos %}{% set state = p.look.status if p.look else '' %}{% if loop.first or (ns.started and (offered or state in ('ready', 'working'))) %}
       <button id="shot-{{ key }}-{{ p.name }}" title="{{ p.label }}"
         {%- if p.name == shot %} type="button" aria-pressed="true"{% else %} name="shot" value="{{ p.name }}" aria-pressed="false"{% endif %}
         {%- if state == 'ready' %} aria-label="{{ p.label }}"><span class="shot-pic"><img src="{{ url_for('look_image', name=p.look.file) }}" alt="" width="48" height="64" loading="lazy" decoding="async"></span>
@@ -43,7 +47,9 @@
         {%- endif %}<span class="shot-name" aria-hidden="true">{{ p.label }}</span></button>
       {% endif %}{% endfor %}
     </form>
-    {% if ns.todo and not ns.started %}
+    {% if ns.todo and not offered %}
+    <span class="shots-note shots-yes-first">{{ NOT_YET_SHORT if videos_shown() else NOT_YET_NO_VIDEO }}</span>
+    {% elif ns.todo and not ns.started %}
     <form method="post" action="{{ url_for('outfits_look') }}" hx-post="{{ url_for('outfits_look') }}" hx-target="closest .shots" hx-swap="outerHTML">{{ csrf_field() }}
       <input type="hidden" name="key" value="{{ key }}">
       <input type="hidden" name="more" value="1">

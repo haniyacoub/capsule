@@ -124,6 +124,10 @@ only place they have run. The Tunnel has never been started.
   - Spending is capped in `config/looks.toml`: `per_customer_per_day` and
     `per_day` for the whole service. A picture that shows no real person is
     drawn once and shared by every customer who asks for the same outfit.
+    The front picture is drawn for every outfit looked at; "More photos" and
+    "See it move" only for outfits the customer added to his wardrobe
+    (`more_only_on_yes` in `config/looks.toml`; owners and Pro accounts are
+    not held to it), and the server refuses them otherwise.
   - Only the stores' own words, the menu choices and the customer's body in
     words reach the image service. The body is the height, weight, chest and
     waist from Profile turned into a few words ("a little shorter than
@@ -204,7 +208,9 @@ These block a launch, and most are yours rather than code:
 6. **AI pictures, if you offer them.** Decide these before customers use them:
    - *Cost.* Each picture is billed to your key, and by default one is drawn
      whenever a customer looks at an outfit (`auto` in `config/looks.toml`).
-     Set the two limits to what you are willing to pay per day.
+     The five further photos and the videos cost more and are offered only on
+     the outfits he said yes to (`more_only_on_yes`). Set the limits to what you
+     are willing to pay per day.
    - *Customers' photos.* A face photo is personal data of a sensitive kind.
      Offering the upload needs the image service named in the privacy policy,
      a data-processing agreement with it, and a lawyer's look at the consent

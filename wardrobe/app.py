@@ -1152,6 +1152,8 @@ def create_app() -> Flask:
             # other photos; a photo made from the picture of him, see looks.needs_ok): that outfit asks it.
             board["ask"] = request.args.get("ask", "")[:40] if board["key"] == request.args.get("ask_of") else ""
         looks_on = looks.attach(boards)     # the AI picture of each outfit, if that is switched on
+        if not looks.more_for_anyone():     # "More photos" and "See it move": on the outfits he said yes to
+            g.more_offered = {board["key"]: bool(board["saved"]) for board in boards}
         for board in boards:
             # The question about the picture of him is only asked of a customer it is true for: not again once he
             # has said yes (the page reloaded, the address opened again).
@@ -1221,6 +1223,29 @@ def create_app() -> Flask:
             args.update(ask=ask, ask_of=outfit_key)
         return url_for("outfits_page") + (f"?{urlencode(args)}" if args else "") + f"#outfit-{outfit_key}"
 
+    def more_offered(outfit_key: str) -> bool:
+        """Whether "More photos" and "See it move" are offered on this outfit (config/looks.toml, more_only_on_yes):
+        on an outfit he said yes to (in his wardrobe, under My outfits: by its key, or today's outfit with the same
+        pieces, as the outfits page marks it), and on every outfit for whoever looks.more_for_anyone lets (the
+        switch off, your own machine, owners and Pro accounts). The routes that start them ask this too, so a page
+        from before is refused, not just hidden. Worked out once per outfit per request (g.more_offered)."""
+        known = g.setdefault("more_offered", {})
+        if outfit_key not in known:
+            if looks.more_for_anyone():
+                known[outfit_key] = True
+            elif not outfit_key:
+                known[outfit_key] = False
+            elif outfit_key in db.saved_keys():
+                known[outfit_key] = True
+            else:
+                outfit = outfits.find(selection.build(), outfit_key)
+                known[outfit_key] = bool(outfit and outfit.sig in set(db.yes_sigs()))
+        return known[outfit_key]
+
+    app.jinja_env.globals["more_offered"] = more_offered
+    app.jinja_env.globals.update(NOT_YET_SHORT=looks.NOT_YET_SHORT, NOT_YET_NO_VIDEO=looks.NOT_YET_NO_VIDEO,
+                                 videos_shown=lambda: videos.service() is not None)
+
     def pieces_of(outfit_key: str) -> list[dict] | None:
         """The pieces of one of today's outfits or of a saved one, as its pictures describe them; None if it is gone."""
         outfit = outfits.find(selection.build(), outfit_key)
@@ -1228,11 +1253,12 @@ def create_app() -> Flask:
             return outfits.snapshot(outfit)
         return next((fav["pieces"] for fav in db.list_saved() if fav["key"] == outfit_key), None)
 
-    def look_fragment(outfit_key: str, photos: list[looks.Photo], shot: str) -> str:
+    def look_fragment(outfit_key: str, photos: list[looks.Photo], shot: str, said: str = "") -> str:
         """The picture box of one outfit: the picture `shot` large (the front one if there is nothing of it to
-        show), and the row of the outfit's small pictures under it."""
+        show), and the row of the outfit's small pictures under it. `said`: a refusal said under that row, once."""
         large = looks.shown(photos, shot)
         return render_template("_look.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
+                               shots_said=said,
                                allowance=looks.allowance_words(),
                                auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off(),
                                videos_on=videos.service() is not None, video=videos.of(large.look, large.name),
@@ -1306,6 +1332,14 @@ def create_app() -> Flask:
             if looks.service() is None:
                 abort(404)
             staying = looks.shot_named(request.form.get("shown"))
+            if not more_offered(key):
+                # Not on an outfit he has not said yes to (a page from before, or a request made by hand): nothing
+                # is drawn and no picture of the day is taken. Why is said under the row, this once (not kept with
+                # photos_said: after a yes it would no longer be true).
+                if not by_htmx:
+                    flash(looks.NOT_YET)
+                    return redirect(shot_shown(key, staying))
+                return shots_fragment(key, looks.gallery(pieces) or [], staying, looks.NOT_YET)
             if looks.needs_ok(pieces):
                 # They are made from the AI picture of him, which goes to the image service again. He added his
                 # photo before its words said so: he is asked once, and his yes is kept.
@@ -1339,6 +1373,15 @@ def create_app() -> Flask:
             # no picture is left today: then nothing is drawn and nothing removed, and the page says why.
             return ask_first("again", looks.FRONT)
         there = next((photo.look for photo in photos if photo.name == shot), None)
+        if shot != looks.FRONT and (again or not (there and there.status in ("ready", "working"))) \
+                and not more_offered(key):
+            # A pose or a surrounding to be drawn (or drawn again) on an outfit he has not said yes to: refused like
+            # "More photos" above, before anything is asked or spent; the front picture stays large. A photo of it
+            # that is there already is still shown when tapped (this is not reached for it).
+            if not by_htmx:
+                flash(looks.NOT_YET)
+                return redirect(shot_shown(key, looks.FRONT))
+            return look_fragment(key, photos, looks.FRONT, said=looks.NOT_YET)
         if shot != looks.FRONT and (again or not (there and there.status in ("ready", "working"))) \
                 and looks.needs_ok(pieces):
             # One of the other pictures is to be drawn now (a cell not drawn yet, or "Draw again" on it): from the
@@ -1410,12 +1453,29 @@ def create_app() -> Flask:
             abort(404)
         return look, outfit_key, shot
 
+    def video_may_start(outfit_key: str, look: looks.Look) -> bool:
+        """Whether a new video of this picture may be made for this outfit: "See it move" is offered on it
+        (more_offered), and, for anyone held to that, the picture is one of that outfit's own (not another outfit's
+        picture sent with the key of one in his wardrobe)."""
+        if looks.more_for_anyone():
+            return True
+        if not more_offered(outfit_key):
+            return False
+        pieces = pieces_of(outfit_key)
+        return any(photo.look is not None and photo.look.key == look.key
+                   for photo in (looks.gallery(pieces) if pieces else None) or [])
+
+    def video_refused() -> videos.Video:
+        """What "See it move" says on an outfit he has not said yes to: nothing is made, no video of the day taken."""
+        return videos.Video("", "limit", message=looks.NOT_YET)
+
     def video_fragment(outfit_key: str, look: looks.Look, shot: str, video: videos.Video | None,
                        asking: bool = False, play: bool = False) -> str:
         offer = asking or (video is not None and video.status in ("failed", "limit", "consent"))
+        refused = video is not None and video.message == looks.NOT_YET       # no button to make one: only Close
         return render_template("_video.html", key=outfit_key, look=look, video=video, asking=asking, play=play,
                                clip=videos.clip_of(shot),
-                               left=videos.left() if offer else None, left_words=videos.left_words, told=videos.told,
+                               left=(0 if refused else videos.left()) if offer else None, left_words=videos.left_words, told=videos.told,
                                needs_ok=offer and videos.needs_consent(look),
                                turn_seconds=(videos.rules() or {}).get("turn_seconds", 6))
 
@@ -1426,6 +1486,12 @@ def create_app() -> Flask:
         look, outfit_key, shot = video_look()
         video = videos.of(look, shot)
         ready = video is not None and video.status == "ready"
+        if not (video and video.status in ("ready", "working")) and not video_may_start(outfit_key, look):
+            # On an outfit he has not said yes to, only a video made already is shown: no offer (why, and Close),
+            # and no "Try again" under one that once failed.
+            if request.args.get("ask") == "1":
+                return video_fragment(outfit_key, look, shot, video_refused())
+            video = None
         return video_fragment(outfit_key, look, shot, video, asking=request.args.get("ask") == "1" and not video,
                               play=ready and (request.args.get("wait") == "1" or request.args.get("ask") == "1"))
 
@@ -1433,6 +1499,14 @@ def create_app() -> Flask:
     def outfits_video_make():
         """Make the video of one of an outfit's pictures, the one showing (or say why not)."""
         look, outfit_key, shot = video_look()
+        there = videos.of(look, shot)
+        if not (there and there.status in ("ready", "working")) and not video_may_start(outfit_key, look):
+            # On an outfit he has not said yes to: refused before anything is sent or counted (a video that is there
+            # already is still shown, below, as it always was).
+            if not request.headers.get("HX-Request"):
+                flash(looks.NOT_YET)
+                return redirect(request.referrer or url_for("outfits_page"))
+            return video_fragment(outfit_key, look, shot, video_refused())
         video = videos.request(look, agreed=request.form.get("agree") == "on", shot=shot)    # the band's box, where it has one
         if not request.headers.get("HX-Request"):
             return redirect(request.referrer or url_for("outfits_page"))

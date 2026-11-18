@@ -78,6 +78,7 @@
   {% if left %}<button class="btn small" aria-describedby="vid-said-{{ key }}">{{ 'Try again' if failed else 'Make the video' }}</button>{% endif %}
   <button class="link" type="button" hx-get="{{ here }}" aria-describedby="vid-said-{{ key }}">{{ 'Not now' if left else 'Close' }}</button>
 </form>
-{% else %}
+{% elif more_offered(key) %}
+{# (Not on an outfit he has not said yes to: the line under the picture says a yes brings it, _shots.html.) #}
 <button class="vid-pill" type="button" hx-get="{{ url_for('outfits_video', look=look.key, outfit=key or None, ask=1) }}">{{ icon('play') }}<span>See it move</span></button>
 {% endif %}
