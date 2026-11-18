@@ -10,6 +10,10 @@
 <header class="slot-head">
   {# `focus`: the piece has just taken a new colour (app.slot_colour); the button pressed is gone, so focus comes here. #}
   <h1{% if focus %} tabindex="-1" autofocus{% endif %}>{{ s.slot.name }}{% if s.qty > 1 %} <span class="qty">×{{ s.qty }}</span>{% endif %}</h1>
+  {# The page keeps the plan's name for the piece: its options below may be of more than one kind. Where the current
+     pick is plainly another kind (a loafer for derby shoes), the Wardrobe card and the outfits call the piece by that
+     kind (SlotView.shown_name, review N4): said here, so the two names never read as two pieces. #}
+  {% if s.shown_name != s.slot.name %}<p class="as-picked">Your Wardrobe and outfits call it “{{ s.shown_name }}”: that is what the current pick is.</p>{% endif %}
   {# What really happened. `under`: no option that can be bought reaches the minimum quality, so the pick is the
      best-rated one (selection.choose), whatever the price level; it is said once, never "rated 70 or more" over
      "Nothing reaches 70". "In your size" only for a size the customer gave: "in the example size" until then (in

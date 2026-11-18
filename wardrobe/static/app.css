@@ -406,6 +406,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .slot-head { display: grid; gap: 8px; margin-bottom: 16px; }
 .slot-head h1 { font: var(--w-strong) expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; }
 .state { font-size: var(--t-m); color: var(--muted); }
+.slot-head .as-picked { font-size: var(--t-m); line-height: var(--lh-m); }   /* what the card calls it, with this pick (review N4) */
 .state .note { display: block; font-size: var(--t-s); margin-top: 2px; }
 .slot-head .left-out { font-size: var(--t-m); line-height: var(--lh-m); }   /* as large as the line it explains */
 .slot-head .left-out a { padding: var(--s-1) 0; text-underline-offset: 3px; }   /* "Edit the plan", at the end of the reason: 24px or more to tap */

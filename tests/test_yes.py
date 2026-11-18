@@ -282,6 +282,24 @@ class SayingYes(YesCase):
             self.assertIn("Dark brown loafers", {row["slot"] for row in rows})
         self.assertIn(plain(eur(w.mine.total)), read(shopping))
 
+    def test_a_pieces_page_says_what_its_pick_is_called_where_that_is_another_kind(self):
+        # Review N4, found by the round's check: the Wardrobe card says "Dark brown loafers" and opens a page headed
+        # "Dark brown derby shoes" (the plan's name, kept there: its options are of more than one kind). Under that
+        # heading the page now says what the card calls it. A piece called by its own name says nothing more.
+        for level in ("cheapest", "cheap", "medium", "expensive", "top"):
+            self.set_mode(level, 0)
+            view = next((v for v in selection.build().slots if v.shown_name != v.slot["name"]), None)
+            if view:
+                break
+        else:
+            self.skipTest("no price level of the demo picks another kind for a piece")
+        page = read(self.page(f"/slot/{view.slot['id']}"))
+        self.assertIn(f"{view.slot['name']} Your Wardrobe and outfits call it “{view.shown_name}”: that is what the "
+                      "current pick is.", page)
+        self.assertIn("Choose another below", page)
+        other = next(v for v in selection.build().slots if v.shown_name == v.slot["name"])
+        self.assertNotIn("call it “", read(self.page(f"/slot/{other.slot['id']}")))
+
     def test_the_next_outfits_say_what_is_new_and_what_he_has_and_those_that_reuse_most_come_first(self):
         a, b = self.two_that_share()
         self.say_yes(a)
