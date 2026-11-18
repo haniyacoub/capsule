@@ -951,18 +951,39 @@ class BuyingInYourSizes(AppCase):
                 self.assertIn(swatch, html_line)
                 if line.image_url:
                     self.assertIn(f'<img src="{escape(line.image_url)}"', html_line)
-                # The link is the product's name in one language: English where every word is known, otherwise the
-                # store's own (German). The store's own words beside an English name are on the piece's card only.
+                # The product's name in one language: English where every word is known, otherwise the store's own
+                # (German). The store's own words beside an English name are on the piece's card only.
                 said = english.name(line.product)
-                self.assertIn(f'<a class="buy-product" href="{escape(weblink(line.url))}" target="_blank" '
-                              f'rel="noopener noreferrer"><span lang="{"en" if said else "de"}">'
-                              f'{escape(said or line.product)}</span>', html_line)
+                self.assertIn(f'<span lang="{"en" if said else "de"}">{escape(said or line.product)}</span>', html_line)
+                # The line's main action is one button to the product at its store that says the store and the size
+                # to order (review N1): "Open at COS, order M".
+                # Said as the line says the size: how many where more than one, "(example size)" until he gives his.
+                store = next(g.label for g in sl.groups if line in g.lines)
+                example = " (example size)" if profile_mod.sizes_unconfirmed(profile_mod.load()) else ""
+                words = str(self.client.application.jinja_env.get_template("_macros.html").module.order_words(
+                    line, store, bool(example)))
+                self.assertTrue(words.startswith(f"Open at {store}, "), words)
+                self.assertIn(f'<a class="btn buy-go" href="{escape(weblink(line.url))}" target="_blank" '
+                              f'rel="noopener noreferrer">{escape(words)}&nbsp;', html_line)
+                self.assertIn(f"Size: <b>{escape(line.size)}</b>{example}", html_line)
+                self.assertEqual(html_line.count('target="_blank"'), 1, "one way to the store per line, not two")
                 if said:
                     self.assertNotIn(f'>{escape(line.product)}<', html_line, "one language per name on a row")
                 self.assertIn(f'Colour: <span lang="de">{escape(line.colour)}</span> · Size: <b>{escape(line.size)}</b>',
                               html_line)
         # Both kinds were checked: the demo data has products with a photo and one without (the Weekday chinos).
         self.assertTrue(any(line.image_url for line in seen) and not all(line.image_url for line in seen))
+
+    def test_a_lines_button_says_the_size_as_truthfully_as_the_line(self):
+        # Every case of the size a line can say: the store's label, the usual size to check, nothing known.
+        from types import SimpleNamespace as Line
+        words = self.client.application.jinja_env.get_template("_macros.html").module.order_words
+        self.assertEqual(str(words(Line(size="M", qty=1), "COS", False)), "Open at COS, order M")
+        self.assertEqual(str(words(Line(size="M", qty=2), "COS", False)), "Open at COS, order 2 in M")
+        self.assertEqual(str(words(Line(size="M", qty=1), "COS", True)), "Open at COS, order M (example size)")
+        self.assertEqual(str(words(Line(size="M (check)", qty=1), "COS", False)), "Open at COS, order M (check)")
+        self.assertEqual(str(words(Line(size="check", qty=1), "Weekday", True)), "Open at Weekday, choose your size there")
+        self.assertEqual(str(words(Line(size="43 (check)", qty=1), "COS", True)), "Open at COS, order 43 (example size, check)")
 
     def test_the_buy_page_leads_with_the_outfits_total_and_says_what_the_prices_leave_out(self):
         outfit = self.outfit()

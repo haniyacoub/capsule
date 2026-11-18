@@ -453,14 +453,17 @@ class Viewer(AppCase):
         stores = [part for part in page.split('<section class="card store-list">')[1:]]
         buttons = 0
         for store in stores:
-            pages = re.findall(r'<a class="buy-product" href="(https?://[^"]+)"', store)
-            button = re.search(r'<a class="btn ghost small" href="([^"]+)" target="_blank" rel="noopener noreferrer" data-open-next', store)
+            pages = re.findall(r'<a class="btn buy-go" href="(https?://[^"]+)"', store)
+            found = re.findall(r'<a class="btn ghost small" href="([^"]+)" target="_blank" rel="noopener noreferrer" data-open-next', store)
             if len(pages) < 2:
-                self.assertIsNone(button, "one product is its own link: no button to step through it")
+                self.assertEqual(found, [], "one product is its own link: no button to step through it")
                 continue
             buttons += 1
-            self.assertIsNotNone(button, "a store with several products has no button to open them")
-            self.assertEqual(button.group(1), pages[0])
+            # Twice (review N1): under the store's name, before its first line, and again after its last.
+            self.assertEqual(found, [pages[0], pages[0]], "a store with several products has not its two buttons to open them")
+            self.assertLess(store.index("data-open-next"), store.index('<li class="buy"'), "the first button is not under the store's name")
+            self.assertGreater(store.rindex("data-open-next"), store.rindex('<li class="buy"'), "the second button is not after the last line")
+            self.assertEqual(store.count('role="status"'), 1, "how many are open would be read out twice")
             self.assertIn(f"Open the first of {len(pages)} at ", store)
             self.assertEqual(len(re.findall(r'class="buy-opened no-print" data-line="[^"]+" hidden', store)), store.count('<li class="buy"'))
         self.assertGreater(buttons, 0, "the example list has no store with several products")

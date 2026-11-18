@@ -1171,9 +1171,11 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); font-weight: var
 .buy-slot a { text-decoration: none; }                /* the piece: leads to its own page, where its fabric, fit and quality are said in full */
 .buy-slot a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .buy-total { flex: none; font-weight: var(--w-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* The whole of the product's name is the link to it at the store, with the external-link sign at its end. */
-.buy-product { justify-self: start; padding: 3px 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); text-underline-offset: 3px; }
-.buy-product .ic { width: 13px; height: 13px; color: var(--muted); }
+/* A line's one main action, "Open at COS, order M": ink, under the photo and the words across the whole row, at
+   least 44px tall, its words wrapping where a phone is narrow, with the external-link sign at their end. */
+.buy > .buy-go, .buy > .buy-opened { grid-column: 1 / -1; }
+.btn.buy-go { display: flex; width: 100%; min-height: 44px; margin-top: 0; padding: 10px var(--s-3); font-size: var(--t-s); line-height: var(--lh-s); text-align: center; }
+.btn.buy-go .ic { flex: none; width: 14px; height: 14px; }
 .buy-meta { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .buy-meta b { color: var(--ink); }
 .buy-note { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
@@ -1192,7 +1194,9 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); font-weight: var
   body { background: #fff; padding: 0; font-size: var(--t-s); }
   main { padding: 0; max-width: none; }
   main .card { border: 0; border-top: 1px solid #999; break-inside: avoid; }   /* "main": .card's own rule comes later */
-  .buy-product::after { content: " — " attr(href); font-size: var(--t-xs); color: #555; word-break: break-all; }
+  .btn.buy-go { display: block; width: auto; min-height: 0; margin: 0; padding: 0; background: none; border: 0; color: #000; text-align: left; font-weight: var(--w-text); }   /* on paper, words with the address */
+  .btn.buy-go .ic { display: none; }
+  .buy-go::after { content: " — " attr(href); font-size: var(--t-xs); color: #555; word-break: break-all; }
   .buy { grid-template-columns: minmax(0, 1fr); }
   .buy .pic { display: none; }      /* paper gets the words, not the photos */
   .your-sizes { padding: 0; background: none; }
@@ -1321,6 +1325,7 @@ details[open] > summary .edit { visibility: hidden; }
 .check input { flex: none; }
 .check span { flex: 1; min-width: 0; }
 .open-all { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: var(--s-3) 0 0; }
+.store-head + .open-all, .once + .open-all { padding: var(--s-2) 0 var(--s-1); }   /* the first, under the store's name */
 .open-all [data-start-again] :is(.ic, .sr) { display: none; }   /* "Start again" opens no tab (app.js, 9) */
 .open-status { font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .buy-opened { display: flex; align-items: center; gap: 4px; font-size: var(--t-s); line-height: var(--lh-s); color: var(--ink); }

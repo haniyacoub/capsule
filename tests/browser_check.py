@@ -2950,9 +2950,10 @@ def run(base: str) -> None:
                     + (other.locator(".open-all").first.inner_text().strip() if other.locator(".open-all").count() else "no button at all") \
                     + "), which a browser's pop-up blocker cuts down to the first page"
                 store = other.locator(".store-list").filter(has=other.locator("[data-open-next]")).first
-                button = store.locator("[data-open-next]")
+                button = store.locator("[data-open-next]").first     # under the store's name; the same again after its last line
+                after = store.locator("[data-open-next]").last
                 name = button.get_attribute("data-store")
-                pages = store.locator("a.buy-product").evaluate_all("links => links.map(a => a.href)")
+                pages = store.locator("a.buy-go").evaluate_all("links => links.map(a => a.href)")
                 total = len(pages)
                 assert total >= 2, "the example list has no store with two products"
                 assert "Open all" not in other.locator("main").inner_text(), "the page still promises to open all at once"
@@ -2975,7 +2976,8 @@ def run(base: str) -> None:
                     ticks = store.locator(".buy").evaluate_all("lines => lines.map(line => !line.querySelector('.buy-opened').hidden)")
                     assert ticks == [at < number for at in range(total)], \
                         f"after tap {number} the ticked lines are {ticks}: not the first {number} and only those"
-                    said = store.locator("[data-open-status]").inner_text()
+                    said = store.locator("[data-open-status]").first.inner_text()
+                    assert after.inner_text() == button.inner_text(), "the store's two buttons say different things"
                     if number < total:
                         assert f"{number} of {total} opened" in said, f"after tap {number} it says '{said}'"
                         # Said for a finger and for a mouse alike: neither "tap" nor "click".
@@ -2988,7 +2990,7 @@ def run(base: str) -> None:
                         assert button.inner_text().strip() == "Start again", \
                             f"after all {total} were opened the button says '{button.inner_text().strip()}', not 'Start again'"
                 # A product's own link ticks its line too, and the ticks are still there after a look at another page.
-                lone = other.locator(".store-list").filter(has_not=other.locator("[data-open-next]")).locator("a.buy-product").first
+                lone = other.locator(".store-list").filter(has_not=other.locator("[data-open-next]")).locator("a.buy-go").first
                 if lone.count():
                     with context.expect_page():
                         lone.tap()
@@ -3002,7 +3004,7 @@ def run(base: str) -> None:
                 assert wide <= screen, f"the list with its ticks is {wide}px wide on a {screen}px phone"
                 # "Start again" opens nothing: only then do that store's ticks go, and the button offers the first again.
                 store = other.locator(".store-list").filter(has=other.locator("[data-open-next]")).first
-                button = store.locator("[data-open-next]")
+                button = store.locator("[data-open-next]").first
                 assert button.inner_text().strip() == "Start again", "back on the list, the button no longer says 'Start again'"
                 before = len(context.pages)
                 button.tap()
@@ -3012,7 +3014,7 @@ def run(base: str) -> None:
                 assert len(context.pages) == before, "'Start again' opened a store's page"
                 assert button.inner_text().strip().startswith(f"Open the first of {total} at {name}"), \
                     f"after 'Start again' the button says '{button.inner_text().strip()}'"
-                assert store.locator("[data-open-status]").inner_text().strip() == "", "after 'Start again' it still says how many are open"
+                assert store.locator("[data-open-status]").first.inner_text().strip() == "", "after 'Start again' it still says how many are open"
                 with context.expect_page() as opened:                 # and it works again from the first
                     button.tap()
                 assert opened.value.url == pages[0], f"after 'Start again' the button opened {opened.value.url}, not the first page"
@@ -3038,7 +3040,9 @@ def run(base: str) -> None:
             page.emulate_media(media="print")
             try:
                 assert not any(pic.is_visible() for pic in page.locator(".buy .pic").all()), "photos are printed"
-                assert page.locator(".buy-product").first.is_visible(), "the product names are not printed"
+                assert page.locator(".buy .row-product").first.is_visible(), "the product names are not printed"
+                assert "https://" in page.locator(".buy-go").first.evaluate("a => getComputedStyle(a, '::after').content"), \
+                    "the product's address is not printed"
                 assert not page.locator("#summary").is_visible(), "the budget bar is printed"
             finally:
                 page.emulate_media(media="screen")

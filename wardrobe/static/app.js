@@ -390,8 +390,9 @@ document.addEventListener('keydown', (e) => {
 
 // 9. A store's product pages, opened one by one. A browser lets a site open one new tab per tap and holds any
 //    more back as pop-ups (the old "Open all" opened the first and lost the rest), so the button under a store is an
-//    ordinary link to the next product page not yet opened (_buy_groups.html): nothing can hold that back. Here
-//    each line whose page was opened, by the button or by its own link, is ticked; the button moves on to the next
+//    ordinary link to the next product page not yet opened (_buy_groups.html): nothing can hold that back. It is
+//    there twice, under the store's name and after its last line, and both say the same. Here
+//    each line whose page was opened, by the button or by its own button ("Open at COS, order M"), is ticked; the button moves on to the next
 //    and says how many are open. The ticks are kept while this tab stays open (never sent anywhere), so they are
 //    still there after a look at another page. When every page was opened the button says "Start again": pressing
 //    it opens nothing and takes the ticks off, and the button offers the first page once more.
@@ -400,32 +401,34 @@ let openedPages = new Set();
 try { openedPages = new Set(JSON.parse(sessionStorage.getItem(OPENED) || '[]')); } catch { /* private window: the ticks last until the page is left */ }
 const openedTick = (link) => link.closest('.buy').querySelector('.buy-opened');
 const openedKey = (link) => `${openedTick(link).dataset.line} ${link.href}`;     // this piece's product page
-const storeLinks = (section) => [...section.querySelectorAll('a.buy-product')].filter((link) => link.getAttribute('href') !== '#');
+const storeLinks = (section) => [...section.querySelectorAll('a.buy-go')].filter((link) => link.getAttribute('href') !== '#');
 function showOpened() {
   document.querySelectorAll('.store-list').forEach((section) => {
     const links = storeLinks(section);
     links.forEach((link) => {
       openedTick(link).hidden = !openedPages.has(openedKey(link));
     });
-    const button = section.querySelector('[data-open-next]');
-    if (!button) return;
+    const buttons = section.querySelectorAll('[data-open-next]');
+    if (!buttons.length) return;
     const left = links.filter((link) => !openedPages.has(openedKey(link)));
     const done = links.length - left.length;
     const partly = done > 0 && left.length > 0;
     const all = left.length === 0;
-    button.href = (left[0] || links[0]).href;
-    button.toggleAttribute('data-start-again', all);      // it opens nothing then (noteOpened): no arrow, no "(opens in a new tab)" (app.css)
-    if (all) button.setAttribute('role', 'button');
-    else button.removeAttribute('role');
-    button.querySelector('[data-open-label]').textContent = all ? 'Start again'
-      : partly ? `Open the next at ${button.dataset.store}` : `Open the first of ${links.length} at ${button.dataset.store}`;
     const status = partly ? `${done} of ${links.length} opened. Each press opens one more.` : all ? `All ${links.length} opened.` : '';
-    const says = section.querySelector('[data-open-status]');
-    if (says.textContent !== status) says.textContent = status;      // said once by a screen reader, not on every look
+    buttons.forEach((button) => {
+      button.href = (left[0] || links[0]).href;
+      button.toggleAttribute('data-start-again', all);      // it opens nothing then (noteOpened): no arrow, no "(opens in a new tab)" (app.css)
+      if (all) button.setAttribute('role', 'button');
+      else button.removeAttribute('role');
+      button.querySelector('[data-open-label]').textContent = all ? 'Start again'
+        : partly ? `Open the next at ${button.dataset.store}` : `Open the first of ${links.length} at ${button.dataset.store}`;
+      const says = button.closest('.open-all').querySelector('[data-open-status]');
+      if (says.textContent !== status) says.textContent = status;      // said once by a screen reader (only the first is read out), not on every look
+    });
   });
 }
 function noteOpened(e) {
-  const tapped = e.target instanceof Element && e.target.closest('a.buy-product, a[data-open-next]');
+  const tapped = e.target instanceof Element && e.target.closest('a.buy-go, a[data-open-next]');
   if (!tapped || tapped.getAttribute('href') === '#' || (e.type === 'auxclick' && e.button !== 1)) return;
   let link = tapped;
   if (tapped.matches('[data-open-next]')) {       // the button stands for the first line not yet opened

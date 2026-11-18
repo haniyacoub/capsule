@@ -70,6 +70,17 @@
 <span class="row-product"><span class="store">{{ STORES.get(c.data.store, c.data.store) }}</span> <span aria-hidden="true">·</span> {% if link %}<a class="buy-product" href="{{ link }}" target="_blank" rel="noopener noreferrer"><span lang="{{ 'en' if en else 'de' }}">{{ en or c.data.name }}</span>&nbsp;{{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>{% else %}<span lang="{{ 'en' if en else 'de' }}">{{ en or c.data.name }}</span>{% endif %}</span>
 {%- endmacro %}
 
+{# What a line's button on the Shopping list and Buy this outfit says (_buy_groups.html), the size said as the row
+   says it (export.Line.size, selection.Cand.size_to_order): "Open at COS, order M", "order 2 in M" for two,
+   "(example size)" while the sizes are still the example's (`example`), "order M (check)" where the store's sizes
+   were not checked ("(example size, check)" when both are true), and "choose your size there" where no size is known at all. #}
+{% macro order_words(line, store, example) -%}
+{%- if line.size == 'check' -%}Open at {{ store }}, choose your size there
+{%- elif example and line.size.endswith(' (check)') -%}Open at {{ store }}, order {% if line.qty > 1 %}{{ line.qty }} in {% endif %}{{ line.size[:-8] }} (example size, check)
+{%- else -%}Open at {{ store }}, order {% if line.qty > 1 %}{{ line.qty }} in {% endif %}{{ line.size }}{% if example %} (example size){% endif %}
+{%- endif -%}
+{%- endmacro %}
+
 {# Under a row's size, only where there is something: what to act on about this very product's size before buying
    (selection.Cand.size_cautions), each in amber as plain text with the small flag before it. #}
 {% macro row_cautions(notes) -%}

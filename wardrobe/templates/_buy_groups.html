@@ -7,13 +7,26 @@
    What is true of the whole store is said once, under the store's name (export.StoreGroup.said): that its sizes
    were not checked, and for how many of its products the fabric is an estimate or not stated. Store words are
    German: marked lang="de".
-   Under a store with several products is one button that opens its product pages one by one: "Open the first of
+   Each line ends in its one main action, a full-width ink button that names the store and the size to order, the
+   size said as the Wardrobe card says it: "Open at COS, order M", "order M (example size)" while the sizes are the
+   example's, "order M (check)" where the store's sizes were not checked, and "choose your size there" where no size
+   is known (order_words, _macros.html). The product's name above it is plain words.
+   Under a store with several products, right under its name and again after its last line, is the button that
+   opens its product pages one by one: "Open the first of
    3 at COS", then "Open the next at COS", each press one new tab, each opened line ticked, and "Start again" once
    all are open, which takes the ticks off (app.js, 9). It is an ordinary
    link to the next page not yet opened, because that always works: a browser lets a site open one tab per tap and
    holds the rest back as pop-ups, which is why "Open all" opened only the first. Without JavaScript it stays a link
    to the first. Each store has its own basket, so this is as close as it gets to buying everything in one go. #}
-{% from "_macros.html" import icon, once, pic, row_cautions, row_product %}
+{% from "_macros.html" import icon, once, order_words, pic, row_cautions, row_product %}
+{# The button that opens a store's pages one by one. `said`: the line it writes how many are open in is read out
+   (role="status") under the first button only, so a screen reader hears it once; the second shows the same words. #}
+{% macro open_next(pages, store, said) -%}
+<p class="open-all no-print">
+  <a class="btn ghost small" href="{{ pages[0] }}" target="_blank" rel="noopener noreferrer" data-open-next data-store="{{ store }}">{{ icon('ext') }} <span data-open-label>Open the first of {{ pages|length }} at {{ store }}</span><span class="sr"> (opens in a new tab)</span></a>
+  <span class="open-status"{% if said %} role="status"{% else %} aria-hidden="true"{% endif %} data-open-status></span>
+</p>
+{%- endmacro %}
 {# The way to a piece's own page from a row: from Buy this outfit it leads back to that outfit. #}
 {% set way = {'from': 'outfit', 'at': outfit.sig} if outfit is defined else {} %}
 {# First, apart from the stores' baskets: the pieces whose chosen product is sold out in his size. They are in no
@@ -49,6 +62,8 @@
     <b class="subtotal">{{ g.subtotal|eur }}</b>
   </header>
   {{ once([g.said] if g.said else []) }}
+  {% set pages = g.lines|map(attribute='url')|map('weblink')|reject('equalto', '#')|list %}
+  {% if pages|length > 1 %}{{ open_next(pages, g.label, true) }}{% endif %}
   <ul class="buys">
     {% for line in g.lines %}
     <li class="buy">
@@ -57,22 +72,19 @@
         <p class="buy-top"><span class="buy-slot">{% if line.slot_id %}<a href="{{ url_for('slot_page', slot_id=line.slot_id, **way) }}">{{ line.slot }}</a>{% else %}{{ line.slot }}{% endif %}{% if line.qty > 1 %} <span class="qty">×{{ line.qty }}</span>{% endif %}</span>
           <span class="buy-total">{{ line.total|eur }}</span></p>
         {% set c = line.cand %}
-        {{ row_product(c, line.url|weblink) }}
-        <span class="buy-opened no-print" data-line="{{ line.slot }}" hidden>{{ icon('check') }} Opened in a new tab</span>
-        <span class="buy-meta">{% if line.colour %}Colour: <span lang="de">{{ line.colour }}</span> · {% endif %}Size: <b>{{ line.size }}</b>{% if line.qty > 1 %} · {{ line.qty }} × {{ line.unit_price|eur }}{% if line.spares %} ({{ line.spare_words }}){% endif %}{% endif %}</span>
+        {{ row_product(c) }}
+        <span class="buy-meta">{% if line.colour %}Colour: <span lang="de">{{ line.colour }}</span> · {% endif %}Size: <b>{{ line.size }}</b>{% if example_sizes %} (example size){% endif %}{% if line.qty > 1 %} · {{ line.qty }} × {{ line.unit_price|eur }}{% if line.spares %} ({{ line.spare_words }}){% endif %}{% endif %}</span>
         {{ row_cautions(line.cautions) }}
         {% if line.said %}<span class="buy-note">{{ line.said }}</span>{% endif %}
       </div>
+      {# Under the photo and the words, across the whole row. #}
+      {% set link = line.url|weblink %}
+      {% if link != '#' %}<a class="btn buy-go" href="{{ link }}" target="_blank" rel="noopener noreferrer">{{ order_words(line, g.label, example_sizes) }}&nbsp;{{ icon('ext') }}<span class="sr"> (opens in a new tab)</span></a>{% endif %}
+      <span class="buy-opened no-print" data-line="{{ line.slot }}" hidden>{{ icon('check') }} Opened in a new tab</span>
     </li>
     {% endfor %}
   </ul>
-  {% set pages = g.lines|map(attribute='url')|map('weblink')|reject('equalto', '#')|list %}
-  {% if pages|length > 1 %}
-  <p class="open-all no-print">
-    <a class="btn ghost small" href="{{ pages[0] }}" target="_blank" rel="noopener noreferrer" data-open-next data-store="{{ g.label }}">{{ icon('ext') }} <span data-open-label>Open the first of {{ pages|length }} at {{ g.label }}</span><span class="sr"> (opens in a new tab)</span></a>
-    <span class="open-status" role="status" data-open-status></span>
-  </p>
-  {% endif %}
+  {% if pages|length > 1 %}{{ open_next(pages, g.label, false) }}{% endif %}
 </section>
 {% endfor %}
 {% if sl.groups %}
