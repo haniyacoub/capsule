@@ -1391,6 +1391,30 @@ class Pictures(WithPictures, AppCase):
             self.assertEqual(self.client.get(f"/looks/{name}").status_code, 404, name)
         self.assertEqual(self.client.get("/outfits/look/not-a-key").status_code, 404)
 
+    def test_full_size_is_a_page_with_the_label_and_the_way_back_not_the_bare_file(self):
+        # Review N13: "Full size" opened the bare file in a new tab, a realistic picture with no "AI picture" on it.
+        outfit = some_outfits(1)[0]
+        shown = self.post("/outfits/look", key=outfit.key).data.decode()
+        real = self.pictures_on_disk()[0]
+        link = re.search(r'<a class="link" href="([^"]+)"[^>]*>Full size</a>', shown)
+        self.assertEqual(html_mod.unescape(link.group(1)), f"/looks/{real}/full?outfit={outfit.key}")
+        self.assertNotIn("target=", link.group(0), "it opens in the same tab, where Back works too")
+        page = self.client.get(f"/looks/{real}/full", query_string={"outfit": outfit.key},
+                               headers={"Referer": "http://localhost/outfits?occasion=office"}).data.decode()
+        box = re.search(r'<div class="full-pic-box">.*?</div>', page, re.S).group(0)
+        self.assertIn(f'<img src="/looks/{real}" alt="AI-generated picture', box)
+        self.assertIn('<span class="ai-chip">AI picture</span>', box, "the label is on the picture")
+        self.assertIn(f'<a href="/outfits?occasion=office#outfit-{outfit.key}">', page, "the way back, to where he was")
+        self.assertIn("Back to the outfits", page)
+        # Without a page he came from: that outfit on Outfits. From elsewhere: never back to another site.
+        alone = self.client.get(f"/looks/{real}/full", query_string={"outfit": outfit.key},
+                                headers={"Referer": "https://example.org/outfits"}).data.decode()
+        self.assertIn(f'<a href="/outfits#outfit-{outfit.key}">', alone)
+        self.assertNotIn("example.org", alone)
+        # Only a picture there is, as for the file itself.
+        for name in ("0" * 24 + "-1.jpg", "wardrobe.db"):
+            self.assertEqual(self.client.get(f"/looks/{name}/full").status_code, 404, name)
+
     def test_the_dots_sit_where_the_settings_say(self):
         outfit = next(o for o in outfits.all_outfits(selection.build())
                       if any(r == "mid" for r in outfits.roles([p.layer for p in o.pieces])))

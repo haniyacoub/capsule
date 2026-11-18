@@ -67,7 +67,7 @@
   {# The whole sentence where the line is wide enough for it, else its first half (app.css). #}
   <span class="look-note"><span class="whole">Look and fit will differ on the real pieces.</span><span class="half">Look and fit will differ.</span></span>
   <span class="look-links">
-    <a class="link" href="{{ url_for('look_image', name=look.file) }}" target="_blank" rel="noopener">Full size</a>
+    <a class="link" href="{{ url_for('look_full', name=look.file, outfit=key) }}">Full size</a>
     {% if shot == 'front' or more_offered(key) %}<button class="link">Draw again</button>{% endif %}
   </span>
 </form>

@@ -1023,6 +1023,12 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
    shown: each photo as large as the screen allows, whole (2 wide by 3 high), side by side in a row that snaps to one
    at a time. At the top: which photo it is and Close, white on a dark veil (as the label 'AI picture', which each
    photo carries at its foot), each 44px to a finger. The arrows beside the photo are for a mouse; a finger swipes. */
+/* "Full size" (look_full.html): the AI picture as large as the screen allows under the way back, 2 wide by 3 high,
+   with its label on it as everywhere. */
+.full-pic { margin: 0 auto; width: min(100%, (100svh - 200px) * 2 / 3, 848px); min-width: min(100%, 240px); }
+.full-pic-box { position: relative; aspect-ratio: 2 / 3; background: var(--photo); }
+.full-pic-box img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.full-pic figcaption { margin-top: var(--s-2); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .viewer {
   position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0;
   border: 0; background: #111; color: #fff; overflow: hidden;

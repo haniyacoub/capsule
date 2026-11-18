@@ -1530,6 +1530,23 @@ def create_app() -> Flask:
         response.headers["Cache-Control"] = "private, max-age=31536000, immutable"   # a new version gets a new name
         return response
 
+    @app.get("/looks/<name>/full")
+    def look_full(name: str):
+        """'Full size' under an outfit's AI picture: the picture as large as the screen allows, on a small page of
+        Stilsmith's own with its "AI picture" label and the way back, never the bare file, which would show a realistic
+        picture (perhaps made from his photo) with no label (review N13; EU AI Act, Article 50). Who may see a picture
+        is as for the file itself (looks.image): nobody else. `outfit`: the outfit it is of, for the way back; the
+        way back is to the Outfits page he came from, where there is one, else to that outfit on Outfits."""
+        if looks.image(name) is None:
+            abort(404)
+        key = request.args.get("outfit", "")
+        key = key if re.fullmatch(r"[0-9a-f]{12}", key) else ""
+        back = url_for("outfits_page", _anchor=f"outfit-{key}" if key else None)
+        came = urlsplit(request.referrer or "")
+        if came.netloc == request.host and came.path.startswith("/outfits") and not came.path.startswith("/outfits/"):
+            back = came.path + (f"?{came.query}" if came.query else "") + (f"#outfit-{key}" if key else "")
+        return page("look_full.html", tab="outfits", name=name, back=back)
+
     @app.post("/outfits/save")
     def outfits_save():
         """'Add to my wardrobe' under an outfit (a yes), and 'Take out' again. The heart that saved an outfit was the
