@@ -512,16 +512,19 @@ document.body.addEventListener('htmx:responseError', (e) => {
   if (e.detail.xhr.status === 409) window.location.reload();
 });
 
-// 12a. The line over the outfits that says what a change made from an outfit did (Choose, Undo, leaving a piece off)
-//      is one to four lines on a phone, by the length of the product's name. The picture gives up room for it (--told,
-//      see app.css): the longest line's until this runs. Here it is the room the line really takes, its height and
-//      the space under it, so that a shorter line leaves the picture larger. It is measured again when it rewraps.
-const saidLine = document.querySelector('main > .said');
-if (saidLine && 'ResizeObserver' in window) {
-  new ResizeObserver(() => {
-    const under = parseFloat(getComputedStyle(saidLine).marginBottom) || 0;
-    document.documentElement.style.setProperty('--said-h', `${saidLine.getBoundingClientRect().height + under}px`);
-  }).observe(saidLine);
+// 12a. The messages over the outfits (what a change made from an outfit did, with its way back, which is one to four
+//      lines on a phone by the length of the product's name; a save that rebuilt the plan; …) take room above the
+//      picture, which gives it up (--told, app.css "Outfits on a phone"): two or four lines' worth until this runs.
+//      Here it is the room they really take on this screen, their heights and the space under each, so that the
+//      whole model still ends above the bar with the answers, and a shorter message leaves the picture larger. It is
+//      measured again when one rewraps.
+const told = [...document.querySelectorAll('main > .flash')];
+if (told.length && document.getElementById('reel') && 'ResizeObserver' in window) {
+  const watch = new ResizeObserver(() => {
+    const room = told.reduce((sum, line) => sum + line.getBoundingClientRect().height + (parseFloat(getComputedStyle(line).marginBottom) || 0), 0);
+    document.documentElement.style.setProperty('--told-h', `${room}px`);
+  });
+  told.forEach((line) => watch.observe(line));
 }
 
 // 13. Profile: About you is one form, the model's choices included (the Body tab); the photo's forms are others, and
@@ -1356,6 +1359,92 @@ document.addEventListener('submit', (e) => {
   if (document.readyState === 'complete') setTimeout(put, 0);
   else window.addEventListener('load', () => setTimeout(put, 0));
 })();
+
+// 17c. An outfit's photos full screen, on a phone (outfits.html, #viewer). Under an outfit the small pictures are small
+//      on a phone (30 by 40px on a short one): a tap on one whose picture is there opens the outfit's photos full
+//      screen, at that one, as well as showing it large in the outfit as before. A swipe, or the arrow keys, move
+//      between the photos that are there; the line at the top says which one shows ("Street · 4 of 6"), and a screen
+//      reader hears it. Close (or Escape) goes back to the outfit: the photo seen last is shown large there (its own
+//      small picture is pressed, as a tap would), and the keyboard is back on that small picture. The photos are the
+//      small pictures' own files, so nothing new is fetched. On a computer, where the picture is large beside the
+//      pieces, a tap shows the photo large as before and opens nothing.
+const viewer = document.getElementById('viewer');
+if (viewer) {
+  const phone = window.matchMedia('(max-width: 759.98px)');
+  const row = viewer.querySelector('.viewer-row');
+  const said = viewer.querySelector('.viewer-said');
+  let photos = [];          // {id, label, src} of each small picture whose photo is there, in the row's order
+  let from = '';            // the id of the small picture tapped
+  let pressing = false;     // while Close presses the small picture of the photo seen last
+  let seen = 0;             // the photo showing (kept here: once the viewer is closed, its row has no place to read)
+  const tell = () => {
+    seen = Math.max(0, Math.min(photos.length - 1, Math.round(row.scrollLeft / Math.max(1, row.clientWidth))));
+    const shown = photos[seen];
+    if (shown) said.textContent = `${shown.label} · ${seen + 1} of ${photos.length}`;
+    viewer.querySelectorAll('[data-step]').forEach((button) => {
+      const to = seen + Number(button.dataset.step);
+      button.disabled = to < 0 || to >= photos.length;
+    });
+  };
+  const go = (step) => row.scrollTo({ left: Math.max(0, Math.min(photos.length - 1, seen + step)) * row.clientWidth });
+  document.addEventListener('click', (e) => {
+    if (pressing || !phone.matches || !(e.target instanceof Element)) return;
+    const cell = e.target.closest('.shots-row button[aria-pressed]');
+    if (!cell || !cell.querySelector('img') || !cell.form) return;
+    photos = [...cell.form.querySelectorAll('button[aria-pressed]')].filter((b) => b.querySelector('img')).map((b) => ({
+      id: b.id, label: b.title, src: b.querySelector('img').getAttribute('src'),
+    }));
+    from = cell.id;
+    seen = photos.findIndex((photo) => photo.id === from);
+    row.replaceChildren(...photos.map((photo) => {
+      const figure = document.createElement('figure');
+      figure.className = 'viewer-shot';
+      const frame = document.createElement('span');
+      frame.className = 'viewer-pic';
+      const img = document.createElement('img');
+      img.src = photo.src;
+      img.alt = `AI-generated picture of a model wearing this outfit, photo: ${photo.label}`;
+      const chip = document.createElement('span');
+      chip.className = 'ai-chip';
+      chip.textContent = 'AI picture';
+      frame.append(img, chip);
+      figure.append(frame);
+      return figure;
+    }));
+    // Opened once the tap has done what it does in the outfit (the form sent with this picture's name): the open
+    // viewer takes the keyboard, and the form would then be sent without it.
+    requestAnimationFrame(() => {
+      viewer.showModal();
+      row.scrollTo({ left: seen * row.clientWidth, behavior: 'instant' });
+      tell();
+    });
+  });
+  row.addEventListener('scroll', tell, { passive: true });
+  viewer.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element)) return;
+    if (e.target.closest('[data-close]')) viewer.close();
+    const step = e.target.closest('[data-step]');
+    if (step) go(Number(step.dataset.step));
+  });
+  viewer.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    go(e.key === 'ArrowLeft' ? -1 : 1);
+  });
+  viewer.addEventListener('close', () => {
+    const last = photos[seen];
+    const cell = last && document.getElementById(last.id);
+    if (cell && last.id !== from && cell.getAttribute('aria-pressed') === 'false') {
+      pressing = true;
+      cell.click();
+      pressing = false;
+    }
+    const back = (last && document.getElementById(last.id)) || document.getElementById(from);
+    if (back) back.focus({ preventScroll: true });
+    row.replaceChildren();
+    said.textContent = '';
+  });
+}
 
 // 16. Motion (app.css "Motion" says how things move, and that nothing does for people who ask their device for less
 //     motion). Here: which way a page slides in, and a tap while it does (16a), the AI picture that develops in once

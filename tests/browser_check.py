@@ -411,7 +411,7 @@ def run(base: str) -> None:
                 other.wait_for_url(base + "/outfits")
                 other.wait_for_selector(f"{first} .look-pic img")
                 # Invented products here, so the page opens with the "Demo data" notice that customers never see.
-                other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                 measure = """() => {
                     const reel = document.getElementById('reel'), slides = [...reel.querySelectorAll('.slide')];
                     const slide = slides[Math.round(reel.scrollLeft / reel.clientWidth)], box = el => el.getBoundingClientRect();
@@ -778,12 +778,13 @@ def run(base: str) -> None:
             }""", first)
 
         def the_label_never_meets_a_dot(where_page, where: str) -> None:
-            # The label 'AI picture' and the dots never meet: on the picture as this screen has it, and on pictures 124
-            # to 240px wide (the narrowest a phone shows, under a message). Under 200px "See it move" is its play sign
-            # alone, so that its words do not cover the head; they are still read out.
+            # The label 'AI picture' and the dots never meet: on the picture as this screen has it, and on pictures 150
+            # to 240px wide (a phone's picture is never narrower than 150px, under the longest message on the shortest
+            # phone: app.css, "Outfits on a phone"). Under 200px "See it move" is its play sign alone, so that its
+            # words do not cover the head; they are still read out.
             seen = label_and_dots(where_page)
             assert seen["dots"] and not seen["met"] and seen["chip_on"], f"{where}: the label 'AI picture' meets a dot: {seen}"
-            for width in (124, 140, 150, 160, 170, 180, 186, 190, 198, 200, 220, 240):
+            for width in (150, 160, 170, 180, 186, 190, 198, 200, 220, 240):
                 where_page.evaluate("w => document.querySelector('.looks').style.setProperty('--stage-w', w + 'px')", width)
                 seen = label_and_dots(where_page)
                 assert not seen["met"] and seen["chip_on"], f"{where}, a picture {width}px wide: the label meets a dot: {seen}"
@@ -836,7 +837,7 @@ def run(base: str) -> None:
             other.wait_for_load_state("load")
             other.evaluate("() => document.fonts.ready")
             # Invented products here, so the page opens with the "Demo data" notice that customers never see.
-            other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+            other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
             other.evaluate("""() => { window.jumps = 0; new PerformanceObserver(list => list.getEntries()
                 .forEach(e => { if (!e.hadRecentInput) window.jumps += e.value; })).observe({type: 'layout-shift'}); }""")
             other.wait_for_selector(f"{first} .look-bar.wait")
@@ -1060,7 +1061,7 @@ def run(base: str) -> None:
                                                       has_touch=touch, color_scheme=scheme)
                         other.goto(base + "/outfits", wait_until="networkidle")
                         other.wait_for_selector(f"{first} .look-pic img")
-                        other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                        other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                         seen = other.evaluate("""s => {
                             const slide = document.querySelector(s), box = el => el.getBoundingClientRect();
                             const row = slide.querySelector('.shots'), r = box(row), line = box(slide.querySelector('.look-line'));
@@ -1418,7 +1419,8 @@ def run(base: str) -> None:
                 const buttons = [...slide.querySelectorAll('.vid-bar.ask button')].map(box);
                 const words = slide.querySelector('.vid-bar.ask > span');
                 return {covers: Math.max(0, Math.min(o.bottom, p.bottom) - Math.max(o.top, p.top)) / p.height,
-                        under: Math.abs(o.top - p.bottom) < 1, height: o.height, end: o.bottom, page: document.documentElement.scrollWidth,
+                        // right under the picture, and on a phone under the row of words that lies right under it
+                        under: Math.abs(o.top - p.bottom - parseFloat(getComputedStyle(slide.querySelector('.collage')).marginBottom)) < 1, height: o.height, end: o.bottom, page: document.documentElement.scrollWidth,
                         side_by_side: buttons.length === 2 && Math.abs(buttons[0].top - buttons[1].top) < 1,
                         whole: words.scrollWidth <= words.clientWidth + 1 && o.left >= 0 && o.right <= innerWidth,
                         instead: [...slide.querySelectorAll('.look > .look-line, .look > .shots')].every(el => !el.getClientRects().length),
@@ -1448,7 +1450,7 @@ def run(base: str) -> None:
                                               reduced_motion="reduce" if height == 667 else "no-preference")
                 other.goto(base + "/outfits", wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
-                other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                 shut = other.evaluate(geometry, first)
                 other.click(f"{first} .vid-pill")
                 other.wait_for_selector(f"{first} .vid-bar.ask")
@@ -1475,7 +1477,7 @@ def run(base: str) -> None:
             try:
                 other.goto(base + "/outfits", wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
-                other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                 other.click(f"{first} .vid-pill")
                 other.wait_for_selector(f"{first} .vid-bar.ask")
                 other.wait_for_function(settled)
@@ -1545,7 +1547,7 @@ def run(base: str) -> None:
                 return {muted: v.muted, same_box: Math.abs(b.top - p.top) < 1 && Math.abs(b.height - p.height) < 1 && Math.abs(b.width - p.width) < 1,
                         chip: chip.textContent.trim(), chip_on: box(chip).bottom <= b.bottom && box(chip).left >= b.left,
                         dots: [...slide.querySelectorAll('.spot')].filter(d => d.getClientRects().length).length,
-                        line_under: Math.abs(line.top - p.bottom) < 1, line: slide.querySelector('.vid-line').innerText.replace(/\\s+/g, ' ').trim(),
+                        line_under: Math.abs(line.top - p.bottom - parseFloat(getComputedStyle(slide.querySelector('.collage')).marginBottom)) < 1, line: slide.querySelector('.vid-line').innerText.replace(/\\s+/g, ' ').trim(),
                         caption: {top: box(slide.querySelector('.vid-line .vid-row')).top, width: box(slide.querySelector('.vid-line .look-note')).width},
                         focus: document.activeElement.getAttribute('role'), heard: document.getElementById('announce').textContent.trim(),
                         line_end: line.bottom, title: box(slide.querySelector('.about-head')).top}; }""", first)
@@ -1620,7 +1622,7 @@ def run(base: str) -> None:
             # On a short phone (390 x 664) the same words and Close, with keyboard focus, show above the tab bar.
             context, other = logged_in_on(browser, viewport={"width": 390, "height": 664}, is_mobile=True, has_touch=True)
             other.goto(base + "/outfits", wait_until="networkidle")
-            other.evaluate("() => { document.querySelectorAll('main > .demo').forEach(notice => notice.remove());"
+            other.evaluate("() => { document.querySelectorAll('main .demo').forEach(notice => notice.remove());"
                            " const r = document.getElementById('reel'); r.style.scrollBehavior = 'auto';"
                            " r.scrollLeft = r.clientWidth; r.style.scrollBehavior = ''; }")
             other.wait_for_selector(f"{second} .look-pic img")
@@ -1643,7 +1645,7 @@ def run(base: str) -> None:
                                                   has_touch=touch, color_scheme=scheme, reduced_motion="reduce")
                     other.goto(base + "/outfits", wait_until="networkidle")
                     other.wait_for_selector(f"{first} .look-pic img")
-                    other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                    other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                     where = f"{width} x {height}, {scheme}"
                     shut = other.evaluate(geometry, first)
                     assert shut["on_picture"] and shut["clear"], f"{where}: 'See it move' is not on the picture, clear of the dots: {shut}"
@@ -1701,6 +1703,8 @@ def run(base: str) -> None:
             assert offer.startswith("AI video of the Café picture, 5 seconds: he moves naturally. 1 video left today."), \
                 f"on the Café picture the offer says {offer!r}"
             assert len(made) == before, "opening the offer made a video"
+            # (A key pressed before HTMX has hooked up the offer it just put in sends the form without it: wait.)
+            page.wait_for_function("() => !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling')")
             page.locator(f"{first} .vid-bar.ask button.btn").press("Enter")           # Make the video
             page.wait_for_selector(f"{first} .vid.on", timeout=20000)
             assert len(made) == before + 1 and made[-1] == videos.clip_of("cafe").text and "lifts the cup" in made[-1], \
@@ -1988,8 +1992,9 @@ def run(base: str) -> None:
             # over the outfit: the piece, the new product and its price, the old price, and Undo. The picture of the
             # outfit before the change is never shown over it. Undo brings back the product it had and its lock state
             # (an automatic piece is automatic again, as its Wardrobe card shows). Then it is chosen again, for the
-            # steps after this one. On a short phone the line is whole on the first screen, with the outfit's picture
-            # box (its row of small pictures included) still above the tab bar, under the starter banner too.
+            # steps after this one. On a short phone the line is whole on the first screen, with the outfit's whole
+            # picture under it, above the bar with the answers (the picture gives up the room the line takes), under
+            # the starter banner too.
             choose = page.locator("#piece-body .swap li:not(.out) button", has_text="Choose")
             assert choose.count() > 0, "nothing to swap for"
             # The store's own name for the option (lang=de: under its English name where there is one), which is
@@ -2024,24 +2029,23 @@ def run(base: str) -> None:
             for width, height in ((375, 667), (390, 664)):      # under the starter banner and this line: a narrow picture
                 context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=True, has_touch=True)
                 other.goto(changed_at, wait_until="networkidle")
-                other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                 other.wait_for_selector(f"{first} .look-pic img", timeout=20000)
                 the_label_never_meets_a_dot(other, f"{width} x {height} after Choose")
                 context.close()
             context, other = logged_in_on(browser, viewport={"width": 390, "height": 664}, is_mobile=True, has_touch=True)
             other.goto(changed_at, wait_until="networkidle")
-            other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")  # (invented products)
+            other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")  # (invented products)
             seen = other.evaluate("""() => { const box = el => el.getBoundingClientRect();
                 const line = box(document.querySelector('main > .said')), undo = document.querySelector('main > .said button');
                 return {top: line.top, bottom: line.bottom, starter: !!document.querySelector('.starter'),
-                        stage: box(document.querySelector('#reel .slide:first-child .stage')).bottom,
-                        row: box(document.querySelector('#reel .slide:first-child .shots')).bottom,
+                        picture: [box(document.querySelector('#reel .slide:first-child .look-pic')).top, box(document.querySelector('#reel .slide:first-child .look-pic')).bottom],
+                        dock: box(document.getElementById('dock')).top,
                         tabs: box(document.querySelector('nav.tabs')).top,
                         height: box(undo).height, target: parseFloat(getComputedStyle(undo, '::after').height)}; }""")
             context.close()
-            assert 0 <= seen["top"] and seen["bottom"] <= seen["tabs"] and seen["stage"] <= seen["tabs"] + 0.5, \
-                f"at 390 x 664 the line after Choose is not whole on the first screen, or the picture runs under the tab bar: {seen}"
-            assert seen["row"] <= seen["tabs"] + 0.5, f"at 390 x 664 after Choose the row of small pictures runs under the tab bar: {seen}"
+            assert 0 <= seen["top"] and seen["bottom"] <= seen["picture"][0] and seen["picture"][1] <= seen["dock"] + 0.5 <= seen["tabs"] + 0.5, \
+                f"at 390 x 664 the line after Choose is not whole on the first screen, or the picture under it runs under the bar with the answers: {seen}"
             assert seen["height"] >= 24, f"Undo is {seen['height']}px high: under 24px"
             assert seen["target"] >= 44, f"Undo is a {seen['target']}px tall target"
 
@@ -4830,11 +4834,13 @@ def run(base: str) -> None:
             assert sheet["transform"] == "none" and sheet["focus"] and sheet["seen"] == 1 and sheet["bottom"] <= sheet["height"] + 0.5, \
                 f"once the pop-up is up it is not in place with Close in full view and focused: {sheet}"
             quick(other, "the pop-up opening")
-            # Closing, it lets a tap through to the page at once.
+            # Closing, it lets a tap through to the page at once (to the picture: on a phone the price lies on it and
+            # lets taps through to it).
             tap(other, True, "dialog#piece .sheet-close")
             through = other.evaluate("""s => { const price = document.querySelector(s + ' .board-cost'), box = price.getBoundingClientRect();
                 const under = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
-                return {open: document.querySelector('dialog#piece').open, price: !!under && price.contains(under)}; }""", first)
+                return {open: document.querySelector('dialog#piece').open,
+                        price: !!under && (price.contains(under) || document.querySelector(s + ' .stage').contains(under))}; }""", first)
             assert not through["open"] and through["price"], f"while the pop-up closes a tap does not reach the page: {through}"
             motion_ended(other)
             quick(other, "the pop-up closing")
@@ -4896,15 +4902,17 @@ def run(base: str) -> None:
             assert not stirred, "with less motion asked for, these moved: " + "; ".join(stirred)
 
         def the_outfit_on_a_phones_first_screen():
-            # The model view is the heart of Stilsmith. On a phone (390 x 844) the first screen shows the AI picture and,
-            # under it, the outfit's title and its price, above the tab bar; on a shorter one (Safari's
-            # 390 x 664) at least the whole picture with its lowest dot, also under a message at the top of the page.
-            # The chips and Shuffle are one row (on a narrow phone the chips scroll sideways inside it, and a chip reached
+            # The model view is the heart of Stilsmith. On a phone the picture is the screen: right under the header, as
+            # large as the screen allows above the bar with the two answers and the tab bar, the whole model in it (on
+            # 390 x 664, Safari's, about 309 by 463px where the review measured 190 by 285), also under a message at
+            # the top of the page. The budget bar is not over it. The outfit's title and price lie on the picture's
+            # lower edge, readable on any picture (white on a dark veil, at least 4.5:1 even over white), clear of the
+            # dots and of the label 'AI picture'. The chips and Shuffle are one row right under the picture (on a narrow phone the chips scroll sideways inside it, and a chip reached
             # by keyboard comes whole into it, ring and all), the chip that is on is marked, the line over the outfits
             # says how to see the next one (swipe on a touch screen, the arrows with a mouse), each outfit's title is a
             # heading that agrees with the chip, 'Buy this outfit' is the main button, and the outfit row does not cut
             # off the focus ring of 'Add to my wardrobe' or of 'Buy this outfit'.
-            def opened(width: int, height: int, touch: bool, path: str = "/outfits"):
+            def opened(width: int, height: int, touch: bool, path: str = "/outfits", demo: bool = False):
                 context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=touch, has_touch=touch)
                 other = context.new_page()
                 other.goto(base + "/login", wait_until="networkidle")
@@ -4915,16 +4923,34 @@ def run(base: str) -> None:
                 other.goto(base + path, wait_until="networkidle")
                 other.wait_for_selector(f"{first} .look-pic img")
                 # This check runs on invented products, so the page opens with the "Demo data" notice, which customers
-                # of the real catalogue never see: it is taken away to measure the page as they get it.
-                other.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                # of the real catalogue never see: it is taken away to measure the page as they get it (but see below).
+                if not demo:
+                    other.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                 return context, other
 
             def screen(other) -> dict:
                 return other.evaluate("""() => {
                     const slide = document.querySelector('#reel .slide:first-child'), box = el => el.getBoundingClientRect();
                     const picture = box(slide.querySelector('.look-pic'));
-                    return {top: picture.top, bottom: Math.max(picture.bottom, ...[...slide.querySelectorAll('.spot')].map(d => box(d).bottom)),
-                            line: Math.max(...[...slide.querySelectorAll('.about-head h2, .count, .board-cost')].map(el => box(el).bottom)),
+                    const words = [...slide.querySelectorAll('.about-head h2, .board-cost')].map(box);
+                    // The contrast of white words on the veil behind them, the veil laid over a white picture (its worst).
+                    const lum = c => { const v = c / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+                    const veil = [...slide.querySelectorAll('.about-head h2, .board-cost')].map(el => {
+                        const [r, g, b, a = 1] = getComputedStyle(el).backgroundColor.match(/[\\d.]+/g).map(Number);
+                        const [tr, tg, tb] = getComputedStyle(el).color.match(/[\\d.]+/g).map(Number);
+                        const over = [r, g, b].map(c => c * a + 255 * (1 - a)), L = c => 0.2126 * lum(c[0]) + 0.7152 * lum(c[1]) + 0.0722 * lum(c[2]);
+                        const [hi, lo] = [L([tr, tg, tb]), L(over)].sort((x, y) => y - x);
+                        return (hi + 0.05) / (lo + 0.05); });
+                    const meet = (p, q) => p.left < q.right && q.left < p.right && p.top < q.bottom && q.top < p.bottom;
+                    const chip = box(slide.querySelector('.look-pic .ai-chip')), dots = [...slide.querySelectorAll('.spot')].map(box);
+                    return {top: picture.top, left: picture.left, right: picture.right, picture_bottom: picture.bottom,
+                            bottom: Math.max(picture.bottom, ...dots.map(d => d.bottom)),
+                            line: Math.max(...words.map(r => r.bottom)), line_top: Math.min(...words.map(r => r.top)),
+                            on_picture: words.every(r => r.left >= picture.left && r.right <= picture.right && r.top >= picture.top && r.bottom <= picture.bottom + 0.5),
+                            veil: Math.min(...veil), crossed: words.some(r => meet(r, chip) || dots.some(d => meet(r, d))),
+                            header: box(document.querySelector('header.top')).bottom,
+                            budget: !!document.getElementById('summary') && getComputedStyle(document.getElementById('summary')).display !== 'none',
+                            row: box(document.querySelector('.toolbar')).top,
                             tabs: box(document.querySelector('nav.tabs')).top,
                             // The bar with the two answers stands over the tab bar on a phone (app.js 17a): its top.
                             dock: box(document.getElementById('dock')).top};
@@ -4948,20 +4974,22 @@ def run(base: str) -> None:
                     }""", [f"{first} {what}", f"#dock {what}"])
                     assert ring["shown"] and not ring["cut"], f"{where}: the focus ring of {what} is cut off at {ring['cut']}"
 
-            # On a phone the outfit's name and price (and the line that says why it fits his brief) stand above the
-            # picture, so the bar with the two answers never covers them. At 390 x 844 the picture is at least as large
-            # as before that bar came (287px), the whole model above the bar, and the 'AI picture' label on one line.
+            # At 390 x 844 the picture starts right under the header and is as wide as the page (358px), the whole model
+            # above the bar with the answers; the title and price on its lower edge, the chips and Shuffle right under it.
             context, other = opened(390, 844, True)
             seen = screen(other)
-            extra = other.locator("#summary").bounding_box()["height"] - 48     # the bar's second line, if pieces have nothing to buy
-            extra += max(0, other.locator("p.lead").bounding_box()["height"] - 22)     # a second line over the outfits
             wide = other.locator(f"{first} .look-pic").bounding_box()["width"]
-            name = other.locator(f"{first} .about-head").bounding_box()
-            assert name["y"] <= 210 + max(0, extra), f"at 390 x 844 the outfit's name starts {name['y']:.0f}px down"
-            assert seen["line"] <= seen["top"], f"at 390 x 844 the outfit's name and price are not above the picture: {seen}"
-            assert wide >= 287, f"at 390 x 844 the picture is only {wide:.0f}px wide (287px before the bar with the answers came)"
+            assert seen["top"] <= seen["header"] + 8, f"at 390 x 844 something stands between the header and the picture: {seen}"
+            assert wide >= 358 - 0.5, f"at 390 x 844 the picture is only {wide:.0f}px wide, not the page's 358px"
             assert seen["bottom"] <= seen["dock"] + 1 <= seen["tabs"] + 1, \
                 f"at 390 x 844 the picture ends at {seen['bottom']:.0f}px, under the bar with the answers at {seen['dock']:.0f}px"
+            assert not seen["budget"], "on a phone the budget bar still stands over the outfits"
+            assert seen["on_picture"] and seen["line"] >= seen["picture_bottom"] - 60, \
+                f"at 390 x 844 the outfit's title and price are not on the picture's lower edge: {seen}"
+            assert seen["veil"] >= 4.5, f"at 390 x 844 the title or price on the picture is {seen['veil']:.1f}:1 over a white picture"
+            assert not seen["crossed"], f"at 390 x 844 the title or price covers a dot or the label 'AI picture': {seen}"
+            assert seen["picture_bottom"] <= seen["row"] <= seen["picture_bottom"] + 16, \
+                f"at 390 x 844 the chips and Shuffle are not right under the picture: {seen}"
             chip = other.locator(f"{first} .look-pic .ai-chip").bounding_box()
             assert chip["height"] <= 26, f"at 390 x 844 the 'AI picture' label is {chip['height']:.0f}px high: two lines"
             row = other.evaluate("""() => {
@@ -4990,48 +5018,80 @@ def run(base: str) -> None:
             assert "Smart casual" not in heads["titles"], f"under Office an outfit is titled only 'Smart casual': {heads['titles']}"
             context.close()
 
-            # Shorter phones (360 x 740, 393 x 760, 390 x 664, 375 x 667, 360 x 640: a phone with the browser's bars
-            # showing). The outfit's name, its price and why it fits are whole above the bar with the two answers, the
-            # bar is compact (one line of what a yes adds, then the answers), 'Add to my wardrobe' is whole in it above
-            # the tab bar, the picture is at least 198px wide (as large as fits above the bars: 234px at 360 x 740)
-            # with its label on one line, and the chips all show beside Shuffle.
-            for width, height in ((360, 740), (393, 760), (390, 664), (375, 667), (360, 640)):
+            # Shorter phones (360 x 740, 393 x 760, 390 x 664, 375 x 667, 360 x 640, 320 x 568: a phone with the
+            # browser's bars showing). The picture is as large as the screen allows: as tall as the screen less 220px
+            # (the header, the bar with the answers at its tallest, the tab bar and a little room), or as wide as the
+            # page, so 296 by 444px at least on 390 x 664 (309 by 463px where no outfit on the page says it would take
+            # him over his budget); the whole model and its lowest dot above the bar with the answers; the title and
+            # price on the picture, with the label 'AI picture' on one line; the bar is compact (one line of what a yes
+            # adds, two with the budget's words, then the answers), 'Add to my wardrobe' whole in it above the tab
+            # bar; and the chips all show beside Shuffle.
+            for width, height in ((360, 740), (393, 760), (390, 664), (375, 667), (360, 640), (320, 568)):
                 context, other = opened(width, height, True)
-                seen = other.evaluate("""() => {
+                seen = screen(other)
+                seen.update(other.evaluate("""() => {
                     const slide = document.querySelector('#reel .slide:first-child'), box = el => el.getBoundingClientRect();
-                    const why = slide.querySelector('.about-why');
-                    return {picture: box(slide.querySelector('.look-pic')).width,
-                            bottom: box(slide.querySelector('.look-pic')).bottom,
-                            name: [box(slide.querySelector('.about-head h2')).top, box(slide.querySelector('.about-head h2')).bottom],
-                            price: box(slide.querySelector('.board-cost')).bottom,
-                            why: why ? box(why).bottom : 0,
+                    return {picture: [box(slide.querySelector('.look-pic')).width, box(slide.querySelector('.look-pic')).height],
                             chip: box(slide.querySelector('.look-pic .ai-chip')).height,
                             yes: [box(document.querySelector('#dock .btn.yes')).top, box(document.querySelector('#dock .btn.yes')).bottom],
-                            answers: box(document.getElementById('dock')).top,
                             bar: box(document.getElementById('dock')).height,
                             chips: [document.querySelector('.toolbar .chips').scrollWidth, document.querySelector('.toolbar .chips').clientWidth],
-                            last_chip: [...document.querySelectorAll('.toolbar .chip-link')].pop().textContent.trim().replace(/\\s+/g, ' '),
-                            tabs: box(document.querySelector('nav.tabs')).top}; }""")
+                            last_chip: [...document.querySelectorAll('.toolbar .chip-link')].pop().textContent.trim().replace(/\\s+/g, ' ')}; }"""))
                 context.close()
                 where = f"at {width} x {height}"
-                assert seen["last_chip"].startswith("My outfits") and seen["chips"][0] <= seen["chips"][1], \
-                    f"{where} the chip {seen['last_chip']!r} is cut off beside Shuffle: the chips need {seen['chips'][0]}px and have {seen['chips'][1]}px"
-                assert seen["picture"] >= 198, f"{where} the picture is only {seen['picture']:.0f}px wide, under 198px"
-                if height >= 740:
-                    assert seen["bottom"] <= seen["answers"] + 1, f"{where} the picture ends under the bar with the answers: {seen}"
+                if width > 320:     # (at 320px the chips scroll sideways in their row: checked below)
+                    assert seen["last_chip"].startswith("My outfits") and seen["chips"][0] <= seen["chips"][1], \
+                        f"{where} the chip {seen['last_chip']!r} is cut off beside Shuffle: the chips need {seen['chips'][0]}px and have {seen['chips'][1]}px"
+                least = min(width - 32, (height - 220) * 2 / 3) - 1
+                assert seen["picture"][0] >= least and abs(seen["picture"][1] - seen["picture"][0] * 3 / 2) < 1, \
+                    f"{where} the picture is {seen['picture'][0]:.0f} by {seen['picture'][1]:.0f}px, under {least:.0f}px wide or not 2 by 3"
+                assert seen["top"] <= seen["header"] + 8 and seen["bottom"] <= seen["dock"] + 1, \
+                    f"{where} the picture does not start under the header, or ends under the bar with the answers: {seen}"
+                assert not seen["budget"] and seen["on_picture"] and seen["veil"] >= 4.5 and not seen["crossed"], \
+                    f"{where} the budget bar shows, or the title and price are not on the picture, readable and clear: {seen}"
                 assert seen["chip"] <= 26, f"{where} the 'AI picture' label is on two lines: {seen}"
-                assert seen["answers"] <= seen["tabs"] + 1 and seen["answers"] <= seen["yes"][0] and seen["yes"][1] <= seen["tabs"], \
+                assert seen["dock"] <= seen["tabs"] + 1 and seen["dock"] <= seen["yes"][0] and seen["yes"][1] <= seen["tabs"], \
                     f"{where} 'Add to my wardrobe' is not whole in its bar above the tab bar: {seen}"
                 assert seen["bar"] <= 100, f"{where} the bar with the answers is {seen['bar']:.0f}px high: not compact"
-                assert max(seen["name"][1], seen["price"], seen["why"]) <= seen["answers"], \
-                    f"{where} the outfit's name, price or why-line ends under the bar with the two answers: {seen}"
+
+            # With the "Demo data" notice (invented products): on a phone it is one short line under the row of words,
+            # "Demo data — invented items." (the rest still read out), and costs the picture nothing: the picture is as
+            # large as without it, and the picture's own line comes after the notice.
+            for width, height in ((390, 664), (320, 568)):
+                context, other = opened(width, height, True, demo=True)
+                seen = screen(other)
+                seen.update(other.evaluate("""s => { const box = el => el.getBoundingClientRect(), demo = document.querySelector('main .demo');
+                    // What shows: the notice without the part that only a screen reader reads (1px, clipped).
+                    const shown = demo && demo.cloneNode(true), rest = demo && demo.querySelector('.demo-more');
+                    if (rest && box(rest).width <= 1) shown.querySelector('.demo-more').remove();
+                    return {demo: demo && [box(demo).top, box(demo).bottom, box(demo).height, shown.textContent.trim(), demo.textContent.trim()],
+                            row_bottom: box(document.querySelector('.toolbar')).bottom, line_top: box(document.querySelector(s + ' .look-line')).top,
+                            wide: box(document.querySelector(s + ' .look-pic')).width}; }""", first))
+                context.close()
+                where = f"at {width} x {height} with the demo notice"
+                assert seen["demo"] and seen["demo"][3] == "Demo data — invented items." \
+                    and seen["demo"][4] == "Demo data — invented items, not real products, prices or stock." and seen["demo"][2] <= 40, \
+                    f"{where}: the notice is not one short line that still says it all to a screen reader: {seen['demo']}"
+                assert seen["row_bottom"] <= seen["demo"][0] and seen["demo"][1] <= seen["line_top"], \
+                    f"{where}: the notice is not under the row of words, above the picture's own line: {seen}"
+                assert seen["wide"] >= min(width - 32, (height - 220) * 2 / 3) - 1 and seen["bottom"] <= seen["dock"] + 1, \
+                    f"{where}: the notice took room from the picture, or the picture ends under the bar with the answers: {seen}"
+
+            # The longest name, "Everyday, smart casual", on the narrowest phone: on the picture, clear of the dots and of
+            # the label, readable.
+            context, other = opened(320, 568, True, "/outfits?occasion=everyday")
+            seen = screen(other)
+            context.close()
+            assert seen["on_picture"] and not seen["crossed"] and seen["veil"] >= 4.5, \
+                f"at 320 x 568 under Everyday the title or price is off the picture, on a dot or the label, or hard to read: {seen}"
 
             context, other = opened(390, 664, True, "/outfits?at=no~such~outfit")
             seen = screen(other)
             message = other.locator("main > .flash").first.bounding_box()
             assert message and 0 <= message["y"] and message["y"] + message["height"] <= seen["dock"], \
                 f"the message at the top of the outfits is not whole on the first screen: {message}"
-            assert seen["line"] <= seen["dock"], f"under a message the outfit's name is under the bar with the answers: {seen}"
+            assert seen["line"] <= seen["dock"] and seen["bottom"] <= seen["dock"] + 1, \
+                f"under a message the outfit's picture, or its name, ends under the bar with the answers: {seen}"
             context.close()
 
             context, other = opened(360, 800, True)
@@ -5092,7 +5152,7 @@ def run(base: str) -> None:
             def sticks(other, path: str) -> bool:
                 other.goto(base + path, wait_until="networkidle")
                 other.evaluate("() => window.scrollTo(0, 400)")
-                return other.evaluate("() => document.getElementById('summary').getBoundingClientRect().top") == 0
+                return other.evaluate("() => { const r = document.getElementById('summary').getBoundingClientRect(); return r.top === 0 && r.height > 0; }")
 
             hidden: list[str] = []
             # Profile shows one tab's controls at a time, with the middle, the tabs and Save staying in place: each tab.
@@ -5864,7 +5924,7 @@ def run(base: str) -> None:
                 # with the two answers that stands over it, not behind them. (The
                 # "Demo data" notice over this page is not on the live site. The picture gives up room for it, so it is
                 # taken away here: without it the picture is as large as it gets, and the line stood behind the bar.)
-                phone.evaluate("() => document.querySelectorAll('main > .demo').forEach(notice => notice.remove())")
+                phone.evaluate("() => document.querySelectorAll('main .demo').forEach(notice => notice.remove())")
                 line = phone.evaluate("""() => { const r = document.querySelector('#reel [data-slide] [data-why]').getBoundingClientRect();
                     const dock = document.querySelector('#dock:not([hidden])');
                     return {top: Math.round(r.top), bottom: Math.round(r.bottom), scrolled: Math.round(scrollY),
@@ -6012,12 +6072,13 @@ def run(base: str) -> None:
                 delete_a_steps_customer(who)
 
         def tile_captions_whole():
-            # Each piece's photo in an outfit has a caption at its foot. On a phone a tile is about 95px wide, too
-            # narrow for "WEEKDAY · 180 €": it says the price alone (the list of pieces under the picture names the
-            # store), never a store's name cut to "WEEKDA…". On a computer it says both. No caption is cut off.
+            # Each piece's photo in an outfit has a caption at its foot. On a narrow phone (320px) a tile is under 150px
+            # wide, too narrow for "WEEKDAY · 180 €": it says the price alone (the list of pieces under the picture
+            # names the store), never a store's name cut to "WEEKDA…". On a 390px phone, where the picture is the
+            # screen, and on a computer it says both. No caption is cut off.
             # (A tile is narrow or wide by its own width: three pieces have one tile across the whole picture.)
             page.goto(base + "/outfits", wait_until="networkidle")
-            for width in (390, 1280):
+            for width in (320, 390, 1280):
                 page.set_viewport_size({"width": width, "height": 860})
                 page.wait_for_timeout(150)
                 seen = page.evaluate("""() => [...document.querySelector('#reel .slide').querySelectorAll('.tile .cap')].map(c => {
@@ -6029,11 +6090,85 @@ def run(base: str) -> None:
                 assert not [s for s in seen if s["cut"]], f"at {width}px a tile's caption is cut off: {seen}"
                 wrong = [s for s in seen if s["store"] is not None and s["store"] != (s["tile"] >= 150)]
                 assert not wrong, f"at {width}px a tile names its store where it is too narrow, or not where it is wide: {wrong}"
-                if width == 390:
-                    assert [s for s in seen if s["store"] is False], f"no tile on a phone says its price alone: {seen}"
+                if width == 320:
+                    assert [s for s in seen if s["store"] is False], f"no tile on a narrow phone says its price alone: {seen}"
                 else:
-                    assert [s for s in seen if s["store"]], f"no tile on a computer names its store: {seen}"
+                    assert [s for s in seen if s["store"]], f"no tile at {width}px names its store: {seen}"
             page.set_viewport_size({"width": 1280, "height": 860})
+
+        def photos_full_screen_on_a_phone():
+            # On a phone the small pictures under an outfit are small (30 by 40px on a short one): a tap on one opens the
+            # outfit's photos full screen, at that one, and shows it large in the outfit as before. Each photo is whole
+            # on the screen (2 by 3) and carries the words 'AI picture' on itself; the line at the top says which one
+            # shows ("Street · 4 of 6"), and the arrow keys move between them; Close is 44px tall and has the keyboard.
+            # Closing goes back to the outfit with the photo seen last shown large and the keyboard on its small
+            # picture. Light and dark; nothing wider than the screen. On a computer a tap opens nothing.
+            # (A swipe inside the viewer is not synthesized here: GitHub's headless browser ignores those in a dialog.)
+            settled = "() => !document.querySelector('.htmx-request, .htmx-swapping, .htmx-settling')"
+            viewer = """() => {
+                const v = document.getElementById('viewer'), box = el => el.getBoundingClientRect();
+                const shown = [...v.querySelectorAll('.viewer-pic')].find(f => Math.abs(box(f).left - (innerWidth - box(f).width) / 2) < 2);
+                const chip = shown && shown.querySelector('.ai-chip'), close = v.querySelector('.viewer-close');
+                const s = shown && box(shown), c = chip && box(chip);
+                return {open: v.open, said: v.querySelector('.viewer-said').textContent.trim(),
+                        photo: s && [s.left, s.top, s.width, s.height, s.bottom <= innerHeight + 0.5 && s.top >= -0.5],
+                        alt: shown && shown.querySelector('img').alt, loaded: shown && shown.querySelector('img').complete,
+                        chip: chip && [chip.textContent.trim(), c.left >= s.left && c.right <= s.right && c.top >= s.top && c.bottom <= s.bottom],
+                        close: [close.textContent.trim(), box(close).height, document.activeElement === close],
+                        page: document.documentElement.scrollWidth};
+            }"""
+            for scheme in ("light", "dark"):
+                context, other = logged_in_on(browser, viewport={"width": 390, "height": 664}, is_mobile=True, has_touch=True,
+                                              color_scheme=scheme)
+                try:
+                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.wait_for_function("s => document.querySelectorAll(s + ' .shots-row img').length === 6", arg=first)
+                    key = other.evaluate("s => document.querySelector(s).id.slice(7)", first)
+                    other.locator(f"{first} .shots-row button[id$='-street']").tap()
+                    other.wait_for_selector("#viewer[open]")
+                    other.wait_for_function(settled)
+                    other.wait_for_function("() => document.querySelector('#viewer .viewer-said').textContent.includes('Street')")
+                    seen = other.evaluate(viewer)
+                    where = f"390 x 664, {scheme}"
+                    assert seen["said"] == "Street · 4 of 6", f"{where}: the full-screen photos say {seen['said']!r}"
+                    assert seen["photo"] and seen["photo"][2] >= 389 and seen["photo"][4] \
+                        and abs(seen["photo"][3] - seen["photo"][2] * 3 / 2) < 1, f"{where}: the photo is not whole and full width: {seen}"
+                    assert seen["alt"].endswith("photo: Street") and seen["chip"] == ["AI picture", True], \
+                        f"{where}: the full-screen photo is not Street, or does not carry the words 'AI picture' on itself: {seen}"
+                    assert seen["close"][0] == "Close" and seen["close"][1] >= 44 and seen["close"][2] and seen["page"] <= 390, \
+                        f"{where}: Close is not a 44px button with the keyboard on it, or the page is wider than the screen: {seen}"
+                    shown = other.evaluate("s => document.querySelector(s + ' .shots-row [aria-pressed=true]').id", first)
+                    assert shown.endswith("-street"), f"{where}: the tap did not also show Street large in the outfit ({shown})"
+                    for press, words in (("ArrowRight", "Café · 5 of 6"), ("ArrowLeft", "Street · 4 of 6"), ("ArrowLeft", "Turned · 3 of 6")):
+                        other.keyboard.press(press)
+                        other.wait_for_function("w => document.querySelector('#viewer .viewer-said').textContent.trim() === w", arg=words)
+                    other.wait_for_function("() => { const r = document.querySelector('#viewer .viewer-row');"   # come to rest
+                                            " return Math.abs(r.scrollLeft - Math.round(r.scrollLeft / r.clientWidth) * r.clientWidth) < 1; }")
+                    seen = other.evaluate(viewer)
+                    assert seen["alt"].endswith("photo: Turned") and seen["chip"] == ["AI picture", True], f"{where}: after the arrow keys: {seen}"
+                    other.keyboard.press("Escape")
+                    other.wait_for_function("() => !document.getElementById('viewer').open")
+                    other.wait_for_function("s => document.querySelector(s + ' .shots-row [aria-pressed=true]').id.endsWith('-turned')", arg=first)
+                    other.wait_for_function(settled)
+                    back = other.evaluate("s => ({focus: document.activeElement.id, alt: document.querySelector(s + ' .look-pic img').alt})", first)
+                    assert back["focus"] == f"shot-{key}-turned" and back["alt"].endswith("photo: Turned"), \
+                        f"{where}: after Close the outfit does not show Turned large, with the keyboard on its small picture: {back}"
+                finally:
+                    context.close()
+            context, other = logged_in_on(browser, viewport={"width": 1280, "height": 860})
+            try:
+                other.goto(base + "/outfits", wait_until="networkidle")
+                other.wait_for_function("s => document.querySelectorAll(s + ' .shots-row img').length === 6", arg=first)
+                other.click(f"{first} .shots-row button[id$='-cafe']")
+                other.wait_for_function("s => document.querySelector(s + ' .shots-row [aria-pressed=true]').id.endsWith('-cafe')", arg=first)
+                other.wait_for_function(settled)
+                other.wait_for_timeout(300)
+                assert not other.evaluate("() => document.getElementById('viewer').open"), "on a computer a small picture tapped opens the full screen"
+                other.click(f"{first} .shots-row button[id$='-front']")
+                other.wait_for_function("s => document.querySelector(s + ' .shots-row [aria-pressed=true]').id.endsWith('-front')", arg=first)
+                other.wait_for_function(settled)
+            finally:
+                context.close()
 
         steps = [("create an account", sign_up), ("Stilsmith's own typefaces load", own_typefaces),
                  ("price levels and best for budget", price_levels),
@@ -6043,6 +6178,7 @@ def run(base: str) -> None:
                  ("the yes is on a phone's first screen", the_yes_is_on_a_phones_first_screen),
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
                  ("more photos: five made from the front picture", more_photos_of_the_outfit),
+                 ("the photos full screen on a phone", photos_full_screen_on_a_phone),
                  ("a small picture tapped: never undone, and without JavaScript", a_tap_on_a_small_picture_is_kept),
                  ("see it move: a video, played, dragged, limited", see_it_move),
                  ("see it move from the picture showing: its own movement, one clip each", see_it_move_from_the_picture_showing),
