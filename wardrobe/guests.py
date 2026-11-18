@@ -5,7 +5,8 @@ or is not logged in, can open Outfits and swipe through the outfits of one examp
 visitor: the example profile (its example sizes, no photo) at the middle price level, Medium, with its pieces from
 Stilsmith's own product list. He sees each outfit's title, its pieces by their names and colours, drawn as the app's
 own colour drawings (never a store's photo), and its AI picture where one has been drawn already: of Stilsmith's house
-model, never of anyone's photo.
+model, never of anyone's photo. The outfits that have one come first (row). A visitor never causes a drawing: the owner
+draws them by hand, after seeing what they would cost (python -m wardrobe example-pictures, __main__.py).
 
 What a visitor does not get is left out on the server, not hidden in the browser: the stores, the stores' names for
 their products, prices and totals, what a yes would add, sizes, links and the stores' photos are not in the page at
@@ -28,7 +29,7 @@ import sys
 from flask import g, redirect, request, url_for
 from werkzeug.wrappers import Response
 
-from . import capsule, catalog, config, db, mock, settings, shared
+from . import capsule, catalog, config, db, looks, mock, outfits, settings, shared, yes
 from . import profile as profile_mod
 from .config import ConfigError
 
@@ -91,7 +92,7 @@ def reason(why: str | None, real: bool = True) -> str:
     if not why or why not in WHY:
         return ""
     if why == "pictures":
-        from . import looks, videos         # (here: they need nothing of this module, and most pages none of them)
+        from . import videos                # (here: it needs nothing of this module, and most pages none of it)
         try:
             if looks.service() is None:
                 return ""
@@ -174,6 +175,48 @@ def outfit_picture(board: dict) -> str:
     photos = board.get("photos") or []
     front = photos[0].look if photos else None
     return front.file if front is not None and front.status == "ready" and front.file else ""
+
+
+# ── the row of outfits a visitor swipes through ───────────────────────────────
+
+PAGE = 12       # the outfits on a visitor's first page, and how many more "Show more outfits" adds (as app.place)
+MOST = 60       # the most outfits one page holds (as app.place)
+
+
+def row(w, occasion: str, n: int = PAGE, seed: int = 0,
+        front: list[str] | tuple[str, ...] = ()) -> tuple[list[tuple[outfits.Outfit, dict]], int, bool]:
+    """The outfits a visitor's Outfits page shows, in its order, each with its board: its pieces (outfits.snapshot)
+    and its pictures where they are there (looks.attach, which draws nothing). Returns (those outfits with their
+    boards, how many outfits there are to see in all, whether AI pictures are on).
+    The order is a customer's (yes.offer: varied; Shuffle is another `seed`), with one change: the outfits whose
+    front picture is there (outfit_picture) come first, then the others, each group in that order.
+    `front`: the outfits that were on the page before "Show more outfits" (their keys, in the order they were
+    shown). They keep their places at the head of the row, so the visitor goes on from where he was; only the
+    outfits behind them, the ones just added, are put in this order.
+    `w`: the example wardrobe (selection.build, as the example's account)."""
+    chosen, total, _ = yes.offer(w, occasion, n, seed, front)
+    boards = [{"key": o.key, "pieces": outfits.snapshot(o)} for o in chosen]
+    looks_on = looks.attach(boards)
+    pairs = list(zip(chosen, boards))
+    held = next((i for i, o in enumerate(chosen) if o.key not in front), len(chosen)) if front else 0
+    # A stable sort, so each group keeps the row's order: those with a picture (False) before those without.
+    pairs[held:] = sorted(pairs[held:], key=lambda pair: not outfit_picture(pair[1]))
+    return pairs, total, looks_on
+
+
+def first_outfits(w, n: int = PAGE) -> list[tuple[outfits.Outfit, dict]]:
+    """The first `n` outfits a visitor sees, in his order, with their boards (row): his first page, then each
+    "Show more outfits" as he would press it, until there are `n` (at most MOST, as many as one page can hold).
+    For the owner's command, python -m wardrobe example-pictures. `w`: the example wardrobe."""
+    use = profile_mod.load()["use"]
+    occasion = "all" if use == "both" else use       # the outfits his page opens on (as app.usual_occasion)
+    pairs, total, _ = row(w, occasion)
+    while len(pairs) < min(n, total, MOST):
+        more, total, _ = row(w, occasion, min(len(pairs) + PAGE, MOST), 0, [o.key for o, _ in pairs])
+        if len(more) <= len(pairs):                  # (nothing more to see)
+            break
+        pairs = more
+    return pairs[:n]
 
 
 # ── at the door: before every request of a visitor without an account ─────────

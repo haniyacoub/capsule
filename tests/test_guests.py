@@ -12,19 +12,20 @@ products themselves are invented), so that there are store names, prices, links 
 import json
 import re
 import sqlite3
-from contextlib import closing, redirect_stderr
+from contextlib import closing, redirect_stderr, redirect_stdout
 from html import unescape
 from io import StringIO
 from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
-from wardrobe import config, db, guests, looks, mail, outfits, paths, person, programmes, selection, settings, shared
-from wardrobe import videos
+from wardrobe import config, db, guests, imagegen, looks, mail, outfits, paths, person, programmes, selection, settings
+from wardrobe import shared, videos, yes
 from wardrobe import profile as profile_mod
+from wardrobe.__main__ import main
 from wardrobe.app import PUBLIC, create_app
 from wardrobe.config import ConfigError
 
-from .test_looks import PICTURE, WithPictures
+from .test_looks import PICTURE, WithPictures, photo_jpeg, some_outfits
 from .test_production import HX, PASSWORD, ProductionCase, words
 from .test_programmes import PUBLISHED, STORES, shaped
 
@@ -391,24 +392,41 @@ class TheSwitch(GuestCase):
             self.assertFalse(guests.door_open(), "no login there, so no visitors without one")
 
 
-class AnOutfitsPicture(WithPictures, GuestCase):
+class WithExamplePictures(WithPictures, GuestCase):
+    """AI pictures on (with the tests' stand-in for the image service), and a way to have pictures there already."""
+
     def setUp(self):
         super().setUp()
         self.switch_on()
 
-    def draw(self, outfit, owner=None) -> str:
-        """The front picture of one of the example's outfits, as a customer with the same model got it: there already
-        (or, with `owner`, drawn from that customer's photo). Returns its file's name."""
+    def key_of(self, outfit, owner=None) -> str:
+        """The name of an outfit's front picture for the account the block runs as (or, with `owner`, of one drawn
+        from that customer's photo)."""
         chosen, rules = looks.service(), looks.load_rules()
         who = person.current(rules["pictures"]["photos"])
         mark = f"{owner}:0123456789abcdef" if owner else who.mark
-        key = looks.fingerprint(chosen, looks.prompt(outfits.snapshot(outfit), rules, who), mark)
+        return looks.fingerprint(chosen, looks.prompt(outfits.snapshot(outfit), rules, who), mark)
+
+    def draw(self, outfit, owner=None) -> str:
+        """The front picture of one of the example's outfits, as a customer with the same model got it: there already
+        (or, with `owner`, drawn from that customer's photo). Returns its file's name."""
+        key = self.key_of(outfit, owner)
         looks.folder().mkdir(parents=True, exist_ok=True)
         (looks.folder() / f"{key}-1.jpg").write_bytes(PICTURE)
-        db.start_look(key, chosen.tag, 0, 0, owner=owner)
+        db.start_look(key, looks.service().tag, 0, 0, owner=owner)
         db.finish_look(key, f"{key}-1.jpg")
         return f"{key}-1.jpg"
 
+    def shown(self, url="/outfits", client=None) -> list[tuple[str, str]]:
+        """The outfits of a page in its order: each one's key, and the file of its AI picture ("" where it has none)."""
+        out = []
+        for outfit in slides(self.page(url, client)):
+            picture = re.search(r'<img src="/(?:outfits/\w+/picture|looks)/([^"]+)" alt="AI-generated', outfit)
+            out.append((re.search(r'id="outfit-(\w+)"', outfit).group(1), picture.group(1) if picture else ""))
+        return out
+
+
+class AnOutfitsPicture(WithExamplePictures):
     def test_only_a_picture_that_is_there_already_and_never_one_of_a_persons_photo(self):
         ada = self.member("ada@example.com")
         keys = [re.search(r'id="outfit-(\w+)"', outfit).group(1) for outfit in slides(self.page("/outfits"))]
@@ -447,3 +465,205 @@ class AnOutfitsPicture(WithPictures, GuestCase):
         self.assertEqual(self.drawn, [], "nothing was sent to the image service")
         self.assertEqual(everything_in(), before)
         self.assertEqual(rows("look_requests"), 0)
+
+
+class PicturesFirst(WithExamplePictures):
+    """A visitor sees the outfits that have an AI picture first, each group in the row's own order. A customer's
+    outfits keep their order."""
+
+    def setUp(self):
+        super().setUp()
+        self.pictured: list[str] = []       # the outfits given a picture so far (draw_for)
+
+    def usual(self, seed=0) -> list[str]:
+        """The example's first twelve outfits in a customer's order (yes.offer), whatever pictures there are."""
+        with db.as_user(guests.example_id()):
+            return [o.key for o in yes.offer(selection.build(), "all", 12, seed)[0]]
+
+    def with_pictures_first(self, keys: list[str]) -> list[str]:
+        have = set(self.pictured)
+        return [key for key in keys if key in have] + [key for key in keys if key not in have]
+
+    def draw_for(self, *keys: str) -> None:
+        with db.as_user(guests.example_id()):
+            w = selection.build()
+            for key in keys:
+                self.pictured.append(key)
+                self.draw(outfits.find(w, key))
+
+    def test_a_visitor_sees_the_outfits_with_a_picture_first(self):
+        usual = self.usual()
+        self.assertEqual([key for key, _ in self.shown()], usual, "no pictures yet: the row's own order")
+        self.draw_for(usual[3], usual[7])
+        page = self.shown()
+        self.assertEqual([key for key, _ in page], [usual[3], usual[7]] + usual[:3] + usual[4:7] + usual[8:])
+        self.assertEqual([bool(file) for _, file in page], [True, True] + [False] * 10)
+
+        # "Show more outfits": the twelve he has seen keep their places (the link names them in the order shown), and
+        # of the twelve it adds, those with a picture come first.
+        more = unescape(re.search(r'<a class="btn" href="([^"#]+)#outfit-\w+">Show more outfits</a>',
+                                  self.page("/outfits")).group(1))
+        self.assertEqual(parse_qs(urlsplit(more).query)["front"], [".".join(key for key, _ in page)])
+        added = [key for key, _ in self.shown(more)][12:]
+        self.draw_for(added[2], added[9])
+        longer = self.shown(more)
+        self.assertEqual([key for key, _ in longer][:12], [key for key, _ in page], "where he was, unchanged")
+        self.assertEqual([key for key, _ in longer][12:], self.with_pictures_first(added))
+        self.assertEqual([bool(file) for _, file in longer][12:14], [True, True])
+
+        # Shuffle: another row of outfits, and the same rule in it.
+        shuffled = self.usual(seed=5)
+        self.assertNotEqual(shuffled, usual, "(another row)")
+        self.draw_for(*[key for key in shuffled[5:7] if key not in self.pictured])
+        self.assertEqual([key for key, _ in self.shown("/outfits?occasion=all&seed=5")],
+                         self.with_pictures_first(shuffled))
+        self.assertEqual(self.drawn, [], "nothing was drawn for a visitor")
+
+    def test_a_customers_outfits_keep_their_order(self):
+        ada = self.member("ada@example.com")
+        before = [key for key, _ in self.shown(client=ada)]
+        with db.as_user(self.user_id("ada@example.com")):
+            w = selection.build()
+            files = [self.draw(outfits.find(w, before[i])) for i in (3, 7)]
+        after = self.shown(client=ada)
+        self.assertEqual([key for key, _ in after], before, "his own order, pictures or not")
+        self.assertEqual([file for _, file in after if file], files, "(the pictures are there)")
+
+
+class ExamplePictures(WithExamplePictures):
+    """python -m wardrobe example-pictures: the owner draws the AI pictures visitors see, by hand on the server, after
+    it has said how many are there and what the rest would cost."""
+
+    def command(self, *args) -> tuple[str, str]:
+        """Run it as the owner does on the server: in a process of its own, where the site's start-up never ran (so
+        guests.example_id knows of no example there). Returns (what it printed, the line it refused with, or "")."""
+        said = StringIO()
+        with mock.patch.object(guests, "_ready", False), redirect_stdout(said):
+            try:
+                main(["example-pictures", *args])
+            except SystemExit as stop:
+                return said.getvalue(), str(stop.code or "")
+        return said.getvalue(), ""
+
+    def first_page(self) -> list[str]:
+        return [key for key, _ in self.shown()]
+
+    def test_it_says_what_is_there_and_what_the_rest_would_cost_and_stops_without_yes(self):
+        first = self.first_page()
+        with db.as_user(guests.example_id()):
+            w = selection.build()
+            for key in first[:5]:
+                self.draw(outfits.find(w, key))
+            busy = self.key_of(outfits.find(w, first[5]))      # one the site is drawing right now, for a customer
+        db.start_look(busy, looks.service().tag, 0, 0)
+        before = everything_in()
+        said, refused = self.command()
+        self.assertEqual(refused, "")
+        self.assertIn("The example wardrobe: its first 12 outfits, as a visitor sees them.\n5 of 12 already there.\n"
+                      "1 is being drawn by the site right now: left alone.\n"
+                      "6 to draw: about $0.30 (6 pictures at $0.05, price_each_usd in config/looks.toml).\n"
+                      "Nothing was drawn. To draw them, run this again with --yes.\n", said)
+        self.assertEqual(self.drawn, [], "nothing was sent")
+        self.assertEqual(everything_in(), before, "nothing was written")
+
+    def test_sample_draws_the_first_missing_ones_and_a_visitor_then_sees_exactly_those(self):
+        first = self.first_page()
+        said, refused = self.command("--sample", "3", "--yes")
+        self.assertEqual(refused, "")
+        self.assertIn("12 missing; --sample 3 draws the first 3 of them: about $0.15", said)
+        self.assertIn("Done: 3 drawn.\nSpent, by this command's estimate: about $0.15 (3 pictures at $0.05).\n", said)
+        self.assertEqual(len(self.drawn), 3, "one at a time, three")
+        house_model = looks.load_rules()["text"]["model"]
+        for sent in self.drawn:
+            self.assertEqual((sent["photo"], sent["references"]), (None, []), "nobody's photo goes with it")
+            self.assertIn(house_model, sent["prompt"], "Stilsmith's house model")
+        # The visitor's Outfits page shows exactly those three pictures, on the first three outfits it showed.
+        shown = self.shown()
+        self.assertEqual([key for key, file in shown if file], first[:3])
+        self.assertEqual([key for key, _ in shown], first, "(they were first already)")
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            kept = con.execute("SELECT user_id, file FROM looks").fetchall()
+        self.assertEqual(sorted(file for _, file in kept), sorted(file for _, file in shown if file))
+        self.assertEqual({user for user, _ in kept}, {None}, "the pictures belong to no account")
+        self.assertEqual(rows("look_requests"), 0, "not counted in the day's limits")
+        for key, file in shown[:3]:
+            response = self.visitor.get(f"/outfits/{key}/picture/{file}")
+            self.assertEqual(response.status_code, 200)
+            response.close()
+
+    def test_running_it_again_draws_only_what_is_missing(self):
+        said, _ = self.command("--yes")
+        self.assertIn("12 to draw: about $0.60", said)
+        self.assertIn("Done: 12 drawn.", said)
+        self.assertEqual(len(self.drawn), 12)
+        self.assertTrue(all(file for _, file in self.shown()), "every outfit of a visitor's first page has its picture")
+        said, refused = self.command("--yes")
+        self.assertEqual(refused, "")
+        self.assertIn("12 of 12 already there.\nNothing to draw.\n", said)
+        self.assertEqual(len(self.drawn), 12, "nothing was sent the second time")
+        # The next twelve are the ones "Show more outfits" adds.
+        said, _ = self.command("--outfits", "24")
+        self.assertIn("its first 24 outfits, as a visitor sees them.\n12 of 24 already there.\n12 to draw", said)
+
+    def test_a_ceiling_it_never_goes_over(self):
+        said, refused = self.command("--max-cost", "0.50", "--yes")
+        self.assertIn("12 to draw: about $0.60", said)
+        self.assertEqual(refused, "That is more than --max-cost ($0.50), so nothing was drawn. "
+                                  "Draw fewer with --sample, or allow more with --max-cost.")
+        self.assertEqual(self.drawn, [])
+        said, refused = self.command("--max-cost", "0.60")      # 12 pictures at 0.05 are exactly 0.60: not above
+        self.assertEqual(refused, "")
+        self.assertIn("run this again with --yes", said)
+        with redirect_stderr(StringIO()) as error, self.assertRaises(SystemExit):
+            main(["example-pictures", "--max-cost", "lots"])
+        self.assertIn("an amount in US dollars, like 1.00", error.getvalue())
+
+    def test_a_failure_is_said_and_what_would_fail_the_same_way_is_not_sent(self):
+        self.refuse = imagegen.DrawError("refused", "the outfit was not drawn")       # this one, not the next
+        said, _ = self.command("--sample", "1", "--yes")
+        self.assertIn("#1, the outfit with the ", said)
+        self.assertIn(": failed. The AI declined to draw this outfit. the outfit was not drawn\n", said)
+        self.assertIn("Done: 0 drawn, 1 failed.\nSpent, by this command's estimate: about $0.05 (1 picture at $0.05, "
+                      "counting those that failed after reaching the image service: it may bill them).", said)
+        self.refuse = imagegen.DrawError("key", "API key not valid", free=True)      # the next ones would fail too
+        said, _ = self.command("--yes")
+        self.assertEqual(len(self.drawn), 2, "after that answer, the others were not sent")
+        self.assertIn("failed. The image service did not accept the key. API key not valid\n"
+                      "Stopped: the other 11 were not sent.", said)
+        self.assertIn("about $0.00 (0 pictures at $0.05)", said)
+        self.refuse = None
+        self.time_passes()
+        said, _ = self.command("--yes")
+        self.assertIn("Done: 12 drawn.", said, "put right, it draws them all, those that failed too")
+
+    def test_it_refuses_in_one_plain_line(self):
+        refusals = []
+        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
+            refusals.append(self.command("--yes")[1])
+        self.assertIn("Nothing was drawn: AI pictures are off", refusals[-1])
+        with mock.patch.object(settings, "PRODUCTION", False):
+            refusals.append(self.command("--yes")[1])
+        self.assertIn("There is no example wardrobe on your own machine", refusals[-1])
+        with mock.patch.object(guests, "EXAMPLE_EMAIL", "nobody@stilsmith.invalid"):
+            refusals.append(self.command("--yes")[1])
+        self.assertIn("There is no example wardrobe here yet", refusals[-1])
+        for line in refusals:
+            self.assertNotIn("\n", line)
+        self.assertEqual(self.drawn, [])
+
+    def test_nothing_is_drawn_at_start_up_or_for_a_visitor(self):
+        create_app()                        # the site starts again, with AI pictures on
+        self.assertTrue(slides(self.page("/outfits")))
+        self.assertEqual(self.drawn, [])
+        self.assertEqual(rows("looks"), 0)
+
+    def test_never_a_picture_of_a_person(self):
+        # Run as an account with a photo of its own, the drawing refuses before anything is sent: this way draws only
+        # Stilsmith's house model, never a picture of a person.
+        self.member("ada@example.com")
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertIsNone(person.save_photo(photo_jpeg()))
+            with self.assertRaises(ValueError):
+                looks.draw_front_now(outfits.snapshot(some_outfits(1)[0]))
+        self.assertEqual(self.drawn, [])
+        self.assertEqual(rows("looks"), 0)

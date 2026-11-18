@@ -98,6 +98,40 @@ only place they have run. The Tunnel has never been started.
   Settings typed into the terminal (a key, `SITE_URL`) need a stop and a start
   instead.
 
+## The example wardrobe's pictures
+
+Visitors without an account see an outfit's AI picture only where one has been
+drawn already, and they never cause one to be drawn. To draw them, run this by
+hand where the service runs. On the server, put
+`docker compose -f deploy/compose.yaml exec app` in front of each line
+([deploy/README.md](deploy/README.md)):
+
+```bash
+python -m wardrobe example-pictures                      # says what it would draw and cost; draws nothing
+python -m wardrobe example-pictures --sample 3 --yes     # draws the first 3 that are missing, to look at them first
+python -m wardrobe example-pictures --yes                # draws the rest of the first 12
+```
+
+- It looks at the example wardrobe's first 12 outfits in the order a visitor
+  sees them (one page). `--outfits 24` also takes the 12 that "Show more
+  outfits" adds.
+- It first says how many already have their picture, how many it would draw,
+  and what that would cost. The cost is an estimate: `price_each_usd` in
+  `config/looks.toml`, 5 US cents a picture, rounded up from Google's price list.
+- Without `--yes` it draws nothing.
+- If the estimate is above `--max-cost` it draws nothing. That ceiling is 1.00
+  US dollar unless you give another.
+- It draws one picture at a time and waits for each. Each is of Stilsmith's
+  house model, never of anyone's photo, and it shows on the site as soon as it
+  is drawn.
+- At the end it says what it drew, what failed and why, and what was spent by
+  its estimate.
+- Each picture is billed to the key, like any other. They do not count against
+  the day's limits in `config/looks.toml`: `--max-cost` is this command's limit.
+- Running it again draws only what is still missing.
+- It refuses, with one line saying why, while AI pictures are off, and on your
+  own machine, which has no example wardrobe.
+
 ## What is in place
 
 - Accounts: sign-up, log-in, log-out, password reset by emailed one-hour link,
@@ -118,7 +152,9 @@ only place they have run. The Tunnel has never been started.
   default; `false` closes the door again): "Explore outfits" on the landing page
   opens the outfits of one example wardrobe, the same for every visitor
   (`wardrobe/guests.py`). Each piece shows its name and colour, drawn by the app;
-  an outfit's AI picture shows only where one was drawn already. Stores, prices,
+  an outfit's AI picture shows only where one was drawn already (a visitor never
+  causes a drawing), and the outfits that have one come first. "The example
+  wardrobe's pictures" below says how to draw them. Stores, prices,
   sizes, links and the stores' photos are left out of those pages on the server,
   and every button leads to "Create your account". The example wardrobe is an
   account Stilsmith makes for itself at start-up

@@ -1121,20 +1121,18 @@ def create_app() -> Flask:
         plan's colours, and its AI picture where one is there already. The stores, their names for the products, the
         prices, what a yes would add, sizes, links and the stores' photos are never handed to the page.
         From the address only which outfits are read: the occasion, how many and which shuffle (place), and those
-        kept in front by "Show more outfits" (front_of). Nothing is drawn, asked for or stored."""
+        kept in front by "Show more outfits" (front_of). The outfits with an AI picture come first (guests.row: also
+        after Shuffle, and among those "Show more outfits" adds). Nothing is drawn, asked for or stored."""
         if request.args.get("occasion") == "saved":     # My outfits: his own, so his account comes first
             return redirect(guests.sign_up("save"))
         w = selection.build()
         occasion = request.args.get("occasion") or usual_occasion()
         occasion = occasion if occasion in outfits.OCCASIONS else "all"
         n, seed = place(request.args)
-        front = front_of(request.args)
-        chosen, total = offered_row(w, occasion, {"n": n, "seed": seed}, front)[:2]
-        boards = [{"key": o.key, "pieces": outfits.snapshot(o)} for o in chosen]
-        looks_on = looks.attach(boards)     # each outfit's front picture, where one is there (it draws nothing)
+        shown, total, looks_on = guests.row(w, occasion, n, seed, front_of(request.args))
         return render_template("outfits_guest.html", tab="outfits", occasion=occasion, n=n, seed=seed,
                                next_seed=random.randrange(1, 1_000_000), total=total, looks_on=looks_on,
-                               boards=[guests.outfit(w, o, board) for o, board in zip(chosen, boards)],
+                               boards=[guests.outfit(w, o, board) for o, board in shown],
                                demo=w.source == "mock", lock=guests.reason("shop", real=w.source != "mock"))
 
     def guest_piece():
