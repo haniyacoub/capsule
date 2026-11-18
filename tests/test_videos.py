@@ -113,7 +113,8 @@ class SeeItMove(WithVideos, AppCase):
         form = re.search(r'<form class="([^"]+)"', offer).group(1)
         self.assertEqual(form, "vid-bar ask", "the offer is under the picture (app.css), not a band across it")
         self.assertIn("AI video of the Front picture, 8 seconds: he turns round once.", said(offer))
-        self.assertIn("10 videos left today.", said(offer))        # on your own machine: the site's ten
+        # How many are left is said only for the last one (review N14): on your own machine the site's ten, unsaid.
+        self.assertNotIn("left today", said(offer))
         self.assertIn("Make the video", offer)
         self.assertIn("Not now", offer)
         self.assertEqual(self.made, [])
@@ -363,8 +364,9 @@ class FromThePictureShowing(WithVideos, AppCase):
     def test_the_offer_names_the_picture_it_will_animate_and_what_is_left_today(self):
         _, cafe = self.show("cafe")
         offer = self.offer(cafe)
-        self.assertIn("AI video of the Café picture, 5 seconds: he moves naturally. 10 videos left today.", offer)
-        self.assertIn("AI video of the Front picture, 8 seconds: he turns round once. 10 videos left today.",
+        # (Ten are left: not said, as the allowance is said only for the last one, review N14.)
+        self.assertIn("AI video of the Café picture, 5 seconds: he moves naturally. Make the video", offer)
+        self.assertIn("AI video of the Front picture, 8 seconds: he turns round once. Make the video",
                       self.offer(self.front))
         self.assertEqual(self.made, [], "nothing is made by opening the offer")
 
@@ -651,10 +653,14 @@ class VideosForCustomers(WithVideos, ProductionCase):
         with redirect_stdout(io.StringIO()) as printed:
             main(["pro", "add", "ada@example.com"])
         self.assertIn("ada@example.com is now Pro: 5 videos a day instead of 1", printed.getvalue())
-        self.assertIn("5 videos left today.", self.offer(ada, key, look))
+        # Five, then four left: neither is said (only the last one of the day is, review N14), where a customer's
+        # one and only says "1 video left today".
+        self.assertNotIn("left today", self.offer(ada, key, look))
+        self.assertEqual(videos.left_words(5), "")
         self.make(ada, key, look)
         other, second = self.picture_of(ada, 1)
-        self.assertIn("4 videos left today.", self.offer(ada, other, second))
+        self.assertNotIn("left today", self.offer(ada, other, second))
+        self.assertIn("Make the video", self.offer(ada, other, second), "the second of five is not refused")
         with redirect_stdout(io.StringIO()) as printed:
             main(["pro", "list"])
         self.assertIn("ada@example.com", printed.getvalue())
@@ -664,7 +670,7 @@ class VideosForCustomers(WithVideos, ProductionCase):
         bob = self.member("bob@example.com")
         db.add_owner("bob@example.com")
         bob_key, bob_look = self.picture_of(bob, 2)
-        self.assertIn("5 videos left today.", self.offer(bob, bob_key, bob_look), "an owner counts as Pro")
+        self.assertNotIn("1 video left today", self.offer(bob, bob_key, bob_look), "an owner counts as Pro")
         with self.assertRaises(SystemExit):
             with redirect_stdout(io.StringIO()):
                 main(["pro", "add", "nobody@example.com"])

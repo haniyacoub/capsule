@@ -1171,7 +1171,6 @@ def create_app() -> Flask:
                     # Pieces whose chosen product is sold out in his size: said under the piece, with the swap.
                     sold={s.slot["id"]: s for s in w.slots if s.sold_out},
                     looks_on=looks_on, videos_on=videos_on, turn_seconds=(videos.rules() or {}).get("turn_seconds", 6),
-                    allowance=looks.allowance_words() if looks_on else "",    # said beside "More photos"
                     said=said,      # what a change just made from an outfit did, over the outfits (change_said)
                     auto=looks_on and looks.load_rules()["pictures"]["auto"] and not looks.held_off())
 
@@ -1260,7 +1259,6 @@ def create_app() -> Flask:
         large = looks.shown(photos, shot)
         return render_template("_look.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
                                shots_said=said,
-                               allowance=looks.allowance_words(),
                                auto=looks.load_rules()["pictures"]["auto"] and not looks.held_off(),
                                videos_on=videos.service() is not None, video=videos.of(large.look, large.name),
                                clip=videos.clip_of(large.name),
@@ -1294,7 +1292,7 @@ def create_app() -> Flask:
         stays as it is). `said`: why "More photos" did not start all of them."""
         large = looks.shown(photos, shot)
         return render_template("_shots.html", key=outfit_key, look=large.look, shot=large.name, photos=photos,
-                               allowance=looks.allowance_words(), said=said)
+                               said=said)
 
     @app.post("/outfits/look")
     def outfits_look():

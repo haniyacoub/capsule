@@ -8,7 +8,7 @@
    No video yet: a "See it move" button on the picture, at its top right, clear of the head and the dots. Tapping
    it opens the offer under the picture (`asking`), in place of the picture's line and the small pictures, so the picture
    stays whole: which picture it animates, for how long and how ("AI video of the Café picture, 5 seconds: he moves naturally.")
-   and how many are left today ("1 video left today") on one or two lines, then the
+   and, only for the last one of the day, that it is ("1 video left today", videos.left_words) on one or two lines, then the
    button that makes one beside "Not now". Nothing is spent by one stray tap. While it is made, a band across the
    top of the picture says so and asks every few seconds (`wait`). A video that is ready lies over the picture: it
    plays once, muted (`play`, app.js 15), and rests on its last frame; the front picture's is then turned by dragging
@@ -70,7 +70,7 @@
   <span id="vid-said-{{ key }}">
     {%- if message %}<span class="look-msg" role="status">{{ message }}</span>
     {%- else %}{{ clip.says }}{% endif %}
-    {%- if left is not none and not (video and video.status == 'limit') %} <b>{{ left_words(left) }}.</b>{% endif -%}
+    {%- if left is not none and not (video and video.status == 'limit') and left_words(left) %} <b>{{ left_words(left) }}.</b>{% endif -%}
   </span>
   {% if left and needs_ok %}
   <label class="check"><input type="checkbox" name="agree" required aria-describedby="vid-said-{{ key }}"> <span>I agree to {{ site_name }} sending this picture of me to Google to make the video.</span></label>

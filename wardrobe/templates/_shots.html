@@ -5,8 +5,9 @@
    it shows the front picture, small (48 by 64px, its name under it: Front, Walking, Turned, Street, Café, Library;
    narrower where six of those do not fit, and on a short phone 30 by 40px without the name, which a screen reader
    still hears: app.css, .shots),
-   and "More photos", with what that costs said beside it before it is tapped: "5 pictures of your 30 a day", or,
-   with fewer left today, how many will really be drawn (looks.more_words); with none left there is no button.
+   and "More photos", with what it draws said beside it before it is tapped: "5 pictures", and how many are left
+   today only once that is nearly used up ("5 pictures · 5 left today"), or, with fewer left today, how many will
+   really be drawn (looks.more_words); with none left there is no button.
    Tapping it starts the other pictures, all made from the front picture; the row
    then has a cell for each, which shows a spinner until its picture arrives (the row asks every few seconds, on
    its own, so the large picture is not touched). Tapping a small picture shows it large; the one shown is pressed.
@@ -27,7 +28,8 @@
   {% if p.look and p.look.status == 'working' %}{% set ns.working = true %}{% endif %}
   {% if not p.look or p.look.status not in ('ready', 'working') %}{% set ns.todo = ns.todo + 1 %}{% endif %}
 {% endfor %}
-{# What drawing one more would cost, said to a screen reader on a cell not drawn: "1 picture of your 30 a day", or
+{# What drawing one more would cost, said to a screen reader on a cell not drawn: "1 picture" (with how many are
+   left today once that is nearly used up), or
    that none are left today (looks.more_words). #}
 {% set offered = more_offered(key) %}
 {% set one = more_words(1) if ns.todo and ns.started and offered else '' %}

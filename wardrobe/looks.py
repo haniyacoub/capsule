@@ -562,14 +562,6 @@ def needs_ok(pieces: list[dict]) -> bool:
     return row.get("user_id") is not None and not agreed_to_sending_again()
 
 
-def allowance_words() -> str:
-    """The day's limit, as said beside "More photos" before it is tapped: "of your 30 a day"."""
-    limits = load_rules()["pictures"]
-    if settings.PRODUCTION:
-        return f"of your {limits['per_customer_per_day']} a day"
-    return f"of the day's {limits['per_day']}"
-
-
 def left() -> int:
     """How many pictures the signed-in customer can still have drawn today: of his own allowance, and of the site's."""
     limits, since = load_rules()["pictures"], time.time() - 24 * 3600
@@ -579,16 +571,22 @@ def left() -> int:
     return max(0, room)
 
 
+NEARLY = 5      # pictures left today at or under which the day's allowance is said (review N14)
+
+
 def more_words(wanted: int) -> str:
-    """What "More photos" will cost, said beside it before it is tapped: "5 pictures of your 30 a day". With fewer
-    left today than it would draw, how many it really draws: "Only 3 of the 5: 3 pictures left today";
-    with none, "No pictures left today: more tomorrow" (and no button: app.css, _shots.html)."""
+    """What "More photos" will draw, said beside it before it is tapped: "5 pictures". The day's allowance is said
+    only once it is nearly used up (NEARLY or fewer left): "5 pictures · 5 left today", not before, so the main
+    feature does not read as rationed from the first tap. With fewer left today than it would draw, how many it
+    really draws: "Only 3 of the 5: 3 pictures left today"; with none, "No pictures left today: more tomorrow"
+    (and no button: app.css, _shots.html)."""
     can = left()
-    if can >= wanted:
-        return f"{wanted} {'picture' if wanted == 1 else 'pictures'} {allowance_words()}"
     if can == 0:
         return NONE_LEFT
-    return f"Only {can} of the {wanted}: {can} {'picture' if can == 1 else 'pictures'} left today"
+    if can < wanted:
+        return f"Only {can} of the {wanted}: {can} {'picture' if can == 1 else 'pictures'} left today"
+    said = f"{wanted} {'picture' if wanted == 1 else 'pictures'}"
+    return f"{said} · {can} left today" if can <= NEARLY else said
 
 
 _NAME = re.compile(r"([0-9a-f]{24})-\d{1,12}\.(?:jpg|png|webp)")

@@ -1517,9 +1517,19 @@ class Photos(WithPictures, AppCase):
                           r'<span class="shots-note" id="(more-said-\w+)">([^<]+)</span>', front)
         self.assertIsNotNone(offer, "More photos, with what it costs beside it")
         self.assertEqual(offer.group(1), offer.group(2), "a screen reader hears the cost with the button")
-        self.assertEqual(html_mod.unescape(offer.group(3)), "5 pictures of the day's 300")
+        # What it draws; not yet the day's allowance, which is said only once it is nearly used up (review N14).
+        self.assertEqual(html_mod.unescape(offer.group(3)), "5 pictures")
         self.assertEqual(len(self.drawn), 1, "nothing more is drawn until it is tapped")
         self.assertEqual(self.client.get("/outfits").data.decode().count("More photos"), 1, "only under a front picture that is there")
+
+    def test_more_photos_says_how_many_are_left_today_once_five_or_fewer_are(self):
+        self.with_rules(per_day=6)
+        outfit = some_outfits(1)[0]
+        front = self.ask(outfit)                                    # one of the day's six: five are left
+        note = html_mod.unescape(re.search(r'<span class="shots-note" id="more-said-\w+">([^<]+)</span>', front).group(1))
+        self.assertEqual(note, "5 pictures · 5 left today")
+        self.with_rules(per_day=7)                                  # six left: not said
+        self.assertEqual(looks.more_words(5), "5 pictures")
 
     def test_more_photos_says_how_many_pictures_are_really_left_today(self):
         self.with_rules(per_day=4)
@@ -1806,7 +1816,7 @@ class Photos(WithPictures, AppCase):
         self.assertIn('<div class="look-pic more">', street)
         self.assertEqual([what for _, _, what in self.cells(street)], ["picture"] * 4 + ["plus"] * 2)
         self.with_rules(per_day=5)                                   # one more left: a cell says what it costs
-        self.assertIn('aria-label="Draw the Café photo: 1 picture of the day&#39;s 5"', self.ask(outfit))
+        self.assertIn('aria-label="Draw the Café photo: 1 picture · 1 left today"', self.ask(outfit))
         self.assertEqual(len(self.drawn), 4)
 
     def test_a_further_picture_asked_for_before_the_front_one_asks_for_the_front_one(self):

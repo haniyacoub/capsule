@@ -936,7 +936,7 @@ def run(base: str) -> None:
         def more_photos_of_the_outfit():
             # Under each outfit's picture, a row of its small pictures. At first the front picture alone (the one drawn
             # by itself, on white, with the dots), and "More photos", with what it costs said beside it before the tap:
-            # "5 pictures of your 30 a day". Tapped (here by keyboard), it has five more pictures made FROM the front
+            # "5 pictures". Tapped (here by keyboard), it has five more pictures made FROM the front
             # picture, which goes to the image service with the words: walking, turned, on a street, in a café, in a
             # library. The large picture stays as it is meanwhile; each small picture shows as it arrives; keyboard
             # focus goes to the picture shown. Tapping a small picture shows it large, without dots (they are placed for
@@ -1201,7 +1201,9 @@ def run(base: str) -> None:
             assert not any(sent["references"] for sent in asked), "a picture was made from a front picture without 'More photos'"
             assert all("Seamless pure white studio background" in sent["prompt"] for sent in asked), \
                 "a front picture was not asked for on a white studio background"
-            cost = f"5 pictures of your {rules['pictures']['per_customer_per_day']} a day"
+            # What it draws; the day's allowance only once it is nearly used up (review N14): here 30 a day, unsaid.
+            cost = "5 pictures"
+            assert rules['pictures']['per_customer_per_day'] > 5 + 5, "the walk-through's allowance is nearly used up"
             said = page.inner_text(f"{row} .shots-note")
             assert said == cost, f"beside 'More photos' the cost reads {said!r}, not {cost!r}"
             described = page.get_attribute(f"{row} .btn", "aria-describedby")
