@@ -1,0 +1,5 @@
+{# The chosen price level in words, right under the six levels on the Wardrobe page (wardrobe.html): the words each
+   level's tooltip says (selection.HINTS), there to read on a phone too, which has no pointer to hover with. The level
+   itself is the one marked above, so it is not named again. Sent again with every change of level, lock or owned
+   mark (hx-swap-oob, app.py fragment), like the amounts under the levels (_level_total.html). #}
+<p class="level-hint" id="level-hint"{% if oob %} hx-swap-oob="true"{% endif %}>{{ level_hints[w.mode] }}{% if w.styled %}. Your style comes first: each piece is chosen among the options that suit it best{% endif %}.</p>

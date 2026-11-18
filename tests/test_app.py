@@ -67,6 +67,45 @@ class Pages(AppCase):
         r = self.client.post("/settings", data={"mode": "cheapest"}, headers={"Origin": "http://evil.example"})
         self.assertEqual(r.status_code, 403)
 
+    def test_an_sqlite_that_can_freeze_the_app_is_named_at_start(self):
+        # SQLite 3.51.0 and 3.51.1 can deadlock when threads open and close connections at once: every page then
+        # waits for ever. The start-up lines say so, with what to do, and the app still starts (a distribution may
+        # have patched its copy). Every other version says nothing.
+        import contextlib
+        import io
+        from unittest import mock
+        for version in ((3, 51, 0), (3, 51, 1, 0)):
+            problem = db.sqlite_problem(version)
+            self.assertIn("SQLite " + ".".join(str(n) for n in version[:3]), problem)
+            self.assertIn("Use a Python whose SQLite is 3.51.2 or newer, or 3.50 or older", problem)
+        for version in ((3, 50, 4), (3, 51, 2), (3, 46, 1), (3, 52, 0)):
+            self.assertEqual(db.sqlite_problem(version), "", version)
+        said = io.StringIO()
+        with mock.patch.object(db, "sqlite_problem", return_value="This Python uses SQLite 3.51.1, which can freeze"), \
+                contextlib.redirect_stderr(said):
+            client = create_app().test_client()
+        self.assertIn("Warning: This Python uses SQLite 3.51.1, which can freeze", said.getvalue())
+        self.assertEqual(client.get("/").status_code, 200, "it still starts")
+        said = io.StringIO()
+        with mock.patch.object(db, "sqlite_problem", return_value=""), contextlib.redirect_stderr(said):
+            create_app()
+        self.assertNotIn("SQLite", said.getvalue())
+
+    def test_the_chosen_price_level_is_said_in_words(self):
+        # What a level means is its tooltip's words (selection.HINTS), which only a mouse can show: under the six
+        # levels the chosen one's words are there to read, on a phone too, and the levels point at them for a
+        # screen reader. They change with the level, in the same answer that changes the pieces.
+        hint = lambda page: html.unescape(re.search(r'<p class="level-hint" id="level-hint"[^>]*>(.*?)</p>', page, re.S).group(1))  # noqa: E731
+        page = self.client.get("/").get_data(as_text=True)
+        self.assertEqual(hint(page), selection.HINTS[selection.DEFAULT_MODE] + ".")
+        self.assertIn('role="radiogroup" aria-label="Which option fills each piece: a price level, or the best your '
+                      'budget buys" aria-describedby="level-hint"', page)
+        for mode in ("top", "budget", "cheap"):
+            answer = self.set_mode(mode).get_data(as_text=True)
+            self.assertIn('<p class="level-hint" id="level-hint" hx-swap-oob="true">', answer)
+            self.assertEqual(hint(answer), selection.HINTS[mode] + ".", mode)
+            self.assertEqual(hint(self.client.get("/").get_data(as_text=True)), selection.HINTS[mode] + ".", mode)
+
     def test_an_edit_to_the_stylesheet_shows_at_the_next_reload(self):
         # On your own machine the version in the stylesheet's address (?v=) is worked out for every page, so the
         # browser fetches an edited file at once. (In production it is worked out once per start: test_production.py.)

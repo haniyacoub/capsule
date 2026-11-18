@@ -5,15 +5,9 @@
 <h1 class="page-title">Shopping list</h1>
 {# After the swap for a product sold out in his size: what changed, with Undo (_changed.html). #}
 {% if said %}<div class="flash said" role="status">{% include "_changed.html" %}</div>{% endif %}
-{# Not the Outfits toolbar, which keeps its chips in one row that scrolls sideways: here the buttons wrap. #}
-<div class="list-tools">
-  <p class="lead">The pieces of the outfits you said yes to, grouped by store. Prices and stock as of {{ sl.collected }}.</p>
-  <div class="chips no-print">
-    <a class="btn ghost small" href="{{ url_for('list_csv') }}">Download for a spreadsheet (.csv)</a>
-    <a class="btn ghost small" href="{{ url_for('list_markdown') }}">Download as text (.md)</a>
-    <button class="btn ghost small" type="button" data-print>Print</button>
-  </div>
-</div>
+{# The list comes first: the ways to take it along (download, print) are at its foot (.list-tools, below), so that on a
+   phone the first screen shows the pieces, not three buttons. #}
+<p class="lead list-lead">The pieces of the outfits you said yes to, grouped by store. Prices and stock as of {{ sl.collected }}.</p>
 
 {% if sl.groups %}
 {% include "_your_sizes.html" %}
@@ -47,6 +41,16 @@
   {% endif %}
 </section>
 {% endif %}
+
+{# Take the list along. Not the Outfits toolbar, which keeps its chips in one row that scrolls sideways: here the
+   buttons wrap. #}
+<div class="list-tools no-print">
+  <div class="chips">
+    <a class="btn ghost small" href="{{ url_for('list_csv') }}">Download for a spreadsheet (.csv)</a>
+    <a class="btn ghost small" href="{{ url_for('list_markdown') }}">Download as text (.md)</a>
+    <button class="btn ghost small" type="button" data-print>Print</button>
+  </div>
+</div>
 
 {% if sl.missing %}
 <section class="card">

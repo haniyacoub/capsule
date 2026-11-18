@@ -303,6 +303,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: v
 .levels { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .levels span { padding: 7px 2px 6px; font-size: var(--t-s); line-height: 1.25; white-space: normal; }
 .levels small { display: block; font-size: var(--t-s); color: var(--muted); font-variant-numeric: tabular-nums; }
+/* The chosen level in words, under the levels (_level_hint.html): what its tooltip says, for a phone too. */
+.level-hint { margin: 0; max-width: 60ch; font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
 .plan-line a { padding: 10px 0; }    /* "Edit the plan": a finger-sized target that does not move the line */
 
 .sec { font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 20px 0 8px; }
@@ -593,6 +595,12 @@ main:has(> .flash ~ .flash, > .demo ~ .flash) .looks { --told: calc(4 * var(--t-
   font-size: var(--t-xs); line-height: var(--lh-xs); letter-spacing: .12em; text-transform: uppercase;
   padding: 2px 6px; background: rgba(255, 255, 255, .88); color: #1b1b1a;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* A tile too narrow for "WEEKDAY · 180 €" (a phone's: about 95px wide) says the price alone instead of cutting the
+   store's name to "WEEKDA…": the list of pieces under the picture names each piece's store. */
+.tile { container: tile / inline-size; }
+@container tile (max-width: 149.98px) {
+  .tile .cap-store { display: none; }
 }
 /* The AI picture lies over the pieces' photos, in the same 2:3 box, and fades in when it arrives (htmx-added is on
    new content for a moment). Inside it, at the bottom left, the label 'AI picture': white on a dark veil (7.7:1 on
@@ -1026,10 +1034,10 @@ h2.piece-top { font-size: var(--t-l); line-height: var(--lh-l); font-weight: var
 /* ── Shopping list ───────────────────────────────────────────────────────── */
 /* A page's title outside a card: the same wide cut and size as .card h1. */
 .page-title { font: var(--w-strong) expanded var(--t-2xl)/var(--lh-2xl) var(--display); letter-spacing: -.01em; font-synthesis: none; margin: 0 0 8px; }
-/* The list's lead line, then its download and print buttons: beside each other where they fit, the buttons on
-   their own line on a phone, wrapping onto a second one if they must (never cut off at the screen's edge). */
-.list-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2) var(--s-4); margin: 0 0 var(--s-3); }
-.list-tools .lead { flex: 1 1 20em; margin: 0; }
+/* The list's lead line at its top; its download and print buttons at its foot, after the total, beside each other
+   where they fit and wrapping onto a second line on a phone (never cut off at the screen's edge). */
+.list-lead { margin: 0 0 var(--s-3); }
+.list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-4); margin: var(--s-5) 0 var(--s-3); }
 /* Buy this outfit: what the outfit costs is the page's headline number, with what it is for under it. */
 .buy-head { display: grid; gap: 2px; margin: 0 0 var(--s-4); }
 .buy-head b { font-size: var(--t-l); line-height: var(--lh-l); font-weight: var(--w-strong); font-variant-numeric: tabular-nums; }

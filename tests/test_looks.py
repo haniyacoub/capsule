@@ -167,7 +167,12 @@ class PriceLevels(AppCase):
             self.assertIn(label, page)
         self.assertIn("Minimum quality", page)
         swapped = self.set_mode("expensive", 60).data.decode()
-        self.assertEqual(swapped.count('hx-swap-oob="true"'), 1 + len(selection.MODES), "summary bar + five totals")
+        # The summary bar, a total for each level, and the chosen level's words (_level_hint.html): nothing else.
+        self.assertEqual(swapped.count('hx-swap-oob="true"'), 2 + len(selection.MODES),
+                         "summary bar + a total for each level + the level's words")
+        for part in ['id="summary"', '<p class="level-hint" id="level-hint" hx-swap-oob="true">',
+                     *(f'<small id="level-{level}" hx-swap-oob="true">' for level in selection.MODES)]:
+            self.assertIn(part, swapped)
         self.assertEqual(selection.build().mode, "expensive")
 
     def test_choices_made_on_the_old_toggle_give_the_same_picks(self):

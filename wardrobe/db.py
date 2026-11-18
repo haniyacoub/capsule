@@ -33,6 +33,21 @@ from . import paths, settings
 SCHEMA_VERSION = 10
 LOCAL_USER_ID = 1
 
+# SQLite 3.51.0 and 3.51.1 can deadlock when threads of one process open and close connections at the same moment,
+# which the app does all the time (a connection for each step of a page, the AI pictures drawn in threads of their
+# own): every page then waits for ever. 3.51.2 fixed it (2026-01-09, sqlite.org/releaselog/3_51_2.html, "an obscure
+# deadlock in the new broken-posix-lock detection logic"). Which SQLite a Python has comes with that Python.
+DEADLOCKING_SQLITE = {(3, 51, 0), (3, 51, 1)}
+
+
+def sqlite_problem(version: tuple[int, ...] = sqlite3.sqlite_version_info) -> str:
+    """Why this Python's SQLite may freeze the app, in words to act on, or "" if it will not."""
+    if tuple(version[:3]) not in DEADLOCKING_SQLITE:
+        return ""
+    return (f"This Python uses SQLite {'.'.join(str(n) for n in version[:3])}, which can freeze every page of the app "
+            "(a deadlock fixed in SQLite 3.51.2). Use a Python whose SQLite is 3.51.2 or newer, or 3.50 or older: "
+            "python3 -c 'import sqlite3; print(sqlite3.sqlite_version)' says which it has.")
+
 SCHEMA = """
 CREATE TABLE users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

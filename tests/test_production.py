@@ -196,6 +196,14 @@ class PublicSite(ProductionCase):
         self.assertEqual(text.count("Log in"), 1, "one way to log in: the header's")
         self.assertIn("Create a free account", text)
         self.assertIn("Free. You buy straight from the stores, in your sizes. Stilsmith never takes payment.", text)
+        # Nothing is published here, so every customer gets the invented demo products: the page says so, in the
+        # words of the "Demo data" line inside, and promises no real product from a named store
+        # (test_programmes.py has the page with a published list).
+        self.assertIn("picks a product for each and shows you every outfit they make. For now the products are "
+                      "invented examples, not real products, prices or stock.", text)
+        self.assertNotIn("real product for each", text)
+        for store in ("COS", "Weekday"):
+            self.assertNotIn(store, text)
         self.assertNotIn("/mock/img", page)
         self.assertNotIn("<img", page)
         self.assertEqual(description(page), "Plan a men's wardrobe where everything goes with everything: "

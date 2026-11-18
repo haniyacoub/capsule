@@ -327,6 +327,17 @@ class ShoppingList(AppCase):
         data = self.client.get("/list.csv")
         self.assertTrue(data.data.decode("utf-8-sig").startswith("store,slot,product"))
 
+    def test_the_pieces_come_before_the_downloads(self):
+        # The list comes first, then its total, then the ways to take it along (download, print): on a phone the
+        # first screen shows the pieces to buy, not three buttons.
+        having.the_whole_plan()
+        html = self.client.get("/list").get_data(as_text=True)
+        lead, store, total = html.find('class="lead list-lead"'), html.find('class="card store-list'), html.find('class="card grand')
+        tools = html.find('class="list-tools')
+        self.assertTrue(0 < lead < store < total < tools, (lead, store, total, tools))
+        self.assertIn('href="/list.csv">Download for a spreadsheet (.csv)', html[tools:])
+        self.assertIn("data-print", html[tools:])
+
     def test_an_empty_wardrobe_still_gives_a_page(self):
         db.replace_slots([])
         self.assertIn(b"Nothing on your list yet", self.client.get("/list").data)

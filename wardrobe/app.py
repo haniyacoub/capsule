@@ -19,6 +19,7 @@ import math
 import random
 import re
 import secrets
+import sys
 from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
@@ -66,6 +67,9 @@ PHOTO_CONSENT = "2026-11-15"
 
 def bootstrap() -> None:
     """Start-up: create or update the database; on your own machine, set up the one local user."""
+    problem = db.sqlite_problem()
+    if problem:     # said in the start-up lines (the server's log in production), before the first page can freeze
+        print(f"Warning: {problem}", file=sys.stderr, flush=True)
     db.init()
     if not conf.PRODUCTION:
         ensure_setup()
@@ -537,6 +541,7 @@ def create_app() -> Flask:
         if template == "_wardrobe_body.html":   # that page also shows what each price level would cost
             w = w.mine                          # … for his wardrobe, which is what it lists
             extra += "".join(render_template("_level_total.html", w=w, key=key, oob=True) for key in selection.MODES)
+            extra += render_template("_level_hint.html", w=w, oob=True)    # the chosen level in words
             ctx.setdefault("example_sizes", profile_mod.sizes_unconfirmed(profile_mod.load()))   # its cards' notes
         return render_template(template, w=w, **ctx) + extra
 
@@ -687,8 +692,10 @@ def create_app() -> Flask:
     @app.get("/")
     def wardrobe():
         if conf.PRODUCTION and g.user is None:
+            # `real`: a published product list is there (shared.published); without one every customer gets the
+            # invented demo products, and the page says so instead of promising real ones from named stores.
             return render_template("landing.html", looks_on=_pictures_on(),      # the public website
-                                   photos=_photos_on(), invite=bool(conf.INVITE_CODE))
+                                   photos=_photos_on(), invite=bool(conf.INVITE_CODE), real=shared.published())
         # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
         gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
         w = selection.build()
@@ -1976,18 +1983,24 @@ def create_app() -> Flask:
                   "style")
         return redirect(url_for("profile_page") + "#style")
 
-    def no_partners() -> bool:
-        """True while no real store's partner programme has accepted Stilsmith ("approved" in the owner's registry). From
-        the day one has, the Stores tab calls that store a partner, and the page's foot no longer says "Not
-        affiliated with any retailer". If the registry cannot be read (an error page), the foot says nothing."""
+    def partner_stores() -> list[str] | None:
+        """The names of the real stores whose partner programme has accepted Stilsmith ("approved" in the owner's
+        registry). From the day there is one, the Stores tab calls that store a partner, and the page's foot, the
+        shopping list and Buy this outfit say that its links may earn a commission (German law wants such links marked
+        as advertising) instead of "Not affiliated with any retailer". [] while there are none; None if the registry
+        cannot be read (an error page): then the foot says nothing either way."""
         try:
             # (An invented sample store, for trying the importers, is no partner: it does not count.)
-            return not any(store["status"] == "approved" and not (store.get("rules") or {}).get("sample")
-                           for store in db.list_stores())
+            return [store.get("label") or store["key"] for store in db.list_stores()
+                    if store["status"] == "approved" and not (store.get("rules") or {}).get("sample")]
         except Exception:
-            return False
+            return None
 
-    app.jinja_env.globals["no_partners"] = no_partners
+    def no_partners() -> bool:
+        """True while no real store's partner programme has accepted Stilsmith (partner_stores)."""
+        return partner_stores() == []
+
+    app.jinja_env.globals.update(no_partners=no_partners, partner_stores=partner_stores)
 
     def back_to_tab():
         """Back to Profile, on the tab the form was sent from (app.js writes it in the form; without it, the first)."""

@@ -65,6 +65,14 @@ def load() -> dict | None:
     return pool
 
 
+def published() -> bool:
+    """Whether this service has a published list with products in it. Until it has, every customer's pieces are the
+    invented demo products (mock.py, "Demo data" on every page), so the public pages must not call them real or
+    name the stores they would come from."""
+    pool = load()
+    return bool(pool and pool.get("products"))
+
+
 _in_list: tuple[dict, frozenset] | None = None      # (the published list, the stores with products in it)
 
 

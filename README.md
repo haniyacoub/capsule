@@ -164,7 +164,9 @@ the page is Stilsmith's own error page and the file and line are in the log).
 ## Price levels
 
 Two controls on the Wardrobe page decide what fills each slot. Neither is a
-config value. Under each choice is what your wardrobe would cost with it. (Your
+config value. Under each choice is what your wardrobe would cost with it, and
+under the row of levels the chosen one's meaning is said in words (`HINTS` in
+`wardrobe/selection.py`, also each level's mouse-over note). (Your
 wardrobe is the pieces of the outfits you said yes to: see "Outfits and the
 shopping list". The plan, the 15 to 20 slots, is what outfits are made from.)
 

@@ -76,9 +76,13 @@
 </section>
 {% endfor %}
 {% if sl.groups %}
-{# What the prices above leave out, said before the customer reaches a store's checkout. #}
+{# What the prices above leave out, said before the customer reaches a store's checkout. And, once a store's partner
+   programme has accepted Stilsmith (app.py, partner_stores), that its links may earn a commission: said here, under
+   the links themselves, as German law wants it said before the click, and on every page's foot. #}
+{% set partners = partner_stores() %}
 <div class="costs">
   <p>Prices include VAT. Each store adds its own delivery costs at checkout.</p>
   <p>You pay once per store, as each has its own basket and checkout. On each product page, choose the size shown here and add it to the basket.</p>
+  {% if partners %}<p class="partner-note">Links to {{ partners[:-1]|join(', ') }}{{ ' and ' if partners|length > 1 }}{{ partners[-1] }} are partner links: if you buy there, {{ site_name }} may earn a commission. You pay the same, and the commission does not change which product is picked for a piece.</p>{% endif %}
 </div>
 {% endif %}

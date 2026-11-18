@@ -294,6 +294,7 @@ class AccountsThatHadZara(ProductionCase):
         visitor = self.app.test_client()
         home = words(visitor.get("/").get_data(as_text=True))
         self.assertIn("picks the best-value real product for each from the high-street stores COS and Weekday,", home)
+        self.assertNotIn("invented examples", home, "with a published list the products are real ones")
         for path in ("/", "/legal/impressum", "/legal/privacy", "/legal/terms", "/signup", "/login"):
             text = visitor.get(path).get_data(as_text=True)
             self.assertNotIn("zara", text.lower(), path)
