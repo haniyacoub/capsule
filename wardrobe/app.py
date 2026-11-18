@@ -28,8 +28,8 @@ from flask import (Flask, Response, abort, flash, g, get_flashed_messages, redir
 from markupsafe import Markup
 from werkzeug.exceptions import HTTPException, NotFound
 
-from . import (auth, capsule, catalog, colours, composition, db, export, imagegen, looks, mock, mockimg, outfits,
-               owner, person, programmes, selection, shared, style, stylechat, tryon, yes)
+from . import (auth, capsule, catalog, colours, composition, db, export, guests, imagegen, looks, mock, mockimg,
+               outfits, owner, person, programmes, selection, shared, style, stylechat, tryon, yes)
 from . import figure
 from . import videos
 from . import profile as profile_mod
@@ -73,6 +73,8 @@ def bootstrap() -> None:
     db.init()
     if not conf.PRODUCTION:
         ensure_setup()
+    else:                   # the example wardrobe visitors without an account look through (guests.py)
+        guests.ensure_example()
 
 
 def sync_catalog(changed_slot: str | None = None) -> bool:
@@ -359,6 +361,8 @@ def create_app() -> Flask:
         set_aside_for=catalog.set_aside,
         # Beside "More photos": what it costs, or how many pictures are really left today (_shots.html).
         more_words=looks.more_words,
+        # "Create your account" with the line that says why (guests.WHY): where a visitor's buttons lead.
+        sign_up=guests.sign_up,
     )
     bootstrap()
 
@@ -381,13 +385,16 @@ def create_app() -> Flask:
         return {"asset_v": asset_version(), "tryon_available": tryon.available(),
                 "production": conf.PRODUCTION, "user": g.get("user"), "csrf_field": csrf_field,
                 "csrf_token": auth.csrf_token if conf.PRODUCTION else (lambda: ""),
-                "legal_pages": LEGAL_PAGES, "site_name": conf.SITE_NAME}
+                "legal_pages": LEGAL_PAGES, "site_name": conf.SITE_NAME,
+                # A visitor without an account, looking through the example wardrobe (guests.py)
+                "guest": guests.is_guest()}
 
     if conf.SITE_PASSWORD:  # before anything else: a private trial asks every visitor for the site's password
         app.before_request(site_password_given)
     if conf.PRODUCTION:     # first: a page that refuses a request still knows who asked (its way home, error.html)
         app.before_request(auth.load_user)
         app.teardown_request(auth.unload_user)
+        app.teardown_request(guests.leave)      # a visitor's request was read-only: the next one starts afresh
 
     @app.before_request
     def same_origin_only():
@@ -407,6 +414,12 @@ def create_app() -> Flask:
         def accounts_and_csrf():
             if request.endpoint in auth.FILES:      # a stylesheet, script, font or icon: no account, no form
                 return None
+            if g.user is None and request.endpoint is not None and request.endpoint not in PUBLIC \
+                    and request.blueprint != owner.bp.name and guests.door_open():
+                # A visitor without an account, while config/site.toml lets visitors in: he may look through the
+                # example wardrobe's outfits, read-only; a button leads to "Create your account", any other page of
+                # the app to "Log in" (guests.at_the_door). Nothing happens for him, so no form token is needed.
+                return guests.at_the_door()
             auth.check_csrf()
             # The owner's pages (owner.py): to anyone else, exactly what an address that does not exist gets.
             if request.blueprint == owner.bp.name and not auth.is_owner():
@@ -696,8 +709,10 @@ def create_app() -> Flask:
         if conf.PRODUCTION and g.user is None:
             # `real`: a published product list is there (shared.published); without one every customer gets the
             # invented demo products, and the page says so instead of promising real ones from named stores.
+            # `explore`: visitors may look through the example wardrobe's outfits without an account (guests.py).
             return render_template("landing.html", looks_on=_pictures_on(),      # the public website
-                                   photos=_photos_on(), invite=bool(conf.INVITE_CODE), real=shared.published())
+                                   photos=_photos_on(), invite=bool(conf.INVITE_CODE), real=shared.published(),
+                                   explore=guests.door_open() and guests.example_id() is not None)
         # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
         gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
         w = selection.build()
@@ -1096,8 +1111,44 @@ def create_app() -> Flask:
                 chosen = chosen[:held] + [first] + [o for o in chosen[held:] if o.key != first.key]
         return chosen, total, n_declined, held, first
 
+    def guest_outfits():
+        """Outfits for a visitor without an account: the example wardrobe's outfits (guests.py). Each outfit is built
+        for the page from nothing but what may be shown (guests.outfit): its title, its pieces by their names, in the
+        plan's colours, and its AI picture where one is there already. The stores, their names for the products, the
+        prices, what a yes would add, sizes, links and the stores' photos are never handed to the page.
+        From the address only which outfits are read: the occasion, how many and which shuffle (place), and those
+        kept in front by "Show more outfits" (front_of). Nothing is drawn, asked for or stored."""
+        if request.args.get("occasion") == "saved":     # My outfits: his own, so his account comes first
+            return redirect(guests.sign_up("save"))
+        w = selection.build()
+        occasion = request.args.get("occasion") or usual_occasion()
+        occasion = occasion if occasion in outfits.OCCASIONS else "all"
+        n, seed = place(request.args)
+        front = front_of(request.args)
+        chosen, total = offered_row(w, occasion, {"n": n, "seed": seed}, front)[:2]
+        boards = [{"key": o.key, "pieces": outfits.snapshot(o)} for o in chosen]
+        looks_on = looks.attach(boards)     # each outfit's front picture, where one is there (it draws nothing)
+        return render_template("outfits_guest.html", tab="outfits", occasion=occasion, n=n, seed=seed,
+                               next_seed=random.randrange(1, 1_000_000), total=total, looks_on=looks_on,
+                               boards=[guests.outfit(w, o, board) for o, board in zip(chosen, boards)],
+                               demo=w.source == "mock", lock=guests.reason("shop", real=w.source != "mock"))
+
+    def guest_piece():
+        """The pop-up for one piece, for a visitor without an account: the piece's name and colour, drawn, and
+        what an account shows of it. Nothing of its product."""
+        w = selection.build()
+        outfit = outfits.find_by_sig(w, request.args.get("at", ""))
+        view = w.get(request.args.get("slot", ""))
+        if outfit is None or view is None or view.slot["id"] not in outfit.slots:
+            abort(409, "That outfit changed in the meantime — reload the page.")
+        piece = next(p for p in guests.outfit(w, outfit, {"pieces": outfits.snapshot(outfit)})["pieces"]
+                     if p["slot_id"] == view.slot["id"])
+        return render_template("_piece_guest.html", p=piece, lock=guests.reason("shop", real=w.source != "mock"))
+
     @app.get("/outfits")
     def outfits_page():
+        if guests.is_guest():
+            return guest_outfits()
         w = selection.build()
         occasion = request.args.get("occasion") or usual_occasion()
         if occasion not in outfits.OCCASIONS and occasion != "saved":
@@ -1200,6 +1251,8 @@ def create_app() -> Flask:
     @app.get("/outfits/piece")
     def outfits_piece():
         """The pop-up for one piece of an outfit: what it is, and what could take its place."""
+        if guests.is_guest():
+            return guest_piece()
         w = selection.build()
         outfit = outfits.find_by_sig(w, request.args.get("at", ""))
         slot_id = request.args.get("slot", "")
@@ -1551,6 +1604,24 @@ def create_app() -> Flask:
             abort(404)
         response = send_file(path, mimetype=imagegen.MIME[path.suffix.lstrip(".")])
         response.headers["Cache-Control"] = "private, max-age=31536000, immutable"   # a new version gets a new name
+        return response
+
+    @app.get("/outfits/<outfit_key>/picture/<name>")
+    def example_picture(outfit_key: str, name: str):
+        """The front picture of one of the example wardrobe's outfits, for a visitor without an account (guests.py,
+        outfits_guest.html), and only that: the outfit must be one of the example's, and `name` the file of its front
+        picture, finished already (Stilsmith's house model: never one drawn from someone's photo). Anything else is
+        not there. Every other picture stays at /looks/, for customers. A file never changes under its name, so
+        browsers keep it."""
+        outfit = outfits.find(selection.build(), outfit_key) if guests.is_guest() else None
+        board = {"pieces": outfits.snapshot(outfit)} if outfit else None
+        if board is None or not looks.attach([board]) or guests.outfit_picture(board) != name:
+            abort(404)
+        path = looks.image(name)
+        if path is None:
+            abort(404)
+        response = send_file(path, mimetype=imagegen.MIME[path.suffix.lstrip(".")])
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
         return response
 
     @app.get("/looks/<name>/full")
@@ -2321,7 +2392,7 @@ def create_app() -> Flask:
     @app.get("/mock/img/<kind>.svg")
     def mock_image(kind: str):
         try:
-            body = mockimg.svg(kind, request.args.get("c"))
+            body = mockimg.svg(kind, request.args.get("c"), ground=request.args.get("ground") != "0")
         except KeyError:
             abort(404)
         return Response(body, mimetype="image/svg+xml",

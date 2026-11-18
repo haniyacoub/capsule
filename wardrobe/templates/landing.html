@@ -15,8 +15,14 @@
   {% else %}
   <p class="hero-lead">{{ site_name }} plans a men's wardrobe of about 18 pieces in one colour palette, picks a product for each and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}. For now the products are invented examples, not real products, prices or stock.</p>
   {% endif %}
+  {# `explore`: a visitor may look through the outfits of an example wardrobe without an account (guests.py,
+     config/site.toml): that is the main button, and creating an account the second, beside it. #}
+  {% if explore %}
+  <p class="hero-cta"><a class="btn" href="{{ url_for('outfits_page') }}">Explore outfits</a><a class="btn ghost" href="{{ url_for('auth.signup') }}">Create a free account</a></p>
+  {% else %}
   <p class="hero-cta"><a class="btn" href="{{ url_for('auth.signup') }}">Create a free account</a></p>
-  <p class="hero-note">Free. You buy straight from the stores, in your sizes. {{ site_name }} never takes payment.</p>
+  {% endif %}
+  <p class="hero-note">{% if explore %}No account needed to look around. {% endif %}Free. You buy straight from the stores, in your sizes. {{ site_name }} never takes payment.</p>
   {% if invite %}
   <p class="hero-note">Open by invitation for now: creating an account needs an invitation code.</p>
   {% endif %}

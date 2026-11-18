@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Outfits · {{ site_name }}{% endblock %}
+{# Outfits for a visitor without an account (guests.py; app.py, guest_outfits): the outfits of one example wardrobe,
+   the same for every visitor, to swipe through as a customer does: the same row, arrows and bar with the answers as
+   outfits.html, so app.js and app.css treat both alike (.looks.guest marks this one).
+   The page shows only what it was given (guests.outfit): each outfit's title, its pieces by their names, drawn by the
+   app in the plan's colours, and its AI picture where one is there already. No store, store's product name, price,
+   size, link or store's photo was given, so none can be in it: grey bars (.veiled) stand where they would be, and one
+   line per outfit (`lock`) says what an account shows, with the way to create one.
+   Every button leads to "Create your account" with a line that says why (?why=, guests.WHY): plain links. Nothing
+   here is a form, so looking around sets no cookie. #}
+{% block nav %}
+<nav class="public-nav" aria-label="Account">
+  <a class="btn ghost small" href="{{ url_for('auth.login') }}">Log in</a>
+  <a class="btn small" href="{{ url_for('auth.signup') }}">Create account</a>
+</nav>
+{% endblock %}
+{% block summary %}{% endblock %}
+{% block notices %}{% endblock %}
+{% block main %}
+{% from "_macros.html" import icon, pic %}
+<h1 class="sr">Outfits</h1>
+
+{# One piece of an outfit, as something to tap: with JavaScript it opens the pop-up (_piece_guest.html: the piece's
+   name and colour), without it "Create your account". `label`: the name a screen reader says (the dots). #}
+{% macro piece(o, p, cls, style='', label='') %}
+<a class="{{ cls }}" href="{{ sign_up('shop') }}"{% if label %} aria-label="{{ label }}"{% else %} title="{{ p.name }}"{% endif %}{% if style %} style="{{ style }}"{% endif %}
+   hx-get="{{ url_for('outfits_piece', at=o.sig, slot=p.slot_id) }}" hx-target="#piece-body" hx-swap="innerHTML">{{ caller() }}</a>
+{% endmacro %}
+{# A grey bar where words are left out: the same few lengths in turn, never the length of what is left out. #}
+{% macro bar(i) %}<i class="blur-bar w{{ i % 3 + 1 }}"></i>{% endmacro %}
+
+<div class="above-looks">
+{% if demo %}{% include "_demo.html" %}{% endif %}
+<div class="toolbar">
+  <div class="chips" role="group" aria-label="Which outfits">
+    {% for key, label in OCCASIONS.items() %}
+    <a class="chip-link{% if occasion == key %} on{% endif %}" href="{{ url_for('outfits_page', occasion=key) }}"{% if occasion == key %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </div>
+  <a class="btn ghost shuffle" href="{{ url_for('outfits_page', occasion=occasion, n=n, seed=next_seed) }}">{{ icon('shuffle') }}<span>Shuffle</span></a>
+</div>
+</div>
+
+{% if boards %}
+{# On a phone: the line about an account and the two answers for the outfit showing, in a bar at the foot of the
+   screen (app.js 17a moves the outfit's .yes-box in here, as on a customer's Outfits). #}
+<div class="dock" id="dock" role="group" aria-label="The outfit that is showing" hidden></div>
+<section class="looks guest" aria-label="Outfits, one at a time">
+  {% if boards|length > 1 or boards|length < total %}
+  <button class="reel-nav prev" type="button" data-reel="-1" aria-label="Previous outfit">{{ icon('back') }}</button>
+  <button class="reel-nav next" type="button" data-reel="1" aria-label="Next outfit">{{ icon('back') }}</button>
+  {% endif %}
+  <div class="reel" id="reel">
+    {% for o in boards %}
+    <article class="slide" id="outfit-{{ o.key }}" data-slide aria-label="Outfit {{ loop.index }} of {{ boards|length }}">
+      <div class="stage">
+        {# The pieces as the app's own drawings, in the plan's colours: the plain box, until a picture lies over it. #}
+        <div class="collage c{{ o.pieces|length }}">
+          {% for p in o.pieces %}
+          {% call piece(o, p, 'tile') %}
+            {{ pic(p.drawing, p.hex, p.name, p.name) }}
+            <span class="cap veiled" aria-hidden="true">{{ bar(loop.index) }}</span>
+          {% endcall %}
+          {% endfor %}
+        </div>
+        {# Its AI picture, where one is there already (Stilsmith's house model, never anyone's photo), labelled as
+           one. Nothing is drawn for a visitor. With a dot on each piece, which names it. #}
+        <div class="look">
+          {% if o.picture %}
+          <div class="look-pic">
+            <img src="{{ url_for('example_picture', outfit_key=o.key, name=o.picture) }}" alt="AI-generated picture of a model wearing this outfit" width="848" height="1264"
+                 {%- if loop.first %} fetchpriority="high"{% else %} loading="lazy"{% endif %} decoding="async">
+            <span class="ai-chip">AI picture</span>
+          </div>
+          <p class="look-bar look-line"><span class="look-note"><span class="whole">Look and fit will differ on the real pieces.</span><span class="half">Look and fit will differ.</span></span></p>
+          {% else %}
+          <span class="look-line" aria-hidden="true"></span>
+          {% endif %}
+        </div>
+        {% if o.picture %}
+        <div class="spots">
+          {% for p in o.pieces if p.spot %}
+          {% call piece(o, p, 'spot low' if p.spot[1] >= 70 else 'spot', '--x:' ~ p.spot[0] ~ '%;--y:' ~ p.spot[1] ~ '%', p.name) %}
+            <span class="tip"><b>{{ p.name }}</b>{{ p.colour }}</span>
+          {% endcall %}
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="about">
+        <header class="about-head">
+          <h2>{{ outfit_title(o.label, occasion) }}<span class="sr">, outfit {{ loop.index }} of {{ boards|length }}</span></h2>
+          <div class="about-meta">
+            <span class="count" aria-hidden="true">{{ loop.index }} / {{ boards|length }}</span>
+            <b class="board-cost veiled" aria-hidden="true">{{ bar(0) }}</b>
+          </div>
+        </header>
+        {# What an account shows, in one line, with the way to create one; then the two answers, which lead there too
+           (each with its own line on that page). On a phone this box is in the bar at the foot of the screen. #}
+        <div class="yes-box" data-answer>
+          <p class="locked">{{ icon('lock') }}<span>{{ lock }}</span><a class="btn small" href="{{ sign_up('shop') }}">Create account</a></p>
+          <div class="answer">
+            <a class="btn yes" href="{{ sign_up('save') }}" id="save-{{ o.key }}">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg>
+              <span>Add to my wardrobe</span>
+            </a>
+            <a class="quiet" href="{{ sign_up('no') }}" id="no-{{ o.key }}">Not for me</a>
+          </div>
+        </div>
+        <ul class="pieces">
+          {% for p in o.pieces %}
+          <li>
+            {% call piece(o, p, 'piece-row') %}
+              {{ pic(p.drawing, p.hex) }}
+              <span class="piece-text"><b>{{ p.name }}</b><span class="row-product veiled" aria-hidden="true">{{ bar(loop.index) }}</span></span>
+              <span class="piece-price veiled" aria-hidden="true">{{ bar(loop.index + 1) }}</span>
+            {% endcall %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </article>
+    {% endfor %}
+    {% if boards|length < total %}
+    <article class="slide more-slide" data-slide>
+      <p class="muted">That was {{ boards|length }} of {{ total }}.</p>
+      <a class="btn" href="{{ url_for('outfits_page', occasion=occasion, n=n + 12, seed=seed, front=boards|map(attribute='key')|join('.')) }}#outfit-{{ boards[-1].key }}">Show more outfits</a>
+    </article>
+    {% endif %}
+  </div>
+</section>
+<p class="lead below">
+  {{ '%d of ' % boards|length if boards|length < total }}{{ total }} {{ 'outfit' if total == 1 else 'outfits' }} from an example wardrobe
+  {%- if boards|length > 1 or boards|length < total %}<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>{% endif %}
+</p>
+
+{# The pop-up for one piece: its content comes from /outfits/piece when a piece is tapped. #}
+<dialog class="sheet" id="piece" aria-labelledby="piece-title">
+  <button class="sheet-close" type="button" data-close aria-label="Close">&times;</button>
+  <div id="piece-body"></div>
+</dialog>
+{% else %}
+<p class="empty">No outfits to show{% if occasion != 'all' %} for “{{ OCCASIONS[occasion]|lower }}”. Try <a href="{{ url_for('outfits_page', occasion='all') }}">all occasions</a>{% endif %}.</p>
+{% endif %}
+{% endblock %}

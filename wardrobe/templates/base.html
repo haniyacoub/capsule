@@ -75,7 +75,8 @@
        (app.py, partner_stores), and so do the shopping list and Buy this outfit under the stores' links. #}
     {% set partners = partner_stores() %}
     {% if partners == [] %}<span>Not affiliated with any retailer.</span>
-    {% elif partners %}<span class="partner-note">Partner links: {{ site_name }} may earn a commission when you buy at {{ partners[:-1]|join(', ') }}{{ ' or ' if partners|length > 1 }}{{ partners[-1] }}. You pay the same.</span>{% endif %}
+    {# (Not on a visitor's outfits: they show no store and no link, so there is no partner link to mark.) #}
+    {% elif partners and not guest %}<span class="partner-note">Partner links: {{ site_name }} may earn a commission when you buy at {{ partners[:-1]|join(', ') }}{{ ' or ' if partners|length > 1 }}{{ partners[-1] }}. You pay the same.</span>{% endif %}
   </footer>
   {% endif %}
 </body>

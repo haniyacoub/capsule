@@ -21,7 +21,7 @@ from flask import (Blueprint, Flask, Response, abort, flash, g, redirect, render
 from flask.sessions import SecureCookieSessionInterface, SessionMixin
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import db, looks, mail, person, settings
+from . import db, guests, looks, mail, person, settings, shared
 from .onboarding import ensure_setup
 
 bp = Blueprint("auth", __name__)
@@ -149,7 +149,10 @@ def signup():
     invite = bool(settings.INVITE_CODE)         # by invitation: the form also asks for the code
     # HEAD (link checkers, "curl -I") is answered like GET here and below, never as a form that was sent.
     if request.method in ("GET", "HEAD"):
-        return render_template("auth_signup.html", invite=invite, code=request.args.get("code", "")[:200])
+        # `why`: what a visitor without an account tapped, in one line over the form ("Create a free account to save
+        # outfits."): only words of guests.WHY, picked by the word in the address (?why=save), never words from it.
+        return render_template("auth_signup.html", invite=invite, code=request.args.get("code", "")[:200],
+                               why=guests.reason(request.args.get("why"), real=shared.published()))
     email, password = _email(request.form.get("email")), request.form.get("password", "")
     code = request.form.get("code", "").strip()[:200]
     problem = "Enter a valid email address." if not email else password_problem(password, email)

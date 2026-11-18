@@ -16,7 +16,7 @@ from html import unescape
 from pathlib import Path
 from unittest import mock
 
-from wardrobe import catalog, config, db, mail, paths, selection, settings, shared
+from wardrobe import catalog, config, db, guests, mail, paths, selection, settings, shared
 from wardrobe.collect.browser import Session
 from wardrobe.app import create_app, eur
 
@@ -136,14 +136,26 @@ class PublicSite(ProductionCase):
             self.assertNotIn("fonts.gstatic", words, url)
 
     def test_the_app_needs_a_login(self):
+        # With visitors kept out (guests = false in config/site.toml), every page of the app needs a login.
         visitor = self.app.test_client()
-        for url in ("/outfits", "/list", "/slots", "/profile", "/account", "/slot/white-tee", "/list.csv"):
+        with mock.patch.object(guests, "door_open", return_value=False):
+            for url in ("/outfits", "/list", "/slots", "/profile", "/account", "/slot/white-tee", "/list.csv"):
+                response = visitor.get(url)
+                self.assertEqual(response.status_code, 302, url)
+                self.assertIn("/login?next=", response.headers["Location"])
+            button = self.post(visitor, "/settings", headers=HX, mode="cheapest")
+            self.assertEqual(button.status_code, 401)
+            self.assertEqual(button.headers["HX-Redirect"], "/login")
+        # With visitors let in (the default), Outfits shows an example wardrobe to look through (test_guests.py);
+        # every other page still needs a login, and a button leads to creating an account, saying why.
+        self.assertTrue(guests.door_open())
+        self.assertEqual(visitor.get("/outfits").status_code, 200)
+        for url in ("/list", "/slots", "/profile", "/account", "/slot/white-tee", "/list.csv"):
             response = visitor.get(url)
             self.assertEqual(response.status_code, 302, url)
             self.assertIn("/login?next=", response.headers["Location"])
         button = self.post(visitor, "/settings", headers=HX, mode="cheapest")
-        self.assertEqual(button.status_code, 401)
-        self.assertEqual(button.headers["HX-Redirect"], "/login")
+        self.assertEqual((button.status_code, button.headers["HX-Redirect"]), (401, "/signup?why=you"))
 
     def test_security_headers_and_cookie_flags(self):
         settings.SITE_URL = "https://capsule.example"
@@ -222,7 +234,9 @@ class PublicSite(ProductionCase):
         # A visitor who only reads (the landing page, the legal pages, a page that isn't there, the icon) is given no
         # cookie, so there is nothing to ask consent for. The forms that need one for their token (sign-up, log-in, a
         # forgotten password) still set it through their hidden field, and a customer's buttons still carry the token.
-        for url in ("/", "/legal/impressum", "/legal/privacy", "/legal/terms", "/no-such-page", "/favicon.ico"):
+        # (Outfits too, open to a visitor without an account: the example wardrobe, test_guests.py.)
+        for url in ("/", "/legal/impressum", "/legal/privacy", "/legal/terms", "/no-such-page", "/favicon.ico",
+                    "/outfits"):
             visitor = self.app.test_client()
             for ask in (visitor.get, visitor.head):
                 response = ask(url)
@@ -339,7 +353,7 @@ class Accounts(ProductionCase):
     def test_log_out_and_back_in(self):
         ada = self.member("ada@example.com")
         self.post(ada, "/logout")
-        self.assertEqual(ada.get("/outfits").status_code, 302)
+        self.assertEqual(ada.get("/account").status_code, 302)
         wrong = self.post(ada, "/login", email="ada@example.com", password="wrong password")
         self.assertEqual(wrong.status_code, 401)
         unknown = self.post(ada, "/login", email="nobody@example.com", password=PASSWORD)
@@ -388,7 +402,7 @@ class Accounts(ProductionCase):
         self.assertEqual(self.post(visitor, link, password="tiny").status_code, 400)
         self.assertEqual(self.post(visitor, link, password="a brand new password").status_code, 302)
         self.assertEqual(visitor.get(link).status_code, 302, "the link works once")
-        self.assertEqual(ada.get("/outfits").status_code, 302, "the old session was signed out")
+        self.assertEqual(ada.get("/account").status_code, 302, "the old session was signed out")
         self.assertEqual(self.post(visitor, "/login", email="ada@example.com", password=PASSWORD).status_code, 401)
         self.assertEqual(self.post(visitor, "/login", email="ada@example.com",
                                    password="a brand new password").status_code, 302)
@@ -397,10 +411,10 @@ class Accounts(ProductionCase):
         laptop = self.member("ada@example.com")
         phone = self.app.test_client()
         self.post(phone, "/login", email="ada@example.com", password=PASSWORD)
-        self.assertEqual(phone.get("/outfits").status_code, 200)
+        self.assertEqual(phone.get("/account").status_code, 200)
         self.post(laptop, "/account/password", current=PASSWORD, password="another long password")
-        self.assertEqual(laptop.get("/outfits").status_code, 200, "the device that changed it stays in")
-        self.assertEqual(phone.get("/outfits").status_code, 302)
+        self.assertEqual(laptop.get("/account").status_code, 200, "the device that changed it stays in")
+        self.assertEqual(phone.get("/account").status_code, 302)
         self.post(laptop, "/account/password", current="wrong", password="yet another password")
         self.assertEqual(self.post(self.app.test_client(), "/login", email="ada@example.com",
                                    password="another long password").status_code, 302)
@@ -422,7 +436,7 @@ class Accounts(ProductionCase):
             for table in ("settings", "slots", "saved_outfits", "catalogs", "reset_tokens"):
                 rows = con.execute(f"SELECT COUNT(*) FROM {table} WHERE user_id = ?", (uid,)).fetchone()[0]
                 self.assertEqual(rows, 0, table)
-        self.assertEqual(ada.get("/outfits").status_code, 302)
+        self.assertEqual(ada.get("/account").status_code, 302)
         self.assertEqual(self.post(ada, "/login", email="ada@example.com", password=PASSWORD).status_code, 401)
 
 

@@ -1,0 +1,20 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  Visitors without an account ("guests")
+#
+#  guests = true    Anyone can open Outfits without an account and look through
+#                   one example wardrobe, the same for every visitor: its
+#                   outfits, each piece's name and colour, and an AI picture
+#                   where one has been drawn already. The stores, prices, sizes
+#                   and links are left out of those pages, and every button
+#                   that would change or save something (Add to my wardrobe,
+#                   Not for me, a swap, a new picture, the budget) leads to
+#                   "Create your account" instead. Nothing a visitor does is
+#                   stored. The landing page then offers "Explore outfits".
+#  guests = false   Outfits needs an account again, as before.
+#
+#  Edits here apply on the next page load. Only the public site (production)
+#  has guests: on your own machine there is no login, and nothing changes.
+#  The site's own lock (SITE_PASSWORD, or Cloudflare Access) still comes first.
+# ══════════════════════════════════════════════════════════════════════════════
+
+guests = true
