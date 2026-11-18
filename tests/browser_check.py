@@ -451,7 +451,7 @@ def run(base: str) -> None:
                             dock: [box(dock).top, box(dock).bottom], fixed: getComputedStyle(dock).position,
                             adds: inside('.adds') && [box(inside('.adds')).top, box(inside('.adds')).bottom, inside('.adds').textContent.trim()],
                             yes: inside('.btn.yes') && [box(inside('.btn.yes')).top, box(inside('.btn.yes')).bottom,
-                                                        inside('.btn.yes').textContent.replace(/\s+/g, ' ').trim()],
+                                                        inside('.btn.yes').textContent.replace(/\\s+/g, ' ').trim()],
                             no: inside('form.no button') && [box(inside('form.no button')).top, box(inside('form.no button')).bottom],
                             key: (inside('input[name=key]') || {}).value, slide: slide.id, left_in_outfit: slide.querySelectorAll('[data-answer]').length,
                             tabs: box(document.querySelector('nav.tabs')).top, wide: document.documentElement.scrollWidth};
