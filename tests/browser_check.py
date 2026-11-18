@@ -6234,6 +6234,50 @@ def run(base: str) -> None:
                     assert [s for s in seen if s["store"]], f"no tile at {width}px names its store: {seen}"
             page.set_viewport_size({"width": 1280, "height": 860})
 
+        def full_size_is_larger_and_labelled():
+            # "Full size" under an outfit's picture opens a page of Stilsmith's own, in the same tab (review N13): the
+            # picture never smaller than on Outfits and as tall as the window less 24px, so the whole of it fits on
+            # the screen once the page is scrolled to it; its label 'AI picture' on it and "Back to the outfits" on the
+            # first screen; its caption can be scrolled clear of a phone's tab bar; the browser's Back leads back. On
+            # a computer and on a short phone; nothing wider than the screen.
+            measure = """() => {
+                const box = el => el.getBoundingClientRect(), tabs = document.querySelector('nav.tabs');
+                const foot = tabs && getComputedStyle(tabs).position === 'fixed' ? box(tabs).top : innerHeight;
+                const pic = box(document.querySelector('.full-pic-box')), chip = box(document.querySelector('.full-pic .ai-chip'));
+                const back = box(document.querySelector('.crumb a'));
+                return {pic: [pic.width, pic.height], chip: [document.querySelector('.full-pic .ai-chip').textContent.trim(),
+                        chip.top >= pic.top && chip.bottom <= Math.min(pic.bottom, foot) && chip.left >= pic.left && chip.right <= pic.right],
+                        back: [document.querySelector('.crumb a').textContent.trim(), back.top >= 0 && back.bottom <= foot],
+                        room: foot, wide: document.documentElement.scrollWidth};
+            }"""
+            caption = """() => { const tabs = document.querySelector('nav.tabs'), cap = document.querySelector('.full-pic figcaption').getBoundingClientRect();
+                const foot = tabs && getComputedStyle(tabs).position === 'fixed' ? tabs.getBoundingClientRect().top : innerHeight;
+                return cap.top >= 0 && cap.bottom <= foot + 0.5; }"""
+            for width, height, phone in ((1280, 800, False), (390, 664, True)):
+                context, other = logged_in_on(browser, viewport={"width": width, "height": height}, is_mobile=phone, has_touch=phone)
+                where = f"at {width} x {height}"
+                try:
+                    other.goto(base + "/outfits", wait_until="networkidle")
+                    other.wait_for_selector(f"{first} .look-pic img")
+                    on_outfits = other.evaluate("s => document.querySelector(s + ' .look-pic').getBoundingClientRect().width", first)
+                    outfits_at = other.url
+                    with other.expect_navigation(wait_until="networkidle"):
+                        other.locator(f"{first} .look-links a:has-text('Full size')").click()
+                    assert re.search(r"/looks/[^/]+/full\?outfit=", other.url), f"{where}: Full size opened {other.url}"
+                    seen = other.evaluate(measure)
+                    assert seen["pic"][0] >= on_outfits - 0.5, f"{where}: Full size shows the picture {seen['pic']}, smaller than on Outfits ({on_outfits:.0f}px wide)"
+                    assert seen["pic"][1] <= height - 24 + 0.5 and seen["pic"][1] <= seen["room"] + 0.5, \
+                        f"{where}: the picture ({seen['pic']}) does not fit on the screen ({seen['room']:.0f}px above the tab bar)"
+                    assert seen["chip"] == ["AI picture", True], f"{where}: the label is not on the picture on the first screen: {seen['chip']}"
+                    assert seen["back"] == ["Back to the outfits", True], f"{where}: the way back is not on the first screen: {seen['back']}"
+                    assert seen["wide"] <= width, f"{where}: the page is {seen['wide']}px wide"
+                    other.evaluate("() => scrollTo(0, document.documentElement.scrollHeight)")
+                    assert other.evaluate(caption), f"{where}: the caption cannot be scrolled clear of the tab bar"
+                    other.go_back(wait_until="networkidle")
+                    assert other.url == outfits_at, f"{where}: Back led to {other.url}, not {outfits_at}"
+                finally:
+                    context.close()
+
         def photos_full_screen_on_a_phone():
             # On a phone the small pictures under an outfit are small (30 by 40px on a short one): a tap on one opens the
             # outfit's photos full screen, at that one, and shows it large in the outfit as before. Each photo is whole
@@ -6318,6 +6362,7 @@ def run(base: str) -> None:
                  ("more photos and a video only on an outfit said yes to", more_only_on_a_yes),
                  ("more photos: five made from the front picture", more_photos_of_the_outfit),
                  ("the photos full screen on a phone", photos_full_screen_on_a_phone),
+                 ("Full size: larger, labelled, with the way back", full_size_is_larger_and_labelled),
                  ("a small picture tapped: never undone, and without JavaScript", a_tap_on_a_small_picture_is_kept),
                  ("see it move: a video, played, dragged, limited", see_it_move),
                  ("see it move from the picture showing: its own movement, one clip each", see_it_move_from_the_picture_showing),

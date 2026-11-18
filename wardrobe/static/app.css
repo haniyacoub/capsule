@@ -1023,9 +1023,14 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
    shown: each photo as large as the screen allows, whole (2 wide by 3 high), side by side in a row that snaps to one
    at a time. At the top: which photo it is and Close, white on a dark veil (as the label 'AI picture', which each
    photo carries at its foot), each 44px to a finger. The arrows beside the photo are for a mouse; a finger swipes. */
-/* "Full size" (look_full.html): the AI picture as large as the screen allows under the way back, 2 wide by 3 high,
-   with its label on it as everywhere. */
-.full-pic { margin: 0 auto; width: min(100%, (100svh - 200px) * 2 / 3, 848px); min-width: min(100%, 240px); }
+/* "Full size" (look_full.html): the AI picture under the way back, 2 wide by 3 high, as tall as the window less 24px
+   (as on Outfits on a computer, where it is also never wider than half the page), so that the whole picture fits on
+   the screen once the page is scrolled to it; never wider than the page or than the file (848px). So never smaller
+   than on Outfits: 517 x 776 in a window of 1280 x 800 (the same), 584 x 876 at 1440 x 900 (Outfits 536 x 804),
+   358 x 537 on a 390 x 664 phone (Outfits 309 x 463). Its top shows on the first screen, so its label "AI picture"
+   is at its top here, not at its foot as elsewhere. */
+.full-pic { margin: 0 auto; width: min(100%, 848px, (100svh - 24px) * 2 / 3); min-width: min(100%, 260px); }
+.full-pic .ai-chip { top: var(--s-2); bottom: auto; }
 .full-pic-box { position: relative; aspect-ratio: 2 / 3; background: var(--photo); }
 .full-pic-box img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .full-pic figcaption { margin-top: var(--s-2); font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }

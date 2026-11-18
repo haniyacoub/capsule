@@ -1555,11 +1555,13 @@ def create_app() -> Flask:
 
     @app.get("/looks/<name>/full")
     def look_full(name: str):
-        """'Full size' under an outfit's AI picture: the picture as large as the screen allows, on a small page of
-        Stilsmith's own with its "AI picture" label and the way back, never the bare file, which would show a realistic
-        picture (perhaps made from his photo) with no label (review N13; EU AI Act, Article 50). Who may see a picture
-        is as for the file itself (looks.image): nobody else. `outfit`: the outfit it is of, for the way back; the
-        way back is to the Outfits page he came from, where there is one, else to that outfit on Outfits."""
+        """'Full size' under an outfit's AI picture: the picture larger, on a small page of Stilsmith's own with its
+        "AI picture" label and the way back, never the bare file, which would show a realistic picture (perhaps made
+        from his photo) with no label (review N13; EU AI Act, Article 50). Who may see the page is exactly who may
+        see the file itself (looks.image, the same check): a picture made from a customer's photo only by him; one
+        of the house model (made from no photo) by any signed-in customer with its address, as the file always
+        could be (looks._view). `outfit`: the outfit it is of, for the way back; the way back is to the Outfits page
+        he came from, where there is one, else to that outfit on Outfits."""
         if looks.image(name) is None:
             abort(404)
         key = request.args.get("outfit", "")
