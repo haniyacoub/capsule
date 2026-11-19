@@ -401,7 +401,9 @@ def narrow(pool: list, category: str, brief: dict | None) -> list:
     does not speak against by themselves (their colour, the store's words: `unwanted`; what the garment is called
     is the same for all of them, so among "Leather shoes" a pair that is not leather comes first): of those, the
     ones that fit it (more than 0 points) if there are any, else the ones it says nothing about, else the rest of
-    them. Only when the brief speaks against every product are all of them left, so no piece is left empty.
+    them. When the brief speaks against every product by itself (with "no leather", every pair is leather), the rest
+    of the brief still chooses among them in the same way (his styles, the fits and colours he likes, the stores that
+    suit them), as it did before that wish: so the pair picked stays the pair it was, and no piece is left empty.
     Without a brief: all of them, as before."""
     return narrowed(pool, category, brief)[0]
 
@@ -411,17 +413,22 @@ def narrowed(pool: list, category: str, brief: dict | None) -> tuple[list, str]:
     ("Picked for you: the cheapest option that fits your style"): "" when the brief passed nothing over (or there
     is no brief), so the price level chose among all of them as it does without one; "fits" when it passed some
     over and the ones left fit it; "best" when it passed some over and none fits it, so the ones left are those
-    that suit it best (it says nothing about them, or speaks against them least)."""
+    that suit it best (it says nothing about them, or speaks against them least). Where it speaks against every
+    one of them, the ones left are never said to fit it: "best", where the rest of it passed some over."""
     if not brief or not pool:
         return pool, ""
     judged = [(judge(cand.data, category, brief), cand) for cand in pool]
     allowed = [(found.points, cand) for found, cand in judged if not found.unwanted]
+    against_all = not allowed
+    if against_all:
+        # Against every one of them by itself (their colour, the store's words): what else the brief says chooses.
+        rest = {**brief, "not_wanted": [], "colours_avoid": []}
+        allowed = [(judge(cand.data, category, rest).points, cand) for cand in pool]
     fits = [cand for score, cand in allowed if score > 0]
     left = (fits
             or [cand for score, cand in allowed if score == 0]
-            or [cand for score, cand in allowed]
-            or pool)
-    return left, "" if len(left) == len(pool) else "fits" if fits else "best"
+            or [cand for score, cand in allowed])
+    return left, "" if len(left) == len(pool) else "best" if against_all or not fits else "fits"
 
 
 # ── an outfit ─────────────────────────────────────────────────────────────────

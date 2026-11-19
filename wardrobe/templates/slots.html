@@ -7,7 +7,6 @@
    only once he added it as a spare on the piece's card: selection.SlotView.qty.) #}
 {% set pieces = w.slots|sum(attribute='planned') %}
 {% set colours = w.slots|map(attribute='slot.colour')|unique|list|length %}
-{% set uses = {'everyday': 'Planned for everyday wear.', 'office': 'Planned for the office.', 'both': 'Planned for everyday and the office.'} %}
 <section class="card">
   <h1>Your plan</h1>
   <p class="muted">{% if pieces %}{{ pieces }} piece{{ '' if pieces == 1 else 's' }} in {{ colours }} colour{{ '' if colours == 1 else 's' }}, planned from your profile.
@@ -15,12 +14,32 @@
     {% if w.slots|selectattr('n_spare')|list %}Where the plan has a piece twice (×2), an outfit adds one; the second is a spare you can add on the piece's card in your Wardrobe.{% endif %}
     Change anything: rename, recolour, remove or add. Your outfits update straight away.
     {%- else %}No pieces in your plan yet. Add one below, or start over from your profile.{% endif %}</p>
+  {# The colours his pieces are in (capsule.plan_colours), each with the part it plays in his palette: as many as the
+     line above counts. How they go together is said only where his pieces show it: trousers and shoes all neutral, and
+     the accent on a top layer or two (a small plan has no accent piece, and a piece recoloured by hand can change
+     either). #}
   <div class="palette">
-    {% for role, c in palette %}
-    <span class="swatch-chip"><i style="background:{{ c.hex }}"></i>{{ c.label }} <small>{{ role|lower }}</small></span>
+    {% for role, c in palette.chips %}
+    <span class="swatch-chip"><i style="background:{{ c.hex }}"></i>{{ c.label }}{% if role %} <small>{{ role|lower }}</small>{% endif %}</span>
     {% endfor %}
   </div>
-  <p class="muted small">{{ uses.get(profile.use, '') }} Trousers and shoes stay neutral so nearly every top works with every pair of trousers; the accent colour appears on a top layer or two.</p>
+  {% if palette.neutral or palette.accent %}
+  <p class="muted small" id="plan-colours">
+    {%- if palette.neutral %}{{ palette.neutral }} stay neutral so nearly every top works with every pair of trousers{{ ';' if palette.accent else '.' }}{% endif %}
+    {%- if palette.accent %} {{ 'the' if palette.neutral else 'The' }} accent colour appears on a top layer or two.{% endif %}</p>
+  {% endif %}
+  {# What the plan was made for (app.py, plan_line): the kinds of wardrobe his budget lets in, the budget and how many
+     pieces that plans: "Planned for everyday and the office, for 300 €: 9 pieces." Where the plan is no longer what
+     his answers plan (edited by hand, or made before the budget sized plans), what they would plan instead, and apart
+     from that the pieces of his wardrobe "Start over" would keep; and the kinds that wait, with the budget each joins
+     at. A budget he has not given is said to be one until he does. #}
+  {% set n = plan.pieces ~ (' piece' if plan.pieces == 1 else ' pieces') %}
+  {% set for_budget %}{{ plan.budget|eur }}{% if not plan.known %} until you <a href="{{ url_for('profile_page') }}#budget">set your budget</a>{% endif %}{% endset %}
+  <p class="muted small" id="plan-for">{% if plan.as_planned %}Planned for {{ plan.words }}, for {{ for_budget }}: {{ n }}.
+    {%- if plan.kept %} Besides them, {{ plan.kept }} {{ 'piece' if plan.kept == 1 else 'pieces' }} of your wardrobe {{ 'stays' if plan.kept == 1 else 'stay' }} from your plan before.{% endif %}
+    {%- else %}From your profile as it is now ({{ plan.words }}, {{ for_budget }}), your plan would have {{ n }}.
+    {%- if plan.kept %} Besides them, {{ plan.kept }} {{ 'piece' if plan.kept == 1 else 'pieces' }} of your wardrobe would stay.{% endif %}{% endif %}
+    {%- for kind, at in plan.waits %} {{ kind }} joins at about {{ at|eur }}.{% endfor %}</p>
   <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, locked choices and pieces marked as yours are lost. The pieces of the outfits you said yes to stay.">{{ csrf_field() }}
     <button class="btn ghost small">Start over from my profile</button>
   </form>

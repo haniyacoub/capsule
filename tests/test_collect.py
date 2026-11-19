@@ -21,6 +21,8 @@ from wardrobe.collect import cos, manual, matching, pages, weekday
 from wardrobe.collect.browser import Blocked, NotAllowed, block_reason
 from wardrobe.collect.robots import Robots
 
+from .having import the_old_start
+
 FIXTURES = Path(__file__).parent / "fixtures"
 COS, WEEKDAY = "https://www.cos.com", "https://www.weekday.com"
 
@@ -414,6 +416,7 @@ class ByHand(unittest.TestCase):
             path.unlink(missing_ok=True)
         catalog._cache = None
         self.client = create_app().test_client()
+        the_old_start()             # a big wardrobe (a coat, a cardigan): as every account started until 19 Nov 2026
         self.slot = next(s for s in db.list_slots() if s["category"] == "knit")
         self.sid = self.slot["id"]
 

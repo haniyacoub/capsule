@@ -75,7 +75,9 @@
         {{ row_product(c) }}
         <span class="buy-meta">{% if line.colour %}Colour: <span lang="de">{{ line.colour }}</span> · {% endif %}Size: <b>{{ line.size }}</b>{% if example_sizes %} (example size){% endif %}{% if line.qty > 1 %} · {{ line.qty }} × {{ line.unit_price|eur }}{% if line.spares %} ({{ line.spare_words }}){% endif %}{% endif %}</span>
         {{ row_cautions(line.cautions) }}
-        {% if line.said %}<span class="buy-note">{{ line.said }}</span>{% endif %}
+        {# How it was picked ("Nothing reaches 70 — this is the cheapest in your size"): "in the example size" while the
+           sizes are the example's, as the Wardrobe card says it (_wardrobe_body.html). #}
+        {% if line.said %}<span class="buy-note">{{ line.said|replace(' in your size', ' in the example size') if example_sizes else line.said }}</span>{% endif %}
       </div>
       {# Under the photo and the words, across the whole row. #}
       {% set link = line.url|weblink %}

@@ -351,13 +351,22 @@ if (reel) {
       const slide = entry.target;
       clearTimeout(slide.lookTimer);
       if (!entry.isIntersecting) return;
-      slide.lookTimer = setTimeout(() => {
+      // While a piece's pop-up is open (or any other dialog), the picture waits: he may be about to swap a piece,
+      // and a picture of the outfit as it was would be drawn (and paid for) for nothing. A swap made there would
+      // also find the picture's request still on its way. It is drawn once the dialog is closed, if the outfit is
+      // still on screen (leaving the screen clears the timer, above).
+      const draw = () => {
+        if (document.querySelector('dialog[open]')) {
+          slide.lookTimer = setTimeout(draw, 1200);
+          return;
+        }
         const ask = slide.querySelector('[data-auto-look]');
         if (ask) {
           ask.removeAttribute('data-auto-look');
           htmx.trigger(ask, 'draw');
         }
-      }, 1200);
+      };
+      slide.lookTimer = setTimeout(draw, 1200);
     });
   }, { root: reel, threshold: 0.6 });
   reel.querySelectorAll('[data-slide]').forEach((slide) => watcher.observe(slide));
@@ -510,9 +519,18 @@ document.addEventListener('change', async (e) => {
   send.disabled = false;
 });
 
-// 11. A button on a page that has gone out of date (the outfit changed meanwhile): reload.
+// 11. A button on a page that has gone out of date (the outfit changed meanwhile): reload. But not while the page
+//     is already on its way to another (a form sent, a link followed). A request sent just before, such as the
+//     picture an outfit asks for by itself (7), can come back "changed in the meantime" because of that very change,
+//     and a reload then would stop the change's own page (what changed, with its Undo) from arriving. Should the
+//     page stay after all (a download, say), a 409 reloads it again after a few seconds.
+let leaving = false;
+window.addEventListener('beforeunload', () => {
+  leaving = true;
+  setTimeout(() => { leaving = false; }, 4000);
+});
 document.body.addEventListener('htmx:responseError', (e) => {
-  if (e.detail.xhr.status === 409) window.location.reload();
+  if (e.detail.xhr.status === 409 && !leaving) window.location.reload();
 });
 
 // 12a. The messages over the outfits (what a change made from an outfit did, with its way back, which is one to four
@@ -533,7 +551,9 @@ if (told.length && document.getElementById('reel') && 'ResizeObserver' in window
 // 13. Profile: About you is one form, the model's choices included (the Body tab); the photo's forms are others, and
 //     sending one of those loads the page again. Changes made in About you and not yet saved would then be lost without
 //     a word, so the page asks first. "Changed" is measured against what the page was loaded with, field by field.
-//     "Draw my model" draws the saved choices, so while there are changes a line beside it says to save first.
+//     "Draw my model" draws the saved choices, so while there are changes a line beside it says to save first. So does
+//     "Start over from my profile" in the line a save says when it left a plan edited by hand as it is (base.html,
+//     .plan-kept): it plans from the answers saved, not from the ones changed since.
 const aboutYou = document.getElementById('about-you');
 if (aboutYou) {
   const changed = () => [...aboutYou.elements].some((field) => {
@@ -549,7 +569,7 @@ if (aboutYou) {
   document.addEventListener('submit', (e) => {
     // (A form that already asked its own question and was told no, like deleting the photo, is not sent anyway; nor is
     // one HTMX sends without loading the page, like "Draw my model".)
-    if (e.defaultPrevented || e.target === aboutYou || !e.target.closest('[data-cc]') || !changed()) return;
+    if (e.defaultPrevented || e.target === aboutYou || !e.target.closest('[data-cc], .plan-kept') || !changed()) return;
     if (!window.confirm("You changed your profile but didn't save it. Leave those changes unsaved?")) {
       e.preventDefault();
     }
@@ -635,7 +655,10 @@ if (profileCreator) {
     const name = tabOf(asked);
     if (!name) return;
     open(name);
-    const place = document.getElementById(asked) || card;
+    // A place that is hidden (#budget, the field for an amount of his own, until "Other amount" is chosen: 13e) is
+    // shown by what holds it: the budget choices.
+    const named = document.getElementById(asked);
+    const place = named && named.getClientRects().length ? named : (named && named.closest('fieldset')) || card;
     const box = place.getBoundingClientRect();
     if (box.top < 0 || box.top > window.innerHeight * 0.6) place.scrollIntoView({ block: 'start' });
   };
@@ -972,6 +995,37 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     words += ' A suggested style brief is below. It is not in use yet.';
   }
   chatHeard(words);
+});
+
+// 13e. The budget, chosen among five (Profile's Budget tab and the welcome: _macros.html, budget_pick). Typing an amount
+//      in the field chooses "Other amount": where the browser cannot hide the field until then (app.css), a number
+//      typed there is not left behind a preset that is still chosen, so what is saved is what he typed.
+document.querySelectorAll('.budget-pick').forEach((pick) => {
+  const other = pick.querySelector('[data-budget-other]');
+  const field = pick.querySelector('input[name=budget]');
+  if (!other || !field) return;
+  field.addEventListener('input', () => {
+    if (!other.checked) {
+      other.checked = true;
+      other.dispatchEvent(new Event('change', { bubbles: true }));     // (a change Profile's form notices: 13)
+    }
+  });
+  // Chosen, it opens the field (app.css), and "Other amount" and its field are brought on to the screen together:
+  // clear of what stays on it at the top (a phone's Profile tabs) and at the foot (Save), which the page's scroll
+  // padding measures (app.css). Down as far as the field needs, never so far that "Other amount" goes under the top;
+  // up where the browser, bringing the chosen button on to the screen, left it under there.
+  other.addEventListener('change', () => {
+    if (!other.checked) return;
+    requestAnimationFrame(() => {
+      const padding = getComputedStyle(document.documentElement);
+      const top = parseFloat(padding.scrollPaddingTop) || 0;
+      const foot = window.innerHeight - (parseFloat(padding.scrollPaddingBottom) || 0);
+      const row = other.closest('label').getBoundingClientRect().top - top;
+      const below = field.getBoundingClientRect().bottom - foot;
+      const by = row < 0 ? row : Math.min(Math.max(below, 0), row);
+      if (by) window.scrollBy(0, by);
+    });
+  });
 });
 
 // 14. Profile: the colours as swatches to tap. Once: a colour you like, numbered in the order you tapped it (1 counts

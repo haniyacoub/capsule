@@ -107,6 +107,7 @@ class TheBodyInWords(AppCase):
 
 
 class ThePicturesFollowTheBody(WithPictures, Saving):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def setUp(self):
         super().setUp()
         self.switch_on()

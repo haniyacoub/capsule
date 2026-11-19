@@ -8,6 +8,7 @@
 {% block summary %}{% endblock %}
 {% block notices %}{% endblock %}
 {% block main %}
+{% from "_macros.html" import budget_pick %}
 <section class="card welcome">
   <p class="welcome-step">Step {{ step }} of {{ steps|length }}</p>
   <h1>{{ steps[step] }}</h1>
@@ -31,10 +32,11 @@
         <input type="number" name="length" min="28" max="38" inputmode="numeric" placeholder="e.g. 32" value="{{ typed.length if given else (profile.length if sizes_given else '') }}"></label>
     </div>
     {% elif step == 2 %}
-    {# The budget first: on a phone it would otherwise be below all the colours, reached only by scrolling past them. #}
-    <label class="field"><span>Your budget for the whole wardrobe <small>(EUR, optional)</small></span>
-      <input type="number" name="budget" min="0" inputmode="numeric" placeholder="e.g. 1000" value="{{ profile.budget if 'budget' in answered else '' }}"></label>
-    <p class="muted small">Nothing is counted against it until you add an outfit to your wardrobe.</p>
+    {# The budget first: on a phone it would otherwise be below all the colours, reached only by scrolling past them.
+       The five choices of Profile's Budget tab (_macros.html, budget_pick): the counts are for what his profile says
+       he dresses for, which he answers in the next step. #}
+    {{ budget_pick(budget, 'Your budget for the whole wardrobe (optional)', '' if 'use' in answered else ': you choose what you dress for in the next step') }}
+    <p class="muted small">It sizes the wardrobe we plan for you. Nothing is counted against it until you add an outfit to your wardrobe.</p>
     <p class="muted">Tick the colours you like to wear. Your outfits are built around them, with neutral trousers and shoes.</p>
     <fieldset class="pick-colours">
       <legend class="sr">Colours you like</legend>

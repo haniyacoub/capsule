@@ -16,6 +16,7 @@ from unittest import mock
 from wardrobe import catalog, config, db, mock as demo, paths, selection, shared
 from wardrobe.app import create_app
 
+from .having import the_old_start
 from .test_production import ProductionCase, words
 
 PUBLISHED = "2026-11-11T17:55:27.180518+01:00"
@@ -151,7 +152,7 @@ class OnYourOwnMachine(unittest.TestCase):
         client = create_app().test_client()
         slots = db.list_slots()
         stores = {c["store"] for c in demo.build(slots)["candidates"]}
-        self.assertEqual(stores, {"cos", "weekday"})
+        self.assertEqual(stores, {"cos", "weekday", "otto"})
         for path in ["/", "/outfits", "/list", "/list.md", "/list.csv", *(f"/slot/{s['id']}" for s in slots)]:
             self.assertNotIn("zara", client.get(path).get_data(as_text=True).lower(), path)
 
@@ -188,6 +189,7 @@ class AccountsThatHadZara(ProductionCase):
         self.on_disk = self.listed.read_bytes()
         self.ada = self.member("ada@example.com")
         with db.as_user(self.user_id("ada@example.com")):
+            the_old_start()         # his plan as every account's was then: 24 pieces for 1,500 €, on Cheapest
             # What the list gave every customer before: each piece's products in all three stores ...
             collector = config.load("stores.toml")["collector"]
             had = [c for slot in db.list_slots() for c in shared.candidates_for(json.loads(self.on_disk), slot, collector)]
@@ -293,7 +295,7 @@ class AccountsThatHadZara(ProductionCase):
     def test_the_public_pages_name_the_stores_that_are_offered(self):
         visitor = self.app.test_client()
         home = words(visitor.get("/").get_data(as_text=True))
-        self.assertIn("picks the best-value real product for each from the high-street stores COS and Weekday,", home)
+        self.assertIn("picks real products for it from the high-street stores COS and Weekday wherever they sell the piece,", home)
         self.assertNotIn("invented examples", home, "with a published list the products are real ones")
         for path in ("/", "/legal/impressum", "/legal/privacy", "/legal/terms", "/signup", "/login"):
             text = visitor.get(path).get_data(as_text=True)

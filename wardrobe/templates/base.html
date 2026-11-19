@@ -61,8 +61,16 @@
        products by link came to inside that section of a piece's page (_slot_body.html), and what adding or saving a
        piece of the plan came to inside that piece (kind "plan:<its id>", slots.html). The line said after a change
        made from the model (kind "said") has its own look above the outfit. #}
+    {# "plan-kept": a save of new answers left a plan edited by hand as it is (app.py, save_answers). Said in one line,
+       with the button that plans it from the answers, as on the plan page (a form of its own: it cannot be inside the
+       Profile's form, and its own question asks first). #}
     {% for kind, message in get_flashed_messages(with_categories=true) if kind not in ('model', 'photo', 'import', 'style', 'style-bad', 'style-kept') and not kind.startswith('plan:') %}
+    {% if kind == 'plan-kept' %}
+    <div class="flash plan-kept" role="status"><span>{{ message }}</span>
+      <form method="post" action="{{ url_for('slots_repropose') }}" data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, locked choices and pieces marked as yours are lost. The pieces of the outfits you said yes to stay.">{{ csrf_field() }}<button class="link">Start over from my profile</button></form></div>
+    {% else %}
     <p class="flash{{ ' said' if kind == 'said' }}" role="status">{{ message }}</p>
+    {% endif %}
     {% endfor %}
     {% block main %}{% endblock %}
   </main>

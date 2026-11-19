@@ -64,6 +64,7 @@ class TheRowByKeyboard(AppCase):
 
 
 class TheDots(WithPictures, AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def setUp(self):
         super().setUp()
         self.switch_on()
@@ -84,7 +85,7 @@ class TheDots(WithPictures, AppCase):
             self.assertNotIn("title=", spot)
             self.assertIn(f'aria-label="{name}, {store.strip()}, {price.strip()}"', spot)
         self.assertEqual(len(re.findall(r'<a class="tile" href="[^"]+" title="', first)), len(spots))
-        self.assertTrue(re.search(r'aria-label="[^",]+, (COS|Weekday|Zara), [\d.,]+\s€"', first))
+        self.assertTrue(re.search(r'aria-label="[^",]+, (COS|Weekday|OTTO), [\d.,]+\s€"', first))
 
     def test_a_dot_on_a_piece_you_own_says_so(self):
         coat = next(s for s in selection.build().slots if s.garment.key == "coat")

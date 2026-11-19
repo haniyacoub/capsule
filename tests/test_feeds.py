@@ -243,7 +243,7 @@ class Schema(FeedCase):
             self.assertEqual(sorted(con.execute("SELECT * FROM settings").fetchall()),
                              sorted(rows_before["settings"] + [(2, "kept_pieces", "[]"), (2, "spares", "[]"),
                                                                (2, "wardrobe_news", "true")]))
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master")), after)
@@ -277,7 +277,7 @@ class Schema(FeedCase):
             self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
                              sorted([("table", "owners"), ("table", "saved_outfits")] + VERSION_7_ADDS))
             self.assertEqual({t: con.execute(f"SELECT * FROM {t}").fetchall() for t in rows_before}, rows_before)  # nosec
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM owners").fetchone()[0], 0, "nobody is an owner by itself")
 
     # Versions 9 and 10 were built side by side, each on a branch of its own, and each called itself version 9
@@ -301,12 +301,12 @@ class Schema(FeedCase):
         made = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
         return made, {t: sorted(con.execute(f"SELECT * FROM {t}").fetchall()) for t in self.tables(con)}  # nosec
 
-    def test_this_version_is_10_and_a_fresh_database_has_both_new_tables(self):
-        self.assertEqual(db.SCHEMA_VERSION, 10)
+    def test_this_version_is_11_and_a_fresh_database_has_both_new_tables(self):
+        self.assertEqual(db.SCHEMA_VERSION, 11)
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertLessEqual({"outfits_declined", "chat_requests"}, self.tables(con))
             self.assertIn("sig", [r[1] for r in con.execute("PRAGMA table_info(saved_outfits)")])
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
 
     def test_a_database_at_version_8_gains_the_wardrobe_and_the_chat(self):
         with closing(sqlite3.connect(paths.DB_PATH)) as con:        # today's database, as version 8 left it
@@ -321,7 +321,7 @@ class Schema(FeedCase):
             self.assertEqual(con.execute("SELECT key, sig FROM saved_outfits").fetchall(), [("abc", "white-tee~indigo-jeans")])
             self.assertEqual(sorted(con.execute("SELECT key, value FROM settings WHERE user_id = 2")),
                              [("kept_pieces", "[]"), ("mode", '"cheapest"'), ("spares", "[]"), ("wardrobe_news", "true")])
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
             after = self.everything(con)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
@@ -348,7 +348,7 @@ class Schema(FeedCase):
             self.assertEqual(rows_after.pop("chat_requests"), [])
             rows_after.pop("sqlite_sequence", None), rows.pop("sqlite_sequence", None)
             self.assertEqual(rows_after, rows, "every row is as it was")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
 
     def test_a_database_at_the_chats_version_9_gains_the_wardrobe_and_keeps_its_chat_messages(self):
         # The branch with the style chat ran this database: it has chat_requests, with a message counted in it, and
@@ -366,13 +366,13 @@ class Schema(FeedCase):
             self.assertEqual(con.execute("SELECT user_id, at FROM chat_requests").fetchall(), [(2, 1000.5)])
             self.assertEqual(sorted(con.execute("SELECT key, value FROM settings WHERE user_id = 2")),
                              [("kept_pieces", "[]"), ("mode", '"cheapest"'), ("spares", "[]"), ("wardrobe_news", "true")])
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
             after = self.everything(con)
         db.init()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(self.everything(con), after)
 
-    def test_a_database_at_version_10_is_left_as_it_is(self):
+    def test_a_database_at_version_11_is_left_as_it_is(self):
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.with_a_customer(con)
             con.execute("INSERT INTO saved_outfits VALUES (2, 'abc', 'x', 'Everyday', ?, 'white-tee~indigo-jeans')",
@@ -383,7 +383,44 @@ class Schema(FeedCase):
         db.init()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(self.everything(con), before)
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 10)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+
+    def test_a_database_at_version_10_decides_once_whether_each_older_plan_was_edited(self):
+        # Accounts from before the setting "plan_edited" have "slots_customised" instead (set by any change made by
+        # hand, a lock or a choice of a product too; cleared by "Start over"). Version 11 gives each of them
+        # "plan_edited", once: true where it cannot tell (a lock and an edit can no longer be told apart, or the value
+        # cannot be read), so that no plan is rebuilt without asking. An account with neither setting never changed
+        # a piece of its plan, and one that has "plan_edited" already keeps it.
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            con.executescript("""
+                INSERT INTO users (id, email, password_hash, created_at) VALUES
+                    (2, 'locked-or-edited@example.com', 'h', 'x'), (3, 'started-over@example.com', 'h', 'x'),
+                    (4, 'unreadable@example.com', 'h', 'x'), (5, 'never-changed@example.com', 'h', 'x'),
+                    (6, 'already-decided@example.com', 'h', 'x');
+                INSERT INTO settings VALUES (2, 'slots_customised', 'true'), (3, 'slots_customised', 'false'),
+                    (4, 'slots_customised', 'not json'), (5, 'mode', '"cheapest"'),
+                    (6, 'slots_customised', 'true'), (6, 'plan_edited', 'false');
+                INSERT INTO slots (user_id, id, position, name, category, colour) VALUES
+                    (2, 'white-tee', 0, 'My white tee', 'tee', 'white'), (5, 'white-tee', 0, 'White tee', 'tee', 'white');
+                PRAGMA user_version = 10;
+            """)
+            con.commit()
+            slots = con.execute("SELECT * FROM slots").fetchall()
+        db.init()
+
+        def decided() -> dict:
+            with closing(sqlite3.connect(paths.DB_PATH)) as con:
+                return dict(con.execute("SELECT user_id, value FROM settings WHERE key = 'plan_edited'").fetchall())
+
+        self.assertEqual(decided(), {2: "true", 3: "false", 4: "true", 6: "false"})
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+            self.assertEqual(con.execute("SELECT * FROM slots").fetchall(), slots, "no plan changes")
+            # Once: should "slots_customised" change after all, nothing is decided again.
+            con.execute("UPDATE settings SET value = 'false' WHERE user_id = 2 AND key = 'slots_customised'")
+            con.commit()
+        db.init()
+        self.assertEqual(decided(), {2: "true", 3: "false", 4: "true", 6: "false"})
 
 
 # ── reading the values ────────────────────────────────────────────────────────

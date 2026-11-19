@@ -37,7 +37,8 @@ LIST = [
     shaped("zara", "1000001", "Pullover aus Merinowolle", 39.95, "Grau", "knit"),
 ]
 PIECES = ("grey-merino-jumper", "white-tee", "indigo-jeans", "charcoal-wool-coat")
-# The Profile form as a first save sends it, the example's answers kept (StartsOnTheOutfits.EXAMPLE_FORM).
+# The Profile form as a first save sends it: the example's answers, with the 1,500 € every account started with until
+# 19 Nov 2026, so that the plan is the 24 pieces of 1,500 € (the coat among them: a budget sizes the plan).
 FORM = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
         "budget": "1500", "liked": "navy, grey, white, olive", "refused": "", "use": "both", "shoes": "on",
         "outerwear": "on", "owned": ""}

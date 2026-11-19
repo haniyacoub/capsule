@@ -1,7 +1,7 @@
 """Your details: sizes, budget, colours, what the wardrobe is for."""
 from __future__ import annotations
 
-from . import colours, db, programmes
+from . import capsule, colours, db, programmes
 from .sizes import ALPHA
 
 USES = {"everyday": "Everyday", "office": "Office", "both": "Both"}
@@ -10,7 +10,10 @@ USES = {"everyday": "Everyday", "office": "Office", "both": "Both"}
 # model's menu, shown where AI pictures are on (and on your own machine).
 TABS = {"you": "You", "body": "Body", "sizes": "Sizes", "colours": "Colours", "budget": "Budget", "stores": "Stores"}
 
-# Shown until you save your own details on the Profile page.
+# What a new account starts with (onboarding.ensure_setup), shown until he saves his own details on the Profile page.
+# Its budget plans his first wardrobe (config/budget.toml: 9 pieces for everyday and the office) until he gives his
+# own: a budget he skips in the welcome stays this one, as the figure the plan is made for, and is not "his" budget
+# (budget_known). The visitors' example wardrobe has its own budget (guests.example_budget).
 EXAMPLE = {
     "example": True,
     "top_size": "M",
@@ -21,7 +24,7 @@ EXAMPLE = {
     "weight_kg": 78,
     "chest_cm": None,      # optional: lets the size check use each store's chart
     "waist_cm": None,      # optional: your body waist, not your jeans size
-    "budget": 1500,        # EUR, for the whole wardrobe
+    "budget": 300,         # EUR, for the whole wardrobe: "Basic" (config/budget.toml, [presets])
     "liked": ["navy", "grey", "white", "olive"],
     "refused": [],
     "use": "both",         # everyday | office | both
@@ -153,6 +156,19 @@ def budget_known(profile: dict | None = None) -> bool:
 NOT_A_BUDGET = "A budget has to be more than 0 €, so what you typed was not saved as your budget."
 
 
+def budget_sent(form) -> str | None:
+    """What a form says the budget is, as the text of an amount: the amount of the budget chosen among the presets
+    (`budget_choice`, config/budget.toml), else what was typed in the field `budget`, with "Other amount" chosen or in
+    a form without the choices (an older page, the welcome's answers read again, app.as_sent). An empty text: the
+    field was emptied, so no budget. None: the form has no budget at all (no choice, no field)."""
+    choice = str(form.get("budget_choice") or "")
+    amounts = {str(amount) for amount in capsule.presets().values()}
+    if choice in amounts:
+        return choice       # a preset: whatever the field below it still holds is not what he chose
+    typed = form.get("budget")
+    return None if typed is None and not choice else str(typed or "")
+
+
 def given_budget(value) -> int | None:
     """The budget typed into a field, in whole euros, or None when the field holds no budget: nothing, a word, or
     0. (A budget of 0 € cannot be meant: every outfit would be "over" it. An empty field means no budget.)"""
@@ -191,7 +207,8 @@ def from_form(form, current: dict) -> tuple[dict, list[str]]:
         names = ", ".join(colours.get(k).label.lower() for k in clash)
         notes.append(f"You both like and refuse {names} — treated as refused.")
         liked = [k for k in liked if k not in refused]
-    if str(form.get("budget") or "").strip() and given_budget(form.get("budget")) is None:
+    budget = budget_sent(form) or ""        # a preset chosen, or the amount typed (with "Other amount" chosen)
+    if budget.strip() and given_budget(budget) is None:
         notes.append(NOT_A_BUDGET)      # "0", or not a number: the budget he had stays (below)
 
     top = str(form.get("top_size", "")).upper()
@@ -215,7 +232,7 @@ def from_form(form, current: dict) -> tuple[dict, list[str]]:
         "weight_kg": _int(form.get("weight_kg"), current["weight_kg"], 40, 200),
         "chest_cm": _optional_cm(form.get("chest_cm"), 70, 150),
         "waist_cm": _optional_cm(form.get("waist_cm"), 55, 150),
-        "budget": given_budget(form.get("budget")) or current["budget"],
+        "budget": given_budget(budget) or current["budget"],
         "liked": liked,
         "refused": refused,
         "use": form.get("use") if form.get("use") in USES else current["use"],

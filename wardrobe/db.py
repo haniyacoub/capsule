@@ -30,7 +30,7 @@ from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 LOCAL_USER_ID = 1
 
 # SQLite 3.51.0 and 3.51.1 can deadlock when threads of one process open and close connections at the same moment,
@@ -265,6 +265,10 @@ CREATE INDEX IF NOT EXISTS chat_requests_at ON chat_requests (at);
 """
 
 
+# Version 11 adds no table: it decides the setting "plan_edited" once for the accounts from before it, from the
+# setting they had instead ("slots_customised"): see _plan_edited_from_before.
+
+
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -370,6 +374,8 @@ def _migrate() -> None:
         for statement in SCHEMA_CHAT.split(";"):       # new in version 10, safe to repeat
             if statement.strip():
                 con.execute(statement)
+        if version < 11:                               # once, as the settings it reads are never written again
+            _plan_edited_from_before(con)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
@@ -417,6 +423,30 @@ def _wardrobe_from_yes(con: sqlite3.Connection) -> None:
         level = con.execute("SELECT value FROM settings WHERE user_id = ? AND key = 'mode'", (user_id,)).fetchone()
         if level and level[0] == json.dumps("budget"):
             con.execute(put, (user_id, "budget_as_before", json.dumps(True)))
+
+
+def _plan_edited_from_before(con: sqlite3.Connection) -> None:
+    """Version 11: every account from before the setting "plan_edited" gets it, decided once from the one setting
+    such an account has instead, "slots_customised". That was set by any change made by hand (a piece added,
+    renamed, recoloured or removed, and also a product locked or chosen) and cleared by "Start over from my profile".
+    Until now it was worked out on the account's next Profile save, by comparing his plan with the plan his answers
+    propose (capsule.propose). Since the plan follows the budget (config/budget.toml) that comparison can no longer
+    tell an old plan apart from an edited one, so it is decided here, and a plan is never rebuilt without asking:
+      * "slots_customised" false: the plan is the one proposed and was not changed since: not edited.
+      * true: edited, or only a product locked or chosen, which can no longer be told apart: counted as edited.
+        So is a value that cannot be read. (The plan stays; "Start over from my profile" rebuilds it.)
+      * An account with neither setting is left as it is, not edited: every change of a piece wrote one of the two.
+    """
+    put = ("INSERT INTO settings (user_id, key, value) VALUES (?, ?, ?) "
+           "ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value")
+    before = con.execute("SELECT user_id, value FROM settings WHERE key = 'slots_customised' AND user_id NOT IN "
+                         "(SELECT user_id FROM settings WHERE key = 'plan_edited')").fetchall()
+    for user_id, value in before:
+        try:
+            customised = json.loads(value)
+        except (TypeError, ValueError):
+            customised = None                          # cannot be read: cannot tell
+        con.execute(put, (user_id, "plan_edited", json.dumps(customised is not False)))
 
 
 def _copy_before_accounts(con: sqlite3.Connection) -> None:

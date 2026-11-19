@@ -77,6 +77,7 @@ class TheNextBest(unittest.TestCase):
 
 
 class SoldOutCase(AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def setUp(self):
         super().setUp()
         db.set_setting("sizes_confirmed", True)         # "These are my sizes" (the example's are told apart below)

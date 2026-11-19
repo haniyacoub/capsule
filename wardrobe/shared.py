@@ -27,7 +27,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from . import capsule, catalog, colours, config, db, paths, programmes, settings
+from . import capsule, catalog, colours, config, db, mock, paths, programmes, settings
 from . import profile as profile_mod
 from .collect import matching, pages
 
@@ -79,7 +79,9 @@ _in_list: tuple[dict, frozenset] | None = None      # (the published list, the s
 def stocked() -> list[str]:
     """The stores Stilsmith has products from, in config/stores.toml's order: those the collector reads (their
     category pages are listed there), and any other store with products in the published list (on your own
-    machine: among what was collected for your pieces). The other stores offered have no products yet: a customer
+    machine: among what was collected for your pieces). While no list is published, every customer's products are
+    the demo's (mock.py), so its stores count too: OTTO's demo products are no "No products yet" store's. The other
+    stores offered have no products yet: a customer
     can paste a product link from them on a piece's page, and that is all. Profile's Stores tab shows them apart,
     one of them cannot be his only store (profile.py), and the public pages name only the stores listed here."""
     global _in_list
@@ -90,6 +92,8 @@ def stocked() -> list[str]:
             if _in_list is None or _in_list[0] is not pool:     # worked out once per published list: it is asked often
                 _in_list = (pool, frozenset(p.get("store") for p in pool.get("products", [])))
             found |= _in_list[1]
+        if not (pool and pool.get("products")):     # no list published: every customer has the demo's products
+            found |= set(mock.STORE_HOME)
     else:
         found |= {c.get("store") for c in catalog.stored().get("candidates", []) if c.get("source") != "manual"}
     return [key for key in programmes.offered() if key in found]

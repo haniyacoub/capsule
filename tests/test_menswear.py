@@ -20,6 +20,8 @@ from wardrobe.app import SAVED_PAGE, create_app
 from wardrobe.collect import generic, manual
 from wardrobe.feeds import awin_csv, google, rows, tradedoubler
 
+from .having import the_old_start
+
 PAGES = Path(__file__).parent / "fixtures" / "pages"
 FEEDS = Path(__file__).parent / "fixtures" / "feeds"
 
@@ -302,6 +304,7 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
             path.unlink(missing_ok=True)
         catalog._cache = None
         self.client = create_app().test_client()
+        the_old_start()             # a big wardrobe (a coat): as every account started until 19 Nov 2026
         self.slot = next(s for s in db.list_slots() if s["category"] == "shirt")
         self.sid = self.slot["id"]
         catalog.update(catalog.start_collected)     # real data, not the demo's: the invented demo items are gone

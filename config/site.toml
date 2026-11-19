@@ -12,9 +12,19 @@
 #                   stored. The landing page then offers "Explore outfits".
 #  guests = false   Outfits needs an account again, as before.
 #
-#  Edits here apply on the next page load. Only the public site (production)
-#  has guests: on your own machine there is no login, and nothing changes.
-#  The site's own lock (SITE_PASSWORD, or Cloudflare Access) still comes first.
+#  Edits to `guests` apply on the next page load. Only the public site
+#  (production) has guests: on your own machine there is no login, and nothing
+#  changes. The site's own lock (SITE_PASSWORD, or Cloudflare Access) still
+#  comes first.
 # ══════════════════════════════════════════════════════════════════════════════
 
 guests = true
+
+# The budget the visitors' example wardrobe is planned for, in €: everyday and
+# the office, fitted to it at "Best for budget" (visitors never see its prices).
+# It is the example's own: a new account still starts at 300 € (Basic).
+# Changing it replans the example at the next start of the server, so its
+# outfits change: their AI pictures must then be drawn again
+# (python -m wardrobe example-pictures), as the old ones show other outfits.
+# (An outfit of the very same products as one drawn before keeps its picture.)
+example_budget = 600

@@ -119,6 +119,7 @@ class YesCase(AppCase):
 
 
 class BeforeAnyYes(YesCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def test_his_wardrobe_is_empty_and_every_page_says_so_and_leads_to_the_outfits(self):
         w = selection.build()
         self.assertTrue(w.slots, "the plan has pieces: outfits are made from them")
@@ -249,6 +250,7 @@ class BeforeAnyYes(YesCase):
 
 
 class SayingYes(YesCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def test_a_yes_puts_the_outfits_pieces_into_his_wardrobe_and_nothing_else(self):
         outfit = outfits.find_by_sig(selection.build(), self.offered()[0])
         said = yes.adds(selection.build(), outfit)
@@ -440,6 +442,7 @@ class SayingYes(YesCase):
 
 
 class NotForMe(YesCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def test_a_no_is_not_offered_again_and_can_be_undone(self):
         shown = self.offered()
         outfit = outfits.find_by_sig(selection.build(), shown[0])
@@ -1020,6 +1023,7 @@ class WhereHeGoesOnAfterAYes(YesCase):
     """After a yes the page comes back on the next outfit in line, never back at the first: the outfits that stood
     in front of the one he answered keep their places, and behind them come the others, those that reuse most of
     what he now has first."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
 
     def keys(self, page: str) -> list[str]:
         return re.findall(r'<article class="slide" id="outfit-(\w+)"', page)
@@ -1354,6 +1358,7 @@ class PiecesOnTheirOwnAccount(YesCase):
 class WhoWasACustomerBefore(YesCase):
     """Version 9 of the database. What a customer had becomes a truthful start: his saved outfits are outfits he
     said yes to, the pieces he chose by hand are in his wardrobe, nothing is deleted, and the pages say so once."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
 
     def version_8(self):
         """Today's database as version 8 left it: no `sig` on a saved outfit, no table for the no's, and none of
@@ -1667,7 +1672,9 @@ class TheWelcome(ProductionCase):
         form = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
                 "liked": "navy, white", "refused": "", "use": "both", "shoes": "on", "outerwear": "on", "owned": ""}
         self.post(ada, "/profile", **form, budget="900")
-        self.assertIn("To have no budget, empty the field and save.", read(ada.get("/profile").data.decode()))
+        # (The field is the one "Other amount" opens, among the budget's five choices.)
+        self.assertIn("To have no budget, choose “Other amount”, empty its field and save.",
+                      read(ada.get("/profile").data.decode()))
         saved = self.post(ada, "/profile", **form, budget="")
         self.assertNotIn("budget", self.answered())
         with db.as_user(self.user_id("ada@example.com")):
@@ -1710,7 +1717,10 @@ class TheWelcome(ProductionCase):
         for url in ("/welcome", "/welcome/2", "/welcome/3"):
             page = ada.get(url).data.decode()
             self.assertNotIn('id="summary"', page, url)
-            self.assertNotIn("€", read(page), url)
+            # No price and no total: the only amounts are the budgets he may choose (and where a kind joins).
+            choices = re.search(r'<fieldset class="budget-pick".*?</fieldset>', page, re.S)
+            self.assertEqual(bool(choices), url == "/welcome/2", url)
+            self.assertNotIn("€", read(page.replace(choices.group(0), "") if choices else page), url)
             self.assertIn(">Skip</button>", page, url)
         self.assertEqual(ada.get("/welcome/4").status_code, 404)
         self.assertEqual(ada.post("/welcome/3", data={"use": "office"}).status_code, 400, "no token")

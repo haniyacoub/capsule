@@ -271,6 +271,7 @@ class SavedOutfits(AppCase):
 
 class ShoppingList(AppCase):
     def test_grouped_by_store_with_subtotals_that_add_up(self):
+        having.the_old_start()          # a big wardrobe (a coat): as every account started until 19 Nov 2026
         having.the_whole_plan()         # every piece is in his wardrobe, the white tee with its spare
         coat = next(s for s in selection.build().slots if s.garment.key == "coat")
         self.client.post(f"/slot/{coat.slot['id']}/own", headers=HX)
@@ -280,7 +281,7 @@ class ShoppingList(AppCase):
 
         # In the order config/stores.toml lists the stores customers are offered.
         self.assertEqual([g.key for g in sl.groups], [k for k in programmes.offered() if k in {g.key for g in sl.groups}])
-        self.assertEqual([g.key for g in sl.groups], ["cos", "weekday"], "the demo data has products of both")
+        self.assertEqual([g.key for g in sl.groups], ["cos", "weekday", "otto"], "the demo data has products of all three")
         self.assertAlmostEqual(sum(g.subtotal for g in sl.groups), w.total, places=2)
         self.assertEqual(sl.pieces, w.n_buy)
         self.assertEqual(sl.owned, [coat.slot["name"]])

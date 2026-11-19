@@ -16,7 +16,8 @@ from html import unescape
 from pathlib import Path
 from unittest import mock
 
-from wardrobe import catalog, config, db, guests, mail, paths, selection, settings, shared
+from wardrobe import capsule, catalog, config, db, guests, mail, paths, selection, settings, shared
+from wardrobe import profile as profile_mod
 from wardrobe.collect.browser import Session
 from wardrobe.app import create_app, eur
 
@@ -197,7 +198,13 @@ class PublicSite(ProductionCase):
         # Menswear only, said in the headline, the page's title and the first step.
         self.assertIn("A small menswear wardrobe where everything goes with everything.", text)
         self.assertIn("<title>Stilsmith — menswear: a small wardrobe that works together</title>", page)
-        self.assertIn("Stilsmith plans 15 to 20 menswear pieces that all go together", text)
+        # The size of the wardrobe follows the budget (config/budget.toml), and that is all it promises of the budget:
+        # on the stores' real prices a small budget may not buy what it plans (test_budget.py).
+        self.assertIn("Stilsmith plans menswear pieces that all go together, as many as your budget sets (up to 24), "
+                      "and you can change any of them.", text)
+        self.assertIn("plans a men's wardrobe in one colour palette, sized to your budget (up to 24 pieces),", text)
+        self.assertIn("or let Stilsmith fit everything to your budget, and say so where even the cheapest options "
+                      "cost more.", text)
         # How the wardrobe comes about is said as it works: it is the outfits he says yes to (test_yes.py).
         self.assertIn("Say yes to the outfits you like", text)
         self.assertIn("Your wardrobe is the pieces of the outfits you say yes to, and each outfit says what it would "
@@ -211,15 +218,15 @@ class PublicSite(ProductionCase):
         # Nothing is published here, so every customer gets the invented demo products: the page says so, in the
         # words of the "Demo data" line inside, and promises no real product from a named store
         # (test_programmes.py has the page with a published list).
-        self.assertIn("picks a product for each and shows you every outfit they make. For now the products are "
+        self.assertIn("picks a product for each and shows you the outfits they make. For now the products are "
                       "invented examples, not real products, prices or stock.", text)
         self.assertNotIn("real product for each", text)
         for store in ("COS", "Weekday"):
             self.assertNotIn(store, text)
         self.assertNotIn("/mock/img", page)
         self.assertNotIn("<img", page)
-        self.assertEqual(description(page), "Plan a men's wardrobe where everything goes with everything: "
-                                            "about 18 pieces fitted to your budget. Free.")
+        self.assertEqual(description(page), "Plan a men's wardrobe where everything goes with everything, sized to "
+                                            "your budget: up to 24 pieces. Free.")
         self.assertNotIn("model", text + description(page))
         self.assertEqual(description(self.app.test_client().get("/login").get_data(as_text=True)), "",
                          "the description belongs to the landing page")
@@ -335,7 +342,8 @@ class Accounts(ProductionCase):
         self.assertIn(b"Minimum quality", page.data)
         self.assertIn(b"Demo data", page.data)
         with db.as_user(self.user_id("ada@example.com")):
-            self.assertTrue(15 <= len(db.list_slots()) <= 20)
+            self.assertEqual(sum(s["qty"] for s in db.list_slots()), 9, "what the example's 300 € buy")
+            self.assertEqual(db.get_setting("mode"), "budget", "a new account starts on Best for budget")
         stored = db.get_user_by_email("ADA@example.com")          # addresses are case-insensitive
         self.assertNotIn(PASSWORD, stored["password_hash"])
         self.assertTrue(stored["password_hash"].startswith(("scrypt:", "pbkdf2:")))
@@ -632,14 +640,18 @@ class OutfitsIsHome(ProductionCase):
                       rebuilt, "what the customer typed is shown as text, the link as a link")
         self.assertNotIn("<b>lucky</b>", rebuilt)
 
-        # A plan changed on the plan page is not rebuilt without asking; the message leads to the plan.
+        # A plan changed on the plan page is not rebuilt without asking; the line says so, with the button that plans
+        # it from these answers (the plan page has the same one).
         self.post(ada, f"/slots/{first['id']}/save", name="My own name", category=first["category"],
                   colour=first["colour"], qty=str(first["qty"]))
         self.post(ada, "/profile", **{**form, "liked": "navy, grey", "owned": ""})
         kept = ada.get("/profile").data.decode()
-        self.assertIn('To rebuild it from these answers, use “Start over from my profile” on '
-                      '<a href="/slots">the plan page</a>.', kept)
-        self.assertIn("Start over from my profile</button>", ada.get("/slots").data.decode(), "the button it names")
+        line = re.search(r'<div class="flash plan-kept" role="status">.*?</div>', kept, re.S).group(0)
+        self.assertIn("<span>Profile saved. Your plan stays as you edited it.</span>", line)
+        self.assertIn('<form method="post" action="/slots/repropose" data-confirm="Start over from your profile?', line)
+        self.assertIn('<button class="link">Start over from my profile</button>', line)
+        self.assertIn('name="csrf_token"', line, "a form of its own, with the page's token")
+        self.assertIn("Start over from my profile</button>", ada.get("/slots").data.decode())
         for page in (rebuilt, kept):
             for gone in self.GONE:
                 self.assertNotIn(gone, page)
@@ -652,7 +664,7 @@ class StartsWithAWelcome(ProductionCase):
     what a yes to an outfit does, is tested in test_yes.py.)"""
 
     EXAMPLE_FORM = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
-                    "budget": "1500", "liked": "navy, grey, white, olive", "refused": "", "use": "both", "shoes": "on",
+                    "budget": "300", "liked": "navy, grey, white, olive", "refused": "", "use": "both", "shoes": "on",
                     "outerwear": "on", "owned": ""}
 
     @staticmethod
@@ -708,7 +720,11 @@ class StartsWithAWelcome(ProductionCase):
         saved = self.post(ada, "/profile", **{**self.EXAMPLE_FORM, "budget": "900"})     # the budget alone, changed
         self.assertEqual(saved.headers["Location"], "/outfits")
         page = ada.get("/outfits").data.decode()
-        self.assertIn('<p class="flash" role="status">Profile saved.</p>', page)
+        # The budget sizes the plan (config/budget.toml): his is planned afresh for it, and the outfits show it.
+        pieces = capsule.pieces_at({**profile_mod.EXAMPLE, "budget": 900}, 900)
+        self.assertIn(f'<p class="flash" role="status">Your plan now has {pieces} pieces in your colours.</p>', page)
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual(sum(s["qty"] for s in db.list_slots()), pieces)
         self.assertIn("Your wardrobe: nothing yet", page, "a budget alone puts nothing into his wardrobe")
         # With a piece in his wardrobe the bar counts it against the budget he gave.
         with db.as_user(self.user_id("ada@example.com")):
@@ -726,8 +742,9 @@ class StartsWithAWelcome(ProductionCase):
         self.assertEqual(said, [
             "You have not given your sizes yet. These are the sizes we start with; change them to yours and save.",
             "You have not chosen colours yet. Until you do, your outfits start from navy, grey, white, olive.",
-            "You have not set a budget yet. With one, the bar at the top counts the pieces of the outfits you said "
-            "yes to against it, and an outfit that would take you over it says so before you add it."])
+            "You have not set a budget yet. Until you do, a plan made from your profile is sized for 300 €. With a "
+            "budget, the bar at the top counts the pieces of the outfits you said yes to against it, and an outfit "
+            "that would take you over it says so before you add it."])
         budget = re.search(r'<input [^>]*name="budget"[^>]*>', page).group(0)
         self.assertIn('value=""', budget, "the budget field is empty until he gives one")
         # "These are my sizes" on Buy this outfit or the shopping list: the line about the sizes goes.
@@ -1349,6 +1366,8 @@ class SharedStoreCatalogue(ProductionCase):
         ada = self.member("ada@example.com")
         with db.as_user(self.user_id("ada@example.com")):
             having.the_whole_plan()         # the Wardrobe page shows the pieces of her wardrobe: here, all of the plan
+            # (She starts on Best for budget, where her 300 € buy COS's jumper; on Cheapest it is Weekday's.)
+            db.set_setting("mode", "cheapest")
         page = ada.get("/").data
         self.assertNotIn(b"Demo data", page)
         self.assertIn(b"Jumper, merino wool", page, "the real product, by its name in English (english.py)")
@@ -1472,30 +1491,39 @@ class SharedStoreCatalogue(ProductionCase):
                             outerwear="on", owned="")
         self.assertEqual(rebuilt.headers["Location"], "/outfits")
 
-    def test_one_tap_on_an_older_account_still_lets_new_answers_rebuild_the_plan(self):
+    def test_an_older_account_whose_plan_cannot_be_told_apart_is_never_rebuilt_without_asking(self):
         # Accounts from before the "plan_edited" setting have "slots_customised" instead, set by any lock, choice or
-        # owned mark, and their answer is worked out from whether the plan is still the profile's own. The tap
-        # recolours a piece, so it is worked out before the tap: after it the two would differ.
+        # edit made by hand. The start that brings the database to version 11 (db.py) decides it for them once: where
+        # it cannot tell a lock from an edit, the plan counts as edited. A tap on the Wardrobe ("Use navy") is still
+        # no edit; new answers leave the plan as it is and say so; "Start over from my profile" rebuilds it.
         ada = self.black_and_white()
         with db.as_user(self.user_id("ada@example.com")):
             with db.connect() as con:
                 con.execute("DELETE FROM settings WHERE user_id = ? AND key = 'plan_edited'", (db.uid(),))
+                con.execute("PRAGMA user_version = 10")
             db.set_setting("slots_customised", True)
-            self.assertIsNone(db.get_setting("plan_edited"), "an account from before plan_edited")
             # None of the plan is in his wardrobe (a piece that is stays through a rebuild: test_yes.py).
             db.set_setting("kept_pieces", [])
+        db.init()                                           # the next start: version 11
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertIs(db.get_setting("plan_edited"), True, "it cannot tell a lock from an edit")
         self.assertEqual(self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy").status_code, 200)
         with db.as_user(self.user_id("ada@example.com")):
             self.assertEqual(db.get_slot("black-merino-jumper")["colour"], "navy")
-        rebuilt = self.post(ada, "/profile", top_size="M", waist="32", length="32", shoe="43", height_cm="180",
-                            weight_kg="75", budget="1500", liked="navy, grey", refused="", use="both", shoes="on",
-                            outerwear="on", owned="")
-        self.assertEqual(rebuilt.headers["Location"], "/outfits", "new answers still rebuild the plan")
-        self.assertNotIn("Your plan stays as you edited it", ada.get("/outfits").get_data(as_text=True))
+            before = db.list_slots()
+        answers = dict(top_size="M", waist="32", length="32", shoe="43", height_cm="180", weight_kg="75",
+                       budget="1500", liked="navy, grey", refused="", use="both", shoes="on", outerwear="on", owned="")
+        stays = self.post(ada, "/profile", **answers)
+        self.assertTrue(stays.headers["Location"].endswith("/profile"), "new answers leave it as it is")
+        self.assertIn("Your plan stays as you edited it", ada.get("/profile").get_data(as_text=True))
         with db.as_user(self.user_id("ada@example.com")):
-            self.assertIs(db.get_setting("plan_edited"), False, "the tap was no edit of the plan")
+            self.assertEqual(db.list_slots(), before)
+        self.post(ada, "/slots/repropose")                  # Start over from my profile
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertIs(db.get_setting("plan_edited"), False)
             self.assertIn("navy", {s["colour"] for s in db.list_slots()})
-            self.assertNotIn("black", {s["colour"] for s in db.list_slots()}, "the plan follows the new colours")
+            self.assertNotIn("black", {s["colour"] for s in db.list_slots() if s["category"] != "jeans"},
+                             "the plan follows the new colours (black jeans are a classic, liked or not)")
 
     # Jeans for a jeans piece in the operator's plan: denim's blues all match one another (collect/matching.py).
     DENIM = [product("weekday", "j1", "Jeans Straight Fit", 39.95, "Blau", slot_id="denim", sizes_all=[], sizes_in_stock=[]),
@@ -1513,7 +1541,7 @@ class SharedStoreCatalogue(ProductionCase):
         not for the jeans the plan has, nor through a "Use …" offer on jeans the list has nothing for. A piece he keeps
         or adds in navy himself is another matter: it keeps its navy options."""
         self.publish(extra=self.DENIM, slots=[self.DENIM_SLOT])
-        form = self.ANSWERS
+        form = {**self.ANSWERS, "budget": "1000"}         # plans with one pair of jeans (1,500 € buys black ones too)
 
         def jeans(email) -> dict:
             """Each jeans piece of the plan: its options' ids, and the products each colour offered for it reaches."""

@@ -131,6 +131,12 @@ python -m wardrobe example-pictures --yes                # draws the rest of the
 - Running it again draws only what is still missing.
 - It refuses, with one line saying why, while AI pictures are off, and on your
   own machine, which has no example wardrobe.
+- The example wardrobe is planned for its own budget, `example_budget` in
+  `config/site.toml` (600 €: everyday and the office, at "Best for budget").
+  Changing it replans the example at the next start, so its outfits change:
+  run this command again, as the pictures drawn before show other outfits.
+  (An outfit of the very same products as one drawn before keeps its picture:
+  a picture is named by the outfit's whole description.)
 
 ## What is in place
 
