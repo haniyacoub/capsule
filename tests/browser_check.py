@@ -3837,8 +3837,9 @@ def run(base: str) -> None:
                 [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
             empty_of = """() => [...document.querySelectorAll('.store-empty input[name=stores][data-empty]')].map(box =>
                 [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
-            six = [["tom-tailor", True, "Tom Tailor"], ["otto", True, "OTTO"], ["hirmer", True, "Hirmer"],
-                   ["breuninger", True, "Breuninger"], ["blue-tomato", True, "Blue Tomato"], ["bergfreunde", True, "Bergfreunde"]]
+            # (OTTO has products in the demo since 18 Nov: it is among the stores with products here.)
+            five = [["tom-tailor", True, "Tom Tailor"], ["hirmer", True, "Hirmer"], ["breuninger", True, "Breuninger"],
+                    ["blue-tomato", True, "Blue Tomato"], ["bergfreunde", True, "Bergfreunde"]]
             context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
             try:
                 phone = context.new_page()
@@ -3852,16 +3853,17 @@ def run(base: str) -> None:
                 assert "Weekday" in phone.locator("main").inner_text(), "the starter shopping list has nothing from Weekday"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
-                assert phone.evaluate(stores_of) == [["cos", True, "COS"], ["weekday", True, "Weekday"]], phone.evaluate(stores_of)
+                assert phone.evaluate(stores_of) == [["cos", True, "COS"], ["weekday", True, "Weekday"], ["otto", True, "OTTO"]], \
+                    phone.evaluate(stores_of)
                 # No programme has accepted Stilsmith yet: nothing on the tab calls a store a partner, as the page's
                 # foot says ("Not affiliated with any retailer").
                 assert "partner" not in phone.locator("#panel-stores").inner_text().lower(), \
                     "the Stores tab calls a store a partner before any programme has accepted Stilsmith"
                 rows = phone.locator(".store-row").evaluate_all("rs => rs.map(r => r.getBoundingClientRect().height)")
                 assert all(h >= 48 for h in rows), f"a store's row is under 48px to tap: {rows}"
-                # The six stores with no products yet: apart, under a line that says what they are for, below the
+                # The five stores with no products yet: apart, under a line that says what they are for, below the
                 # stores with products, each a row to tick. Unticking one is no matter.
-                assert phone.evaluate(empty_of) == six, f"the stores with no products yet: {phone.evaluate(empty_of)}"
+                assert phone.evaluate(empty_of) == five, f"the stores with no products yet: {phone.evaluate(empty_of)}"
                 apart = phone.evaluate("""() => { const head = document.getElementById('stores-empty').getBoundingClientRect();
                     const rows = [...document.querySelectorAll('.store-row')].map(r => [r.querySelector('input').hasAttribute('data-empty'), r.getBoundingClientRect().top]);
                     return {words: document.getElementById('stores-empty').textContent.trim(),
@@ -3874,7 +3876,9 @@ def run(base: str) -> None:
                 phone.get_by_role("checkbox", name="Hirmer").tap()
                 phone.get_by_role("checkbox", name="Weekday", exact=True).tap()
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
-                # The last store with products cannot be unticked, however many of the six are ticked.
+                phone.get_by_role("checkbox", name="OTTO", exact=True).tap()
+                expect(phone.locator("[data-store-said]")).to_be_hidden()
+                # The last store with products cannot be unticked, however many of the five are ticked.
                 phone.get_by_role("checkbox", name="COS", exact=True).tap()
                 expect(phone.get_by_role("checkbox", name="COS", exact=True)).to_be_checked()
                 said = "At least one store with products must stay ticked: your pieces need a store to come from."
@@ -3896,11 +3900,14 @@ def run(base: str) -> None:
                 expect(told, "the line about the pieces picked again").to_be_in_viewport()
                 for path in ("/outfits", "/", "/list"):
                     phone.goto(base + path, wait_until="networkidle")
-                    assert "weekday" not in phone.locator("main").inner_text().lower(), f"{path} still shows Weekday"
-                    assert not phone.locator("main a[href*='weekday']").count(), f"{path} still links to Weekday"
+                    for store in ("weekday", "otto"):       # (as a word: "bottom" is no OTTO)
+                        assert not re.search(rf"\b{store}\b", phone.locator("main").inner_text().lower()), \
+                            f"{path} still shows {store}"
+                        assert not phone.locator(f"main a[href*='{store}']").count(), f"{path} still links to {store}"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
-                assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False], "the unticked store is not kept"
+                assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False, False], "the unticked stores are not kept"
                 phone.get_by_role("checkbox", name="Weekday", exact=True).tap()
+                phone.get_by_role("checkbox", name="OTTO", exact=True).tap()
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/profile#stores")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
@@ -3941,7 +3948,7 @@ def run(base: str) -> None:
                 plain.click("button:has-text('Log in')")
                 plain.wait_for_load_state("networkidle")
                 plain.goto(base + "/profile", wait_until="networkidle")
-                # (Only the two with products are unticked: the six with none yet, left ticked, are not enough.)
+                # (Only the three with products are unticked: the five with none yet, left ticked, are not enough.)
                 for box in plain.locator("input[name=stores]:not([data-empty])").all():
                     box.uncheck()
                 plain.click("button:has-text('Save profile')")
@@ -4168,6 +4175,7 @@ def run(base: str) -> None:
             assert worn and len(stay) == len(worn), f"a piece of the outfit he said yes to left the plan: {sorted(worn)} / {sorted(stay)}"
             old = [name for name in names if name.startswith(("Navy ", "Olive ")) and name not in stay]
             assert not old, f"the old colours are still planned: {old}"
+            counted = None
             if any(name.startswith(("Navy ", "Olive ", "Indigo ", "Stone ", "Dark brown ")) for name in stay):
                 counted = re.search(r"Your plan now has (\d+) pieces? in your colours\. (?:Kept [^.]+\. )?The (\d+) pieces? of your "
                                     r"wardrobe that the new plan has no place for (?:was kept as it was|were kept as they were): "
@@ -4179,8 +4187,13 @@ def run(base: str) -> None:
                 assert fresh + kept == in_all == planned, f"the message counts a piece twice or not at all ({planned} in the plan): {said!r}"
             page.goto(base + "/", wait_until="networkidle")
             lock = page.locator(f"#lock-{swapped['slot']}")
-            if lock.count():            # the new plan has the swapped piece: its product and lock stay
-                assert "Kept your 1 hand-picked piece" in said, f"the message does not count the kept piece: {said!r}"
+            if lock.count():            # the swapped piece is still planned: its product and lock stay
+                if swapped["slot"] in worn and "Kept your 1 hand-picked piece" not in said:
+                    # One of the outfit he said yes to that the new plan has no place for: it stayed as it was, and the
+                    # message counts it among those (above).
+                    assert counted, f"the swapped piece stayed with his outfit, and the message does not say so: {said!r}"
+                else:           # the new plan has the same garment in the same colour: the swap is kept in it
+                    assert "Kept your 1 hand-picked piece" in said, f"the message does not count the kept piece: {said!r}"
                 assert lock.get_attribute("aria-pressed") == "true", "the kept piece is no longer locked"
                 card = page.locator(f"#card-{swapped['slot']} .row-product [lang]").inner_text()   # its name, in one language
                 assert swapped["product"] in card, f"the kept piece shows {card!r}, not {swapped['product']!r}"
@@ -4314,6 +4327,17 @@ def run(base: str) -> None:
                         f"{where}: he answered the welcome, and Profile says he has not: {view.locator('main .not-given').all_inner_texts()}"
                     given = [view.input_value("select[name=top_size]"), view.input_value("input[name=shoe]"), view.input_value("#budget")]
                     assert given == ["L", "44", "700"], f"{where}: the welcome's answers on Profile: {given}"
+                    # His plan is sized for his budget (config/budget.toml): on its cheapest options it fits, so at the
+                    # level he starts on no outfit could take him over it. He picks "Expensive" (three quarters of the
+                    # way up each piece's prices), where one can: what an outfit says of going over is checked below.
+                    view.goto(base + "/", wait_until="networkidle")
+                    view.locator("label:has(input[name=mode][value=expensive])").click()
+                    if script:
+                        view.wait_for_load_state("networkidle")
+                    else:
+                        tap("#controls button:has-text('Apply')")
+                    view.reload(wait_until="networkidle")
+                    assert view.locator("input[name=mode][value=expensive]").is_checked(), f"{where}: 'Expensive' was not chosen"
 
                     # Yes to the first outfit.
                     view.goto(base + "/outfits", wait_until="networkidle")
@@ -4432,7 +4456,12 @@ def run(base: str) -> None:
                             f"{where}: the page came back scrolled, and the line with Undo is off the screen ({line})"
                         assert seen["keyboard"] == "nothing", f"{where}: after a tap the keyboard is on {seen['keyboard']}"
                     if docked:
-                        assert seen["in_bar"] and max(seen["yes"][1], seen["no"][1]) <= seen["floor"], \
+                        # (Its "Not for me" only where it adds something: an outfit of pieces that are all his already
+                        # has none, review N6, and such an outfit can be next in line after a yes.)
+                        if seen["no"] is None:
+                            assert set(seen["pieces"]) <= his, f"{where}: no 'Not for me' under an outfit that adds something: {seen}"
+                        reach = [seen["yes"][1]] + ([seen["no"][1]] if seen["no"] else [])
+                        assert seen["in_bar"] and max(reach) <= seen["floor"], \
                             f"{where}: after a yes the next outfit's answers are not in reach above the tab bar: {seen}"
                     assert chip() == "My outfits 2", f"{where}: after two yeses the chip says {chip()!r}"
                     cards = in_wardrobe()
@@ -5965,11 +5994,12 @@ def run(base: str) -> None:
                 view.click("button:has-text('Log in')")
                 view.wait_for_url(base + "/outfits")
 
-            def bought(view) -> dict[str, tuple[str, int, float]]:
+            def bought(view) -> dict[str, tuple[tuple[str, str], int, float]]:
                 """What his pieces are picked as now, read from the shopping list's CSV file: for each piece its
-                product, how many of it, and what they cost together."""
+                product (its link and its name: the demo's products of one store share a link, their store's home
+                page), how many of it, and what they cost together."""
                 text = view.request.get(base + "/list.csv").text().lstrip("﻿")
-                return {row["slot"]: (row["link"] or row["product"], int(row["quantity"]), float(row["total_eur"]))
+                return {row["slot"]: ((row["link"], row["product"]), int(row["quantity"]), float(row["total_eur"]))
                         for row in csv.DictReader(io.StringIO(text))}
 
             def change(before: dict, after: dict, what: str, none: str) -> str:
@@ -6194,20 +6224,23 @@ def run(base: str) -> None:
                 heard_it = wide.locator("#announce").text_content() or ""
                 assert "I understood no leather" in heard_it, f"the second answer is not read out: {heard_it!r}"
                 wide.fill("#style-chat .chat-say textarea", "")
-                # He confirms "no leather". Every pair of shoes and sneakers the example plan can take is leather, so
-                # they stay, and the page says that they still go against the brief. No outfit with them is said to fit
-                # it, and every outfit has shoes: no line at all, where the same brief without the wish had lines.
+                # He confirms "no leather". Every pair of shoes, sneakers and boots the example plan can take is
+                # leather, so they stay leather, and the page says that they still go against the brief. (With every
+                # option of a pair against the brief, his style no longer chooses among them (style.narrowed): the
+                # price level does, as without a brief, so a pair can move to another leather pair, and the page's
+                # sentence says so.) No outfit with them is said to fit it, and every outfit has shoes: no line at
+                # all, where the same brief without the wish had lines.
                 assert wide.input_value("[data-brief=suggested] input[name=not_wanted]") == "logo, leather", "the suggestion"
                 before = bought(wide)
                 with wide.expect_navigation(wait_until="networkidle"):
                     wide.click("button:has-text('Use this brief')")
                 after = bought(wide)
                 sentence = said_on_screen(wide, "Style brief saved.", "/outfits", "Use this brief with no leather")
-                shoes = {piece: product for piece, (product, _, _) in after.items() if "sneakers" in piece or "shoes" in piece or "loafers" in piece}
-                assert len(shoes) == 2 and all(before[piece][0] == product for piece, product in shoes.items()), \
-                    f"no leather changed the shoes to other shoes: {[(before[piece][0], product) for piece, product in shoes.items()]}"
+                shoes = [piece for piece in after if any(kind in piece for kind in ("sneakers", "shoes", "loafers", "boots"))]
+                assert len(shoes) == 3, f"his wardrobe's pairs: {shoes}"
                 expected = (f"Style brief saved. {change(before, after, 'Your brief', 'It changed none of your pieces.')} "
-                            "2 pieces still go against it: White leather sneakers, Dark brown derby shoes. See your outfits")
+                            "3 pieces still go against it: White leather sneakers, Dark brown derby shoes, "
+                            "Dark brown chelsea boots. See your outfits")
                 assert sentence == expected, f"after Use this brief with no leather the page says {sentence!r}, not {expected!r}"
                 wide.goto(base + "/outfits", wait_until="networkidle")
                 lines = wide.evaluate(whys)
