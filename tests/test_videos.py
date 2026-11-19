@@ -325,9 +325,19 @@ class SeeItMove(WithVideos, AppCase):
         self.assertNotIn("data-play", self.part(outfit, again, ask="1"), "the new picture has no video yet")
 
     def test_without_a_gemini_key_or_with_videos_off_there_is_no_trace(self):
+        # The pictures stay on without Google's key only where OpenAI draws them, chosen by name in config/looks.toml:
+        # there, the videos still need Google's key, and without it nothing of them shows beside the picture.
+        rules = looks.load_rules()
+        openai = {**rules, "service": {**rules["service"], "use": "openai"}}
+        for patch in (mock.patch.object(looks, "load_rules", lambda: openai),
+                      mock.patch.object(settings, "OPENAI_API_KEY", "o-key")):
+            patch.start()
+            self.addCleanup(patch.stop)
         outfit, look = self.picture()
         with mock.patch.object(settings, "GEMINI_API_KEY", ""):
-            self.assertNotIn("look-vid", self.client.get("/outfits").data.decode())
+            page = self.client.get("/outfits").data.decode()
+            self.assertIn(f'src="/looks/{look.file}"', page, "the picture is there, drawn by OpenAI")
+            self.assertNotIn("look-vid", page)
             self.assertEqual(self.client.get("/outfits/video", query_string={"look": look.key}).status_code, 404)
             self.assertEqual(self.post("/outfits/video", look=look.key).status_code, 404)
             self.assertNotIn("videos", said(self.client.get("/profile").data.decode()))

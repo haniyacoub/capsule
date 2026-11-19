@@ -11,9 +11,10 @@
 # service on every push; the "tunnel" service has not been run by anyone yet.
 
 # What Docker keeps of what each container prints (its log): files of at most 1 MB, and at most 3 of them; when the
-# newest is full, a new one is started and the oldest is deleted. So at most about 3 MB per container. A restart keeps the log; it goes with the
-# container when the container is replaced (as `up -d --build` does after the code has changed). What the app's lines
-# hold: PRODUCTION.md, "Logs".
+# newest is full, a new one is started and the oldest is deleted. So at most about 3 MB per container: for the app, about
+# a week of its health checks alone, less with visitors. A restart keeps the log; it goes with the container when the
+# container is replaced (as `up -d --build` does after the code has changed). What the app's lines hold, and how long
+# they stay: PRODUCTION.md, "Logs".
 x-logs: &logs
   driver: json-file
   options:

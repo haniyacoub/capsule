@@ -128,12 +128,17 @@ On the server (`deploy/compose.yaml`) Docker keeps what each container prints:
 
 **How long.** Docker writes each container's log into files of at most 1 MB
 and keeps at most three of them: when the newest is full, a new one is started
-and the oldest is deleted. So at most about 3 MB per container. A restart keeps
-the log; replacing the container (`up -d --build` after the code has changed)
-deletes it. Docker deletes by size, not by age, so how many days that is depends
-on how busy the site is: one access line takes 250 to 300 bytes as Docker stores
-it, so 3 MB is roughly 10,000 requests. To read them:
-`docker compose -f deploy/compose.yaml logs app`.
+and the oldest is deleted. So at most about 3 MB per container. Docker deletes by
+size, not by age, but the app's log fills even with no visitor at all: while the
+container runs, Docker's health check (Dockerfile) asks `/healthz` every 30
+seconds, and each answer is an access line of about 150 bytes as Docker stores
+it, about 420 KB a day. So the app's 3 MB are full after about a week at the
+most, and no line of it, an error's included, is kept longer than that; with
+visitors (250 to 300 bytes a request) it is sooner. A restart keeps the log;
+replacing the container (`up -d --build` after the code has changed) deletes
+it, and a stopped container keeps it as it is until it runs again or is
+removed. The tunnel writes few lines at its default level, so its log can stay
+for a long time. To read them: `docker compose -f deploy/compose.yaml logs app`.
 
 **Also kept, in the data folder** (on the volume, so it outlives the
 container): `looks/problems.log`, one line for each AI picture or
@@ -340,8 +345,10 @@ These block a launch, and most are yours rather than code:
      a data-processing agreement with it, and a lawyer's look at the consent
      wording (the box in the app is a starting point, not legal text). Until
      then, set `photos = false`.
-   - *Labelling.* Every picture is captioned "AI picture". Have it checked
-     whether that meets the EU's transparency rules for AI-generated images.
+   - *Labelling.* Every AI picture says so: "AI picture" on the large ones,
+     "AI" on the small ones under an outfit (a screen reader hears "…, AI
+     picture"), and "AI video" on the videos. Have it checked whether that
+     meets the EU's transparency rules for AI-generated images.
    - *The first real picture.* The connection to OpenAI and Google is written
      from their documentation and has been run only up to the point where a
      key is needed. Run `python -m wardrobe looks --test` with your key before
