@@ -1615,7 +1615,7 @@ details[open] > summary .edit { visibility: hidden; }
 .hero { padding: var(--s-5) 0 0; text-align: center; }
 .hero h1 { font: var(--w-strong) expanded var(--t-3xl)/var(--lh-3xl) var(--display); letter-spacing: -.01em; font-synthesis: none; max-width: 16em; margin: 0 auto; text-wrap: balance; }
 .hero-lead { font-size: var(--t-l); line-height: var(--lh-l); max-width: 34em; margin: var(--s-5) auto 0; text-wrap: pretty; }
-.hero-lead span { white-space: nowrap; }            /* "best-value", "high-street": never split at the hyphen */
+.hero-lead span { white-space: nowrap; }            /* "real products", "high-street": never split */
 .hero-cta { margin: var(--s-5) 0 0; }
 .hero-cta .btn { width: 100%; max-width: 440px; }   /* the page's one main action: full width on phones */
 .hero-note { color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); max-width: 44em; margin: var(--s-3) auto 0; text-wrap: pretty; }

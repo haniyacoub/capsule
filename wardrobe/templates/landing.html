@@ -6,7 +6,7 @@
    is promised of the budget: on the stores' real prices a small budget may not buy the pieces it plans, and the app
    says so there ("Best for budget"). #}
 {% block head %}
-  <meta name="description" content="Plan a men's wardrobe where everything goes with everything, sized to your budget: up to {{ most }} pieces{% if looks_on %}, every outfit shown on a model{% endif %}. Free.">
+  <meta name="description" content="Plan a men's wardrobe where everything goes with everything, sized to your budget: up to {{ most }} pieces{% if looks_on %}, outfits shown on a model{% endif %}. Free.">
 {% endblock %}
 {% block main %}
 <section class="hero">
@@ -14,9 +14,9 @@
   {# `real`: the service has a published product list (shared.published). Without one its products are the invented
      demo ones, and this says so in the words of the "Demo data" line inside: no real product, no store named. #}
   {% if real %}
-  <p class="hero-lead">{{ site_name }} plans a men's wardrobe in one colour palette, sized to your budget (up to {{ most }} pieces), picks the <span>best-value</span> real product for each from the <span>high-street</span> stores {{ store_names(stocked_stores()) }}, and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}.</p>
+  <p class="hero-lead">{{ site_name }} plans a men's wardrobe in one colour palette, sized to your budget (up to {{ most }} pieces), picks <span>real products</span> for it from the <span>high-street</span> stores {{ store_names(stocked_stores()) }} wherever they sell the piece, and shows you the outfits they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}.</p>
   {% else %}
-  <p class="hero-lead">{{ site_name }} plans a men's wardrobe in one colour palette, sized to your budget (up to {{ most }} pieces), picks a product for each and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}. For now the products are invented examples, not real products, prices or stock.</p>
+  <p class="hero-lead">{{ site_name }} plans a men's wardrobe in one colour palette, sized to your budget (up to {{ most }} pieces), picks a product for each and shows you the outfits they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}. For now the products are invented examples, not real products, prices or stock.</p>
   {% endif %}
   {# `explore`: a visitor may look through the outfits of an example wardrobe without an account (guests.py,
      config/site.toml): that is the main button, and creating an account the second, beside it. #}

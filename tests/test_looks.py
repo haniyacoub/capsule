@@ -2974,13 +2974,13 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         # drawn, and "you" as the model only while customers may upload a photo of themselves.
         visitor = self.app.test_client()
         page = visitor.get("/").get_data(as_text=True)
-        self.assertIn("every outfit they make, worn by a model — or by you.", words(page))
+        self.assertIn("the outfits they make, worn by a model — or by you.", words(page))
         self.assertIn("See the outfits one at a time, each drawn by AI on a model.", words(page))    # the second step
         self.assertIn("price level", words(page))
-        self.assertIn("every outfit shown on a model", description(page))
+        self.assertIn("outfits shown on a model", description(page))
         self.with_rules(photos=False)
         page = visitor.get("/").get_data(as_text=True)
-        self.assertIn("every outfit they make, worn by a model.", words(page))
+        self.assertIn("the outfits they make, worn by a model.", words(page))
         self.assertNotIn("by you", words(page))
 
         def broken():
@@ -2991,7 +2991,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
                 response = visitor.get("/")
             page = response.get_data(as_text=True)
             self.assertEqual(response.status_code, 200)
-            self.assertIn("every outfit they make.", words(page))
+            self.assertIn("the outfits they make.", words(page))
             self.assertNotIn("model", words(page) + description(page))
             self.assertNotIn("by you", words(page))
 

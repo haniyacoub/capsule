@@ -295,7 +295,7 @@ class AccountsThatHadZara(ProductionCase):
     def test_the_public_pages_name_the_stores_that_are_offered(self):
         visitor = self.app.test_client()
         home = words(visitor.get("/").get_data(as_text=True))
-        self.assertIn("picks the best-value real product for each from the high-street stores COS and Weekday,", home)
+        self.assertIn("picks real products for it from the high-street stores COS and Weekday wherever they sell the piece,", home)
         self.assertNotIn("invented examples", home, "with a published list the products are real ones")
         for path in ("/", "/legal/impressum", "/legal/privacy", "/legal/terms", "/signup", "/login"):
             text = visitor.get(path).get_data(as_text=True)

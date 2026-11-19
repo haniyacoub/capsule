@@ -218,7 +218,7 @@ class PublicSite(ProductionCase):
         # Nothing is published here, so every customer gets the invented demo products: the page says so, in the
         # words of the "Demo data" line inside, and promises no real product from a named store
         # (test_programmes.py has the page with a published list).
-        self.assertIn("picks a product for each and shows you every outfit they make. For now the products are "
+        self.assertIn("picks a product for each and shows you the outfits they make. For now the products are "
                       "invented examples, not real products, prices or stock.", text)
         self.assertNotIn("real product for each", text)
         for store in ("COS", "Weekday"):
