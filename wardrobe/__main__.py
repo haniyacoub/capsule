@@ -12,6 +12,7 @@
     python -m wardrobe looks --test-video     make one "See it move" video from that set (--video-model NAME tries another model)
     python -m wardrobe example-pictures       what drawing the example wardrobe's pictures (what visitors see) would cost
     python -m wardrobe example-pictures --yes ... and draw them (billed; --sample 3: only three; --max-cost 1.00)
+    python -m wardrobe example-pictures --clips 3     ... and the clips of its first three outfits (--yes to make them)
     python -m wardrobe chat                   is the style chat switched on?
     python -m wardrobe chat --test "WORDS"    send one message to Google's text model (costs about a tenth of a cent)
     python -m wardrobe stores [sync | end KEY]    the stores whose feeds Stilsmith may use (config/feeds.toml)
@@ -260,7 +261,11 @@ EXAMPLE_PICTURES = (
     "price_each_usd in config/looks.toml (an estimate); without --yes it stops there. Each picture is billed to the "
     "image service's key. It is the owner's, run by hand where the site runs (deploy/README.md): it is not counted "
     "in the day's picture limits, it never runs by itself, and a visitor never causes a drawing. Running it again "
-    "draws only what is still missing."
+    "draws only what is still missing. "
+    "With --clips K it also makes a 5-second clip of each of the first K outfits, from its front picture (the movement "
+    "is example under [videos.motion] in config/looks.toml), which visitors see in place of the picture, muted and "
+    "looping: in the same estimate (price_per_second_usd under [videos]), under the same --max-cost and --yes, outside "
+    "the day's video limits, and again only what is missing. It refuses while AI videos are off."
 )
 
 
@@ -294,34 +299,47 @@ def _usd(amount: Decimal) -> str:
 
 
 def example_pictures(args: argparse.Namespace) -> None:
-    """The owner's command (EXAMPLE_PICTURES): what drawing the example wardrobe's pictures would cost and, with
-    --yes, drawing them one at a time, each waited for. guests.py has the example wardrobe and the visitor's order,
-    looks.draw_front_now the drawing."""
-    from . import db, guests, looks, selection, settings, yes
+    """The owner's command (EXAMPLE_PICTURES): what drawing the example wardrobe's pictures (and, with --clips, making
+    the clips of its first outfits) would cost and, with --yes, doing it one at a time, each waited for: the pictures
+    first, as each clip is made from its outfit's picture. guests.py has the example wardrobe and the visitor's order,
+    looks.draw_front_now the drawing, videos.make_example_now the clips."""
+    from . import db, guests, looks, selection, settings, videos, yes
     from .config import ConfigError
 
+    clips = args.clips or 0
+    nothing = "Nothing was drawn or made" if clips else "Nothing was drawn"
     if not settings.PRODUCTION:
         sys.exit("There is no example wardrobe on your own machine: it is for the visitors of the public site. "
                  "Run this where the site runs (deploy/README.md).")
     try:
         on, line = looks.status()
         price = looks.price_each()
+        videos_on, video_line = videos.status() if clips else (False, "")
+        clip, per_second = (videos.example(), videos.price_per_second()) if clips else (None, None)
     except ConfigError as mistake:
-        sys.exit(f"Nothing was drawn: {mistake}")
+        sys.exit(f"{nothing}: {mistake}")
     if not on:
-        sys.exit(f"Nothing was drawn: AI pictures are {line}.")
+        sys.exit(f"{nothing}: AI pictures are {line}.")
     if price is None:
-        sys.exit("Nothing was drawn: the estimate needs price_each_usd under [pictures] in config/looks.toml.")
+        sys.exit(f"{nothing}: the estimate needs price_each_usd under [pictures] in config/looks.toml.")
+    if clips and not videos_on:
+        sys.exit(f"{nothing}: AI videos are {video_line}.")
+    if clips and clip is None:
+        sys.exit(f"{nothing}: the clips need their movement, example under [videos.motion] in config/looks.toml.")
+    if clips and per_second is None:
+        sys.exit(f"{nothing}: the estimate needs price_per_second_usd under [videos] in config/looks.toml.")
     db.init()
     example = db.internal_account(guests.EXAMPLE_EMAIL)     # (not guests.example_id: that is the site's process)
     if example is None:
         sys.exit("There is no example wardrobe here yet: the site makes it when it starts, and its start-up lines "
-                 "say if it could not. Nothing was drawn.")
+                 f"say if it could not. {nothing}.")
 
+    outfits_wanted = max(args.outfits, clips)               # a clip is made from its outfit's picture
     with db.as_user(example):
         reading = db.set_read_only(True)     # read as a visitor's page reads the example: nothing can be written
         try:
-            first = guests.first_outfits(selection.build(), args.outfits)
+            w = selection.build()
+            first = guests.first_outfits(w, outfits_wanted)
         finally:
             db.reset_read_only(reading)
         states = []                          # for each: there | working (being drawn already) | missing
@@ -334,8 +352,29 @@ def example_pictures(args: argparse.Namespace) -> None:
         wanted = missing[:args.sample] if args.sample else missing
         cost = price * len(wanted)
 
+        # The clips: of the first K outfits in the order a visitor will see them once the pictures this run draws are
+        # there (those with a picture come first, guests.row), each made from that outfit's picture. Worked out now,
+        # so that the estimate counts exactly the clips that may be made, and never fewer.
+        to_make: list[tuple[int, dict]] = []
+        clip_states: list[str] = []          # for each of the first K: there | working | missing | no picture
+        if clips:
+            pictured = {board["key"] for (_, board), state in zip(first, states) if state == "there"}
+            pictured |= {board["key"] for _, board in wanted}
+            reading = db.set_read_only(True)
+            try:
+                after = guests.first_outfits(w, outfits_wanted, pictured=lambda board: board["key"] in pictured)
+            finally:
+                db.reset_read_only(reading)
+            for number, (_, board) in enumerate(after[:clips], 1):
+                state = videos.example_state(board) if board["key"] in pictured else "no picture"
+                clip_states.append(state)
+                if state == "missing":
+                    to_make.append((number, board))
+        each_clip = (per_second or Decimal(0)) * videos.EXAMPLE_SECONDS
+        clip_cost = each_clip * len(to_make)
+
         print(f"AI pictures: {line}", flush=True)
-        if len(first) < args.outfits:
+        if len(first) < outfits_wanted:
             print(f"The example wardrobe: all its {len(first)} outfits, as a visitor sees them (it has no more).")
         else:
             print(f"The example wardrobe: its first {len(first)} outfits, as a visitor sees them.")
@@ -345,24 +384,51 @@ def example_pictures(args: argparse.Namespace) -> None:
             print(f"{busy} {'is' if busy == 1 else 'are'} being drawn already: left alone.")
         if not wanted:
             print("Nothing to draw.")
-            return
-        each = f"{len(wanted)} {'picture' if len(wanted) == 1 else 'pictures'} at ${price}, price_each_usd in config/looks.toml"
-        if len(wanted) < len(missing):
-            print(f"{len(missing)} missing; --sample {args.sample} draws the first {len(wanted)} of them: "
-                  f"about {_usd(cost)} ({each}).")
         else:
-            print(f"{len(wanted)} to draw: about {_usd(cost)} ({each}).")
-        if cost > args.max_cost:
+            each = (f"{len(wanted)} {'picture' if len(wanted) == 1 else 'pictures'} at ${price}, price_each_usd in "
+                    "config/looks.toml")
+            if len(wanted) < len(missing):
+                print(f"{len(missing)} missing; --sample {args.sample} draws the first {len(wanted)} of them: "
+                      f"about {_usd(cost)} ({each}).")
+            else:
+                print(f"{len(wanted)} to draw: about {_usd(cost)} ({each}).")
+        if clips:
+            shown = len(clip_states)
+            print(f"AI videos: {video_line}")
+            print(f"Clips of the first {shown} {'outfit' if shown == 1 else 'outfits'}: "
+                  f"{clip_states.count('ready')} already there.")
+            if "working" in clip_states:
+                busy = clip_states.count("working")
+                print(f"{busy} {'is' if busy == 1 else 'are'} being made already: left alone.")
+            if "no picture" in clip_states:
+                print(f"{clip_states.count('no picture')} will have no picture to make one from: left out.")
+            if not to_make:
+                print("No clip to make.")
+            else:
+                print(f"{len(to_make)} {'clip' if len(to_make) == 1 else 'clips'} to make: about {_usd(clip_cost)} "
+                      f"({_clips(len(to_make), per_second)}, price_per_second_usd in config/looks.toml).")
+            if wanted and to_make:
+                print(f"In all: about {_usd(cost + clip_cost)}.")
+        if not wanted and not to_make:
+            return
+        if cost + clip_cost > args.max_cost:
+            if clips:
+                sys.exit(f"That is more than --max-cost ({_usd(args.max_cost)}), so {nothing.lower()}. Ask for "
+                         "fewer with --sample or --clips, or allow more with --max-cost.")
             sys.exit(f"That is more than --max-cost ({_usd(args.max_cost)}), so nothing was drawn. "
                      "Draw fewer with --sample, or allow more with --max-cost.")
         if not args.yes:
-            print("Nothing was drawn. To draw them, run this again with --yes.")
+            if clips:
+                print(f"{nothing}. To go ahead, run this again with --yes.")
+            else:
+                print("Nothing was drawn. To draw them, run this again with --yes.")
             return
         if not guests.door_open():
             print("Note: visitors cannot look around at the moment (guests = false in config/site.toml).")
 
-        print(f"Drawing {len(wanted)}, one at a time (each takes up to a minute):", flush=True)
         drawn = failed = billed = 0
+        if wanted:
+            print(f"Drawing {len(wanted)}, one at a time (each takes up to a minute):", flush=True)
         for done, (number, board) in enumerate(wanted, 1):
             if looks.held_off():         # the image service's last answer would only come again for the next ones
                 print(f"Stopped: the other {len(wanted) - done + 1} were not sent. Run this again once that is put "
@@ -388,13 +454,66 @@ def example_pictures(args: argparse.Namespace) -> None:
                                                                              else "")) if problem else "not sent"
                 print(f"{said} failed. {why}", flush=True)
 
-    print(f"Done: {drawn} drawn" + (f", {failed} failed" if failed else "") + ".")
-    print(f"Spent, by this command's estimate: about {_usd(price * billed)} ({billed} "
-          f"{'picture' if billed == 1 else 'pictures'} at ${price}"
-          + (", counting those that failed after reaching the image service: it may bill them" if billed > drawn
-             else "") + ").")
-    if drawn and guests.door_open():
-        print("Visitors see the new pictures from their next page load.")
+        made = clips_failed = clips_billed = 0
+        if to_make:
+            print(f"Making {len(to_make)} {'clip' if len(to_make) == 1 else 'clips'}, one at a time (each takes up to "
+                  "two minutes):", flush=True)
+        for done, (number, board) in enumerate(to_make, 1):
+            said = f"  {done}/{len(to_make)}  #{number}, the {yes.name(board['pieces'])}:"
+            now = {"key": board["key"], "pieces": board["pieces"]}       # its picture as it is now, drawn or not
+            looks.attach([now])
+            front = now["photos"][0].look if now.get("photos") else None
+            if front is None or front.status != "ready" or not front.file:
+                print(f"{said} its picture is not there, so no clip: nothing sent", flush=True)
+                continue
+            started = time.time()
+            try:
+                result, problem = videos.make_example_now(front)
+            except ValueError as refusal:
+                sys.exit(str(refusal))
+            if result == "ready":
+                made += 1
+                clips_billed += 1
+                print(f"{said} ready ({time.time() - started:.0f} seconds)", flush=True)
+            elif result != "failed":
+                print(f"{said} {'there already' if result == 'there' else 'being made already'}, nothing sent",
+                      flush=True)
+            else:
+                clips_failed += 1
+                clips_billed += 0 if problem is None or problem.free else 1
+                why = (videos.SAY.get(problem.kind, videos.SAY["unknown"]) + (f" {problem.detail}" if problem.detail
+                                                                               else "")) if problem else "not sent"
+                print(f"{said} failed. {why}", flush=True)
+                if problem is not None and (problem.kind in looks.OPERATORS or problem.kind == "busy"):
+                    if done < len(to_make):     # the next ones would only get the same answer
+                        print(f"Stopped: the other {len(to_make) - done} were not sent. Run this again once that is "
+                              "put right: it makes only what is missing.")
+                    break
+
+    if wanted:
+        print(f"Done: {drawn} drawn" + (f", {failed} failed" if failed else "") + ".")
+        print(f"Spent, by this command's estimate: about {_usd(price * billed)} ({billed} "
+              f"{'picture' if billed == 1 else 'pictures'} at ${price}"
+              + (", counting those that failed after reaching the image service: it may bill them" if billed > drawn
+                 else "") + ").")
+    if to_make:
+        print(f"Clips done: {made} made" + (f", {clips_failed} failed" if clips_failed else "") + ".")
+        print(f"Spent on clips, by this command's estimate: about {_usd(each_clip * clips_billed)} "
+              f"({_clips(clips_billed, per_second)}"
+              + (", counting those that failed after reaching Google: it may bill them" if clips_billed > made
+                 else "") + ").")
+    if (drawn or made) and guests.door_open():
+        print("Visitors see the new " + ("pictures and clips" if drawn and made else "pictures" if drawn else "clips")
+              + " from their next page load.")
+
+
+def _clips(n: int, per_second: Decimal | None) -> str:
+    """'3 clips of 5 seconds at $0.10 a second', for the estimate and what was spent: the price as config/looks.toml
+    has it, with cents (0.1 is $0.10; 0.075 stays $0.075)."""
+    from .videos import EXAMPLE_SECONDS
+    price = per_second or Decimal(0)
+    cents = price.quantize(Decimal("0.01")) if price == price.quantize(Decimal("0.01")) else price
+    return f"{n} {'clip' if n == 1 else 'clips'} of {EXAMPLE_SECONDS} seconds at ${cents} a second"
 
 
 def rebuild_mock(args: argparse.Namespace) -> None:
@@ -462,10 +581,14 @@ def main(argv: list[str] | None = None) -> None:
                                 f"{2 * PAGE}: also those after one \"Show more outfits\"; at most {MOST})")
     p_example.add_argument("--sample", type=_whole(1, MOST), metavar="K",
                            help="draw only the first K of those still missing, to look at them first")
+    p_example.add_argument("--clips", type=_whole(1, MOST), metavar="K",
+                           help="also make the 5-second clip of each of the first K outfits, from its picture, which "
+                                "visitors see in place of the picture (billed by the second; needs AI videos on)")
     p_example.add_argument("--max-cost", type=_dollars, default=Decimal("1.00"), metavar="USD",
-                           help="draw nothing if the estimate is above this, in US dollars (default 1.00)")
+                           help="draw and make nothing if the estimate is above this, in US dollars (default 1.00)")
     p_example.add_argument("--yes", action="store_true",
-                           help="draw them; without it, it only says what it would draw and what that would cost")
+                           help="draw them (and make the clips); without it, it only says what it would do and what "
+                                "that would cost")
     p_example.set_defaults(func=example_pictures)
 
     p_chat = sub.add_parser("chat", help="is the style chat switched on? (--test sends one message)")

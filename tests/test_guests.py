@@ -26,7 +26,8 @@ from wardrobe.app import PUBLIC, create_app
 from wardrobe.config import ConfigError
 
 from .test_looks import PICTURE, WithPictures, photo_jpeg, some_outfits
-from .test_production import HX, PASSWORD, ProductionCase, words
+from .test_production import HX, PASSWORD, ProductionCase, description, words
+from .test_videos import CLIP, WithVideos
 from .test_programmes import PUBLISHED, STORES, shaped
 
 # Two of each for the pieces of the example's plans, the dearer at COS: enough for many outfits at its price level,
@@ -81,6 +82,25 @@ def slides(page: str) -> list[str]:
     return re.findall(r'<article class="slide" id="outfit-\w+".*?</article>', page, re.S)
 
 
+def hint_of(outfit: str) -> str | None:
+    """The words of an outfit's hint, as HTML (None where it has none)."""
+    found = re.search(r'<div class="hint" role="note">\s*<p>(.*?)</p>', outfit, re.S)
+    return unescape(found.group(1)) if found else None
+
+
+def owner_command(*args) -> tuple[str, str]:
+    """python -m wardrobe example-pictures, run as the owner does on the server: in a process of its own, where the
+    site's start-up never ran (so guests.example_id knows of no example there). Returns (what it printed, the line it
+    refused with, or "")."""
+    said = StringIO()
+    with mock.patch.object(guests, "_ready", False), redirect_stdout(said):
+        try:
+            main(["example-pictures", *args])
+        except SystemExit as stop:
+            return said.getvalue(), str(stop.code or "")
+    return said.getvalue(), ""
+
+
 class GuestCase(ProductionCase):
     """A public site with a published list, started after it was published (as after a restart)."""
 
@@ -117,16 +137,19 @@ class GuestCase(ProductionCase):
 
 class TheOpenDoor(GuestCase):
     def test_a_visitor_explores_the_outfits_of_an_example_wardrobe(self):
-        landing = self.page("/")
-        cta = re.search(r'<p class="hero-cta">(.*?)</p>', landing, re.S).group(1)
+        # The website's words (/about, test_production.py) lead to the outfits, the home page, with one main button.
+        about = self.page("/about")
+        cta = re.search(r'<p class="hero-cta">(.*?)</p>', about, re.S).group(1)
         self.assertEqual(re.findall(r'<a class="([^"]*)" href="([^"]*)">([^<]*)</a>', cta),
-                         [("btn", "/outfits", "Explore outfits"), ("btn ghost", "/signup", "Create a free account")],
+                         [("btn", "/", "Explore outfits"), ("btn ghost", "/signup", "Create a free account")],
                          "one main button, Explore outfits, beside Create a free account")
-        self.assertIn("No account needed to look around.", words(landing))
+        self.assertIn("No account needed to look around.", words(about))
         page = self.page("/outfits")
-        nav = re.search(r'<header class="top">(.*?)</header>', page, re.S).group(1)
-        self.assertEqual(re.findall(r'<a class="btn[^"]*" href="([^"]*)">([^<]*)</a>', nav),
-                         [("/login", "Log in"), ("/signup", "Create account")], "the header for a visitor")
+        nav = re.search(r'<header class="top">.*?(<nav class="public-nav.*?</nav>)', page, re.S).group(1)
+        self.assertEqual([(href, unescape(re.sub(r"<[^>]+>", "", text)).strip())
+                          for href, text in re.findall(r'<a class="[^"]*" href="([^"]*)">(.*?)</a>', nav, re.S)],
+                         [("/about", "About"), ("/login", "Log in"), ("/signup", "Create account")],
+                         "the header for a visitor: what Stilsmith is, Log in, and Create account")
         for customer in ('class="tabs"', 'id="summary"', "account-link", "My outfits", "Set a budget"):
             self.assertNotIn(customer, page)
         found = slides(page)
@@ -182,17 +205,23 @@ class TheOpenDoor(GuestCase):
         self.assertIn(LOCK, words(said))
         self.assertIn('href="/signup?why=shop">Create a free account</a>', said)
         self.left_out(said, url)
+        # None of a customer's choices (another product, another piece in the outfit, all the options): only the way to
+        # swap the piece, which is for an account and leads to "Create your account", saying so.
         for swap in ("Choose", "Swap it for", "Wear the", "Leave the", "Compare all", "Add one you found"):
             self.assertNotIn(swap, said)
+        swap = re.findall(r'<a class="btn ghost" href="([^"]+)">.*?<span>([^<]+)</span></a>', said, re.S)
+        self.assertEqual(swap, [("/signup?why=change", "Swap this piece")])
+        why = re.search(r'<p class="signup-why" role="status">([^<]*)</p>', self.page(swap[0][0])).group(1)
+        self.assertEqual(unescape(why), "Create a free account to swap pieces and choose products.")
         # Without JavaScript the piece is a link to "Create your account".
         self.assertRegex(first, r'<a class="tile" href="/signup\?why=shop" title="[^"]+"\s+hx-get="/outfits/piece')
 
     def test_stores_prices_links_and_photos_are_left_out_on_the_server(self):
-        # Every page a visitor can reach from the landing page, followed link by link: each answers, and none holds a
-        # price, an address of another site or any of the products' photos, links, names or ids; the outfits and the
-        # pop-ups name no store either. (The landing page names the stores Stilsmith picks from, as it did before:
-        # that is what the site is, not a product's store.) Nothing is written, no picture or video is asked for, and
-        # no cookie is set, until the sign-up or log-in form, whose token needs one.
+        # Every page a visitor can reach from the home page (the outfits), followed link by link: each answers, and none
+        # holds a price, an address of another site or any of the products' photos, links, names or ids; the outfits
+        # (at "/" too) and the pop-ups name no store either. (/about names the stores Stilsmith picks from, as the
+        # landing page did: that is what the site is, not a product's store.) Nothing is written, no picture or video is
+        # asked for, and no cookie is set, until the sign-up or log-in form, whose token needs one.
         before = everything_in()
         seen, todo, fetched = set(), ["/"], []
         while todo:
@@ -216,10 +245,11 @@ class TheOpenDoor(GuestCase):
                 self.assertIn(response.mimetype, ("image/svg+xml", "image/jpeg", "image/png"), url)
                 continue
             page = response.get_data(as_text=True)
-            self.left_out(page, url, stores=parts.path.startswith("/outfits"))
+            self.left_out(page, url, stores=parts.path == "/" or parts.path.startswith("/outfits"))
             todo += [unescape(link) for link in LINKS.findall(page)]
         visited = {urlsplit(url).path for url in fetched}
-        self.assertTrue({"/", "/outfits", "/outfits/piece", "/signup", "/login", "/legal/privacy"} <= visited, visited)
+        self.assertTrue({"/", "/about", "/outfits", "/outfits/piece", "/signup", "/login", "/legal/privacy"} <= visited,
+                        visited)
         self.assertGreater(sum(1 for url in fetched if url.startswith("/outfits/piece")), 8, "the pop-ups")
         self.assertTrue(any("seed=" in url for url in fetched) and any("n=24" in url for url in fetched),
                         "a shuffle and the next outfits")
@@ -391,6 +421,8 @@ class TheSwitch(GuestCase):
                 landing = self.page("/")
                 self.assertNotIn("Explore outfits", landing)
                 self.assertIn('<a class="btn" href="/signup">Create a free account</a>', landing)
+                self.assertNotIn('class="slide"', landing, "the landing page, as before: no outfits")
+                self.assertNotIn("Explore outfits", self.page("/about"))
                 # The app needs a login again, exactly as before the switch (test_production: the app needs a login).
                 response = self.visitor.get("/outfits")
                 self.assertEqual((response.status_code, response.headers["Location"]), (302, "/login?next=/outfits"))
@@ -548,15 +580,7 @@ class ExamplePictures(WithExamplePictures):
     it has said how many are there and what the rest would cost."""
 
     def command(self, *args) -> tuple[str, str]:
-        """Run it as the owner does on the server: in a process of its own, where the site's start-up never ran (so
-        guests.example_id knows of no example there). Returns (what it printed, the line it refused with, or "")."""
-        said = StringIO()
-        with mock.patch.object(guests, "_ready", False), redirect_stdout(said):
-            try:
-                main(["example-pictures", *args])
-            except SystemExit as stop:
-                return said.getvalue(), str(stop.code or "")
-        return said.getvalue(), ""
+        return owner_command(*args)
 
     def first_page(self) -> list[str]:
         return [key for key, _ in self.shown()]
@@ -680,3 +704,375 @@ class ExamplePictures(WithExamplePictures):
                 looks.draw_front_now(outfits.snapshot(some_outfits(1)[0]))
         self.assertEqual(self.drawn, [])
         self.assertEqual(rows("looks"), 0)
+
+
+# ── the home page: no landing page for visitors (round FD-2) ──────────────────
+
+class TheHomePage(GuestCase):
+    """"/" for a visitor is the example wardrobe's outfits; the website's words are at /about."""
+
+    def test_home_is_the_example_wardrobes_outfits(self):
+        before = everything_in()
+        response = self.visitor.get("/")
+        home = response.get_data(as_text=True)
+        self.assertNotIn("Set-Cookie", response.headers)
+        keys = [re.search(r'id="outfit-(\w+)"', outfit).group(1) for outfit in slides(home)]
+        self.assertEqual(keys, [re.search(r'id="outfit-(\w+)"', outfit).group(1)
+                                for outfit in slides(self.page("/outfits"))], "the very outfits of /outfits")
+        self.assertGreaterEqual(len(keys), 3)
+        self.assertIn('<section class="looks guest"', home)
+        self.assertNotIn("A small menswear wardrobe where everything goes with everything.", home, "no landing page")
+        self.left_out(home, "/")
+        # A true title and description for search results and shared links: the example's own numbers, no price,
+        # budget or store.
+        with db.as_user(guests.example_id()):
+            every = outfits.all_outfits(selection.build())
+        worn = {slot_id for o in every for slot_id in o.slots}
+        self.assertIn("<title>Stilsmith — menswear outfits from one small wardrobe</title>", home)
+        self.assertEqual(unescape(description(home)),
+                         f"Look through {len(every)} menswear outfits made from the {len(worn)} pieces of one example "
+                         "wardrobe. Create a free account to plan your own, sized to your budget.")
+        self.assertIn(f"12 of {len(every)} outfits from an example wardrobe", words(home), "the same count as below")
+        self.assertEqual(description(self.page("/outfits")), "", "(/outfits keeps its own title)")
+        self.assertIn("<title>Outfits · Stilsmith</title>", self.page("/outfits"))
+        self.assertEqual(everything_in(), before, "nothing a visitor reads is written down")
+        head = self.visitor.head("/")
+        self.assertEqual((head.status_code, head.headers.get("Set-Cookie")), (200, None))
+
+    def test_about_has_the_websites_words_and_the_legal_links(self):
+        about = self.page("/about")
+        text = words(about)
+        self.assertIn("A small menswear wardrobe where everything goes with everything.", text)
+        self.assertIn("from the high-street stores COS and Weekday", text, "it may name the stores")
+        self.assertIn("<title>Stilsmith — menswear: a small wardrobe that works together</title>", about)
+        self.assertTrue(description(about))
+        foot = re.search(r'<footer class="site-foot">(.*?)</footer>', about, re.S).group(1)
+        self.assertEqual(re.findall(r'<a href="([^"]+)"', foot),
+                         ["/about", "/legal/impressum", "/legal/privacy", "/legal/terms"], "the legal links stay")
+        self.assertIn('<a href="/about" aria-current="page">About</a>', foot)
+        # Every page's foot leads there; on a visitor's outfits the header does too.
+        for url in ("/", "/outfits", "/login", "/legal/privacy"):
+            page = self.page(url)
+            self.assertIn('<a href="/about"', re.search(r'<footer class="site-foot">.*?</footer>', page, re.S).group(0),
+                          url)
+        self.assertIn('<a class="about-link" href="/about">', self.page("/"))
+        # A customer reading it has his own outfits to go back to: no account to create.
+        ada = self.member("ada@example.com")
+        mine = self.page("/about", ada)
+        self.assertEqual(re.findall(r'<p class="hero-cta">(.*?)</p>', mine, re.S),
+                         ['<a class="btn" href="/outfits">Open my outfits</a>'])
+        self.assertNotIn("No account needed", mine)
+
+    def test_a_customers_home_is_as_before(self):
+        ada = self.member("ada@example.com")
+        home = self.page("/", ada)
+        self.assertIn('<a href="/" class="on" aria-current="page">Wardrobe</a>', home, "his Wardrobe, as before")
+        for visitor in ('class="looks guest"', 'class="hint"', "menswear outfits from one small wardrobe"):
+            self.assertNotIn(visitor, home)
+
+    def test_on_your_own_machine_there_is_no_website(self):
+        with mock.patch.object(settings, "PRODUCTION", False):
+            app = create_app()
+            self.assertEqual(app.test_client().get("/about").status_code, 404)
+
+
+class TheHints(WithExamplePictures):
+    """One hint on each of a visitor's first three outfits: what the example is, a piece, the picture."""
+
+    def pictures_for(self, keys) -> None:
+        with db.as_user(guests.example_id()):
+            w = selection.build()
+            for key in keys:
+                self.draw(outfits.find(w, key))
+
+    def test_one_hint_on_each_of_the_first_three_outfits(self):
+        self.pictures_for([key for key, _ in self.shown()][:3])
+        home = self.page("/")
+        found = slides(home)
+        # 1. The stores line, in the example's real numbers: no price, no budget, no store's name.
+        with db.as_user(guests.example_id()):
+            w = selection.build()
+            every = outfits.all_outfits(w)
+            worn = {slot_id for o in every for slot_id in o.slots}
+            stores = {w.get(slot_id).chosen.data["store"] for slot_id in worn}
+        self.assertEqual(stores, {"cos", "weekday"})
+        self.assertEqual(hint_of(found[0]), f"{len(worn)} pieces from 2 stores, combined into {len(every)} outfits.")
+        # 2. A piece: tap it (or, with a mouse, click it) to see what it is; swapping it needs an account.
+        self.assertEqual(hint_of(found[1]), '<span class="by-touch">Tap a piece to see what it is.</span>'
+                                            '<span class="by-mouse">Click a piece to see what it is.</span> '
+                                            'With an account you can swap it.')
+        # 3. The picture, on an outfit that shows one; the photo while photos may be uploaded.
+        self.assertEqual(hint_of(found[2]), "Drawn by AI on a model. Add your photo and it's you.")
+        self.assertEqual([hint_of(outfit) for outfit in found[3:]], [None] * (len(found) - 3), "three hints, no more")
+        for outfit in found[:3]:
+            # On the picture's box, before the picture and the pieces: read with its outfit. Its × to put it away is
+            # shown by app.js (none without JavaScript).
+            stage = re.search(r'<div class="stage">\s*(<div class="hint".*?</div>)', outfit, re.S)
+            self.assertIsNotNone(stage, "the hint comes first in the outfit's picture box")
+            self.assertIn('<button class="hint-x" type="button" data-hint-close aria-label="Hide this hint" hidden>',
+                          stage.group(1))
+        self.left_out(home, "/")
+        self.assertEqual([hint_of(outfit) for outfit in slides(self.page("/outfits"))][:3],
+                         [hint_of(outfit) for outfit in found[:3]], "on /outfits too, the same row")
+
+    def test_the_photo_and_the_picture_only_where_they_are_true(self):
+        keys = [key for key, _ in self.shown()]
+        self.pictures_for(keys[:2])                     # the third outfit shows no picture
+        found = slides(self.page("/"))
+        self.assertIsNotNone(hint_of(found[0]))
+        self.assertIsNotNone(hint_of(found[1]))
+        self.assertNotIn("look-pic", found[2])
+        self.assertIsNone(hint_of(found[2]), "no picture, so nothing said about one")
+        self.pictures_for(keys[2:3])
+        self.with_rules(photos=False)                   # no photos may be uploaded: none is promised
+        self.assertEqual(hint_of(slides(self.page("/"))[2]), "Drawn by AI on a model.")
+        with mock.patch.object(settings, "OPENAI_API_KEY", ""):      # no pictures at all
+            found = slides(self.page("/"))
+        self.assertEqual([hint is not None for hint in map(hint_of, found[:4])], [True, True, False, False])
+
+    def test_only_on_the_row_a_visitor_first_opens(self):
+        self.pictures_for([key for key, _ in self.shown()][:3])
+        first = slides(self.page("/"))
+        more = unescape(re.search(r'<a class="btn" href="([^"#]+)#outfit-\w+">Show more outfits</a>',
+                                  self.page("/")).group(1))
+        for url in ("/outfits?occasion=all", "/outfits?occasion=office", "/outfits?seed=5", more):
+            self.assertEqual([hint_of(outfit) for outfit in slides(self.page(url))].count(None),
+                             len(slides(self.page(url))), f"{url}: he has moved on from his first row")
+        self.assertEqual(sum(hint_of(outfit) is not None for outfit in first), 3)
+
+    def test_never_for_a_customer(self):
+        ada = self.member("ada@example.com")
+        for url in ("/outfits", "/"):
+            self.assertNotIn('class="hint"', self.page(url, ada), url)
+
+
+class TheHintsOnTheDemo(ProductionCase):
+    """While no product list is published the example's products are the invented demo ones: they come from no store."""
+
+    def test_no_stores_are_counted(self):
+        line = hint_of(slides(self.app.test_client().get("/").get_data(as_text=True))[0])
+        self.assertRegex(line, r"^\d+ pieces, combined into \d+ outfits\.$")
+
+
+# ── the first outfits are alive: the example's clips ──────────────────────────
+
+class WithExampleClips(WithVideos, WithExamplePictures):
+    """AI pictures and videos on (stand-ins for both services), and ways to have the example's pictures and clips."""
+
+    def pictures_for(self, keys) -> dict[str, str]:
+        """The front pictures of these outfits of the example, there already. Returns their files by outfit."""
+        with db.as_user(guests.example_id()):
+            w = selection.build()
+            return {key: self.draw(outfits.find(w, key)) for key in keys}
+
+    def board(self, key) -> dict:
+        """One of the example's outfits with its pictures and its clip, as a visitor's page has it."""
+        with db.as_user(guests.example_id()):
+            board = {"key": key, "pieces": outfits.snapshot(outfits.find(selection.build(), key))}
+            looks.attach([board])
+            videos.example_clips([board])
+        return board
+
+    def clip_for(self, key) -> str:
+        """The example clip of this outfit's picture, made as the owner's command makes it. Returns its file."""
+        with db.as_user(guests.example_id()):
+            result, problem = videos.make_example_now(self.board(key)["photos"][0].look)
+        self.assertEqual((result, problem), ("ready", None))
+        return self.board(key)["clip"]
+
+    def first_keys(self) -> list[str]:
+        return [key for key, _ in self.shown()]
+
+
+class AnOutfitsClip(WithExampleClips):
+    def test_a_visitor_sees_the_clip_in_place_of_the_picture(self):
+        keys = self.first_keys()
+        files = self.pictures_for(keys[:2])
+        clip = self.clip_for(keys[0])
+        self.assertEqual(len(self.made), 1)
+        before = everything_in()
+        found = slides(self.page("/"))
+        address = f"/outfits/{keys[0]}/clip/{clip}"
+        box = re.search(r'<div class="clip" data-clip hidden>(.*?)</div>\s*</div>', found[0], re.S).group(1)
+        video = re.search(r"<video [^>]*>", box, re.S).group(0)
+        self.assertIn(f'src="{address}"', video)
+        self.assertIn(f'poster="/outfits/{keys[0]}/picture/{files[keys[0]]}"', video, "the picture is its poster")
+        for attribute in ("muted", "loop", "playsinline", 'preload="none"', 'aria-hidden="true"'):
+            self.assertIn(attribute, video.rstrip(">").split(), attribute)
+        self.assertNotIn("autoplay", video, "app.js plays the clip of the outfit on screen only")
+        self.assertIn('<span class="ai-chip">AI video</span>', box)
+        self.assertIn('<span class="sr">Pause the video</span>', box)
+        self.assertIn('<span class="sr">Play the video</span>', box)
+        self.assertIn('<span class="ai-chip">AI picture</span>', found[0], "without JavaScript: the picture, labelled")
+        self.assertNotIn('class="clip"', found[1], "its picture, no clip: the picture alone")
+        # Its own address, as the pictures': the file, in parts to a phone that asks for a range of it.
+        response = self.visitor.get(address)
+        self.assertEqual((response.status_code, response.mimetype), (200, "video/mp4"))
+        self.assertEqual(response.get_data(), CLIP)
+        self.assertIn("private", response.headers["Cache-Control"])
+        response.close()
+        part = self.visitor.get(address, headers={"Range": "bytes=0-99"})
+        self.assertEqual((part.status_code, len(part.get_data())), (206, 100))
+        part.close()
+        self.left_out(self.page("/"), "/")
+        self.assertEqual(everything_in(), before, "nothing a visitor sees is written down")
+        self.assertEqual(len(self.made), 1, "nothing is made for a visitor")
+        self.assertEqual(rows("video_requests"), 0)
+
+    def test_only_the_examples_own_finished_clips_have_an_address(self):
+        ada = self.member("ada@example.com")
+        keys = self.first_keys()
+        self.pictures_for(keys[:3])
+        clip = self.clip_for(keys[0])
+        address = f"/outfits/{keys[0]}/clip/{clip}"
+        # A clip being made is not shown; nor is the clip of a picture drawn from a customer's photo.
+        with db.as_user(guests.example_id()):
+            w = selection.build()
+            theirs = self.draw(outfits.find(w, keys[3]), owner=self.user_id("ada@example.com"))
+        chosen, kind = videos.service(), videos.example()
+        busy = videos.fingerprint(chosen, kind.text, self.board(keys[1])["photos"][0].look.file, kind.seconds)
+        db.start_video(busy, "x.jpg", chosen.tag, None, 0)
+        personal = videos.fingerprint(chosen, kind.text, theirs, kind.seconds)
+        db.start_video(personal, theirs, chosen.tag, self.user_id("ada@example.com"), 0)
+        db.finish_video(personal, f"{personal}-1.mp4", None)
+        (videos.folder() / f"{personal}-1.mp4").write_bytes(CLIP)
+        page = self.page("/")
+        self.assertEqual(page.count('class="clip"'), 1, "the one finished clip of the example's own pictures")
+        self.assertNotIn(personal, page)
+        for client, url, status in ((self.visitor, address, 200),
+                                    (self.visitor, f"/outfits/{keys[1]}/clip/{clip}", 404),     # another outfit's
+                                    (self.visitor, f"/outfits/{keys[0]}/clip/nothing-1.mp4", 404),
+                                    (self.visitor, f"/outfits/{keys[3]}/clip/{personal}-1.mp4", 404),
+                                    (self.visitor, f"/outfits/{keys[1]}/clip/{busy}-1.mp4", 404),
+                                    (self.visitor, f"/videos/{clip}", 302),          # /videos/ stays for accounts
+                                    (ada, f"/videos/{clip}", 200),
+                                    (ada, address, 404)):                            # the visitors' address is theirs
+            response = client.get(url)
+            self.assertEqual(response.status_code, status, url)
+            response.close()
+        # While videos are off, the pictures show, and the clips have no address.
+        with mock.patch.object(videos, "service", return_value=None):
+            self.assertNotIn('class="clip"', self.page("/"))
+            self.assertEqual(self.visitor.get(address).status_code, 404)
+
+    def test_never_a_clip_of_a_picture_of_a_person(self):
+        self.member("ada@example.com")
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertIsNone(person.save_photo(photo_jpeg()))
+            outfit = some_outfits(1)[0]
+            looks.request(outfits.snapshot(outfit))
+            board = {"key": outfit.key, "pieces": outfits.snapshot(outfit)}
+            looks.attach([board])
+            with self.assertRaises(ValueError):
+                videos.make_example_now(board["photos"][0].look)
+        self.assertEqual(self.made, [])
+
+
+class ExampleClips(WithExampleClips):
+    """python -m wardrobe example-pictures --clips K: the clips of the first K outfits visitors see, made by the owner
+    after the command has said what they would cost."""
+
+    def test_it_says_what_the_clips_would_cost_and_stops_without_yes(self):
+        self.pictures_for(self.first_keys())
+        before = everything_in()
+        said, refused = owner_command("--clips", "3")
+        self.assertIn("12 of 12 already there.\nNothing to draw.\nAI videos: on — made by Google, model "
+                      "gemini-omni-flash-preview\nClips of the first 3 outfits: 0 already there.\n"
+                      "3 clips to make: about $1.50 (3 clips of 5 seconds at $0.10 a second, price_per_second_usd in "
+                      "config/looks.toml).\n", said)
+        self.assertEqual(refused, "That is more than --max-cost ($1.00), so nothing was drawn or made. Ask for fewer "
+                                  "with --sample or --clips, or allow more with --max-cost.")
+        said, refused = owner_command("--clips", "3", "--max-cost", "1.50")      # exactly the estimate: not above it
+        self.assertEqual(refused, "")
+        self.assertTrue(said.endswith("Nothing was drawn or made. To go ahead, run this again with --yes.\n"), said)
+        self.assertEqual((self.drawn, self.made), ([], []), "nothing was sent")
+        self.assertEqual(everything_in(), before, "nothing was written")
+
+    def test_yes_makes_them_and_running_it_again_makes_only_what_is_missing(self):
+        keys = self.first_keys()
+        files = self.pictures_for(keys)
+        said, refused = owner_command("--clips", "3", "--max-cost", "2", "--yes")
+        self.assertEqual(refused, "")
+        self.assertIn("Making 3 clips, one at a time", said)
+        self.assertIn("Clips done: 3 made.\nSpent on clips, by this command's estimate: about $1.50 (3 clips of 5 "
+                      "seconds at $0.10 a second).\nVisitors see the new clips from their next page load.\n", said)
+        rules = looks.load_rules()["videos"]
+        for sent, key in zip(self.made, keys):
+            self.assertEqual(sent["seconds"], 5)
+            self.assertEqual(sent["prompt"], f"{rules['start']} {rules['motion']['example']} {rules['keep']}")
+            self.assertEqual(sent["picture"], (looks.folder() / files[key]).read_bytes(), "made from its picture")
+        self.assertEqual([bool(re.search(r'class="clip"', outfit)) for outfit in slides(self.page("/"))][:4],
+                         [True, True, True, False], "the first three outfits a visitor sees")
+        self.assertEqual(rows("video_requests"), 0, "not counted in the day's video limits")
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:
+            self.assertEqual({row[0] for row in con.execute("SELECT user_id FROM videos")}, {None},
+                             "the clips belong to no account")
+        said, refused = owner_command("--clips", "3", "--max-cost", "2", "--yes")
+        self.assertIn("Clips of the first 3 outfits: 3 already there.\nNo clip to make.\n", said)
+        self.assertEqual(len(self.made), 3, "nothing was sent the second time")
+
+    def test_pictures_and_clips_in_one_run_of_the_outfits_a_visitor_will_see_first(self):
+        # Two outfits further down the row have their pictures, so a visitor sees them first today. Once this run has
+        # drawn the others, he sees the row's own order again: the clips are of the first outfits of that order, and
+        # the estimate counts exactly those.
+        keys = self.first_keys()
+        self.pictures_for([keys[5], keys[7]])
+        said, refused = owner_command("--clips", "2", "--max-cost", "2")
+        self.assertIn("10 to draw: about $0.50 (10 pictures at $0.05, price_each_usd in config/looks.toml).\n", said)
+        self.assertIn("2 clips to make: about $1.00 (2 clips of 5 seconds at $0.10 a second, price_per_second_usd in "
+                      "config/looks.toml).\nIn all: about $1.50.\n", said)
+        said, refused = owner_command("--clips", "2", "--max-cost", "2", "--yes")
+        self.assertEqual(refused, "")
+        self.assertIn("Done: 10 drawn.\n", said)
+        self.assertIn("Clips done: 2 made.\n", said)
+        self.assertIn("Visitors see the new pictures and clips from their next page load.", said)
+        shown = slides(self.page("/"))
+        self.assertEqual([re.search(r'id="outfit-(\w+)"', outfit).group(1) for outfit in shown], keys)
+        self.assertEqual([bool(re.search(r'class="clip"', outfit)) for outfit in shown][:3], [True, True, False])
+
+    def test_it_refuses_in_one_plain_line_while_videos_are_off(self):
+        self.pictures_for(self.first_keys())
+        rules = looks.load_rules()
+
+        def changed(**videos_part):
+            return mock.patch.object(looks, "load_rules", lambda: {**rules, "videos": {**rules["videos"], **videos_part}})
+
+        refusals = []
+        with changed(on=False):
+            refusals.append(owner_command("--clips", "3", "--yes")[1])
+        self.assertEqual(refusals[-1], "Nothing was drawn or made: AI videos are off — [videos] on = false in "
+                                       "config/looks.toml.")
+        with mock.patch.object(settings, "GEMINI_API_KEY", ""):
+            refusals.append(owner_command("--clips", "3", "--yes")[1])
+        self.assertEqual(refusals[-1], "Nothing was drawn or made: AI videos are off — set GEMINI_API_KEY.")
+        with changed(motion={key: words for key, words in rules["videos"]["motion"].items() if key != "example"}):
+            refusals.append(owner_command("--clips", "3", "--yes")[1])
+        self.assertIn("the clips need their movement, example under [videos.motion]", refusals[-1])
+        with mock.patch.object(looks, "load_rules", lambda: {**rules, "videos": {
+                key: value for key, value in rules["videos"].items() if key != "price_per_second_usd"}}):
+            refusals.append(owner_command("--clips", "3", "--yes")[1])
+        self.assertIn("the estimate needs price_per_second_usd under [videos]", refusals[-1])
+        for line in refusals:
+            self.assertNotIn("\n", line)
+        self.assertEqual((self.drawn, self.made), ([], []))
+
+    def test_a_failure_is_said_and_the_rest_are_not_sent(self):
+        self.pictures_for(self.first_keys())
+        self.refuse_video = imagegen.DrawError("key", "API key not valid", free=True)
+        said, _ = owner_command("--clips", "3", "--max-cost", "2", "--yes")
+        self.assertIn(": failed. Google did not accept the key (GEMINI_API_KEY). API key not valid\n"
+                      "Stopped: the other 2 were not sent.", said)
+        self.assertIn("Clips done: 0 made, 1 failed.\nSpent on clips, by this command's estimate: about $0.00 (0 clips "
+                      "of 5 seconds at $0.10 a second).\n", said)
+        self.assertEqual(len(self.made), 1)
+        self.refuse_video = None
+        said, _ = owner_command("--clips", "3", "--max-cost", "2", "--yes")
+        self.assertIn("Clips done: 3 made.", said, "put right, it makes them all")
+
+    def test_nothing_is_made_at_start_up_or_for_a_visitor(self):
+        self.pictures_for(self.first_keys()[:3])
+        create_app()
+        for url in ("/", "/outfits"):
+            self.assertTrue(slides(self.page(url)))
+        self.assertEqual(self.made, [])
+        self.assertEqual(rows("videos"), 0)

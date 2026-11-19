@@ -77,6 +77,9 @@
 
   {% if production %}
   <footer class="site-foot">
+    {# What Stilsmith is (/about: the words of the landing page there was before the outfits became a visitor's home
+       page), then the legal pages. #}
+    <a href="{{ url_for('about_page') }}"{% if request.endpoint == 'about_page' %} aria-current="page"{% endif %}>About</a>
     {% for name, title in legal_pages.items() %}<a href="{{ url_for('legal_page', name=name) }}">{{ title }}</a>{% endfor %}
     {# While no store's programme has accepted Stilsmith: not affiliated. From the day one has, its links may earn a
        commission, and German law wants such links marked as advertising: the foot says so, naming the stores

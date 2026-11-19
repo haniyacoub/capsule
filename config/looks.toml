@@ -169,6 +169,16 @@ task = "image_to_video"
 # second is billed). The front picture's turn is always 8.
 seconds = 5
 
+# What one second of video costs, in US dollars. Only for the estimate that
+# `python -m wardrobe example-pictures --clips K` (the example wardrobe's clips)
+# prints before it makes anything: nothing else reads it, and nothing is charged
+# by it. Google's price list of 15 Nov 2026 says about $0.07 a second at 720p for
+# gemini-omni-1.2-flash; under the older price it was about $0.10 a second (the
+# turn, 8 seconds, up to $0.81). Set at the older, higher price, so the estimate
+# errs on the high side, as for pictures: a 5-second clip about $0.50.
+# Your bill has the real figure: put it here once you have seen it.
+price_per_second_usd = 0.10
+
 # How many videos may be asked for in 24 hours. These are apart from the
 # pictures' limits: a video never uses up a picture, nor a picture a video.
 per_customer_per_day     = 1    # each customer of a public service
@@ -199,3 +209,12 @@ street  = "The man walks on along the pavement at an easy pace while the camera 
 cafe    = "The man lifts the cup, takes a small sip, lowers it and looks out of the window. The camera stays still. Steam rises faintly from the cup."
 library = "The man turns a page of the book, then looks up towards the camera with a slight smile. The camera stays still."
 other   = "The man moves naturally for a few seconds, as in a candid moment: he shifts his weight, moves one arm a little and looks to one side, then back. The camera stays still; the whole figure stays in frame."
+
+# The example wardrobe's clips (python -m wardrobe example-pictures --clips K):
+# 5 seconds made from an outfit's front picture, which visitors without an
+# account see in place of the picture, muted and looping. A slight turn and back
+# shows the clothes best there: the cut and the drape from the side, while the
+# feet stay put, so the dots on the pieces stay on them; it ends as it starts, so
+# the loop does not jump; and the AI is never asked to invent the back of the
+# clothes, as a whole turn would. New words mean new clips (each billed).
+example = "The man shifts his weight and turns slowly about 30 degrees to his left, so that the cut and the drape of the outfit show from the side, holds for a moment, then turns back and ends facing the camera exactly as at the start, in the same relaxed pose. His feet stay where they are. The camera stays still and does not zoom; the whole figure stays in frame from head to shoes."

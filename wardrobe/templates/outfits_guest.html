@@ -1,5 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Outfits · {{ site_name }}{% endblock %}
+{# At "/", the home page a visitor opens (`home`, app.wardrobe): a title and a description for search results and shared
+   links that say what the page is, the description in the example's real numbers (guests.description). #}
+{% block title %}{% if home %}{{ site_name }} — menswear outfits from one small wardrobe{% else %}Outfits · {{ site_name }}{% endif %}{% endblock %}
+{% block head %}{% if description %}
+  <meta name="description" content="{{ description }}">
+{% endif %}{% endblock %}
 {# Outfits for a visitor without an account (guests.py; app.py, guest_outfits): the outfits of one example wardrobe,
    the same for every visitor, to swipe through as a customer does: the same row, arrows and bar with the answers as
    outfits.html, so app.js and app.css treat both alike (.looks.guest marks this one).
@@ -8,10 +13,14 @@
    size, link or store's photo was given, so none can be in it: grey bars (.veiled) stand where they would be, and one
    line per outfit (`lock`) says what an account shows, with the way to create one.
    Every button leads to "Create your account" with a line that says why (?why=, guests.WHY): plain links. Nothing
-   here is a form, so looking around sets no cookie. #}
+   here is a form, so looking around sets no cookie.
+   The header: About (what Stilsmith is, /about: a sign on a phone, its name read out; with its name on a computer),
+   Log in, and Create account, the one button. #}
 {% block nav %}
-<nav class="public-nav" aria-label="Account">
-  <a class="btn ghost small" href="{{ url_for('auth.login') }}">Log in</a>
+{% from "_macros.html" import icon %}
+<nav class="public-nav guest-nav" aria-label="About and account">
+  <a class="about-link" href="{{ url_for('about_page') }}">{{ icon('info') }}<span>About</span></a>
+  <a class="login-link" href="{{ url_for('auth.login') }}">Log in</a>
   <a class="btn small" href="{{ url_for('auth.signup') }}">Create account</a>
 </nav>
 {% endblock %}
@@ -29,6 +38,15 @@
 {% endmacro %}
 {# A grey bar where words are left out: the same few lengths in turn, never the length of what is left out. #}
 {% macro bar(i) %}<i class="blur-bar w{{ i % 3 + 1 }}"></i>{% endmacro %}
+{# A hint on the picture, at its top, over the model's head rather than the clothes: a note a screen reader reads with
+   its outfit. Its × puts it away for this page (app.js 18; without JavaScript there is no ×, and it stays). Nothing of
+   that is kept anywhere, so it is there again on the next visit. #}
+{% macro hint() %}
+<div class="hint" role="note">
+  <p>{{ caller() }}</p>
+  <button class="hint-x" type="button" data-hint-close aria-label="Hide this hint" hidden>&times;</button>
+</div>
+{% endmacro %}
 
 <div class="above-looks">
 {% if demo %}{% include "_demo.html" %}{% endif %}
@@ -55,6 +73,17 @@
     {% for o in boards %}
     <article class="slide" id="outfit-{{ o.key }}" data-slide aria-label="Outfit {{ loop.index }} of {{ boards|length }}">
       <div class="stage">
+        {# On the row a visitor first opens, a hint on each of the first three outfits (app.py, guest_outfits): what the
+           example is, in its real numbers; that a piece can be tapped (or clicked) and, with an account, swapped; and,
+           on an outfit that shows its AI picture, what the picture is, and that it can be him while photos may be
+           uploaded. #}
+        {% if hints and loop.index == 1 %}
+        {% call hint() %}{{ hints.wardrobe }}{% endcall %}
+        {% elif hints and loop.index == 2 %}
+        {% call hint() %}<span class="by-touch">{{ PIECE_HINT[0] }}</span><span class="by-mouse">{{ PIECE_HINT[1] }}</span> {{ PIECE_HINT[2] }}{% endcall %}
+        {% elif hints and loop.index == 3 and o.picture %}
+        {% call hint() %}{{ PICTURE_HINT }}{% if hints.photo %} {{ PHOTO_HINT }}{% endif %}{% endcall %}
+        {% endif %}
         {# The pieces as the app's own drawings, in the plan's colours: the plain box, until a picture lies over it. #}
         <div class="collage c{{ o.pieces|length }}">
           {% for p in o.pieces %}
@@ -65,13 +94,31 @@
           {% endfor %}
         </div>
         {# Its AI picture, where one is there already (Stilsmith's house model, never anyone's photo), labelled as
-           one. Nothing is drawn for a visitor. With a dot on each piece, which names it. #}
+           one. Nothing is drawn for a visitor. With a dot on each piece, which names it.
+           Where the owner made a clip of the picture (`o.clip`, python -m wardrobe example-pictures --clips), the clip
+           lies over it, the picture its poster: muted, looping, played in place, labelled "AI video", with its own
+           button to pause it and play it again. app.js (15a) shows it and plays it while its outfit is on screen, and
+           pauses the others; where less motion is asked for it stays the picture, with the button to play it. Without
+           JavaScript it stays hidden: the picture, with its own label. The dots stay: the clip's feet stay where they
+           are (config/looks.toml, [videos.motion] example). #}
         <div class="look">
           {% if o.picture %}
+          {% set still = url_for('example_picture', outfit_key=o.key, name=o.picture) %}
           <div class="look-pic">
-            <img src="{{ url_for('example_picture', outfit_key=o.key, name=o.picture) }}" alt="AI-generated picture of a model wearing this outfit" width="848" height="1264"
+            <img src="{{ still }}" alt="AI-generated picture of a model wearing this outfit" width="848" height="1264"
                  {%- if loop.first %} fetchpriority="high"{% else %} loading="lazy"{% endif %} decoding="async">
             <span class="ai-chip">AI picture</span>
+            {% if o.clip %}
+            <div class="clip" data-clip hidden>
+              <video src="{{ url_for('example_clip', outfit_key=o.key, name=o.clip) }}" poster="{{ still }}"
+                     muted loop playsinline preload="none" disablepictureinpicture aria-hidden="true"></video>
+              <span class="ai-chip">AI video</span>
+              <button class="clip-toggle" type="button" data-clip-toggle>
+                <span class="when-playing">{{ icon('pause') }}<span class="sr">Pause the video</span></span>
+                <span class="when-still">{{ icon('play') }}<span class="sr">Play the video</span></span>
+              </button>
+            </div>
+            {% endif %}
           </div>
           <p class="look-bar look-line"><span class="look-note"><span class="whole">Look and fit will differ on the real pieces.</span><span class="half">Look and fit will differ.</span></span></p>
           {% else %}

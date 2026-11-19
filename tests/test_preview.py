@@ -96,7 +96,7 @@ class Preview(unittest.TestCase):
 
             headers, page = self.get(f"/signup?code={code}")
             self.assertIn(f'value="{code}"', page, "the service does not ask for the code the script printed")
-            self.assertIn("by invitation", self.get("/")[1])
+            self.assertIn("by invitation", self.get("/about")[1])     # the website's words (the outfits are "/")
             self.assertIn("Secure", headers.get("Set-Cookie", ""), "the address is https: the login cookie must say so")
             through_the_tunnel, _ = self.get("/login", **{"X-Forwarded-For": "203.0.113.7", "X-Forwarded-Proto": "https"})
             self.assertIn("max-age", through_the_tunnel.get("Strict-Transport-Security", ""),

@@ -41,13 +41,14 @@ Both cost money and need your name on them, so they are yours to set up.
    docker compose -f deploy/compose.yaml logs -f app # the first lines say what is on and off
    ```
 
-3. **Open your domain.** You should see the landing page.
+3. **Open your domain.** You should see the outfits of the example wardrobe (the
+   website's own words are at `/about`).
 4. **Keep it closed to the public for now.** Until the product data is
    licensed (PRODUCTION.md, "Before customers") the site must not be open to
-   everyone. `INVITE_CODE` in `deploy/app.env` does that: the landing page is
-   public, creating an account needs the code, and the link to hand out is
+   everyone. `INVITE_CODE` in `deploy/app.env` does that: the example's outfits
+   and `/about` are public, creating an account needs the code, and the link to hand out is
    `https://your-domain/signup?code=<the code>`. The app refuses to start on
-   the example's placeholder. To keep the whole site private, landing page
+   the example's placeholder. To keep the whole site private, every page
    included (a trial before the Impressum and the product data are ready),
    set `SITE_PASSWORD` in `deploy/app.env`: every page then first asks for it.
    For a second lock in front of the whole site, add the hostname under Access
@@ -68,6 +69,7 @@ Both cost money and need your name on them, so they are yours to set up.
   docker compose -f deploy/compose.yaml exec app python -m wardrobe example-pictures
   docker compose -f deploy/compose.yaml exec app python -m wardrobe example-pictures --sample 3 --yes
   docker compose -f deploy/compose.yaml exec app python -m wardrobe example-pictures --yes
+  docker compose -f deploy/compose.yaml exec app python -m wardrobe example-pictures --clips 3 --max-cost 3
   ```
 
   - The first line only says how many pictures are there already, how many it
@@ -79,6 +81,9 @@ Both cost money and need your name on them, so they are yours to set up.
   - It draws nothing if its estimate is above `--max-cost` (1.00 US dollar
     unless you give another).
   - Each picture shows on the site as soon as it is drawn.
+  - The fourth line says what the clips of the first 3 outfits would cost (about
+    50 cents each, in the same estimate as the pictures); with `--yes` it makes
+    them, and visitors see them play in place of those pictures.
 - **A copy of the database** (not automated yet, and it should be):
 
   ```bash

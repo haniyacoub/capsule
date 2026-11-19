@@ -2122,3 +2122,65 @@ a.quiet { display: inline-flex; align-items: center; }   /* 44px tall to tap, li
 }
 @media (max-width: 374.98px) { main:has(> .looks.guest) { --dock-guess: 118px; } }
 @media (max-width: 359.98px) { main:has(> .looks.guest) { --dock-guess: 152px; } }
+/* The pop-up for a piece, for a visitor: "Create a free account" and "Swap this piece" (which needs one: the small lock
+   says so), side by side where they fit, one under the other where they do not. */
+.guest-acts { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.guest-acts .btn .ic { flex: none; width: 15px; height: 15px; }
+
+/* ── A visitor's header: About, Log in, Create account (outfits_guest.html) ── */
+/* "Create account" is the one button; "Log in" is a plain word beside it, and before it "About", a sign on a phone (its
+   name hidden but read out, as Shuffle's), with its name on a computer. Both 44px tall to a finger; on a phone 5px of
+   that reach past the header above and below, so the header is no taller for them, and "About" reaches 10px past its
+   sign at each side. So the wordmark, the three and their gaps fit a 320px phone on one line. */
+.guest-nav { align-items: center; }
+.about-link, .login-link {
+  position: relative; display: inline-flex; align-items: center; gap: var(--s-1); min-height: 44px; margin: -5px 0;
+  padding: 0 2px; font-size: var(--t-s); color: var(--ink); text-decoration: none; white-space: nowrap;
+}
+.about-link { color: var(--muted); }
+.about-link:hover, .login-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.about-link .ic { flex: none; width: 20px; height: 20px; }
+@media (max-width: 759.98px) {
+  .about-link { padding: 0; }
+  .about-link span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .about-link::after { content: ""; position: absolute; top: 0; bottom: 0; left: -10px; right: -10px; }
+}
+
+/* ── A visitor's first outfits: three hints, and the clips (outfits_guest.html, app.js 15a and 18) ── */
+/* A hint lies on the picture, at its top, over the model's head rather than the clothes, on the same dark veil as the
+   label 'AI picture' and the band, in the same fixed colours (the picture is light in dark mode too): white on it is at
+   least 9:1 over a white picture. Its words keep clear of its ×, whose room is kept before app.js shows it (without
+   JavaScript there is none), so the words never move. Over a clip it keeps clear of the clip's button too. */
+.hint {
+  position: absolute; z-index: 3; top: var(--s-2); left: var(--s-2); right: var(--s-2); margin: 0;
+  padding: var(--s-2) calc(var(--s-1) + 28px + var(--s-1)) var(--s-2) var(--s-3);
+  background: rgba(27, 27, 26, .82); color: #fff; font-size: var(--t-s); line-height: var(--lh-s);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+}
+.hint p { margin: 0; text-wrap: pretty; }
+.hint-x {
+  position: absolute; top: var(--s-1); right: var(--s-1); display: grid; place-items: center; width: 28px; height: 28px;
+  padding: 0; border: 0; background: none; color: #fff; font: inherit; font-size: 20px; line-height: 1; cursor: pointer;
+}
+.hint-x[hidden] { display: none; }
+.hint-x::after { content: ""; position: absolute; inset: -8px; }       /* 44px to a finger */
+.hint-x:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+.stage:has(.clip:not([hidden])) .hint { right: calc(var(--s-2) + 32px + var(--s-2)); }
+/* The clip over the picture: the same box, the picture its poster and, at its sides, the picture itself (the clip is a
+   little narrower, 9 wide by 16 high: it shows whole, the model as large as in the picture). Its own label, 'AI video',
+   takes the place of the picture's; its button, at the top right where a customer's "See it move" is, pauses it and
+   plays it again: a sign in the same dark veil, 32px to the eye and 44px to a finger, its name read out. */
+.clip { position: absolute; inset: 0; }
+.clip[hidden] { display: none; }
+.clip video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.look-pic:has(> .clip:not([hidden])) > .ai-chip { display: none; }
+.clip-toggle {
+  position: absolute; top: var(--s-2); right: var(--s-2); z-index: 2; display: grid; place-items: center;
+  width: 32px; height: 32px; padding: 0; border: 0; background: rgba(27, 27, 26, .72); color: #fff; cursor: pointer;
+}
+.clip-toggle .ic { width: 16px; height: 16px; }
+.clip-toggle .when-still .ic { fill: currentColor; }
+.clip-toggle::after { content: ""; position: absolute; inset: -6px; }
+.clip-toggle:hover { background: rgba(27, 27, 26, .9); }
+.clip-toggle:focus-visible { outline: 2px solid #1b1b1a; outline-offset: 2px; box-shadow: 0 0 0 2px #fff; }
+.clip:not(.playing) .when-playing, .clip.playing .when-still { display: none; }

@@ -77,11 +77,15 @@ class ProductionCase(unittest.TestCase):
 
 class PublicSite(ProductionCase):
     def test_visitors_see_the_website_not_the_app(self):
+        # A visitor's home page is the example wardrobe's outfits (test_guests.py), never a customer's app; the website's
+        # own words are at /about.
         visitor = self.app.test_client()
-        home = visitor.get("/")
-        self.assertEqual(home.status_code, 200)
-        self.assertIn(b"Create a free account", home.data)
-        self.assertNotIn(b"Minimum quality", home.data)
+        for url in ("/", "/about"):
+            home = visitor.get(url)
+            self.assertEqual(home.status_code, 200, url)
+            self.assertIn(b"Create a free account", home.data, url)
+            self.assertNotIn(b"Minimum quality", home.data, url)
+            self.assertNotIn(b'class="tabs"', home.data, url)
         for url in ("/legal/impressum", "/legal/privacy", "/legal/terms", "/login", "/signup", "/forgot",
                     "/robots.txt", "/static/app.css"):
             self.assertEqual(visitor.get(url).status_code, 200, url)
@@ -120,8 +124,8 @@ class PublicSite(ProductionCase):
         # only this site for it: the public pages, a customer's pages and the error page.
         preload = f'<link rel="preload" href="/static/fonts/{font}" as="font" type="font/woff2" crossorigin>'
         ada = self.member("ada@example.com")
-        pages = [(visitor, url) for url in ("/", "/login", "/signup", "/forgot", "/legal/impressum", "/legal/privacy",
-                                            "/legal/terms", "/no-such-page")]
+        pages = [(visitor, url) for url in ("/", "/about", "/login", "/signup", "/forgot", "/legal/impressum",
+                                            "/legal/privacy", "/legal/terms", "/no-such-page")]
         pages += [(ada, url) for url in ("/outfits", "/", "/list", "/slots", "/profile", "/account")]
         for client, url in pages:
             words = client.get(url).get_data(as_text=True)
@@ -192,7 +196,13 @@ class PublicSite(ProductionCase):
         # A stranger gives the page a few seconds. It says who Stilsmith is for, in the customer's words rather than
         # the planner's; it has one way to log in (the header's) and no drawings from the demo data; search results
         # and shared links get a description. AI pictures are off here (no key), so no model is promised.
-        page = self.app.test_client().get("/").get_data(as_text=True)
+        # Its words are at /about, linked from a visitor's header and from every page's foot (a visitor's home page,
+        # "/", is the example wardrobe's outfits: test_guests.py), and still at "/" while visitors may not look around.
+        page = self.app.test_client().get("/about").get_data(as_text=True)
+        with mock.patch.object(guests, "door_open", return_value=False):
+            main = [re.search(r"<main>.*</main>", self.app.test_client().get(url).get_data(as_text=True), re.S).group(0)
+                    for url in ("/", "/about")]
+        self.assertEqual(main[0], main[1], "the same words")
         text = words(page)
         self.assertRegex(text, r"\bmen's wardrobe\b")
         # Menswear only, said in the headline, the page's title and the first step.
@@ -242,8 +252,8 @@ class PublicSite(ProductionCase):
         # cookie, so there is nothing to ask consent for. The forms that need one for their token (sign-up, log-in, a
         # forgotten password) still set it through their hidden field, and a customer's buttons still carry the token.
         # (Outfits too, open to a visitor without an account: the example wardrobe, test_guests.py.)
-        for url in ("/", "/legal/impressum", "/legal/privacy", "/legal/terms", "/no-such-page", "/favicon.ico",
-                    "/outfits"):
+        for url in ("/", "/about", "/legal/impressum", "/legal/privacy", "/legal/terms", "/no-such-page",
+                    "/favicon.ico", "/outfits"):
             visitor = self.app.test_client()
             for ask in (visitor.get, visitor.head):
                 response = ask(url)
@@ -326,7 +336,7 @@ class PublicSite(ProductionCase):
             self.assertIn("Not written yet", page, "the tag goes with the placeholder")
         for url in ("/login", "/forgot"):
             self.assertIn(noindex, visitor.get(url).get_data(as_text=True), url)
-        for url in ("/", "/signup"):
+        for url in ("/", "/about", "/signup"):
             self.assertNotIn(noindex, visitor.get(url).get_data(as_text=True), url)
         self.member("ada@example.com")
         self.post(visitor, "/forgot", email="ada@example.com")
@@ -1169,15 +1179,19 @@ class StilsmithsOwnFiles(ProductionCase):
         self.assertEqual(len(set(seen)), 3, f"the version did not change with the files: {seen}")
 
     def test_the_website_loads_no_htmx(self):
-        # htmx runs the buttons of a customer's pages. The public pages have none, so a visitor never downloads it.
+        # htmx runs the buttons of a customer's pages. The website's own pages have none, so a visitor reading them never
+        # downloads it. (A visitor's home page is the example wardrobe's outfits, whose pieces open with htmx, as on
+        # /outfits: test_guests.py.)
         def scripts(client, url) -> list[tuple[str, bool]]:
             """The scripts a page loads, each with whether its address carries ?v=."""
             found = re.findall(r'<script[^>]* src="([^"]+)"', client.get(url).get_data(as_text=True))
             return [(src.split("?")[0], "?v=" in src) for src in found]
 
         visitor = self.app.test_client()
-        for url in ("/", "/signup", "/login", "/forgot", "/legal/privacy"):
+        for url in ("/about", "/signup", "/login", "/forgot", "/legal/privacy"):
             self.assertEqual(scripts(visitor, url), [("/static/app.js", True)], url)
+        with mock.patch.object(guests, "door_open", return_value=False):     # "/" is the website's page again
+            self.assertEqual(scripts(visitor, "/"), [("/static/app.js", True)])
         ada = self.member("ada@example.com")
         for url in ("/outfits", "/", "/list", "/slots", "/profile", "/account"):
             self.assertEqual(scripts(ada, url), [("/static/vendor/htmx.min.js", True), ("/static/app.js", True)], url)
@@ -1217,7 +1231,7 @@ class ByInvitation(ProductionCase):
 
     def test_the_pages_say_so(self):
         visitor = self.app.test_client()
-        self.assertIn(b"by invitation", visitor.get("/").data)
+        self.assertIn(b"by invitation", visitor.get("/about").data)     # the website's words (a visitor's "/" is outfits)
         signup = visitor.get("/signup").get_data(as_text=True)
         self.assertIn('name="code"', signup)
         # One paragraph: two lines one under the other, with no space between them, read as one broken paragraph.
