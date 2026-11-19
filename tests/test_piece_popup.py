@@ -16,6 +16,7 @@ from .test_app import HX, AppCase
 
 
 class PiecePopUp(AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def outfit_with(self, layer="outer"):
         """The first outfit that has a piece of this layer, and that piece."""
         w = selection.build()

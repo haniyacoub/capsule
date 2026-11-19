@@ -95,6 +95,9 @@ FIRST = 3       # a kind's first three pieces
 
 # What each answer to "What do you dress for?" plans: its kinds, in the order they join.
 KINDS = {"everyday": ("everyday",), "office": ("office",), "both": ("everyday", "office")}
+# Each kind by name ("Office joins at about 206 €"), and as the plan page says what a plan is for (kinds_words).
+KIND_NAMES = {"everyday": "Everyday", "office": "Office"}
+_KIND_WORDS = {"everyday": "everyday", "office": "the office"}
 
 # The garments "Include shoes" and "Include outerwear" leave out when unticked.
 SHOES = frozenset({"sneakers", "shoes", "boots"})
@@ -234,6 +237,12 @@ def _check_budget(rules: dict) -> None:
         raise config.ConfigError("money.share_of_the_rest must be between 0 and 1 (0.5 = half)")
     if number(money.get("most_pieces"), "money.most_pieces") < 1:
         raise config.ConfigError("money.most_pieces must be 1 or more")
+    presets = table(rules.get("presets", {}), "presets")
+    if not presets:
+        raise config.ConfigError("presets must name at least one budget, like Starter = 150")
+    amounts = [number(amount, f"presets.{name}") for name, amount in presets.items()]
+    if any(amount < 1 or amount != int(amount) for amount in amounts) or amounts != sorted(set(amounts)):
+        raise config.ConfigError("presets must be whole euros above 0, each a different amount, smallest first")
     names = table(rules.get("names", {}), "names")
     number(names.get("full_names_from"), "names.full_names_from")
     words = names.get("left_out_below")
@@ -247,6 +256,12 @@ def _check_budget(rules: dict) -> None:
 
 def budget_rules() -> dict:
     return config.load("budget.toml", _check_budget)
+
+
+def presets() -> dict[str, int]:
+    """The budgets offered on Profile's Budget tab and in the welcome (config/budget.toml, [presets]), by name, in
+    whole euros, smallest first: {"Starter": 150, "Basic": 300, ...}. "Other amount" is offered after them."""
+    return {str(name): int(amount) for name, amount in budget_rules()["presets"].items()}
 
 
 def money_for_pieces(budget: float, rules: dict | None = None) -> float:
@@ -362,6 +377,49 @@ def kinds_in(profile: dict) -> list[str]:
     return _sized(profile)[0]
 
 
+def kinds_words(kinds: list[str] | tuple[str, ...]) -> str:
+    """What a plan of these kinds is for, as the plan page says it: "everyday wear", "the office", "everyday and the
+    office"."""
+    if list(kinds) == ["everyday"]:
+        return "everyday wear"
+    return " and ".join(_KIND_WORDS.get(kind, kind) for kind in kinds)
+
+
+def count(slots: list[dict]) -> int:
+    """How many pieces a plan has, as every page counts them: a white tee ×2 is two."""
+    return sum(int(slot.get("qty") or 1) for slot in slots)
+
+
+def pieces_at(profile: dict, budget: int) -> int:
+    """How many pieces the plan these answers propose would have at this budget (propose, with what he owns placed)."""
+    return count(propose({**profile, "budget": budget})[0])
+
+
+MOST_BUDGET = 100000        # € (profile.given_budget never takes more): a kind that waits even there never joins
+
+
+def joins_at(profile: dict) -> dict[str, int | None]:
+    """For each of the kinds his answer plans (KINDS) after the first: the smallest budget, in whole euros, at which
+    it joins the plan these answers propose ("Office joins at about 206 €"), or None where it never does (with
+    config/budget.toml's numbers its first three pieces never fit). Found with the rule itself (_sized), whole euro by
+    whole euro, as a budget is given: a kind never leaves as the budget grows, so the first budget it is in at is
+    found by halving. The first kind is always in."""
+    kinds = KINDS.get(profile.get("use", "both"), KINDS["both"])
+    out: dict[str, int | None] = {}
+    for kind in kinds[1:]:
+        def joined(budget: int) -> bool:
+            return kind in kinds_in({**profile, "budget": budget})
+        if not joined(MOST_BUDGET):
+            out[kind] = None
+            continue
+        low, high = 0, MOST_BUDGET          # out at `low` (0 is no budget at all), in at `high`
+        while high - low > 1:
+            middle = (low + high) // 2
+            low, high = (low, middle) if joined(middle) else (middle, high)
+        out[kind] = high
+    return out
+
+
 def _planned(profile: dict) -> tuple[list[dict], set[str]]:
     """The slots these answers call for, before anything already owned is placed, and their ids. In the order the
     garments are listed (garments.py): coats first, shoes last."""
@@ -369,12 +427,17 @@ def _planned(profile: dict) -> tuple[list[dict], set[str]]:
     budget = _budget(profile)
     plain = budget is not None and budget < float(rules["full_names_from"])
     words = {str(word).lower() for word in rules["left_out_below"]} if plain else set()
+
+    def without(text: str) -> str:      # (the words a small budget leaves out, of a name or of the keywords)
+        return " ".join(word for word in text.split(" ") if word and word.lower() not in words)
+
     order = list(GARMENTS)
     slots: list[dict] = []
     for piece in sorted(_sized(profile)[1], key=lambda p: order.index(p.category)):
-        name = " ".join(word for word in piece.name.split(" ") if word.lower() not in words)
-        slots.append({"id": piece.id, "name": name, "category": piece.category, "colour": piece.colour,
-                      "keywords": piece.keywords, "qty": piece.qty, "owned": False})
+        # The keywords too: they rank a piece's products (collect/matching.py), and "merino" would put the merino
+        # jumpers first for a jumper a small budget buys.
+        slots.append({"id": piece.id, "name": without(piece.name), "category": piece.category,
+                      "colour": piece.colour, "keywords": without(piece.keywords), "qty": piece.qty, "owned": False})
     return slots, {slot["id"] for slot in slots}
 
 

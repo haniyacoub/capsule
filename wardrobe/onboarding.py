@@ -6,10 +6,17 @@ from __future__ import annotations
 from . import capsule, catalog, db, mock, settings, shared
 from . import profile as profile_mod
 
+# The price level a new account starts on (selection.MODES): "Best for budget", which fits the whole plan to his
+# budget. An account with no level stored stays on selection.DEFAULT_MODE ("cheapest"), so no account from before
+# moves: this is written only for a new one.
+START_LEVEL = "budget"
+
 
 def ensure_setup() -> None:
     if db.get_setting("profile") is None:
         profile_mod.save(dict(profile_mod.EXAMPLE))
+        db.set_setting("mode", START_LEVEL)
+        db.set_setting("levels", True)      # the price levels, with their minimum quality (selection._controls)
     if not db.get_setting("slots_initialised"):
         slots, _ = capsule.propose(profile_mod.load())
         db.replace_slots(slots)

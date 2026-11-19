@@ -107,6 +107,7 @@ class FabricLine(unittest.TestCase):
 
 class SameCardEverywhere(AppCase):
     """A card says everything; a row in a list is short and leads to the card."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def setUp(self):
         super().setUp()
         having.the_whole_plan()     # the coat is in his wardrobe: its card is on the Wardrobe page and the list

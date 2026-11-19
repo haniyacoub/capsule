@@ -20,11 +20,18 @@ HX = {"HX-Request": "true"}
 
 
 class AppCase(unittest.TestCase):
+    # A test about something else that needs the big wardrobe every account started with until 19 Nov 2026 (a coat,
+    # a blazer, boots ...) sets this: its customer starts as they did then (having.the_old_start). A new account now
+    # starts at 300 € (9 pieces) on "Best for budget".
+    OLD_START = False
+
     def setUp(self):
         for path in (paths.DB_PATH, paths.CATALOG_PATH):   # a fresh first run for every test
             path.unlink(missing_ok=True)
         catalog._cache = None
         self.client = create_app().test_client()
+        if self.OLD_START:
+            having.the_old_start()
 
     def post(self, url, **data):
         return self.client.post(url, data=data, headers=HX)
@@ -52,11 +59,13 @@ class Pages(AppCase):
     def test_first_run_is_demo_data_with_a_capsule(self):
         w = selection.build()
         self.assertEqual(w.source, "mock")
-        self.assertEqual(sum(view.planned for view in w.slots), 24, "what the example's 1,500 € buy (config/budget.toml)")
+        self.assertEqual(sum(view.planned for view in w.slots), 9, "what the example's 300 € buy (config/budget.toml)")
+        self.assertEqual(w.mode, "budget", "a new account starts on Best for budget")
         self.assertEqual(w.n_unfilled, 0)
         self.assertIn(b"Demo data", self.client.get("/").data)
 
     def test_missing_images_fall_back_to_a_swatch(self):
+        having.the_old_start()          # a plan with chinos (the 300 € plan a new account starts with has none)
         chinos = self.first("chinos")
         html = self.client.get(f"/slot/{chinos.slot['id']}").data.decode()
         self.assertIn('class="pic noimg"', html)          # Weekday chinos have no image in the demo data
@@ -97,7 +106,7 @@ class Pages(AppCase):
         # screen reader. They change with the level, in the same answer that changes the pieces.
         hint = lambda page: html.unescape(re.search(r'<p class="level-hint" id="level-hint"[^>]*>(.*?)</p>', page, re.S).group(1))  # noqa: E731
         page = self.client.get("/").get_data(as_text=True)
-        self.assertEqual(hint(page), selection.HINTS[selection.DEFAULT_MODE] + ".")
+        self.assertEqual(hint(page), selection.HINTS["budget"] + ".", "the level a new account starts on")
         self.assertIn('role="radiogroup" aria-label="Which option fills each piece: a price level, or the best your '
                       'budget buys" aria-describedby="level-hint"', page)
         for mode in ("top", "budget", "cheap"):
@@ -172,6 +181,7 @@ class Selection(AppCase):
 
 
 class ManualControl(AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def test_swapping_locks_the_choice_and_the_toggle_respects_it(self):
         self.set_mode("cheapest")
         s = self.first("knit")
@@ -239,6 +249,7 @@ class ManualControl(AppCase):
 
 class APiecesPageInPlainWords(AppCase):
     """A piece's page and the plan page in the customer's words, and keyboard focus that stays where it was."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
 
     def visible(self, url: str) -> str:
         return html.unescape(page_words(self.client.get(url).data.decode()))
@@ -347,7 +358,9 @@ class APiecesPageInPlainWords(AppCase):
                       "that wears it. Where the plan has a piece twice (×2), an outfit adds one; the second is a spare "
                       "you can add on the piece's card in your Wardrobe. Change anything: rename, recolour, remove or "
                       "add. Your outfits update straight away.", text)
-        self.assertIn("Planned for everyday and the office.", text)       # the example profile dresses for both
+        # The example profile dresses for both; the old start's 1,500 € is a budget he has not given.
+        # ("set your budget" is a link to Profile's Budget tab: page_words puts a space where its tag was.)
+        self.assertRegex(text, r"Planned for everyday and the office, for 1,500 € until you set your budget ?: 24 pieces\.")
         self.assertIn('data-confirm="Start over from your profile? Your plan is rebuilt from scratch, and your edits, '
                       'locked choices and pieces marked as yours are lost. The pieces of the outfits you said yes to '
                       'stay."', page)
@@ -369,7 +382,13 @@ class APiecesPageInPlainWords(AppCase):
         db.replace_slots([])
         self.assertIn("No pieces in your plan yet. Add one below, or start over from your profile.", self.visible("/slots"))
         profile_mod.save({**empty, "use": "office"})
-        self.assertIn("Planned for the office.", self.visible("/slots"))
+        # An empty plan is not what his answers plan: the page says what they would plan instead, and after
+        # "Start over" what it was planned for.
+        self.assertRegex(self.visible("/slots"), r"From your profile as it is now \(the office, 1,500 € until you set "
+                                                 r"your budget ?\), your plan would have 15 pieces\.")
+        self.client.post("/slots/repropose")
+        self.assertRegex(self.visible("/slots"), r"Planned for the office, for 1,500 € until you set your budget ?: "
+                                                 r"15 pieces\.")
 
     def test_adding_or_saving_a_piece_is_answered_inside_that_piece(self):
         # The plan page comes back at the piece just added or saved (#slot-<id>), far down the page on a phone: what
@@ -490,7 +509,7 @@ class SlotsAndProfile(AppCase):
                                   "Tops", "Shoes (EU)", "Trouser waist (inches)", "Trouser length (inches)", "Height (cm)",
                                   "Weight (kg)", "Chest (cm, optional)", "Body waist (cm, optional)",
                                   "Colours you like (most important first, separated by commas)", "Colours to avoid",
-                                  "For the whole wardrobe (EUR)"])
+                                  "Your amount (EUR)"])          # (under "Other amount": the budget's choices)
         self.assertIn("We use these to warn you when a cut runs slim or large, or a size may not fit. Add your chest and "
                       "body waist to compare yourself with each store's size chart.", about)
         self.assertIn('<h2 class="sec" id="use-label">What do you dress for?</h2>', about)
@@ -535,18 +554,25 @@ class SlotsAndProfile(AppCase):
         self.assertIn('name="liked" value="navy, olive"', page)
         self.assertIn('name="refused" value="black"', page)
 
-    def test_budget_change_alone_keeps_everything(self):
-        s = self.first("coat")
+    def test_a_budget_change_plans_the_wardrobe_afresh_and_keeps_what_he_chose(self):
+        # The budget sizes the plan (config/budget.toml): a new one plans the wardrobe afresh, as new colours do
+        # (until 19 Nov 2026 it left the plan as it was). A product he chose by hand, and its lock, stay.
+        s = self.first("knit")
+        other = next(c for c in s.cands if c.available and c.id != s.chosen.id)
+        self.post(f"/slot/{s.slot['id']}/pick", candidate=other.id)
         current = profile_mod.load()
         form = {"top_size": current["top_size"], "waist": current["waist"], "length": current["length"],
                 "shoe": current["shoe"], "height_cm": current["height_cm"], "weight_kg": current["weight_kg"],
-                "budget": "2000", "liked": "navy, grey, white, olive", "refused": "", "use": "both",
+                "budget_choice": "600", "budget": "", "liked": "navy, grey, white, olive", "refused": "", "use": "both",
                 "shoes": "on", "outerwear": "on", "owned": ""}
-        before = [x["id"] for x in db.list_slots()]
-        self.client.post("/profile", data=form)
-        self.assertEqual([x["id"] for x in db.list_slots()], before)
-        self.assertEqual(selection.build().budget, 2000)
-        self.assertEqual(self.view(s.slot["id"]).chosen.id, s.chosen.id)
+        before = {x["id"] for x in db.list_slots()}
+        self.assertEqual(self.client.post("/profile", data=form).headers["Location"], "/outfits")
+        after = {x["id"] for x in db.list_slots()}
+        self.assertLess(before, after, "600 € plan the 300 € plan's pieces and more")
+        self.assertEqual(capsule.count(db.list_slots()), 12)
+        self.assertEqual(selection.build().budget, 600)
+        view = self.view(s.slot["id"])
+        self.assertEqual((view.chosen.id, view.state), (other.id, "locked"))
 
     def test_a_budget_of_999_is_accepted_by_the_field_and_saved(self):
         # The field had step="10": a browser refused 999 with a bubble of its own and never sent it.
@@ -570,6 +596,7 @@ class BudgetBar(AppCase):
     """The bar at the top of the wardrobe's pages. A phone shows it as one line ("1,073.20 € of 1,500 € ·
     426.80 € left"); the labels Total, Budget and Left are hidden there but stay in the page, for screen
     readers and for the walk-through, which reads the figures by them."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
 
     def setUp(self):
         super().setUp()
@@ -634,6 +661,7 @@ class BudgetBar(AppCase):
 class RebuildingThePlan(AppCase):
     """Saving new colours, uses or owned things rebuilds the plan and keeps what was picked or marked as
     owned by hand. Only a plan changed on the plan page itself is left as it is, until you start over."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
 
     NEW = {"liked": "black, grey, white", "use": "office"}
 
@@ -658,6 +686,14 @@ class RebuildingThePlan(AppCase):
         """What the next page says at the top, as the customer reads it (links kept as tags)."""
         page = self.client.get(url).data.decode()
         return " | ".join(html.unescape(m) for m in re.findall(r'<p class="flash" role="status">(.*?)</p>', page, re.S))
+
+    def plan_kept(self, url="/profile") -> str:
+        """The line a save of new answers says when it leaves a plan edited by hand as it is: its words, then its
+        button and where that sends ("[Start over from my profile: /slots/repropose]"), or "" when there is none."""
+        page = self.client.get(url).data.decode()
+        found = re.search(r'<div class="flash plan-kept" role="status"><span>(.*?)</span>\s*<form method="post" '
+                          r'action="([^"]+)"[^>]*>.*?<button class="link">(.*?)</button></form></div>', page, re.S)
+        return f"{html.unescape(found.group(1))} [{found.group(3)}: {found.group(2)}]" if found else ""
 
     def test_a_swap_in_an_outfit_no_longer_stops_the_profile_from_applying(self):
         outfit = next(o for o in outfits.generate(selection.build(), limit=12)[0] if "white-tee" in o.slots)
@@ -743,10 +779,10 @@ class RebuildingThePlan(AppCase):
         saved = self.save_profile(**self.NEW)
         self.assertTrue(saved.headers["Location"].endswith("/profile"), "it stays on the profile")
         self.assertEqual(db.list_slots(), before, "the plan is exactly as it was edited")
-        self.assertIn('Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use '
-                      '“Start over from my profile” on <a href="/slots">the plan page</a>.', self.messages("/profile"))
-        self.assertIn("Start over from my profile</button>", self.client.get("/slots").data.decode(),
-                      "the button the message names")
+        # Said in one line, with the button that plans it from these answers (the plan page has the same one).
+        self.assertEqual(self.plan_kept(), "Profile saved. Your plan stays as you edited it. "
+                                           "[Start over from my profile: /slots/repropose]")
+        self.assertIn("Start over from my profile</button>", self.client.get("/slots").data.decode())
         self.client.post("/slots/repropose")                # Start over from my profile
         self.assertEqual(self.save_profile(liked="navy, grey").headers["Location"], "/outfits",
                          "after starting over, profile changes apply again")
@@ -773,23 +809,24 @@ class RebuildingThePlan(AppCase):
         self.assertEqual(self.save_profile(liked=next(liked)).headers["Location"], "/outfits",
                          "pressing Save on the plan page without changing anything is no edit")
 
-    def test_sizes_or_budget_alone_stay_on_the_profile(self):
+    def test_sizes_alone_stay_on_the_profile(self):
+        # (A budget sizes the plan since 19 Nov 2026: a new one plans it afresh, test_budget.py.)
         self.save_profile()                                  # the customer's own answers, saved once before
         self.messages()                                      # (what that save said, read on the outfits)
         self.post("/slot/white-oxford-shirt/lock")
         before = db.list_slots()
-        saved = self.save_profile(budget="2000", top_size="L")
+        saved = self.save_profile(top_size="L", waist="33")
         self.assertTrue(saved.headers["Location"].endswith("/profile"))
         self.assertEqual(db.list_slots(), before, "every piece, choice and lock as it was")
         self.assertEqual(self.messages("/profile"), 'Profile saved. <a href="/outfits">See your outfits</a>')
 
-    def test_the_first_save_shows_the_outfits_even_when_only_sizes_or_budget_changed(self):
-        # A new customer's first save of his Profile leads to the outfits. With the colours and the use the plan
-        # started with kept, the plan is already built from them: it stays as it is.
+    def test_the_first_save_shows_the_outfits_even_when_only_sizes_changed(self):
+        # A new customer's first save of his Profile leads to the outfits. With the colours, the use and the budget
+        # the plan started with kept, the plan is already built from them: it stays as it is.
         self.assertTrue(profile_mod.load()["example"])
         self.post("/slot/white-oxford-shirt/lock")
         before = db.list_slots()
-        saved = self.save_profile(budget="2000", top_size="L")
+        saved = self.save_profile(top_size="L")
         self.assertEqual(saved.headers["Location"], "/outfits")
         self.assertEqual(db.list_slots(), before, "every piece, choice and lock as it was")
         self.assertEqual(self.messages(), "Profile saved.")
@@ -817,7 +854,7 @@ class RebuildingThePlan(AppCase):
         self.assertIs(db.get_setting("plan_edited"), True)
         self.assertTrue(self.save_profile(**self.NEW).headers["Location"].endswith("/profile"))
         self.assertEqual(db.list_slots(), before)
-        self.assertIn("Profile saved. Your plan stays as you edited it.", self.messages("/profile"))
+        self.assertIn("Profile saved. Your plan stays as you edited it.", self.plan_kept())
         self.client.post("/slots/repropose")                # Start over from my profile: the new answers apply
         self.assertIn("black", {s["colour"] for s in db.list_slots()})
         self.assertIs(db.get_setting("plan_edited"), False)
@@ -846,6 +883,7 @@ class RebuildingThePlan(AppCase):
 class PiecesWithNothingToBuy(AppCase):
     """A piece the product list has nothing for says so, and offers the colours Stilsmith has in one tap
     (the published list is tested in test_production.py; this is your own machine)."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
 
     @staticmethod
     def collected(slot_id, sku, colour):
@@ -896,6 +934,7 @@ class PiecesWithNothingToBuy(AppCase):
 class BuyingInYourSizes(AppCase):
     """Buy this outfit and the shopping list: the sizes to order in, said first, and honestly while they are
     the example's; the product's photo and the store's link on every line; and what the prices leave out."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
 
     profile_form = RebuildingThePlan.profile_form       # the Profile form as the page sends it
     EXAMPLE_SIZES = "Your sizes: Tops M · Trousers W32 L32 · Shoes 43 · Change"
@@ -1054,6 +1093,7 @@ class YourSizesForEachCustomer(ProductionCase):
 
 
 class Outfits(AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def test_outfits_are_complete_and_coherent(self):
         w = selection.build()
         boards, total = outfits.generate(w, limit=24)
@@ -1153,6 +1193,7 @@ class EditingTheRules(AppCase):
 
 
 class Safety(AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def test_only_web_addresses_become_links(self):
         self.assertEqual(weblink("https://www.example.com/de-de/x"), "https://www.example.com/de-de/x")
         self.assertEqual(weblink("javascript:alert(1)"), "#")

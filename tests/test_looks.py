@@ -193,6 +193,7 @@ class PriceLevels(AppCase):
 
 class BestForBudget(AppCase):
     """The sixth choice: not a price level but the whole wardrobe, fitted to the budget."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
 
     def setUp(self):
         super().setUp()
@@ -285,6 +286,7 @@ class BestForBudget(AppCase):
 # ── the outfit viewer ─────────────────────────────────────────────────────────
 
 class Viewer(AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def test_outfits_come_one_at_a_time_with_their_pieces_and_cost(self):
         page = self.client.get("/outfits").data.decode()
         shown = some_outfits(12)
@@ -556,6 +558,7 @@ def as_read(markup: str) -> str:
 class SaidWithUndo(AppCase):
     """'Choose' in an outfit's pop-up changes the piece in every outfit and locks it; leaving a piece off or wearing
     another shows another outfit. Each is said in words over the outfit, with the way back."""
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
 
     def piece_with_options(self):
         outfit = some_outfits(1)[0]
@@ -936,6 +939,7 @@ class PicturesOff(AppCase):
 # ── AI pictures: on, with the stand-in ────────────────────────────────────────
 
 class Pictures(WithPictures, AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def setUp(self):
         super().setUp()
         self.switch_on()
@@ -2306,8 +2310,9 @@ class TheModel(WithPictures, AppCase):
         self.assertIsNone(person.photo())
 
     def test_messages_of_other_pages_stay_at_the_top(self):
-        # Only the budget changes (the colours and uses are the example's own), so the page stays on Profile.
-        self.client.post("/profile", data={"budget": "1600", "liked": "navy, grey, white, olive", "use": "both",
+        # Only the size changes (the colours and uses are the example's own), so the page stays on Profile. (Not the
+        # budget: since 19 Nov 2026 it sizes the plan, and a new one shows the outfits of the plan made for it.)
+        self.client.post("/profile", data={"top_size": "L", "liked": "navy, grey, white, olive", "use": "both",
                                            "shoes": "on", "outerwear": "on"})
         top, model, photo = self.parts()
         self.assertIn("Profile saved", top)

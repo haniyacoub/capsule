@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Profile · {{ site_name }}{% endblock %}
 {% block main %}
+{% from "_macros.html" import budget_pick %}
 {% macro colour_names(keys) %}{% for k in keys %}{{ COLOURS[k].label|lower if k in COLOURS else k }}{{ ', ' if not loop.last }}{% endfor %}{% endmacro %}
 {# Who wears the outfits in the AI pictures (person.py). Customers of a service without AI pictures are not shown a menu
    that would do nothing; a photo stored before they were switched off is still shown, to see and delete (Account says
@@ -12,7 +13,7 @@
 {% set style_part = chat_on or brief_shown or get_flashed_messages(category_filter=['style', 'style-bad']) %}
 <div class="cc-head">
   <h1>About you</h1>
-  <p class="muted">Your sizes decide what counts as in stock, your colours and what you dress for shape the outfits you are offered, and the budget sets the bar at the top.</p>
+  <p class="muted">Your sizes decide what counts as in stock, your colours and what you dress for shape the outfits you are offered, and your budget sizes your plan and sets the bar at the top.</p>
 </div>
 
 {# One screen, like a game's character screen: the model in the middle, the tabs beside it (under it on a phone) and
@@ -169,11 +170,13 @@
         {% if 'colours' not in answered %}<p class="muted small not-given" id="colours-not-given">You have not chosen colours yet. Until you do, your outfits start from {{ colour_names(profile.liked) }}.</p>{% endif %}
       </section>
 
+      {# The budget sizes the plan (config/budget.toml): a save that changes it plans the wardrobe afresh, as new colours
+         do, unless the plan was edited by hand (app.py, save_answers). Until he gives one, plans are made for the
+         amount his profile holds (the example's 300 €, or 1,500 € for an account from before). #}
       <section class="cc-panel" id="panel-budget" data-tab="budget" aria-labelledby="tab-budget">
         <h2 class="sec">Budget</h2>
-        <label class="field"><span>For the whole wardrobe (EUR)</span>
-          <input type="number" id="budget" name="budget" min="0" inputmode="numeric" value="{{ profile.budget if 'budget' in answered else '' }}"></label>
-        <p class="muted small{% if 'budget' not in answered %} not-given{% endif %}" id="budget-says">{% if 'budget' in answered %}The bar at the top counts the pieces of the outfits you said yes to against this. To have no budget, empty the field and save.{% else %}You have not set a budget yet. With one, the bar at the top counts the pieces of the outfits you said yes to against it, and an outfit that would take you over it says so before you add it.{% endif %}</p>
+        {{ budget_pick(budget, 'For the whole wardrobe') }}
+        <p class="muted small{% if 'budget' not in answered %} not-given{% endif %}" id="budget-says">{% if 'budget' in answered %}Your budget sizes your plan: the more it is, the more pieces, up to {{ budget.most }}. The bar at the top counts the pieces of the outfits you said yes to against it. To have no budget, choose “Other amount”, empty its field and save.{% else %}You have not set a budget yet. Until you do, a plan made from your profile is sized for {{ profile.budget|eur }}. With a budget, the bar at the top counts the pieces of the outfits you said yes to against it, and an outfit that would take you over it says so before you add it.{% endif %}</p>
       </section>
 
       {# The Stores tab: every store customers are offered (programmes.offered), a row to tick each; his pieces are picked

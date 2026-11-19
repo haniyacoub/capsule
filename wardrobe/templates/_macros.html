@@ -145,3 +145,31 @@
     <input type="text" name="keywords" maxlength="80" value="{{ slot.keywords if slot else '' }}"></label>
 </div>
 {%- endmacro %}
+
+{# The budget, chosen among five (Profile's Budget tab and the welcome's step 2): the presets of config/budget.toml,
+   "Starter 150 €" … "Full 1,000 €+" (the last for that much or more), each with about how many pieces it plans for
+   his kinds of wardrobe and, where a kind waits at it, the budget that kind joins at; then "Other amount", which
+   opens the field for an amount of his own (app.css: hidden until "Other amount" is chosen; it shows where a browser
+   cannot hide it, and app.js chooses "Other amount" as soon as something is typed in it). Native radio buttons with
+   their labels: the arrow keys move between them, and each is heard with what it plans.
+   `b`: app.budget_choices. `legend`: what the group is called; `later`: words after what the counts are for (the
+   welcome asks what he dresses for in its next step). The field keeps its name and id, "budget", which the budget
+   bar's link (/profile#budget) and the older forms use. #}
+{% macro budget_pick(b, legend, later='') -%}
+<fieldset class="budget-pick" aria-describedby="budget-for">
+  <legend>{{ legend }}</legend>
+  <p class="muted small" id="budget-for">About how many pieces each plans for {{ b.words }}{{ later }}.</p>
+  {% for p in b.presets %}
+  <label class="check budget-choice"><input type="radio" name="budget_choice" value="{{ p.amount }}"{% if b.chosen == p.amount|string %} checked{% endif %}>
+    <span><span class="budget-name"><b>{{ p.name }}</b> {{ p.amount|eur }}{{ '+' if loop.last }}</span> <span class="budget-size">about {{ p.pieces }} {{ 'piece' if p.pieces == 1 else 'pieces' }}</span>
+      {%- for kind, at in p.waits %} <span class="budget-wait">{{ kind }} joins at about {{ at|eur }}</span>{% endfor %}</span></label>
+  {% endfor %}
+  <label class="check budget-choice"><input type="radio" name="budget_choice" value="other"{% if b.chosen == 'other' %} checked{% endif %} data-budget-other>
+    <span><span class="budget-name"><b>Other amount</b></span></span></label>
+  <div class="budget-own">
+    <label class="field"><span>Your amount <small>(EUR)</small></span>
+      <input type="number" id="budget" name="budget" min="0" inputmode="numeric" value="{{ b.amount }}"></label>
+    {% if b.own %}<p class="muted small">At {{ b.amount|eur }}: about {{ b.own.pieces }} {{ 'piece' if b.own.pieces == 1 else 'pieces' }}{% for kind, at in b.own.waits %}. {{ kind }} joins at about {{ at|eur }}{% endfor %}.</p>{% endif %}
+  </div>
+</fieldset>
+{%- endmacro %}

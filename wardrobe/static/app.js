@@ -635,7 +635,10 @@ if (profileCreator) {
     const name = tabOf(asked);
     if (!name) return;
     open(name);
-    const place = document.getElementById(asked) || card;
+    // A place that is hidden (#budget, the field for an amount of his own, until "Other amount" is chosen: 13e) is
+    // shown by what holds it: the budget choices.
+    const named = document.getElementById(asked);
+    const place = named && named.getClientRects().length ? named : (named && named.closest('fieldset')) || card;
     const box = place.getBoundingClientRect();
     if (box.top < 0 || box.top > window.innerHeight * 0.6) place.scrollIntoView({ block: 'start' });
   };
@@ -972,6 +975,25 @@ document.body.addEventListener('htmx:afterSwap', (e) => {
     words += ' A suggested style brief is below. It is not in use yet.';
   }
   chatHeard(words);
+});
+
+// 13e. The budget, chosen among five (Profile's Budget tab and the welcome: _macros.html, budget_pick). Typing an amount
+//      in the field chooses "Other amount": where the browser cannot hide the field until then (app.css), a number
+//      typed there is not left behind a preset that is still chosen, so what is saved is what he typed.
+document.querySelectorAll('.budget-pick').forEach((pick) => {
+  const other = pick.querySelector('[data-budget-other]');
+  const field = pick.querySelector('input[name=budget]');
+  if (!other || !field) return;
+  field.addEventListener('input', () => {
+    if (!other.checked) {
+      other.checked = true;
+      other.dispatchEvent(new Event('change', { bubbles: true }));     // (a change Profile's form notices: 13)
+    }
+  });
+  // Chosen, it opens the field (app.css): brought on to the screen if it opened below it (under a phone's Save bar).
+  other.addEventListener('change', () => {
+    if (other.checked) requestAnimationFrame(() => field.scrollIntoView({ block: 'nearest' }));
+  });
 });
 
 // 14. Profile: the colours as swatches to tap. Once: a colour you like, numbered in the order you tapped it (1 counts

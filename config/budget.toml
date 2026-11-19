@@ -20,7 +20,21 @@
 #      plan is the line from the top for as long as the money lasts, with at
 #      most `most_pieces` pieces. A white tee ×2 counts as two pieces.
 #  The pieces of each kind, in order, are in wardrobe/capsule.py (RANKED).
+#
+#  A budget is part of what plans the wardrobe: a Profile save (or the
+#  welcome) that changes it rebuilds the plan, as new colours do, unless the
+#  plan was edited by hand ("Start over from my profile" then rebuilds it).
 # ══════════════════════════════════════════════════════════════════════════════
+
+[presets]
+# The budgets offered on Profile's Budget tab and in the welcome, by name, in €,
+# smallest first; "Other amount" is always offered after them. The last one is
+# shown with a "+" ("Full 1,000 €+"): for that much or more. Beside each, the
+# page says about how many pieces it plans for his kinds of wardrobe.
+Starter = 150
+Basic   = 300
+Solid   = 600
+Full    = 1000
 
 [money]
 whole_budget_up_to = 200    # €: all of the budget up to this buys pieces
@@ -30,7 +44,9 @@ most_pieces        = 24     # never more pieces than this in a plan
 [names]
 # Under this budget a piece's name leaves out what it is made of: "Grey jumper",
 # not "Grey merino jumper", as the jumper a small budget buys is rarely merino.
-# A piece's id keeps the full name at every budget ("grey-merino-jumper").
+# So do the words its products are matched by, so that a small budget is not
+# offered merino jumpers first. A piece's id keeps the full name at every
+# budget ("grey-merino-jumper").
 full_names_from = 450       # €
 left_out_below  = ["merino", "wool", "leather"]
 

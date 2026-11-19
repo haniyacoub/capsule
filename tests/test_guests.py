@@ -29,8 +29,10 @@ from .test_looks import PICTURE, WithPictures, photo_jpeg, some_outfits
 from .test_production import HX, PASSWORD, ProductionCase, words
 from .test_programmes import PUBLISHED, STORES, shaped
 
-# Two of each for nine of the example plan's pieces, the dearer at COS: enough for many outfits at the price level
-# Medium, each piece with a store, a name, a price, a link and a photo that must not reach a visitor.
+# Two of each for the pieces of the example's plans, the dearer at COS: enough for many outfits at its price level,
+# each piece with a store, a name, a price, a link and a photo that must not reach a visitor. (The example is planned
+# for config/site.toml's 600 € since 19 Nov 2026: a light jacket, a light blue shirt, a navy tee and stone chinos; the
+# blazer and the coat are the 1,500 € plan's.)
 LIST = [
     shaped("cos", "2000000101", "T-Shirt aus schwerem Baumwolljersey", 35.0, "Weiß", "tee"),
     shaped("weekday", "2000000201", "Standard T-Shirt", 25.0, "Weiß", "tee"),
@@ -50,6 +52,14 @@ LIST = [
     shaped("weekday", "2000000208", "Loafer aus Leder", 110.0, "Dunkelbraun", "shoes"),
     shaped("cos", "2000000109", "Sneaker aus Leder", 120.0, "Weiß", "sneakers"),
     shaped("weekday", "2000000209", "Ledersneaker", 90.0, "Weiß", "sneakers"),
+    shaped("cos", "2000000110", "Leichte Jacke", 150.0, "Marineblau", "jacket"),
+    shaped("weekday", "2000000210", "Leichte Jacke", 90.0, "Marineblau", "jacket"),
+    shaped("cos", "2000000111", "Oxford-Hemd", 69.0, "Hellblau", "shirt"),
+    shaped("weekday", "2000000211", "Hemd aus Oxford", 45.0, "Hellblau", "shirt"),
+    shaped("cos", "2000000112", "T-Shirt aus schwerem Baumwolljersey", 35.0, "Marineblau", "tee"),
+    shaped("weekday", "2000000212", "Standard T-Shirt", 25.0, "Marineblau", "tee"),
+    shaped("cos", "2000000113", "Chino", 79.0, "Stein", "chinos"),
+    shaped("weekday", "2000000213", "Chino-Hose", 55.0, "Stein", "chinos"),
 ]
 LOCK = "Create a free account to see the stores, prices and links."
 LINKS = re.compile(r'(?:href|src|hx-get)="(/[^"]*)"')
@@ -278,8 +288,11 @@ class TheOpenDoor(GuestCase):
         user = db.get_user(example)
         self.assertEqual((user["email"], user["password_hash"]), (guests.EXAMPLE_EMAIL, ""))
         with db.as_user(example):
-            self.assertEqual(profile_mod.load(), {**profile_mod.EXAMPLE}, "the example profile: its sizes, no photo")
-            self.assertEqual(selection.build().mode, "medium", "the middle price level")
+            # The example profile (its sizes, no photo), with a budget of its own that it has given, fitted to it.
+            self.assertEqual(profile_mod.load(), {**profile_mod.EXAMPLE, "budget": 600}, "the example profile")
+            self.assertEqual(guests.example_budget(), 600, "config/site.toml")
+            self.assertTrue(profile_mod.budget_known())
+            self.assertEqual(selection.build().mode, "budget", "Best for budget")
             self.assertIsNone(person.photo())
             self.assertEqual(selection.build().source, "collected", "its pieces from the published list")
         # Nobody logs in to it, gets a reset link for it, or signs up with its address.
@@ -302,7 +315,7 @@ class TheOpenDoor(GuestCase):
                     db.set_setting("mode", "top")
             finally:
                 db.reset_read_only(token)
-            self.assertEqual(db.get_setting("mode"), "medium")
+            self.assertEqual(db.get_setting("mode"), "budget")
         # Started again, it is still the same, and nothing is written.
         before = everything_in()
         create_app()

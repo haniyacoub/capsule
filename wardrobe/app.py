@@ -193,6 +193,57 @@ def with_his_pieces(new: list[dict], old: list[dict], profile: dict | None = Non
     return new + [slot for slot in old if slot["id"] in mine and slot["id"] not in here]
 
 
+def budget_choices(profile: dict) -> dict:
+    """The five budget choices of Profile's Budget tab and the welcome's step 2 (_macros.html, budget_pick): each preset
+    of config/budget.toml with about how many pieces it plans for his kinds of wardrobe (capsule.pieces_at, with his
+    colours, ticks and things he owns), and the kinds that wait at it with the budget each joins at ("Office joins at
+    about 206 €"); then "Other amount", which opens the field for it.
+    `chosen`: the preset his budget is ("300"), "other" for an amount of his own, "" while he has given none (nothing
+    is chosen then, and the field is empty). `words`: the kinds the counts are for, "everyday and the office".
+    `own`: what an amount of his own plans, said under its field. `most`: the most pieces a plan has."""
+    known = profile_mod.budget_known(profile)
+    budget = int(profile.get("budget") or 0)
+    joins = {kind: at for kind, at in capsule.joins_at(profile).items() if at is not None}
+    presets = capsule.presets()
+
+    def waits(amount: int) -> list[tuple[str, int]]:
+        return [(capsule.KIND_NAMES.get(kind, kind.title()), at) for kind, at in joins.items() if amount < at]
+
+    chosen = "" if not known else str(budget) if budget in presets.values() else "other"
+    return {"presets": [{"name": name, "amount": amount, "pieces": capsule.pieces_at(profile, amount),
+                         "waits": waits(amount)} for name, amount in presets.items()],
+            "chosen": chosen, "amount": budget if known else "",
+            # An amount of his own: what it plans, said under its field.
+            "own": {"pieces": capsule.pieces_at(profile, budget), "waits": waits(budget)} if chosen == "other" else None,
+            "words": capsule.kinds_words(capsule.KINDS.get(profile.get("use", "both"), capsule.KINDS["both"])),
+            "most": int(capsule.budget_rules()["money"]["most_pieces"])}     # the most pieces a plan has
+
+
+def plan_line(profile: dict, slots: list[dict], mine: set[str], edited: bool) -> dict:
+    """What the plan page says the plan was made for (slots.html): the kinds of wardrobe the budget lets in
+    (capsule.kinds_in: at 150 € "both" plans everyday only), the budget, and how many pieces that plans:
+    "Planned for everyday and the office, for 300 €: 9 pieces."
+    Said so only where the plan is what his answers propose now (`as_planned`), but for pieces of his wardrobe that a
+    rebuild kept from the plan before (with_his_pieces: `kept`, counted apart). Else, his plan having been edited by
+    hand, or made before the budget sized plans, or from other answers, it says what his answers would plan instead.
+    `mine`: the ids of the pieces in his wardrobe; `edited`: plan_edited(). `known`: the budget is one he gave; else
+    it is the amount plans are made for until he gives one. `waits`: the kinds that wait, with the budget each joins
+    at."""
+    proposed = capsule.propose(profile)[0]
+    ids = {slot["id"] for slot in proposed}
+    extra = [slot for slot in slots if slot["id"] not in ids]
+    as_planned = (capsule.same_plan([slot for slot in slots if slot["id"] in ids], profile)
+                  and (not extra or (not edited and all(slot["id"] in mine for slot in extra))))
+    planned = capsule.kinds_in(profile)
+    asked = capsule.KINDS.get(profile.get("use", "both"), capsule.KINDS["both"])
+    joins = capsule.joins_at(profile)
+    return {"as_planned": as_planned, "words": capsule.kinds_words(planned), "budget": profile.get("budget") or 0,
+            "pieces": capsule.count(proposed), "kept": capsule.count(extra) if as_planned else 0,
+            "known": profile_mod.budget_known(profile),
+            "waits": [(capsule.KIND_NAMES.get(kind, kind.title()), joins[kind]) for kind in asked
+                      if kind not in planned and joins.get(kind) is not None]}
+
+
 def recoloured_name(name: str, old: str, new: str) -> str:
     """A piece's name once it takes a new colour: 'Black wool blazer' in navy is 'Navy wool blazer'.
     Only a name that starts with the old colour's name changes; any other ('My lucky blazer') stays."""
@@ -708,9 +759,12 @@ def create_app() -> Flask:
             # `real`: a published product list is there (shared.published); without one every customer gets the
             # invented demo products, and the page says so instead of promising real ones from named stores.
             # `explore`: visitors may look through the example wardrobe's outfits without an account (guests.py).
+            # `most`: the most pieces a plan has (config/budget.toml): the page promises the plan's size, not its
+            # price, which on a store's real prices a small budget may not reach.
             return render_template("landing.html", looks_on=_pictures_on(),      # the public website
                                    photos=_photos_on(), invite=bool(conf.INVITE_CODE), real=shared.published(),
-                                   explore=guests.door_open() and guests.example_id() is not None)
+                                   explore=guests.door_open() and guests.example_id() is not None,
+                                   most=int(capsule.budget_rules()["money"]["most_pieces"]))
         # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
         gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
         w = selection.build()
@@ -1857,7 +1911,10 @@ def create_app() -> Flask:
     @app.get("/slots")
     def slots_page():
         prof = profile_mod.load()     # the plan is part of the Wardrobe, so its tab stays lit
-        return page("slots.html", tab="wardrobe", palette=capsule.palette_summary(prof), profile=prof)
+        w = selection.build(prof)
+        mine = {view.slot["id"] for view in w.slots if view.mine}
+        return page("slots.html", tab="wardrobe", palette=capsule.palette_summary(prof), profile=prof, w=w,
+                    plan=plan_line(prof, db.list_slots(), mine, plan_edited()))
 
     def slot_fields() -> dict | None:
         form = request.form
@@ -1980,7 +2037,7 @@ def create_app() -> Flask:
                         # What he has not answered yet is said where it is asked, in a plain line: his sizes,
                         # his colours (the plan starts with Stilsmith's), his budget (its field stays empty).
                         sizes_given=not profile_mod.sizes_unconfirmed(current),
-                        answered=profile_mod.answered(current))
+                        answered=profile_mod.answered(current), budget=budget_choices(current))
 
         new, notes = profile_mod.from_form(request.form, current)
         answer = save_answers(current, new, notes)
@@ -2017,13 +2074,14 @@ def create_app() -> Flask:
         # Stores unticked on the Stores tab: their pieces are picked again, his own choices among them (shared.py).
         stores_line = shared.stores_unticked(current, new)
         # The whole form was in front of him: its colours and what he dresses for are his answers now. The budget
-        # only if he typed one, or had given one before (its field is empty until then).
-        typed_budget = profile_mod.given_budget(request.form.get("budget")) is not None
+        # only if he chose one (a preset, or an amount of his own), or had given one before (nothing is chosen and
+        # its field is empty until then).
+        sent_budget = profile_mod.budget_sent(request.form)
+        typed_budget = profile_mod.given_budget(sent_budget) is not None
         profile_mod.answer("colours", "use", *(["budget"] if typed_budget else []))
-        # A budget he had, its field emptied: he has no budget now. The bar shows his total, with nothing left or
-        # over, as before he gave one ("Best for budget" says it needs one).
-        cleared = ("budget" in request.form and not request.form["budget"].strip()
-                   and profile_mod.budget_known(current))
+        # A budget he had, its field emptied ("Other amount", with nothing in it): he has no budget now. The bar shows
+        # his total, with nothing left or over, as before he gave one ("Best for budget" says it needs one).
+        cleared = sent_budget is not None and not sent_budget.strip() and profile_mod.budget_known(current)
         if cleared:
             profile_mod.unanswer("budget")
         profile_mod.save(new)
@@ -2034,18 +2092,19 @@ def create_app() -> Flask:
         if stores_line:
             flash(stores_line)
 
-        shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned")
-        # The plan has no tab of its own, so a message that sends you to it carries the link.
+        # What plans the wardrobe: the colours, what he dresses for, the shoes and outerwear ticks, the things he owns,
+        # and the budget, which sizes the plan (config/budget.toml).
+        shapes_capsule = ("liked", "refused", "use", "shoes", "outerwear", "owned", "budget")
         # (Markup: the link is shown as a link; what the customer typed is still escaped.)
         same_plan = all(current[f] == new[f] for f in shapes_capsule)
-        if same_plan and not current["example"]:        # sizes or budget: the plan stays as it is
+        if same_plan and not current["example"]:        # sizes, stores: the plan stays as it is
             flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
             return back_to_tab()
         if plan_edited():               # a plan changed on the plan page is never rebuilt without asking
             if current["refused"] != new["refused"]:
                 sync_catalog()          # its pieces stay, but no longer with products in a colour now refused
-            flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
-                         "“Start over from my profile” on <a href=\"%s\">the plan page</a>.") % url_for("slots_page"))
+            # Said in one line, with the button that plans it from these answers ("plan-kept": base.html adds it).
+            flash("Profile saved. Your plan stays as you edited it.", "plan-kept")
             return back_to_tab()
         if same_plan:
             # The first save, with the example's colours and use kept: the plan is built from them already. As the
@@ -2281,7 +2340,8 @@ def create_app() -> Flask:
             return render_template("welcome.html", step=step, steps=WELCOME, profile=current, plain=True,
                                    sizes_given=not profile_mod.sizes_unconfirmed(current),
                                    answered=profile_mod.answered(current), given=None,
-                                   chat_on=stylechat.available())
+                                   chat_on=stylechat.available(),
+                                   budget=budget_choices(current) if step == 2 else None)
         form = request.form
         if form.get("skip") == "1":
             return onwards()
@@ -2305,10 +2365,11 @@ def create_app() -> Flask:
                 sent["refused"] = ", ".join(colours.get(key).label.lower() for key in current.get("refused") or []
                                             if key not in liked)
                 questions.append("colours")
-            if profile_mod.given_budget(form.get("budget")) is not None:
-                sent["budget"] = form["budget"]
+            budget = profile_mod.budget_sent(form) or ""      # a preset chosen, or the amount of "Other amount"
+            if profile_mod.given_budget(budget) is not None:
+                sent["budget"] = budget
                 questions.append("budget")
-            elif form.get("budget", "").strip():        # "0", or not a number: no budget was given
+            elif budget.strip():        # "0", or not a number: no budget was given
                 flash(profile_mod.NOT_A_BUDGET)
         else:
             if form.get("use") in profile_mod.USES:
@@ -2327,7 +2388,7 @@ def create_app() -> Flask:
         profile_mod.answer(*questions)
         if not profile_mod.same_answers(new, current):
             profile_mod.save(new)
-            shapes_plan = ("liked", "refused", "use")
+            shapes_plan = ("liked", "refused", "use", "budget")     # (the budget sizes the plan: config/budget.toml)
             if any(current[key] != new[key] for key in shapes_plan) and not plan_edited():
                 rebuild_plan(new, current)
         return onwards()

@@ -271,6 +271,7 @@ class SavedOutfits(AppCase):
 
 class ShoppingList(AppCase):
     def test_grouped_by_store_with_subtotals_that_add_up(self):
+        having.the_old_start()          # a big wardrobe (a coat): as every account started until 19 Nov 2026
         having.the_whole_plan()         # every piece is in his wardrobe, the white tee with its spare
         coat = next(s for s in selection.build().slots if s.garment.key == "coat")
         self.client.post(f"/slot/{coat.slot['id']}/own", headers=HX)

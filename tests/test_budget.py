@@ -12,15 +12,20 @@ What this round promises:
     before, and never of a plan he edited by hand.
 """
 import html
+import re
 import sqlite3
 import unittest
 from contextlib import closing
+from pathlib import Path
+from unittest import mock as patch
 
-from wardrobe import capsule, catalog, db, mock, paths, programmes, scoring, selection, shared, sizes
+from wardrobe import capsule, catalog, config, db, guests, mock, onboarding, outfits, paths, programmes, scoring
+from wardrobe import selection, shared, sizes
 from wardrobe import profile as profile_mod
 from wardrobe.app import create_app
 from wardrobe.garments import GARMENTS
 
+from . import having
 from .test_app import AppCase
 from .test_production import ProductionCase
 from .test_production import words as page_words
@@ -251,7 +256,7 @@ class ExistingCustomers(ProductionCase):
         """A customer whose plan is the one every account has today, with a product locked and a piece he owns, and
         his own answers saved once (an edited plan has a piece he renamed)."""
         client = self.member(email)
-        self.assertEqual(self.post(client, "/profile", **FORM).status_code, 302)       # his answers, the example's
+        self.assertEqual(self.post(client, "/profile", **FORM).status_code, 302)       # his answers, 1,500 €
         with db.as_user(self.user_id(email)):
             db.replace_slots([{"id": i, "name": name, "category": garment, "colour": colour, "keywords": keywords,
                                "qty": qty, "owned": False} for i, name, garment, colour, keywords, qty in PLAN_BEFORE])
@@ -280,18 +285,20 @@ class ExistingCustomers(ProductionCase):
             for url in ("/", "/outfits", "/profile", "/slots", "/list"):
                 self.assertEqual(client.get(url).status_code, 200, url)
         self.assertEqual({email: self.plan(email) for email in before}, before, "no plan changed")
-        # His budget and his sizes alone leave the plan as it is, also now that a plan's size follows the budget.
+        # His sizes alone leave the plan as it is.
         for client in (old, edited):
-            saved = self.post(client, "/profile", **{**FORM, "budget": "300", "top_size": "L"})
+            saved = self.post(client, "/profile", **{**FORM, "top_size": "L"})
             self.assertTrue(saved.headers["Location"].endswith("/profile"))
         self.assertEqual({email: self.plan(email) for email in before}, before, "no plan changed")
-        # New colours: a plan edited by hand stays as it is, and says how to rebuild it ...
-        stays = self.post(edited, "/profile", **{**FORM, "budget": "300", "liked": "black, grey, white"})
+        # A new budget plans the wardrobe (since round 1b, as new colours do): a plan edited by hand stays as it is,
+        # and says so in one line, with the button that plans it from his profile ...
+        stays = self.post(edited, "/profile", **{**FORM, "budget": "300", "top_size": "L"})
         self.assertTrue(stays.headers["Location"].endswith("/profile"))
-        self.assertIn("Your plan stays as you edited it", edited.get("/profile").get_data(as_text=True))
+        self.assertIn('<div class="flash plan-kept" role="status"><span>Profile saved. Your plan stays as you edited '
+                      'it.</span>', edited.get("/profile").get_data(as_text=True))
         self.assertEqual(self.plan("edited@example.com"), before["edited@example.com"])
-        # ... and one that was not is rebuilt, as before: now for his budget, its ids each once.
-        rebuilt = self.post(old, "/profile", **{**FORM, "budget": "300", "liked": "black, grey, white"})
+        # ... and one that was not is planned afresh for it: its ids each once.
+        rebuilt = self.post(old, "/profile", **{**FORM, "budget": "300", "top_size": "L"})
         self.assertEqual(rebuilt.headers["Location"], "/outfits")
         plan = self.plan("old@example.com")
         self.assertEqual(len({s["id"] for s in plan}), len(plan))
@@ -300,3 +307,296 @@ class ExistingCustomers(ProductionCase):
                           and not s["owned"]])
         self.assertTrue(any(s["owned"] and (s["category"], s["colour"]) == ("knit", "navy") for s in plan),
                         "the piece he owns stays his")
+
+
+# ── Round 1b: the five budget choices, budget as plan-shaping, the level at sign-up, the example's own budget ───────
+
+def answers_form(**changes) -> dict:
+    """Profile's form with the example's answers, as a browser sends it (the budget's choice and field in `changes`)."""
+    form = {"top_size": "M", "waist": "32", "length": "32", "shoe": "43", "height_cm": "180", "weight_kg": "78",
+            "liked": "navy, grey, white, olive", "refused": "", "use": "both", "shoes": "on", "outerwear": "on",
+            "owned": ""}
+    return {key: value for key, value in {**form, **changes}.items() if value is not None}
+
+
+def choices(page: str) -> list[tuple[str, bool, str]]:
+    """The budget's choices on a page: (value, chosen, what its label says), in order."""
+    pick = re.search(r'<fieldset class="budget-pick".*?</fieldset>', page, re.S).group(0)
+    rows = re.findall(r'<label class="check budget-choice"><input type="radio" name="budget_choice" value="([^"]+)"'
+                      r'([^>]*)>(.*?)</label>', pick, re.S)
+    return [(value, "checked" in rest, html.unescape(page_words(label))) for value, rest, label in rows]
+
+
+class TheFiveChoices(AppCase):
+    """Profile's Budget tab and the welcome's step 2: Starter 150 € · Basic 300 € · Solid 600 € · Full 1,000 €+ · Other
+    amount, each preset with about how many pieces it plans for his kinds (capsule's own rule), and where a kind waits
+    at it, the budget that kind joins at."""
+
+    def test_each_preset_says_what_it_plans_for_his_kinds(self):
+        page = self.client.get("/profile").get_data(as_text=True)
+        self.assertEqual(capsule.presets(), {"Starter": 150, "Basic": 300, "Solid": 600, "Full": 1000})
+        self.assertEqual(choices(page), [
+            ("150", False, "Starter 150 € about 7 pieces Office joins at about 206 €"),
+            ("300", False, "Basic 300 € about 9 pieces"),
+            ("600", False, "Solid 600 € about 12 pieces"),
+            ("1000", False, "Full 1,000 €+ about 17 pieces"),
+            ("other", False, "Other amount")])
+        self.assertIn("About how many pieces each plans for everyday and the office.", html.unescape(page_words(page)))
+        # The counts are the rule's own (capsule.pieces_at), and so is the joining point: a whole euro less, and the
+        # office waits.
+        example = profile_mod.load()
+        for amount, pieces in ((150, 7), (300, 9), (600, 12), (1000, 17)):
+            self.assertEqual(capsule.pieces_at(example, amount), pieces)
+        self.assertEqual(capsule.joins_at(example), {"office": 206})
+        self.assertEqual(capsule.kinds_in({**example, "budget": 206}), ["everyday", "office"])
+        self.assertEqual(capsule.kinds_in({**example, "budget": 205}), ["everyday"])
+
+    def test_the_counts_follow_what_he_dresses_for_and_his_ticks(self):
+        profile_mod.save({**profile_mod.load(), "use": "office"})
+        self.assertEqual([label for _, _, label in choices(self.client.get("/profile").get_data(as_text=True))][:4],
+                         ["Starter 150 € about 4 pieces", "Basic 300 € about 6 pieces", "Solid 600 € about 9 pieces",
+                          "Full 1,000 €+ about 15 pieces"])      # one kind: none waits
+        profile_mod.save({**profile_mod.load(), "use": "both", "shoes": False})
+        starter = choices(self.client.get("/profile").get_data(as_text=True))[0][2]
+        self.assertTrue(starter.startswith("Starter 150 € about "), starter)
+        self.assertNotIn("joins", starter, "without shoes the office's first pieces fit at 103 €")
+        self.assertEqual(capsule.joins_at(profile_mod.load()), {"office": 103})
+
+    def test_radio_buttons_with_labels_and_the_field_other_amount_opens(self):
+        page = self.client.get("/profile").get_data(as_text=True)
+        pick = re.search(r'<fieldset class="budget-pick" aria-describedby="budget-for">\s*<legend>For the whole '
+                         r'wardrobe</legend>.*?</fieldset>', page, re.S).group(0)
+        self.assertEqual(pick.count('type="radio" name="budget_choice"'), 5, "each a native radio button in its label")
+        # The field for an amount of his own keeps its name and id (the budget bar's link, older forms), under
+        # "Other amount", which opens it (app.css hides it until then, where the browser can tell; app.js 13e
+        # chooses "Other amount" when something is typed in it).
+        self.assertRegex(pick, r'(?s)value="other"[^>]*data-budget-other>.*?<div class="budget-own">\s*<label class="field">'
+                               r'<span>Your amount <small>\(EUR\)</small></span>\s*<input type="number" id="budget" '
+                               r'name="budget"')
+        css = (Path(paths.ROOT) / "wardrobe" / "static" / "app.css").read_text(encoding="utf-8")
+        self.assertIn(".budget-pick:not(:has(input[data-budget-other]:checked)) .budget-own { display: none; }", css)
+        self.assertIn(".budget-choice { min-height: 48px;", css, "a row to tap, 48px tall")
+        script = (Path(paths.ROOT) / "wardrobe" / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("field.addEventListener('input', () => {", script)
+
+    def test_a_preset_beats_the_field_and_other_amount_reads_it(self):
+        saved = self.client.post("/profile", data=answers_form(budget_choice="600", budget="450"))
+        self.assertEqual((profile_mod.load()["budget"], profile_mod.budget_known()), (600, True))
+        self.assertEqual(saved.headers["Location"], "/outfits", "a new budget plans the wardrobe: shown on the model")
+        self.assertEqual(capsule.count(db.list_slots()), 12)
+        page = self.client.get("/profile").get_data(as_text=True)
+        self.assertEqual([value for value, on, _ in choices(page) if on], ["600"])
+        self.client.post("/profile", data=answers_form(budget_choice="other", budget="450"))
+        self.assertEqual(profile_mod.load()["budget"], 450)
+        page = self.client.get("/profile").get_data(as_text=True)
+        self.assertEqual([value for value, on, _ in choices(page) if on], ["other"])
+        self.assertIn('id="budget" name="budget" min="0" inputmode="numeric" value="450"', page)
+        self.assertIn(f"At 450 €: about {capsule.pieces_at(profile_mod.load(), 450)} pieces.",
+                      html.unescape(page_words(page)))
+        # "Other amount" with nothing in its field: no budget (what the line under the choices says to do).
+        self.client.post("/profile", data=answers_form(budget_choice="other", budget=""))
+        self.assertFalse(profile_mod.budget_known())
+        self.assertEqual([value for value, on, _ in choices(self.client.get("/profile").get_data(as_text=True)) if on],
+                         [], "nothing chosen while he has no budget")
+        # A form without the choices (an older page) is read as before: its field.
+        self.client.post("/profile", data=answers_form(budget="350"))
+        self.assertEqual((profile_mod.load()["budget"], profile_mod.budget_known()), (350, True))
+
+    def test_the_welcome_offers_the_same_five_and_a_choice_plans_the_wardrobe(self):
+        page = self.client.get("/welcome/2").get_data(as_text=True)
+        self.assertEqual([label for _, _, label in choices(page)], [
+            "Starter 150 € about 7 pieces Office joins at about 206 €", "Basic 300 € about 9 pieces",
+            "Solid 600 € about 12 pieces", "Full 1,000 €+ about 17 pieces", "Other amount"])
+        said = html.unescape(page_words(page))
+        self.assertIn("About how many pieces each plans for everyday and the office: you choose what you dress for in "
+                      "the next step.", said)
+        self.assertIn("It sizes the wardrobe we plan for you.", said)
+        self.assertLess(page.index('class="budget-pick"'), page.index('class="pick-colours"'), "above the colours")
+        self.client.post("/welcome/2", data={"budget_choice": "150", "budget": ""})
+        self.assertEqual((profile_mod.load()["budget"], profile_mod.answered()), (150, {"budget"}))
+        self.assertEqual(capsule.count(db.list_slots()), 7, "the plan of 150 €")
+        self.client.post("/welcome/2", data={"budget_choice": "other", "budget": "1500"})
+        self.assertEqual(capsule.count(db.list_slots()), 24, "the plan of 1,500 €")
+        # Once he has said what he dresses for, the counts are for that, and the line says so plainly.
+        self.client.post("/welcome/3", data={"use": "everyday"})
+        page = self.client.get("/welcome/2").get_data(as_text=True)
+        self.assertIn("About how many pieces each plans for everyday wear.", html.unescape(page_words(page)))
+        self.assertEqual([value for value, on, _ in choices(page) if on], ["other"])
+
+
+class BudgetShapesThePlan(AppCase):
+    """A budget is plan-shaping: a save that changes it plans the wardrobe afresh (app.profile_page, the welcome), but a
+    plan edited by hand is never rebuilt without asking, and Profile says so in one line, with "Start over"."""
+
+    def test_an_edited_plan_stays_and_the_line_offers_to_start_over(self):
+        self.client.post("/slots/add", data={"name": "", "category": "overshirt", "colour": "rust", "qty": "1"})
+        before = db.list_slots()
+        saved = self.client.post("/profile", data=answers_form(budget_choice="1000", budget="", tab="budget"))
+        self.assertTrue(saved.headers["Location"].endswith("/profile#budget"), "it stays on the tab it was sent from")
+        self.assertEqual(db.list_slots(), before, "the plan is exactly as he edited it")
+        self.assertEqual(profile_mod.load()["budget"], 1000, "the budget itself is saved")
+        page = self.client.get("/profile").get_data(as_text=True)
+        line = re.search(r'<div class="flash plan-kept" role="status">.*?</div>', page, re.S).group(0)
+        self.assertEqual(html.unescape(page_words(line)),
+                         "Profile saved. Your plan stays as you edited it. Start over from my profile")
+        self.assertIn('action="/slots/repropose" data-confirm="Start over from your profile?', line)
+        self.assertEqual(len(re.findall(r'<(?:p|div) class="flash[^"]*" role="status">', page)), 1, "one line")
+        # The button plans it from the profile: his 1,000 €.
+        self.client.post("/slots/repropose")
+        self.assertEqual(capsule.count(db.list_slots()), 17)
+
+    def test_the_welcome_never_rebuilds_an_edited_plan(self):
+        self.client.post("/slots/add", data={"name": "", "category": "overshirt", "colour": "rust", "qty": "1"})
+        before = db.list_slots()
+        self.client.post("/welcome/2", data={"budget_choice": "600", "budget": ""})
+        self.assertEqual(db.list_slots(), before)
+
+
+class ThePlanPageSays(AppCase):
+    """What the plan was made for, from the kinds the budget lets in, the budget and the count."""
+
+    def line(self) -> str:
+        page = self.client.get("/slots").get_data(as_text=True)
+        found = re.search(r'<p class="muted small" id="plan-for">(.*?)Trousers and shoes stay neutral', page, re.S)
+        return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", found.group(1)))).strip()
+
+    def save(self, amount: str) -> None:
+        self.client.post("/profile", data=answers_form(budget_choice=amount, budget=""))
+
+    def test_planned_for_the_kinds_the_budget_and_the_count(self):
+        self.save("300")
+        self.assertEqual(self.line(), "Planned for everyday and the office, for 300 €: 9 pieces.")
+        self.save("150")        # "both", but at 150 € only everyday's pieces fit: said, and when the office joins
+        self.assertEqual(self.line(), "Planned for everyday wear, for 150 €: 7 pieces. Office joins at about 206 €.")
+        self.client.post("/profile", data=answers_form(budget_choice="600", budget="", use="office"))
+        self.assertEqual(self.line(), "Planned for the office, for 600 €: 9 pieces.")
+
+    def test_a_budget_he_has_not_given_is_said_to_be_so(self):
+        self.assertEqual(self.line(), "Planned for everyday and the office, for 300 € until you set your budget: "
+                                      "9 pieces.")
+        page = self.client.get("/slots").get_data(as_text=True)
+        self.assertIn('until you <a href="/profile#budget">set your budget</a>', page)
+
+    def test_a_plan_that_is_not_what_his_answers_plan_says_what_they_would(self):
+        self.save("300")
+        self.client.post("/slots/add", data={"name": "", "category": "overshirt", "colour": "rust", "qty": "1"})
+        self.assertEqual(self.line(), "From your profile as it is now (everyday and the office, 300 €), your plan "
+                                      "would have 9 pieces.")
+        # An account's plan from before the budget sized plans (19 pieces, 1,500 €): not called planned for it.
+        db.replace_slots([{"id": i, "name": name, "category": garment, "colour": colour, "keywords": keywords,
+                           "qty": qty, "owned": False} for i, name, garment, colour, keywords, qty in PLAN_BEFORE])
+        db.set_setting("plan_edited", False)
+        profile_mod.save({**profile_mod.load(), "budget": 1500})
+        self.assertEqual(self.line(), "From your profile as it is now (everyday and the office, 1,500 €), your plan "
+                                      "would have 24 pieces.")
+
+    def test_pieces_of_his_wardrobe_a_new_budget_had_no_place_for_are_counted_apart(self):
+        self.save("600")
+        db.set_setting("kept_pieces", ["navy-light-jacket"])       # in his wardrobe; the 300 € plan has no jacket
+        self.save("300")
+        self.assertIn("navy-light-jacket", {s["id"] for s in db.list_slots()}, "it stays in his plan")
+        self.assertEqual(self.line(), "Planned for everyday and the office, for 300 €: 9 pieces. Besides them, 1 piece "
+                                      "of your wardrobe stays from your plan before.")
+
+
+class TheLevelAtSignUp(ProductionCase):
+    def test_a_new_account_starts_on_best_for_budget_and_one_with_no_level_stays_on_cheapest(self):
+        self.member("ada@example.com")
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertEqual((db.get_setting("mode"), db.get_setting("levels")), ("budget", True))
+            w = selection.build()
+            self.assertEqual(w.mode, "budget")
+            # He has not given a budget yet: the level says it needs one, and shows the cheapest good options.
+            self.assertTrue(w.note.startswith("“Best for budget” needs your budget"), w.note)
+            # An account with no level stored (from before this setting) is on Cheapest, as before.
+            db.set_setting("mode", None)
+            self.assertEqual((selection.DEFAULT_MODE, selection.build().mode), ("cheapest", "cheapest"))
+            # The setup runs once: it never writes a level over one an account has, nor a first one.
+            onboarding.ensure_setup()
+            self.assertIsNone(db.get_setting("mode"))
+
+    def test_the_starting_values_are_300_euros_for_everyday_and_the_office(self):
+        self.assertEqual((profile_mod.EXAMPLE["budget"], profile_mod.EXAMPLE["use"]), (300, "both"))
+        self.assertEqual(capsule.KINDS[profile_mod.EXAMPLE["use"]], ("everyday", "office"))
+
+
+class TheExampleWardrobe(ProductionCase):
+    """The visitors' example: its own budget (config/site.toml, example_budget = 600), everyday and the office, on
+    Best for budget, with its budget, colours and use answered. On the demo it fits its budget."""
+
+    def test_its_own_budget_answered_and_fitted(self):
+        self.assertEqual(guests.example_budget(), 600)
+        self.assertEqual(guests.EXAMPLE_LEVEL, "budget")
+        with db.as_user(guests.example_id()):
+            self.assertEqual(profile_mod.load(), {**profile_mod.EXAMPLE, "budget": 600})
+            self.assertEqual(profile_mod.answered(), {"budget", "colours", "use"})
+            self.assertTrue(profile_mod.budget_known())
+            w = selection.build()
+            self.assertEqual((w.mode, w.source, w.budget), ("budget", "mock", 600))
+            self.assertEqual(capsule.kinds_in(profile_mod.load()), ["everyday", "office"])
+            self.assertEqual(sum(view.planned for view in w.slots), 12)
+            self.assertEqual(w.note, "", "it fits its budget")
+            self.assertLessEqual(w.total, 600)
+            for view in w.slots:
+                self.assertGreaterEqual(view.chosen.score.total, 70, view.slot["name"])
+            self.MARGINS["example"] = (sum(view.planned for view in w.slots), w.total,
+                                       len(outfits.all_outfits(w)))
+
+    MARGINS: dict = {}
+
+    def test_a_new_budget_replans_it_at_the_next_start_and_a_broken_one_is_said(self):
+        with db.as_user(guests.example_id()):
+            self.assertEqual(capsule.count(db.list_slots()), 12)
+        with patch.patch.object(guests, "example_budget", return_value=1000):
+            create_app()                                    # the next start
+        with db.as_user(guests.example_id()):
+            self.assertEqual(capsule.count(db.list_slots()), 17, "the plan of 1,000 €")
+            self.assertEqual(profile_mod.load()["budget"], 1000)
+        with patch.patch.object(config, "load", return_value={"guests": True, "example_budget": "600 €"}):
+            with self.assertRaises(config.ConfigError) as said:
+                guests.example_budget()
+        self.assertIn("example_budget must be an amount in euros", str(said.exception))
+        with patch.patch.object(config, "load", return_value={"guests": True}):
+            self.assertEqual(guests.example_budget(), guests.EXAMPLE_BUDGET, "none named: 600 €")
+        # The file says what a change means.
+        text = (Path(paths.ROOT) / "config" / "site.toml").read_text(encoding="utf-8")
+        self.assertIn("example_budget = 600", text)
+        self.assertIn("must then be drawn again", text)
+
+
+class SaidInTheExampleSize(AppCase):
+    def test_the_lists_say_the_cheapest_in_the_example_size_as_the_wardrobe_does(self):
+        # A piece with nothing rated 70 or more, on Best for budget: "this is the cheapest in your size", which is the
+        # example size while his sizes are the example's, on the shopping list too (export: line.said).
+        piece = NothingGoodEnough.PIECE
+        options = [derby("otto", 2, 39.99, ["43"]), derby("weekday", 1, 90, ["43"]),
+                   derby("cos", 3, 25, [], sizes_all=[])]        # sizes not checked: passed over for those in his size
+        catalog.update(lambda cat: cat.update(candidates=[c for c in cat["candidates"] if c["slot_id"] != piece]
+                                              + [{**option, "slot_id": piece} for option in options]))
+        having.the_whole_plan()
+        self.set_mode("budget")
+        self.assertTrue(profile_mod.sizes_unconfirmed(profile_mod.load()))
+        listed = html.unescape(page_words(self.client.get("/list").get_data(as_text=True)))
+        self.assertIn("Nothing reaches 70 — this is the cheapest in the example size.", listed)
+        self.assertNotIn("in your size", listed)
+        db.set_setting("sizes_confirmed", True)
+        listed = html.unescape(page_words(self.client.get("/list").get_data(as_text=True)))
+        self.assertIn("Nothing reaches 70 — this is the cheapest in your size.", listed)
+
+
+class KeywordsOfASmallBudget(unittest.TestCase):
+    def test_a_150_euro_jumper_is_not_offered_merino_first(self):
+        # Under 450 € the words a piece's products are matched by leave out merino, wool and leather, as its name does
+        # (config/budget.toml): with room for one product per store, the 300 € plan's jumper gets the cheaper cotton
+        # one, the 600 € plan's the merino one.
+        def jumper(budget: int) -> dict:
+            return next(s for s in capsule.propose({**profile_mod.EXAMPLE, "budget": budget})[0] if s["category"] == "knit")
+        pool = {"products": [
+            {"id": "cos-1", "store": "cos", "category": "knit", "name": "Pullover aus Merinowolle", "colour": "Grau",
+             "price": 89.0},
+            {"id": "cos-2", "store": "cos", "category": "knit", "name": "Pullover aus Baumwolle", "colour": "Grau",
+             "price": 49.0}]}
+        collector = {**config.load("stores.toml")["collector"], "max_candidates": 1}
+        self.assertEqual(jumper(300)["id"], jumper(600)["id"], "the same piece")
+        self.assertEqual([c["id"] for c in shared.candidates_for(pool, jumper(300), collector)], ["cos-2"])
+        self.assertEqual([c["id"] for c in shared.candidates_for(pool, jumper(600), collector)], ["cos-1"])

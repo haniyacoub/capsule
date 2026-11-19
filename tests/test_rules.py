@@ -253,7 +253,9 @@ class Colours(unittest.TestCase):
 
 class Capsule(unittest.TestCase):
     def propose(self, **changes):
-        slots, unmatched = capsule.propose({**EXAMPLE, **changes})
+        """The plan the example's answers propose, with these changes. At 1,500 € unless a budget is given: the full
+        plan (24 pieces), where every rule of the lists shows. (A new account starts at 300 €: 9 pieces.)"""
+        slots, unmatched = capsule.propose({**EXAMPLE, "budget": 1500, **changes})
         return slots, unmatched
 
     # Each kind's pieces in the example's colours (navy, grey, white, olive), most needed first (capsule.RANKED). The
@@ -311,7 +313,17 @@ class Capsule(unittest.TestCase):
         full = {s["id"]: s["name"] for s in self.propose(budget=450)[0]}
         self.assertEqual((full["grey-merino-jumper"], full["white-leather-sneakers"], full["grey-wool-trousers"]),
                          ("Grey merino jumper", "White leather sneakers", "Grey wool trousers"))
-        self.assertEqual(self.propose(budget=300)[0][0]["keywords"], "merino crew-neck", "the keywords stay as they were")
+        # The words its products are matched by leave it out too (collect/matching.py ranks by them), so that the jumper
+        # a small budget buys is not offered merino jumpers first; from 450 € they are the full ones again.
+        small = {s["id"]: s["keywords"] for s in self.propose(budget=300)[0]}
+        self.assertEqual((small["grey-merino-jumper"], small["white-leather-sneakers"], small["grey-wool-trousers"],
+                          small["dark-brown-derby-shoes"]), ("crew-neck", "", "", "derby"))
+        full = {s["id"]: s["keywords"] for s in self.propose(budget=450)[0]}
+        self.assertEqual((full["grey-merino-jumper"], full["white-leather-sneakers"], full["grey-wool-trousers"],
+                          full["dark-brown-derby-shoes"]), ("merino crew-neck", "leather", "wool", "leather derby"))
+        for budget in range(50, 450, 5):
+            for slot in self.propose(budget=budget)[0]:
+                self.assertFalse({"merino", "wool", "leather"} & set(slot["keywords"].lower().split()), (budget, slot))
 
     def test_every_5_euros_kinds_never_drop_and_the_plan_only_grows_while_the_same_kinds_are_in(self):
         # Every budget from 50 € to 2,000 €, for each use, with and without shoes and outerwear. A piece keeps its id

@@ -245,10 +245,12 @@ class Saving(AppCase):
     def test_a_new_model_with_new_answers_saves_both(self):
         self.client.post("/profile", data=self.form())                   # his own answers, saved once
         self.client.get("/outfits")                                      # where that save's message was read
-        saved = self.client.post("/profile", data=self.form(build="slim", budget="2000", tab="sizes"))
+        # (A size, which leaves the plan as it is: a budget sizes the plan since 19 Nov 2026, and its save shows the
+        # outfits of the plan made for it.)
+        saved = self.client.post("/profile", data=self.form(build="slim", waist="33", tab="sizes"))
         self.assertTrue(saved.headers["Location"].endswith("/profile#sizes"), saved.headers["Location"])
         self.assertEqual(person.load(), {"build": "slim"})
-        self.assertEqual(profile_mod.load()["budget"], 2000)
+        self.assertEqual(profile_mod.load()["waist"], 33)
         page = self.client.get("/profile").data.decode()
         said = re.findall(r'<p class="flash" role="status">(.*?)</p>', page, re.S)
         self.assertEqual(said[:2], ["Model saved. Pictures drawn from now on show it.",
@@ -277,7 +279,7 @@ class Saving(AppCase):
         self.client.post("/profile", data=self.form())
         for tab, where in (("budget", "/profile#budget"), ("colours", "/profile#colours"), ("nowhere", "/profile"),
                            ("", "/profile")):
-            saved = self.client.post("/profile", data=self.form(budget=str(1500 + len(tab)), tab=tab))
+            saved = self.client.post("/profile", data=self.form(shoe=str(40 + len(tab)), tab=tab))   # (a size)
             self.assertTrue(saved.headers["Location"].endswith(where), (tab, saved.headers["Location"]))
 
     def test_the_model_saved_from_the_one_form_is_the_one_described(self):

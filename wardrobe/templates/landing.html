@@ -1,9 +1,12 @@
 {% extends "_public.html" %}
 {% block title %}{{ site_name }} — menswear: a small wardrobe that works together{% endblock %}
 {# What search results and shared links show under the title. Like the lead below, it promises a model
-   only while AI pictures are on (and the lead offers "you" as the model only while photos may be uploaded). #}
+   only while AI pictures are on (and the lead offers "you" as the model only while photos may be uploaded).
+   The size of the wardrobe follows the budget (config/budget.toml, `most`: at most 24 pieces), and that is all that
+   is promised of the budget: on the stores' real prices a small budget may not buy the pieces it plans, and the app
+   says so there ("Best for budget"). #}
 {% block head %}
-  <meta name="description" content="Plan a men's wardrobe where everything goes with everything: about 18 pieces fitted to your budget{% if looks_on %}, every outfit shown on a model{% endif %}. Free.">
+  <meta name="description" content="Plan a men's wardrobe where everything goes with everything, sized to your budget: up to {{ most }} pieces{% if looks_on %}, every outfit shown on a model{% endif %}. Free.">
 {% endblock %}
 {% block main %}
 <section class="hero">
@@ -11,9 +14,9 @@
   {# `real`: the service has a published product list (shared.published). Without one its products are the invented
      demo ones, and this says so in the words of the "Demo data" line inside: no real product, no store named. #}
   {% if real %}
-  <p class="hero-lead">{{ site_name }} plans a men's wardrobe of about 18 pieces in one colour palette, picks the <span>best-value</span> real product for each from the <span>high-street</span> stores {{ store_names(stocked_stores()) }}, and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}.</p>
+  <p class="hero-lead">{{ site_name }} plans a men's wardrobe in one colour palette, sized to your budget (up to {{ most }} pieces), picks the <span>best-value</span> real product for each from the <span>high-street</span> stores {{ store_names(stocked_stores()) }}, and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}.</p>
   {% else %}
-  <p class="hero-lead">{{ site_name }} plans a men's wardrobe of about 18 pieces in one colour palette, picks a product for each and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}. For now the products are invented examples, not real products, prices or stock.</p>
+  <p class="hero-lead">{{ site_name }} plans a men's wardrobe in one colour palette, sized to your budget (up to {{ most }} pieces), picks a product for each and shows you every outfit they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}. For now the products are invented examples, not real products, prices or stock.</p>
   {% endif %}
   {# `explore`: a visitor may look through the outfits of an example wardrobe without an account (guests.py,
      config/site.toml): that is the main button, and creating an account the second, beside it. #}
@@ -34,7 +37,7 @@
 <ol class="steps">
   <li>
     <h2><span class="step-n">1</span> Tell us what you wear</h2>
-    <p>Your sizes, the colours you like and avoid, and your budget. {{ site_name }} plans 15 to 20 menswear pieces that all go together, and you can change any of them.</p>
+    <p>Your sizes, the colours you like and avoid, and your budget. {{ site_name }} plans menswear pieces that all go together, more of them the bigger your budget, up to {{ most }}, and you can change any of them.</p>
   </li>
   <li>
     <h2><span class="step-n">2</span> Say yes to the outfits you like</h2>
@@ -43,7 +46,7 @@
   </li>
   <li>
     <h2><span class="step-n">3</span> Buy it, store by store</h2>
-    <p>Your shopping list holds only the pieces of the outfits you said yes to. Pick a price level from Cheapest to Top, or let {{ site_name }} fit everything to your budget. Every option's quality is rated on fabric, brand and price, with the working shown.</p>
+    <p>Your shopping list holds only the pieces of the outfits you said yes to. Pick a price level from Cheapest to Top, or let {{ site_name }} fit everything to your budget, and say so where even the cheapest options cost more. Every option's quality is rated on fabric, brand and price, with the working shown.</p>
   </li>
 </ol>
 {% endblock %}

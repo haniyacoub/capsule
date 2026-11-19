@@ -2,8 +2,9 @@
 
 Most websites open without a gate. With `guests = true` in config/site.toml (the default), someone who has no account,
 or is not logged in, can open Outfits and swipe through the outfits of one example wardrobe, the same for every
-visitor: the example profile (its example sizes, no photo) at the middle price level, Medium, with its pieces from
-Stilsmith's own product list. He sees each outfit's title, its pieces by their names and colours, drawn as the app's
+visitor: the example profile (its example sizes, no photo) with a budget of its own (config/site.toml,
+`example_budget`: 600 €), planned for everyday and the office and fitted to that budget ("Best for budget"), with its
+pieces from Stilsmith's own product list. He sees each outfit's title, its pieces by their names and colours, drawn as the app's
 own colour drawings (never a store's photo), and its AI picture where one has been drawn already: of Stilsmith's house
 model, never of anyone's photo. The outfits that have one come first (row). A visitor never causes a drawing: the owner
 draws them by hand, after seeing what they would cost (python -m wardrobe example-pictures, __main__.py).
@@ -36,7 +37,8 @@ from .config import ConfigError
 # The example wardrobe's account. ".invalid" is a name the internet keeps for addresses that can never exist
 # (RFC 2606): no mail goes there, and no one else can have it.
 EXAMPLE_EMAIL = "example-wardrobe@stilsmith.invalid"
-EXAMPLE_LEVEL = "medium"        # the middle of the price levels (selection.MODES): Cheapest, Cheap, Medium, …
+EXAMPLE_LEVEL = "budget"        # "Best for budget" (selection.MODES): the whole plan fitted to the example's budget
+EXAMPLE_BUDGET = 600            # € when config/site.toml names none (`example_budget`)
 
 # What a visitor may open without an account: the outfits, the pop-up for one piece, and the AI picture of one of the
 # example's outfits (its own address: app.example_picture; every other picture, at /looks/, needs an account).
@@ -85,6 +87,18 @@ def door_open() -> bool:
         return False
 
 
+def example_budget() -> int:
+    """The budget the visitors' example wardrobe is planned and fitted for, in whole euros: config/site.toml's
+    `example_budget` (EXAMPLE_BUDGET when it names none). Not the budget a new account starts with (profile.EXAMPLE):
+    the example shows what Stilsmith plans for a fuller wardrobe. A value that is not an amount is a ConfigError,
+    which app.bootstrap says in the log; visitors are then sent to log in until it is put right."""
+    value = config.load("site.toml").get("example_budget", EXAMPLE_BUDGET)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 1 <= value <= 100000:
+        raise ConfigError(f"config/site.toml: example_budget must be an amount in euros from 1 to 100000, like 600, "
+                          f"not {value!r}")
+    return int(value)
+
+
 def reason(why: str | None, real: bool = True) -> str:
     """The line over "Create your account" for ?why=<why>, or "" for none (or a word that is not one of WHY's).
     `real`: whether the products are real ones from a published list (else the demo's words, WHY_DEMO). The line
@@ -118,8 +132,11 @@ _ready = False
 def ensure_example() -> None:
     """At start-up on the public site: make the example wardrobe, or bring it up to date. It is what a new customer
     starts with (onboarding.ensure_setup: the example profile, the plan proposed for it, its products from the
-    published list, or the demo ones while there is none), at the price level Medium. Written only where something
-    differs, so a restart usually writes nothing. Several server processes may start at once: each writes the same."""
+    published list, or the demo ones while there is none), but for its budget, its own (example_budget), which it
+    has given: its colours, budget and what it dresses for are its answers ("answered"), so "Best for budget" fits
+    the plan to that budget. Written only where something differs, so a restart usually writes nothing. A new
+    budget is a new plan, made at the next start (its outfits' pictures must then be drawn again). Several server
+    processes may start at once: each writes the same."""
     global _ready
     _ready = False
     user_id = db.internal_account(EXAMPLE_EMAIL, make=True)
@@ -128,9 +145,12 @@ def ensure_example() -> None:
               "wardrobe. Visitors without an account are sent to log in.", file=sys.stderr, flush=True)
         return
     with db.as_user(user_id):
-        answers = dict(profile_mod.EXAMPLE)
+        answers = {**profile_mod.EXAMPLE, "budget": example_budget()}
         if db.get_setting("profile") != answers:
             db.set_setting("profile", answers)
+        given = sorted(profile_mod.QUESTIONS)       # its budget, colours and what it dresses for (profile.answered)
+        if db.get_setting("answered") != given:
+            db.set_setting("answered", given)
         if db.get_setting("mode") != EXAMPLE_LEVEL:
             db.set_setting("mode", EXAMPLE_LEVEL)
         replanned = not db.get_setting("slots_initialised") or not capsule.same_plan(db.list_slots(), answers)

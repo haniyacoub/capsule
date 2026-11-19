@@ -109,6 +109,7 @@ class NoNetwork:
 # ── the brief itself ──────────────────────────────────────────────────────────
 
 class TheBrief(AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def test_only_what_exists_here_is_kept_of_a_brief_from_anywhere(self):
         raw = {"styles": ["Street", "punk", 7, "minimal", "street"], "formality": "black tie",
                "colours_like": ["navy", "Schwarz", "sparkle", {"x": 1}], "colours_avoid": ["navy", "x" * 500],
@@ -600,6 +601,7 @@ class TheBrief(AppCase):
 # ── what a brief changes, and that nothing changes without one ────────────────
 
 class Steering(AppCase):
+    OLD_START = True        # a big wardrobe: the start every account had until 19 Nov 2026 (having.the_old_start)
     def test_without_a_brief_every_pick_and_every_outfit_is_as_before(self):
         # "As before" is proved two ways: the style arithmetic is never asked (it would fail the test), and the
         # picks and the outfits' order are the ones the code gives with the style module's two entry points
@@ -956,6 +958,7 @@ class Ticking(AppCase):
         return {**self.form(), **ticked, **more}
 
     def test_ticking_a_style_says_what_it_did_to_the_picks_and_the_total(self):
+        having.the_old_start()      # 1,500 € (24 pieces): a budget of 3,000 € plans the same pieces, upgraded
         having.the_whole_plan()     # every piece is in his wardrobe: the total the sentence speaks of is all of them
         self.client.post("/profile", data=self.sent())       # the profile is his own now; no style ticked
         self.set_mode("cheapest")
@@ -990,7 +993,8 @@ class Ticking(AppCase):
         self.assertNotEqual(changed_between(with_workwear, both), (by_styles, by_euros),
                             "the two effects differ, so the sentence must be about the styles alone")
         self.assertIn(brief_changed(({"a": ("x", by_styles, True)}, 0), ({"a": ("y", by_styles, True)}, by_euros), "Your styles"), page)
-        self.assertIn("Profile saved.", words(page))
+        # (A new budget plans the wardrobe afresh since 19 Nov 2026: here the same 24 pieces, the most a plan has.)
+        self.assertIn("Your plan now has 24 pieces in your colours.", words(page))
         self.set_mode("cheapest")
         self.client.post("/profile", data=self.sent(styles=["workwear"], budget="1500"))
         # Unticking it takes the same pieces back, and says so.
@@ -1331,10 +1335,13 @@ class Chat(NoNetwork, AppCase):
 
     def test_no_leather_leaves_the_leather_shoes_and_says_so(self):
         # He says "tailored, no leather". On the demo catalogue every pair of shoes and sneakers that passes the
-        # quality threshold is leather, so the two pieces keep their products. The page says that they still go
-        # against the brief, and no outfit with them is said to fit it.
+        # quality threshold is leather, so the pieces keep the products his style chose for them: those of the same
+        # brief without the wish (style.narrowed). The page says that they still go against the brief, and no outfit
+        # with them is said to fit it.
+        having.the_old_start()          # three pairs (sneakers, derby shoes, chelsea boots): the 1,500 € plan
         self.set_mode("cheapest")
-        plain = selection.build()
+        self.client.post("/profile/style/brief", data={"do": "use", "styles": ["tailored"]})
+        plain = selection.build()       # the brief without the wish
         fragment = self.say("tailored, no leather", **HX).get_data(as_text=True)
         self.assertRegex(fragment, r'name="styles" value="tailored" checked')
         self.assertRegex(fragment, r'name="not_wanted" value="leather"')
@@ -1351,6 +1358,7 @@ class Chat(NoNetwork, AppCase):
                             "the demo catalogue has a good pair without leather after all: this test needs another case")
             self.assertEqual(view.chosen.id, plain.get(view.slot["id"]).chosen.id,
                              "no leather changed a pair of leather shoes for another pair of leather shoes")
+            self.assertNotEqual(view.styled, "fits", "a pair against the brief is never said to fit his style")
         against = [view.slot["name"] for view in w.slots
                    if view.chosen and style.against(view.chosen.data, view.slot["category"], w.brief)]
         self.assertEqual(against, [view.slot["name"] for view in shoes], "only the shoes go against it")
@@ -1471,6 +1479,33 @@ class Chat(NoNetwork, AppCase):
         self.say("street style, Berlin vibe")
         self.assertIn("The answers are written by AI and can be wrong.",
                       words(self.client.get("/profile").get_data(as_text=True)))
+
+
+class AWishAgainstEveryProduct(AppCase):
+    """When the brief speaks against every product of a piece by itself ("no leather": every pair of shoes in the demo
+    is leather), the rest of the brief still chooses among them as it did before that wish (style.narrowed): the pair
+    stays the pair it was, on every level, and is never said to fit his style."""
+
+    def pairs(self) -> dict[str, str]:
+        return {view.slot["id"]: view.chosen.id for view in selection.build().slots
+                if view.slot["category"] in ("shoes", "sneakers", "boots")}
+
+    def test_no_leather_keeps_the_pairs_his_style_chose(self):
+        profile_mod.answer("budget")            # "Best for budget" fitted to his 300 €, then the price levels
+        for mode in ("budget", "cheapest", "medium"):
+            with self.subTest(mode):
+                self.set_mode(mode)
+                self.client.post("/profile/style/brief", data={"do": "use", "styles": ["tailored"]})
+                before = self.pairs()
+                self.client.post("/profile/style/brief", data={"do": "use", "styles": ["tailored"],
+                                                               "not_wanted": "leather"})
+                w = selection.build()
+                self.assertEqual(w.brief["not_wanted"], ["leather"])
+                self.assertEqual(self.pairs(), before)
+                for view in w.slots:
+                    if view.slot["id"] in before:
+                        self.assertTrue(style.against(view.chosen.data, view.slot["category"], w.brief))
+                        self.assertNotEqual(view.styled, "fits", view.slot["name"])
 
 
 class Untrusted(NoNetwork, AppCase):

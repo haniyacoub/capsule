@@ -16,6 +16,7 @@ from unittest import mock
 from wardrobe import catalog, config, db, mock as demo, paths, selection, shared
 from wardrobe.app import create_app
 
+from .having import the_old_start
 from .test_production import ProductionCase, words
 
 PUBLISHED = "2026-11-11T17:55:27.180518+01:00"
@@ -188,6 +189,7 @@ class AccountsThatHadZara(ProductionCase):
         self.on_disk = self.listed.read_bytes()
         self.ada = self.member("ada@example.com")
         with db.as_user(self.user_id("ada@example.com")):
+            the_old_start()         # his plan as every account's was then: 24 pieces for 1,500 €, on Cheapest
             # What the list gave every customer before: each piece's products in all three stores ...
             collector = config.load("stores.toml")["collector"]
             had = [c for slot in db.list_slots() for c in shared.candidates_for(json.loads(self.on_disk), slot, collector)]

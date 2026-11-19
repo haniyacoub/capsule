@@ -1568,6 +1568,29 @@ details[open] > summary .edit { visibility: hidden; }
   .cc[data-tabs] .cc-tabs { gap: var(--s-3); }
 }
 
+/* ── The budget, chosen among five (Profile's Budget tab, the welcome's step 2: _macros.html, budget_pick) ─── */
+/* A row to choose for each budget, 48px tall with a hairline between rows, as the Stores tab's: its name and amount,
+   then in grey about how many pieces it plans, and on a line of its own a kind that waits at it. "Other amount" opens
+   the field for an amount of his own: hidden until it is chosen, where the browser can tell (:has); elsewhere the
+   field simply shows, and typing in it chooses "Other amount" (app.js 13e). */
+.budget-pick { display: grid; min-width: 0; margin: 0; padding: 0; border: 0; }
+.budget-pick legend { padding: 0; font-size: var(--t-s); line-height: var(--lh-s); color: var(--muted); }
+.budget-pick > .small { margin: 2px 0 var(--s-1); }
+.budget-choice { min-height: 48px; gap: var(--s-3); padding: var(--s-1) 0; font-size: var(--t-m); line-height: var(--lh-m); }
+.budget-choice + .budget-choice { border-top: 1px solid var(--line); }
+.budget-choice > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s-2); }
+.budget-choice > span > span { flex: none; }      /* (not the even columns of .check span) */
+.budget-choice .budget-size { margin-left: auto; color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }
+.budget-choice .budget-wait { flex: 0 0 100%; color: var(--muted); font-size: var(--t-s); line-height: var(--lh-s); }
+.budget-own { display: grid; gap: var(--s-1); padding: var(--s-2) 0 0 30px; }   /* under "Other amount", past its button */
+.budget-own .small { margin: 0; }
+@supports selector(:has(*)) {
+  .budget-pick:not(:has(input[data-budget-other]:checked)) .budget-own { display: none; }
+}
+/* A save of new answers left a plan edited by hand as it is: said in one line with "Start over from my profile". */
+.plan-kept form { display: inline; }
+.plan-kept .link { font-size: inherit; padding: 0; min-height: 24px; }
+
 /* ── Public pages and accounts (production) ──────────────────────────────── */
 /* "Account", at the header's end: 44px tall to a finger; on a phone 5px of that reach past the header above and
    below, so the header is no taller for it. */

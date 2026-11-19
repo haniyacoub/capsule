@@ -173,11 +173,22 @@ The budget decides, step by step, with the numbers in [config/budget.toml](confi
    everyday, then office.
 4. The pieces of the kinds that joined stand in one line, most needed first, a shared piece once, and the plan is
    the line for as long as the money lasts, with at most 24 pieces. Under 450 € the names leave out merino, wool
-   and leather; the ids keep the full names.
+   and leather, and so do the words a piece's products are matched by (so a small budget is not offered merino
+   jumpers first); the ids keep the full names.
 
 The pieces of each kind, in order, are `RANKED` in `wardrobe/capsule.py`. A plan that exists never changes when the
 file does: the next plan made from a profile follows it (a new account, "Start over from my profile", or a Profile
 save that rebuilds the plan).
+
+Profile's Budget tab and the welcome's second step offer five budgets, `[presets]` in the same file: Starter 150 €,
+Basic 300 €, Solid 600 €, Full 1,000 €+ and "Other amount", which opens a field for any amount. Beside each is about
+how many pieces it plans for what he dresses for, worked out by the rule above, and where a kind of wardrobe waits at
+it, the budget it joins at ("Office joins at about 206 €"). The budget is part of what plans the wardrobe, like the
+colours: a save that changes it rebuilds the plan, keeping what he chose by hand and the pieces of the outfits he said
+yes to. A plan he edited on the plan page is never rebuilt without asking: Profile says so in one line, with "Start
+over from my profile". The plan page says what the plan was made for: "Planned for everyday and the office, for
+300 €: 9 pieces." A new account starts with the example's 300 € (until he gives his own) on "Best for budget"; an
+account that never chose a price level stays on Cheapest.
 
 ## Price levels
 
