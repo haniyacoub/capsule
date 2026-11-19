@@ -52,6 +52,16 @@ An answer that is not finished yet is followed up the way Google's package does 
 All of it within TIMEOUT from the first request. Once Google has taken the request,
 nothing that goes wrong later is "free" (videos.py counts it): it may have been
 billed.
+
+Unlike a picture (imagegen.py), the request does not say "store": false, so Google
+keeps it, with the picture it was made from, as an "interaction" for 55 days. Google's
+page on its video model (aistudio.google.com/docs/omni, read 19 Nov 2026) allows
+"store": false for a request answered in one go, but both ways of following up an
+unfinished answer above need Google to have kept it: asking again by its id, and going
+on with "previous_interaction_id" (Google's Interactions API page says "store": false
+rules that out). Whether Google ever answers a video unfinished can only be seen with a
+real, billed request; until then, keeping the request is what makes the clip arrive.
+Another way: delete it once the clip has arrived (DELETE …/interactions/<id>).
 """
 from __future__ import annotations
 

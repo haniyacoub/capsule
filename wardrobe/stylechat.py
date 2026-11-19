@@ -63,18 +63,26 @@ OPERATORS = {"key", "account", "model", "request"}      # nothing a customer can
 
 
 def available() -> bool:
-    """Whether the chat is offered: a Google key is set, and config/style.toml can be read."""
+    """Whether the chat is offered: it is switched on (`on` under [chat] in config/style.toml, which can be read),
+    and a Google key is set. This is the one gate: Profile, the welcome's way to the chat, and a message sent."""
     if not settings.GEMINI_API_KEY:
         return False
     try:
-        style.load_rules()
+        return bool(style.load_rules()["chat"]["on"])
     except ConfigError:
         return False
-    return True
 
 
 def status() -> str:
-    """One line for the command line: on, with which model, or what is missing."""
+    """One line for the command line: on, with which model, or what keeps it off (the switch, the key, or both)."""
+    try:
+        switched_off = not style.load_rules()["chat"]["on"]
+    except ConfigError as mistake:
+        return f"off — config/style.toml needs fixing: {mistake}"
+    if switched_off and not settings.GEMINI_API_KEY:
+        return "off — switched off in config/style.toml (on = false under [chat]); GEMINI_API_KEY is not set either"
+    if switched_off:
+        return "off — switched off in config/style.toml (on = false under [chat]), although GEMINI_API_KEY is set"
     if not settings.GEMINI_API_KEY:
         return "off — set GEMINI_API_KEY and start the app again"
     return f"on — answered by Google, model {style.load_rules()['chat']['model']}"

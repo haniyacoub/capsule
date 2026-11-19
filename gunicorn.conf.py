@@ -1,8 +1,9 @@
 """Settings gunicorn reads by itself when it is started from this folder.
 
 How many workers and where to listen is said on the command line (PRODUCTION.md, the
-Dockerfile). This file adds two protections, both learned on 2026-11-11, when a reload
-left the service starting and losing 3,485 workers in five minutes.
+Dockerfile). This file says what a line of the access log holds (3., below), and adds two
+protections, both learned on 2026-11-11, when a reload left the service starting and
+losing 3,485 workers in five minutes.
 
 1. No control socket. gunicorn can listen on a socket for its `gunicornc` tool, which
    this service does not use. Listening takes a second thread in the main process, and
@@ -14,10 +15,28 @@ left the service starting and losing 3,485 workers in five minutes.
 2. Stop instead of trying for ever. gunicorn starts a new worker for each one that
    dies. When workers die as soon as they start, that is a loop of several a second
    with no end. Here the service stops after a handful and says why.
+
+3. The access log (written where the Dockerfile asks for it, --access-logfile -) holds no
+   visitor's address and no name. gunicorn's own line starts with the address the request
+   came from, which behind the Cloudflare tunnel is the visitor's real one (the app's
+   ProxyFix puts it there, app.py, TRUSTED_PROXY_HOPS), and has the user name typed into
+   the browser's password box (SITE_PASSWORD) in it. This line has neither, and leaves out
+   the address's ?… part and the page the visitor came from (both can carry an invitation
+   code). What is left is enough to see what was asked and how it went:
+
+       [19/Nov/2026:10:15:02 +0000] "GET /outfits" 200 48213 87ms "Mozilla/5.0 (iPhone; …)"
+
+   the time, the request (method and path), the answer's status and size in bytes, how
+   long it took, and the browser's own name for itself (user agent). PRODUCTION.md, "Logs",
+   says what else is logged and how long it is kept.
 """
 import time
 
 control_socket_disable = True
+
+# Time, "method path" (without ?…), status, bytes, milliseconds, "user agent": no %(h)s (the address), no %(u)s (the
+# name from the password box), no %(r)s or %(q)s (the address with its ?…), no %(f)s (the page before). See 3. above.
+access_log_format = '%(t)s "%(m)s %(U)s" %(s)s %(b)s %(M)sms "%(a)s"'
 
 YOUNG = 10      # seconds. A worker that dies sooner than this never got going.
 WITHIN = 30     # seconds. Young deaths are counted over this stretch of time.

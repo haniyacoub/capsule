@@ -279,10 +279,14 @@ Pictures are kept in `data/looks/` and never paid for twice.
 Switch it on:
 
 ```bash
-export OPENAI_API_KEY="sk-…"        # from platform.openai.com, or:
 export GEMINI_API_KEY="…"           # from aistudio.google.com
 python -m wardrobe
 ```
+
+Only the service named under `[service]` in `config/looks.toml` draws: Google,
+as the file comes. An `OPENAI_API_KEY` counts only once that line says
+`use = "openai"`, and with a customer's photo the privacy policy must then
+name OpenAI.
 
 For Google, use a key from a Google Cloud project with billing switched on:
 Google's image models have no free tier, and its terms forbid free keys for a
@@ -387,8 +391,9 @@ Things to know:
 
 On Profile, under "What do you dress for?", a customer can tick styles (Smart
 casual, Street, Minimal, Tailored, Workwear, Outdoor). With a Google key set
-(`GEMINI_API_KEY`, the same one as for the pictures) Profile also shows
-"Describe your style": he writes "street style, Berlin vibe", Google's text
+(`GEMINI_API_KEY`, the same one as for the pictures) and the chat's own
+switch on (`on = true` under `[chat]` in `config/style.toml`, as the file
+comes) Profile also shows "Describe your style": he writes "street style, Berlin vibe", Google's text
 model answers in two or three sentences and suggests a **style brief** (styles,
 how formal, colours to favour and avoid, fits, price feeling, things he does
 not want). He corrects it and presses "Use this brief". Only a brief he
@@ -457,6 +462,11 @@ each style are in `config/style.toml`.
   day for everyone together (at most about 60 cents a day).
 - **What is sent to Google:** his message, the last lines of the conversation
   and the brief. Never his name, email address, sizes, budget or photo.
+- **Its own switch:** `on = false` under `[chat]` in `config/style.toml`
+  takes the chat off Profile while the pictures stay on; a message sent to it
+  is then answered as without a key, and a brief can still be changed by hand.
+  The comment there says why it may have to be off on a public site (a data
+  protection officer). `python -m wardrobe chat` says which applies.
 - **What comes back is not trusted:** only a reply, one question and a brief
   are read from it; the brief keeps only styles, colours, fits and levels the
   app knows; the model never chooses a product or a store.
@@ -619,7 +629,7 @@ config/scoring.toml        quality score rules
 config/stores.toml         which category pages the collector reads, and how slowly
 config/size_charts.toml    each store's size labels and body measurements
 config/looks.toml          AI pictures and videos: service, limits, wording, where the dots sit
-config/style.toml          the styles to tick, what a style brief is worth, and the style chat's model and limits
+config/style.toml          the styles to tick, what a style brief is worth, and the style chat's switch, model and limits
 config/feeds.toml          the stores whose licensed product feeds are imported (see "Store feeds")
 data/catalog.json          what the stores sell (rewritten by refresh)
 data/wardrobe.db           your profile, slots, locks, saved outfits (SQLite)
@@ -633,7 +643,8 @@ data/browser-profile/      the collector's own Chrome profile (cookies and cache
 wardrobe/                  the code; wardrobe/__init__.py lists what each file does
 tests/                     python -m unittest; browser_check.py is the walk-through in a browser
 check.sh                   every check in one go (see "Checks")
-gunicorn.conf.py           read by gunicorn in production mode: stop if workers keep dying (PRODUCTION.md)
+gunicorn.conf.py           read by gunicorn in production mode: stop if workers keep dying, and an access-log line
+                           without the visitor's address or name (PRODUCTION.md, "Logs")
 deploy/                    running it on a server behind Cloudflare, or a preview from this Mac (deploy/README.md)
 ```
 

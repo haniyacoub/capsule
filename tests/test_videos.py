@@ -28,13 +28,14 @@ from .test_production import PASSWORD, ProductionCase, words
 
 CLIP = (Path(__file__).parent / "fixtures" / "test-pattern.mp4").read_bytes()
 FFMPEG = shutil.which("ffmpeg") and shutil.which("ffprobe")
+REAL_RULES = videos.rules       # [videos] as config/looks.toml has it (WithPictures leaves the videos off)
 
 
 class WithVideos(WithPictures):
     """AI pictures and videos switched on, with stand-ins for both services and no way out to the network."""
 
     def switch_on(self):
-        super().switch_on()
+        super().switch_on()       # (which leaves the videos off: they are switched on again here, with videos.rules)
         self.made = []          # every video the "video model" was asked for
         self.refuse_video = None
 
@@ -47,6 +48,7 @@ class WithVideos(WithPictures):
         self.opener = mock.Mock()
         self.opener.open.side_effect = AssertionError("a network connection was opened")
         for patch in (mock.patch.object(settings, "GEMINI_API_KEY", "test-gemini-key"),
+                      mock.patch.object(videos, "rules", REAL_RULES),
                       mock.patch.object(videogen, "make", stand_in),
                       mock.patch.object(videos, "STARTED", 0.0),
                       mock.patch.object(videos, "_spawn", lambda job: job()),      # made at once, not in the background
@@ -323,9 +325,19 @@ class SeeItMove(WithVideos, AppCase):
         self.assertNotIn("data-play", self.part(outfit, again, ask="1"), "the new picture has no video yet")
 
     def test_without_a_gemini_key_or_with_videos_off_there_is_no_trace(self):
+        # The pictures stay on without Google's key only where OpenAI draws them, chosen by name in config/looks.toml:
+        # there, the videos still need Google's key, and without it nothing of them shows beside the picture.
+        rules = looks.load_rules()
+        openai = {**rules, "service": {**rules["service"], "use": "openai"}}
+        for patch in (mock.patch.object(looks, "load_rules", lambda: openai),
+                      mock.patch.object(settings, "OPENAI_API_KEY", "o-key")):
+            patch.start()
+            self.addCleanup(patch.stop)
         outfit, look = self.picture()
         with mock.patch.object(settings, "GEMINI_API_KEY", ""):
-            self.assertNotIn("look-vid", self.client.get("/outfits").data.decode())
+            page = self.client.get("/outfits").data.decode()
+            self.assertIn(f'src="/looks/{look.file}"', page, "the picture is there, drawn by OpenAI")
+            self.assertNotIn("look-vid", page)
             self.assertEqual(self.client.get("/outfits/video", query_string={"look": look.key}).status_code, 404)
             self.assertEqual(self.post("/outfits/video", look=look.key).status_code, 404)
             self.assertNotIn("videos", said(self.client.get("/profile").data.decode()))

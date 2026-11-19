@@ -675,7 +675,7 @@ class ExamplePictures(WithExamplePictures):
 
     def test_it_refuses_in_one_plain_line(self):
         refusals = []
-        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
+        with mock.patch.object(settings, "GEMINI_API_KEY", ""):
             refusals.append(self.command("--yes")[1])
         self.assertIn("Nothing was drawn: AI pictures are off", refusals[-1])
         with mock.patch.object(settings, "PRODUCTION", False):
@@ -826,7 +826,7 @@ class TheHints(WithExamplePictures):
         self.pictures_for(keys[2:3])
         self.with_rules(photos=False)                   # no photos may be uploaded: none is promised
         self.assertEqual(hint_of(slides(self.page("/"))[2]), "Drawn by AI on a model.")
-        with mock.patch.object(settings, "OPENAI_API_KEY", ""):      # no pictures at all
+        with mock.patch.object(settings, "GEMINI_API_KEY", ""):      # no pictures at all
             found = slides(self.page("/"))
         self.assertEqual([hint is not None for hint in map(hint_of, found[:4])], [True, True, False, False])
 
@@ -1042,7 +1042,9 @@ class ExampleClips(WithExampleClips):
             refusals.append(owner_command("--clips", "3", "--yes")[1])
         self.assertEqual(refusals[-1], "Nothing was drawn or made: AI videos are off — [videos] on = false in "
                                        "config/looks.toml.")
-        with mock.patch.object(settings, "GEMINI_API_KEY", ""):
+        openai = {**rules, "service": {**rules["service"], "use": "openai"}}     # pictures on without Google's key
+        with mock.patch.object(settings, "GEMINI_API_KEY", ""), mock.patch.object(settings, "OPENAI_API_KEY", "o-key"), \
+                mock.patch.object(looks, "load_rules", lambda: openai):
             refusals.append(owner_command("--clips", "3", "--yes")[1])
         self.assertEqual(refusals[-1], "Nothing was drawn or made: AI videos are off — set GEMINI_API_KEY.")
         with changed(motion={key: words for key, words in rules["videos"]["motion"].items() if key != "example"}):

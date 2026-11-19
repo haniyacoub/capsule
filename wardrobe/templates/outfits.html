@@ -363,6 +363,6 @@
 {% endif %}
 
 {% if not looks_on and not production %}
-<p class="foot">Pictures of each outfit worn by a model are switched off. They are drawn by an AI image service and need your key from OpenAI or Google: see “AI pictures of outfits” in the README, or run <code>python -m wardrobe looks</code>.</p>
+<p class="foot">Pictures of each outfit worn by a model are switched off. They are drawn by an AI image service and need your key for the service named in <code>config/looks.toml</code> (Google, as the file comes): see “AI pictures of outfits” in the README, or run <code>python -m wardrobe looks</code>.</p>
 {% endif %}
 {% endblock %}

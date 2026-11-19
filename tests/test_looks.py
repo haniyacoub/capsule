@@ -71,7 +71,9 @@ def b64(data: bytes) -> str:
 
 
 class WithPictures:
-    """AI pictures switched on, with a stand-in for the image service."""
+    """AI pictures switched on, with a stand-in for the image service: Google's key, as config/looks.toml names Google.
+    That key would switch on the videos as well: they stay off here, as if the file had no [videos], and the classes
+    that test them switch them on again (test_videos.WithVideos)."""
 
     def switch_on(self):
         self.drawn = []         # everything the "service" was asked to draw
@@ -83,8 +85,9 @@ class WithPictures:
                 raise self.refuse
             return PICTURE, "jpg"
 
-        for patch in (mock.patch.object(settings, "OPENAI_API_KEY", "test-key"),
+        for patch in (mock.patch.object(settings, "GEMINI_API_KEY", "test-key"),
                       mock.patch.object(looks, "STARTED", 0.0),      # this server has been running a long time
+                      mock.patch.object(videos, "rules", lambda: None),     # no videos (see above)
                       mock.patch.object(imagegen, "draw", stand_in),
                       mock.patch.object(looks, "_TURNS", threading.BoundedSemaphore(2)),   # both turns free
                       mock.patch.object(looks, "_spawn", lambda job: job())):   # draw at once, not in the background
@@ -851,7 +854,8 @@ class PicturesOff(AppCase):
         self.assertEqual(self.post("/outfits/look", key=outfit.key).status_code, 404)
         with self.assertRaises(SystemExit) as stop, contextlib.redirect_stdout(io.StringIO()):
             main(["looks"])
-        self.assertIn("OPENAI_API_KEY", str(stop.exception))
+        self.assertIn('export GEMINI_API_KEY="…"', str(stop.exception), "the key of the service the file names")
+        self.assertNotIn("OPENAI_API_KEY", str(stop.exception), "an OpenAI key would switch nothing on")
 
     def test_without_a_key_profile_calls_it_the_ai_service(self):
         # Only a setup without a key (a developer's own machine: in production the model and photo forms need one)
@@ -1041,7 +1045,7 @@ class Pictures(WithPictures, AppCase):
         self.assertIn("No text, logos", text)
         for private in ("@", "1500", "budget", "78", "32/32"):      # nothing from the profile
             self.assertNotIn(private, text.replace("178", "").replace("788", ""))
-        self.assertEqual(sent["service"].name, "openai")
+        self.assertEqual(sent["service"].name, "google", "the service config/looks.toml names")
         self.assertEqual(sent["service"].key, "test-key")
         self.assertNotIn("test-key", repr(sent["service"]))
 
@@ -1816,6 +1820,15 @@ class Photos(WithPictures, AppCase):
         row = self.client.get(f"/outfits/photos?outfit={outfit.key}").data.decode()
         self.assertEqual([what for _, _, what in self.cells(row)], ["picture"] * 6)
         self.assertNotIn("hx-get", row, "all there: the row stops asking")
+        # Each is labelled as an AI picture (AI Act Art. 50), as the large one is: on the picture, and in the name a
+        # screen reader reads, the row's and its own. Its title stays its bare name (app.js 17c builds a line from it).
+        self.assertIn('role="group" aria-label="AI pictures of this outfit"', row)
+        cells = re.findall(r'<button id="shot-\w+-\w+" title="([^"]+)"[^>]*aria-label="([^"]+)"><span class="shot-pic">(.*?)</span>'
+                           r'<span class="shot-name"', row, re.S)
+        self.assertEqual([(title, label) for title, label, _ in cells],
+                         [(name, f"{name}, AI picture") for _, name in looks.shots()])
+        for _, _, inside in cells:
+            self.assertIn('<span class="shot-ai" aria-hidden="true">AI</span>', inside)
         self.assertEqual(self.client.get("/outfits/photos?outfit=000000000000").status_code, 404)
 
     def test_a_small_picture_tapped_while_it_is_drawn_is_shown_as_being_drawn(self):
@@ -1922,7 +1935,7 @@ class Photos(WithPictures, AppCase):
         self.assertEqual(self.cells(shown), [("front", "true", "picture")])
 
     def test_without_ai_pictures_there_are_no_small_pictures(self):
-        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
+        with mock.patch.object(settings, "GEMINI_API_KEY", ""):
             page = self.client.get("/outfits").data.decode()
             self.assertNotIn('class="shots"', page)
             outfit = some_outfits(1)[0]
@@ -1952,7 +1965,7 @@ class Photos(WithPictures, AppCase):
         self.assertIn("look-pic", ready)
         line = re.search(r'<form class="look-bar look-line"[^>]*>', ready).group(0)
         self.assertIn('hx-sync="closest .look:abort"', line, "Draw again")
-        row = re.search(r'<form method="post"[^>]*role="group" aria-label="Photos of this outfit">', ready).group(0)
+        row = re.search(r'<form method="post"[^>]*role="group" aria-label="AI pictures of this outfit">', ready).group(0)
         self.assertIn('hx-sync="closest .look:replace"', row)
         more = re.search(r'<form method="post"[^>]*hx-target="closest .shots" hx-swap="outerHTML">', ready)
         self.assertIsNotNone(more, "More photos answers the row alone")
@@ -2013,7 +2026,7 @@ class PhotosOfHisOwnPhoto(WithPictures, AppCase):
     again. The box he ticks when he adds his photo says so since 15 Nov 2026 (looks.SENT_AGAIN_SAID). Whoever added
     his photo before is asked once, under the picture, before the first such photo is made."""
 
-    ASKS = ("These photos are made from the AI picture of you, which goes to OpenAI again. Is that OK from now on, "
+    ASKS = ("These photos are made from the AI picture of you, which goes to Google again. Is that OK from now on, "
             "for all your outfits?")
 
     def setUp(self):
@@ -2357,21 +2370,41 @@ class SettingsFile(WithPictures, AppCase):
         path.write_text(text.replace(old, new), encoding="utf-8")
 
     def test_the_service_and_model_come_from_the_file(self):
-        self.assertEqual((looks.service().name, looks.service().model), ("openai", "gpt-image-2.5-flare"))
-        self.edit('quality = "medium"', 'quality = "high"')
-        self.assertEqual(looks.service().quality, "high")
-        with mock.patch.object(settings, "GEMINI_API_KEY", "g-key"):
-            self.edit('use = "auto"', 'use = "google"')
+        chosen = looks.service()
+        self.assertEqual((chosen.name, chosen.model, chosen.key), ("google", "gemini-nano-banana-2.1", "test-key"))
+        self.edit('image_size = "1K"', 'image_size = "2K"')
+        self.assertEqual(looks.service().image_size, "2K")
+        with mock.patch.object(settings, "OPENAI_API_KEY", "o-key"):
+            self.edit('use = "google"', 'use = "openai"')        # OpenAI, chosen in so many words
             chosen = looks.service()
-            self.assertEqual((chosen.name, chosen.model, chosen.key), ("google", "gemini-nano-banana-2.1", "g-key"))
-        self.assertIsNone(looks.service(), "asked for Google, but only the OpenAI key is set")
-        self.assertIn("GEMINI_API_KEY", looks.status()[1])
+            self.assertEqual((chosen.name, chosen.model, chosen.key), ("openai", "gpt-image-2.5-flare", "o-key"))
+            self.edit('quality = "medium"', 'quality = "high"')
+            self.assertEqual(looks.service().quality, "high")
+        self.assertIsNone(looks.service(), "asked for OpenAI, but only Google's key is set")
+        self.assertIn("OPENAI_API_KEY", looks.status()[1])
+
+    def test_an_openai_key_never_draws_unless_the_file_names_openai(self):
+        # With a customer's photo, the photo goes to whoever draws. As the file comes that is Google, the company the
+        # privacy policy names: an OpenAI key set for something else must not send anything to OpenAI.
+        with mock.patch.object(settings, "OPENAI_API_KEY", "o-key"):
+            self.assertEqual(looks.service().name, "google", "both keys set: still Google")
+            with mock.patch.object(settings, "GEMINI_API_KEY", ""):
+                self.assertIsNone(looks.service(), "only an OpenAI key: no pictures at all")
+                self.assertEqual(looks.status(), (False, "off — set GEMINI_API_KEY and start the app again"))
+                self.assertNotIn("See it worn", self.client.get("/outfits").data.decode())
+        outfit = some_outfits(1)[0]
+        with mock.patch.object(settings, "OPENAI_API_KEY", "o-key"):
+            self.post("/outfits/look", key=outfit.key)
+        self.assertEqual([sent["service"].name for sent in self.drawn], ["google"])
 
     def test_a_different_model_or_quality_is_a_different_picture(self):
         outfit = some_outfits(1)[0]
         before = look_key(outfit)
-        self.edit('quality = "medium"', 'quality = "low"')
-        self.assertNotEqual(look_key(outfit), before)
+        self.edit('image_size = "1K"', 'image_size = "2K"')
+        bigger = look_key(outfit)
+        self.assertNotEqual(bigger, before)
+        self.edit('model      = "gemini-nano-banana-2.1"', 'model      = "gemini-3.1-flash-image"')
+        self.assertNotIn(look_key(outfit), (before, bigger))
 
     def test_a_nonsense_value_is_named(self):
         self.edit('quality = "medium"', 'quality = "ultra"')
@@ -2383,6 +2416,8 @@ class SettingsFile(WithPictures, AppCase):
         config.CONFIG_DIR = self.real_dir
         config._cache.clear()
         rules = looks.load_rules()
+        # Google draws, named in so many words: "auto" would let an OpenAI key, set for anything else, take over.
+        self.assertEqual(rules["service"]["use"], "google")
         self.assertIn("{model}", rules["text"]["scene"])
         self.assertIn("{body}", rules["text"]["scene_with_photo"])
         self.assertIn("{change}", rules["text"]["from_anchor"])
@@ -2488,7 +2523,7 @@ class Services(unittest.TestCase):
         self.assertEqual(request["url"], "https://generativelanguage.googleapis.com/v1beta/interactions")
         self.assertEqual(request["headers"]["x-goog-api-key"], "AIzaSecretKey123456")
         self.assertEqual(json.loads(request["body"]), {
-            "model": "gemini-nano-banana-2.1", "input": [{"type": "text", "text": "a navy coat"}],
+            "model": "gemini-nano-banana-2.1", "input": [{"type": "text", "text": "a navy coat"}], "store": False,
             "response_format": {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": "2:3", "image_size": "2K"}})
 
     def test_google_from_a_photo_returns_the_drawing_not_the_photo(self):
@@ -2511,7 +2546,7 @@ class Services(unittest.TestCase):
         self.assertEqual(json.loads(sent[0]["body"]), {
             "model": "gemini-nano-banana-2.1",
             "input": [{"type": "text", "text": "the same man, walking"},
-                      {"type": "image", "mime_type": "image/jpeg", "data": b64(front)}],
+                      {"type": "image", "mime_type": "image/jpeg", "data": b64(front)}], "store": False,
             "response_format": {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": "2:3", "image_size": "2K"}})
         imagegen.draw(self.GOOGLE, "this person, walking", OTHER_PICTURE, references=[front, front])
         self.assertEqual([(part["type"], part.get("mime_type")) for part in json.loads(sent[1]["body"])["input"]],
@@ -2526,6 +2561,24 @@ class Services(unittest.TestCase):
         with self.assertRaises(imagegen.DrawError) as stop:
             imagegen.draw(self.GOOGLE, "x", references=[front] * 15)
         self.assertEqual((stop.exception.kind, stop.exception.free, sent), ("request", True, []))
+
+    def test_google_is_asked_not_to_keep_any_picture_request(self):
+        # Google keeps an interaction 55 days unless the request says "store": false (its Interactions API page): with
+        # a customer's photo, that would be his face. Every picture request says it, with or without pictures sent
+        # along, and with nothing that needs Google to keep it (no background run, no earlier interaction's id).
+        answer = {"status": "completed", "steps": [
+            {"type": "model_output", "content": [{"type": "image", "mime_type": "image/jpeg", "data": b64(PICTURE)}]}]}
+        front = b"\xff\xd8\xff" + b"\x07" * 3000
+        for photo, references in ((None, ()), (OTHER_PICTURE, ()), (None, [front]), (OTHER_PICTURE, [front])):
+            sent = self.answer(200, answer)
+            imagegen.draw(self.GOOGLE, "this outfit", photo, references=references)
+            body = json.loads(sent[0]["body"])
+            self.assertIs(body["store"], False, (photo is not None, len(references)))
+            for needs_storage in ("background", "previous_interaction_id"):
+                self.assertNotIn(needs_storage, body)
+        sent = self.answer(200, {"data": [{"b64_json": b64(PICTURE)}]})      # OpenAI's request is as it was
+        imagegen.draw(self.OPENAI, "a navy coat")
+        self.assertNotIn("store", json.loads(sent[0]["body"]))
 
     def test_openai_is_sent_the_reference_pictures_as_a_form(self):
         sent = self.answer(200, {"data": [{"b64_json": b64(PICTURE)}]})
@@ -2916,7 +2969,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         ada.post("/profile/photo", content_type="multipart/form-data", data={
             "photo": (io.BytesIO(PHOTO), "me.jpg"), "agree": "on", "csrf_token": self.token(ada)})
         self.assertIsNotNone(person.photo_of(uid))
-        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
+        with mock.patch.object(settings, "GEMINI_API_KEY", ""):
             page = ada.get("/profile").get_data(as_text=True)
             self.assertIn('id="photo"', page, "where the Account page's link leads")
             self.assertIn("This photo of you is still stored", page)
@@ -2986,7 +3039,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
 
         def broken():
             raise config.ConfigError("config/looks.toml has a syntax error")
-        for off in (mock.patch.object(settings, "OPENAI_API_KEY", ""),     # no key: no pictures
+        for off in (mock.patch.object(settings, "GEMINI_API_KEY", ""),     # no key: no pictures
                     mock.patch.object(looks, "load_rules", broken)):       # a typo must not take the website down
             with off:
                 response = visitor.get("/about")
@@ -2997,7 +3050,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
             self.assertNotIn("by you", words(page))
 
     def test_without_a_key_customers_see_no_trace_of_the_feature(self):
-        with mock.patch.object(settings, "OPENAI_API_KEY", ""):
+        with mock.patch.object(settings, "GEMINI_API_KEY", ""):
             ada = self.member("ada@example.com")
             outfits_page = ada.get("/outfits").data.decode()
             self.assertIn('class="reel"', outfits_page)

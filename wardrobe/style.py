@@ -91,6 +91,8 @@ def _check(data: dict) -> None:
         if not isinstance(words, list) or not all(isinstance(word, str) for word in words):
             raise ConfigError(f"not_wanted.{key} must be a list of words")
     chat = config.table(data.get("chat"), "chat")
+    if not isinstance(chat.get("on"), bool):
+        raise ConfigError("chat.on must be true or false")
     if not isinstance(chat.get("model"), str) or not chat["model"].strip():
         raise ConfigError("chat.model must be the name of Google's text model")
     for name in ("per_day", "per_customer_per_day", "max_message_chars", "keep_turns"):

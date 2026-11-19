@@ -24,7 +24,16 @@ stood in November 2026:
              answer   {"data": [{"b64_json": "…"}]}
     Google   POST https://generativelanguage.googleapis.com/v1beta/interactions
              input    [{"type": "text", …}, {"type": "image", "mime_type": …, "data": base64}, …]
+             "store": false
              answer   {"steps": [{"type": "model_output", "content": [{"type": "image", "data": "…"}]}]}
+
+"store": false asks Google not to keep the request (the words, a customer's photo, the
+pictures sent along) and its picture as an "interaction" to fetch again later, which it
+otherwise does for 55 days. Google's own page on the Interactions API (read 19 Nov 2026,
+aistudio.google.com/docs/interactions-overview) says any interaction can opt out, except
+one run in the background or continued from an earlier one by its id; a picture is
+neither: one request, one answer. Google's separate 55-day log for spotting misuse is
+not switched off by it.
 
 Answers are read tolerantly (one object, a list of objects, or a stream of
 "data:" lines), because Google's errors already arrive as a list.
@@ -174,7 +183,7 @@ def _google(service: Service, prompt: str, pictures: list[bytes]) -> tuple[bytes
     for picture in pictures:
         ext = kind_of(picture) or "jpg"
         content.append({"type": "image", "mime_type": MIME[ext], "data": base64.b64encode(picture).decode("ascii")})
-    payload = {"model": service.model, "input": content,
+    payload = {"model": service.model, "input": content, "store": False,     # not kept by Google (see the top)
                "response_format": {"type": "image", "mime_type": "image/jpeg", "aspect_ratio": "2:3",   # portrait
                                    "image_size": service.image_size}}
     headers = {"x-goog-api-key": service.key, "Content-Type": "application/json", "Api-Revision": GOOGLE_REVISION}

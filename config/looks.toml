@@ -5,9 +5,9 @@
 #  front picture on a white studio background, from a written description of
 #  the pieces; then, when a customer taps "More photos", five more pictures made
 #  FROM that front picture (two more poses, three surroundings: see [poses] and
-#  [scenes]). It is off until a key is set:
+#  [scenes]). It is off until the key of the service named under [service] is
+#  set, Google's as this file comes:
 #
-#      export OPENAI_API_KEY="sk-…"      (from platform.openai.com), or
 #      export GEMINI_API_KEY="…"         (from aistudio.google.com)
 #
 #  and the app is started again. `python -m wardrobe looks` says whether it is
@@ -21,8 +21,16 @@
 #  the limits below matter. Edits here apply on the next page load.
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Which company draws the pictures: "google" (GEMINI_API_KEY) or "openai"
+# (OPENAI_API_KEY). Only the one named here is ever used, whatever other key is
+# set. With a customer's photo, that photo goes to it with every picture of him,
+# so the privacy policy and a data-processing agreement must name the same
+# company: today that is Google. Choose "openai" only once both say OpenAI.
+# ("auto", whichever key happens to be set, OpenAI first, is still understood,
+# but never use it: setting an OpenAI key for something else would then send
+# customers' photos to OpenAI without a word.)
 [service]
-use = "auto"                 # "auto" = whichever key is set (OpenAI first) | "openai" | "google"
+use = "google"
 
 [service.openai]
 # The services rename and retire models every few months. If pictures stop with
