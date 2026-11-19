@@ -887,6 +887,19 @@ def run(base: str) -> None:
             toggle.tap()
             visitor.wait_for_function(f"() => !({clip_state})(0).paused")
             context.close()
+            # On the narrowest phone (320px) the hint's words, its × and the clip's button sit side by side, none over
+            # another, and the page is no wider than the screen.
+            context = browser.new_context(viewport={"width": 320, "height": 568}, is_mobile=True, has_touch=True)
+            visitor = context.new_page()
+            visitor.goto(base + "/", wait_until="networkidle")
+            seen = visitor.evaluate("""() => { const slide = document.querySelector('#reel [data-slide]');
+                const box = s => slide.querySelector(s).getBoundingClientRect(), words = box('.hint p'), x = box('.hint-x'),
+                      button = box('.clip-toggle');
+                const apart = (a, b) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+                return {apart: apart(words, x) && apart(words, button) && apart(x, button),
+                        wide: document.documentElement.scrollWidth}; }""")
+            context.close()
+            assert seen["apart"] and seen["wide"] <= 321, f"at 320px the hint and the clip's button: {seen}"
             assert (len(asked), len(made)) == before, "a picture or a video was asked for a visitor"
 
         def the_wordmark_fits():
@@ -6803,7 +6816,6 @@ def run(base: str) -> None:
                  ("the landing page says what Stilsmith is", the_landing_page),
                  ("public pages: no cookie, errors in plain words", public_pages_and_errors),
                  ("a visitor explores outfits, then signs up", a_visitor_explores_the_outfits),
-                 ("a visitor's first outfits: hints, and clips that play", a_visitors_first_outfits),
                  ("the wordmark Stilsmith fits at 320, 390 and 1280", the_wordmark_fits),
                  ("moving between tabs fetches only the page", tabs_fetch_only_the_page),
                  ("no page is wider than a phone or a computer screen", nothing_scrolls_sideways),
@@ -6826,6 +6838,8 @@ def run(base: str) -> None:
                  ("an option's two actions on three phones", options_fit_three_phones),
                  ("the plan answers inside the piece", the_plan_answers_next_to_the_piece),
                  ("the budget's five choices, by keyboard, light and dark", the_budget_choices),
+                 # (Last but one: it draws the example's first pictures and clips, which no step before it expects.)
+                 ("a visitor's first outfits: hints, and clips that play", a_visitors_first_outfits),
                  ("delete the account", delete_account)]
         for name, step in steps:
             known = len(failures)

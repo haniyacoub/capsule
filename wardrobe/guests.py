@@ -288,7 +288,7 @@ def description(count: dict) -> str:
     outfits, in its real numbers (numbers), with no price, budget or store. "" while it has no outfits."""
     if not count["outfits"]:
         return ""
-    return (f"Look through {plural(count['outfits'], 'menswear outfit')} made from the {plural(count['pieces'], 'piece')} "
+    return (f"Look through {plural(count['outfits'], 'menswear outfit')} made from {plural(count['pieces'], 'piece')} "
             "of one example wardrobe. Create a free account to plan your own, sized to your budget.")
 
 

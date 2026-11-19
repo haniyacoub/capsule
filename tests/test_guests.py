@@ -730,7 +730,7 @@ class TheHomePage(GuestCase):
         worn = {slot_id for o in every for slot_id in o.slots}
         self.assertIn("<title>Stilsmith — menswear outfits from one small wardrobe</title>", home)
         self.assertEqual(unescape(description(home)),
-                         f"Look through {len(every)} menswear outfits made from the {len(worn)} pieces of one example "
+                         f"Look through {len(every)} menswear outfits made from {len(worn)} pieces of one example "
                          "wardrobe. Create a free account to plan your own, sized to your budget.")
         self.assertIn(f"12 of {len(every)} outfits from an example wardrobe", words(home), "the same count as below")
         self.assertEqual(description(self.page("/outfits")), "", "(/outfits keeps its own title)")

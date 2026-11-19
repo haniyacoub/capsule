@@ -2165,14 +2165,21 @@ a.quiet { display: inline-flex; align-items: center; }   /* 44px tall to tap, li
 .hint-x[hidden] { display: none; }
 .hint-x::after { content: ""; position: absolute; inset: -8px; }       /* 44px to a finger */
 .hint-x:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
-.stage:has(.clip:not([hidden])) .hint { right: calc(var(--s-2) + 32px + var(--s-2)); }
-/* The clip over the picture: the same box, the picture its poster and, at its sides, the picture itself (the clip is a
-   little narrower, 9 wide by 16 high: it shows whole, the model as large as in the picture). Its own label, 'AI video',
-   takes the place of the picture's; its button, at the top right where a customer's "See it move" is, pauses it and
-   plays it again: a sign in the same dark veil, 32px to the eye and 44px to a finger, its name read out. */
+.stage:has(.clip) .hint { right: calc(var(--s-2) + 32px + var(--s-2)); }   /* also before app.js shows the clip */
+/* The clip over the picture. It is 9 wide by 16 high: Google keeps the picture's whole height and leaves out a strip at
+   each side (7.8% of its width). So it lies over the middle of the picture, where it came from, as tall as the picture
+   and the model as large; its poster is that same middle of the picture (cover), so nothing changes when it appears;
+   and its own sides fade into the picture's sides beside it, so that no edge shows where their light differs a little.
+   Its own label, 'AI video', takes the place of the picture's; its button, at the top right where a customer's "See it
+   move" is, pauses it and plays it again: a sign in the same dark veil, 32px to the eye and 44px to a finger, its name
+   read out. */
 .clip { position: absolute; inset: 0; }
 .clip[hidden] { display: none; }
-.clip video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.clip video {
+  position: absolute; top: 0; left: 7.8125%; width: 84.375%; height: 100%; object-fit: cover; pointer-events: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 5%, #000 95%, transparent);
+}
 .look-pic:has(> .clip:not([hidden])) > .ai-chip { display: none; }
 .clip-toggle {
   position: absolute; top: var(--s-2); right: var(--s-2); z-index: 2; display: grid; place-items: center;
