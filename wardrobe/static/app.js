@@ -351,13 +351,22 @@ if (reel) {
       const slide = entry.target;
       clearTimeout(slide.lookTimer);
       if (!entry.isIntersecting) return;
-      slide.lookTimer = setTimeout(() => {
+      // While a piece's pop-up is open (or any other dialog), the picture waits: he may be about to swap a piece,
+      // and a picture of the outfit as it was would be drawn (and paid for) for nothing. A swap made there would
+      // also find the picture's request still on its way. It is drawn once the dialog is closed, if the outfit is
+      // still on screen (leaving the screen clears the timer, above).
+      const draw = () => {
+        if (document.querySelector('dialog[open]')) {
+          slide.lookTimer = setTimeout(draw, 1200);
+          return;
+        }
         const ask = slide.querySelector('[data-auto-look]');
         if (ask) {
           ask.removeAttribute('data-auto-look');
           htmx.trigger(ask, 'draw');
         }
-      }, 1200);
+      };
+      slide.lookTimer = setTimeout(draw, 1200);
     });
   }, { root: reel, threshold: 0.6 });
   reel.querySelectorAll('[data-slide]').forEach((slide) => watcher.observe(slide));
@@ -510,9 +519,18 @@ document.addEventListener('change', async (e) => {
   send.disabled = false;
 });
 
-// 11. A button on a page that has gone out of date (the outfit changed meanwhile): reload.
+// 11. A button on a page that has gone out of date (the outfit changed meanwhile): reload. But not while the page
+//     is already on its way to another (a form sent, a link followed). A request sent just before, such as the
+//     picture an outfit asks for by itself (7), can come back "changed in the meantime" because of that very change,
+//     and a reload then would stop the change's own page (what changed, with its Undo) from arriving. Should the
+//     page stay after all (a download, say), a 409 reloads it again after a few seconds.
+let leaving = false;
+window.addEventListener('beforeunload', () => {
+  leaving = true;
+  setTimeout(() => { leaving = false; }, 4000);
+});
 document.body.addEventListener('htmx:responseError', (e) => {
-  if (e.detail.xhr.status === 409) window.location.reload();
+  if (e.detail.xhr.status === 409 && !leaving) window.location.reload();
 });
 
 // 12a. The messages over the outfits (what a change made from an outfit did, with its way back, which is one to four
