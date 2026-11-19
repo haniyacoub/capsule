@@ -120,20 +120,14 @@ def sync_catalog(changed_slot: str | None = None) -> bool:
 REFRESH_HINT = "Pieces with nothing to buy fill up at the next “python -m wardrobe refresh”."
 
 
-def plan_edited(before: dict) -> bool:
+def plan_edited() -> bool:
     """Whether the plan itself was changed on the plan page: a piece added, renamed, recoloured or
     removed. Choosing a product, locking it or marking a piece as owned doesn't count: a rebuild
-    from the profile keeps those (capsule.rebuild). `before` is the profile the plan was built from.
+    from the profile keeps those (capsule.rebuild). An account from before this setting got it once,
+    when the database was brought to version 11 (db._plan_edited_from_before): where that could not
+    tell, the plan counts as edited, so that it is never rebuilt without asking.
     """
-    edited = db.get_setting("plan_edited")
-    if edited is None:
-        # Older accounts have one setting, "slots_customised", for every change made by hand. It counts
-        # as an edit only if the plan is not what the profile (or the example values every account
-        # starts with) proposes; a choice, a lock or an owned mark alone doesn't.
-        edited = bool(db.get_setting("slots_customised")) and not any(
-            capsule.same_plan(db.list_slots(), answers) for answers in (before, profile_mod.EXAMPLE))
-        db.set_setting("plan_edited", edited)
-    return bool(edited)
+    return bool(db.get_setting("plan_edited"))
 
 
 def rebuild_plan(profile: dict, before: dict) -> tuple[capsule.Rebuilt, bool]:
@@ -920,9 +914,6 @@ def create_app() -> Flask:
         if colour not in {c.key for c in view.offers}:     # never a refused colour, nor one that fills nothing
             abort(409, "That colour is not offered for this piece any more. Reload the page.")
         name = recoloured_name(view.slot["name"], view.slot["colour"], colour)
-        # An account from before plan_edited has its answer worked out by comparing the plan with the profile's
-        # own: worked out now, while they still match, as this piece's new colour would make them differ.
-        plan_edited(profile_mod.load())
         db.update_slot(slot_id, colour=colour, name=name, locked=False, pick=None)
         sync_catalog(changed_slot=slot_id)
         w = selection.build()
@@ -2050,7 +2041,7 @@ def create_app() -> Flask:
         if same_plan and not current["example"]:        # sizes or budget: the plan stays as it is
             flash(Markup('Profile saved. <a href="%s">See your outfits</a>') % url_for("outfits_page"))
             return back_to_tab()
-        if plan_edited(current):        # a plan changed on the plan page is never rebuilt without asking
+        if plan_edited():               # a plan changed on the plan page is never rebuilt without asking
             if current["refused"] != new["refused"]:
                 sync_catalog()          # its pieces stay, but no longer with products in a colour now refused
             flash(Markup("Profile saved. Your plan stays as you edited it. To rebuild it from these answers, use "
@@ -2337,7 +2328,7 @@ def create_app() -> Flask:
         if not profile_mod.same_answers(new, current):
             profile_mod.save(new)
             shapes_plan = ("liked", "refused", "use")
-            if any(current[key] != new[key] for key in shapes_plan) and not plan_edited(current):
+            if any(current[key] != new[key] for key in shapes_plan) and not plan_edited():
                 rebuild_plan(new, current)
         return onwards()
 

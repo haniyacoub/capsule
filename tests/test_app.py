@@ -795,24 +795,52 @@ class RebuildingThePlan(AppCase):
         self.assertEqual(self.messages(), "Profile saved.")
         self.assertFalse(profile_mod.load()["example"])
 
-    def test_an_older_account_that_only_picked_things_gets_its_profile_applied(self):
-        # Before plan_edited, one setting stood for every change made by hand, and new answers saved
-        # after a lock or a swap were never applied. Such a plan is still the example's: rebuilt now.
+    @staticmethod
+    def from_before_plan_edited(customised) -> None:
+        """This account as it was before the setting "plan_edited": one setting, "slots_customised", for every change
+        made by hand (a lock and a choice too), or none at all. Then the start that brings the database to version 11
+        (db._plan_edited_from_before)."""
+        with db.connect() as con:
+            con.execute("DELETE FROM settings WHERE user_id = ? AND key = 'plan_edited'", (db.uid(),))
+            con.execute("PRAGMA user_version = 10")
+        if customised is not None:
+            db.set_setting("slots_customised", customised)
+        db.init()
+
+    def test_an_older_account_that_only_locked_a_product_counts_as_edited_as_it_cannot_be_told_apart(self):
+        # Whether "slots_customised" stood for a lock or for an edit was told by comparing the plan with the one its
+        # answers propose. Since the plan follows the budget that can no longer be done, so the plan counts as
+        # edited: new answers leave it as it is and say how to rebuild it, never without asking.
         self.post("/slot/charcoal-wool-coat/lock")
-        db.set_setting("slots_customised", True)
-        profile_mod.save({**profile_mod.load(), "example": False, "liked": ["black", "white"]})   # saved, ignored
-        self.assertEqual(self.save_profile(**self.NEW).headers["Location"], "/outfits")
+        before = db.list_slots()
+        self.from_before_plan_edited(True)
+        self.assertIs(db.get_setting("plan_edited"), True)
+        self.assertTrue(self.save_profile(**self.NEW).headers["Location"].endswith("/profile"))
+        self.assertEqual(db.list_slots(), before)
+        self.assertIn("Profile saved. Your plan stays as you edited it.", self.messages("/profile"))
+        self.client.post("/slots/repropose")                # Start over from my profile: the new answers apply
         self.assertIn("black", {s["colour"] for s in db.list_slots()})
-        self.assertEqual(self.view("charcoal-wool-coat").state, "locked")
         self.assertIs(db.get_setting("plan_edited"), False)
 
     def test_an_older_account_with_a_plan_edited_by_hand_keeps_it(self):
         db.update_slot("charcoal-wool-coat", name="My charcoal coat")       # edited before plan_edited existed
-        db.set_setting("slots_customised", True)
         before = db.list_slots()
+        self.from_before_plan_edited(True)
         self.assertTrue(self.save_profile(**self.NEW).headers["Location"].endswith("/profile"))
         self.assertEqual(db.list_slots(), before)
         self.assertIs(db.get_setting("plan_edited"), True)
+
+    def test_an_older_account_that_started_over_gets_new_answers_applied(self):
+        self.from_before_plan_edited(False)                  # "Start over" was the last change made by hand
+        self.assertIs(db.get_setting("plan_edited"), False)
+        self.assertEqual(self.save_profile(**self.NEW).headers["Location"], "/outfits")
+        self.assertIn("black", {s["colour"] for s in db.list_slots()})
+
+    def test_an_older_account_that_never_changed_its_plan_gets_new_answers_applied(self):
+        self.from_before_plan_edited(None)                   # no change made by hand ever wrote a setting
+        self.assertIsNone(db.get_setting("plan_edited"))
+        self.assertEqual(self.save_profile(**self.NEW).headers["Location"], "/outfits")
+        self.assertIn("black", {s["colour"] for s in db.list_slots()})
 
 
 class PiecesWithNothingToBuy(AppCase):

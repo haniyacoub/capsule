@@ -1472,28 +1472,36 @@ class SharedStoreCatalogue(ProductionCase):
                             outerwear="on", owned="")
         self.assertEqual(rebuilt.headers["Location"], "/outfits")
 
-    def test_one_tap_on_an_older_account_still_lets_new_answers_rebuild_the_plan(self):
+    def test_an_older_account_whose_plan_cannot_be_told_apart_is_never_rebuilt_without_asking(self):
         # Accounts from before the "plan_edited" setting have "slots_customised" instead, set by any lock, choice or
-        # owned mark, and their answer is worked out from whether the plan is still the profile's own. The tap
-        # recolours a piece, so it is worked out before the tap: after it the two would differ.
+        # edit made by hand. The start that brings the database to version 11 (db.py) decides it for them once: where
+        # it cannot tell a lock from an edit, the plan counts as edited. A tap on the Wardrobe ("Use navy") is still
+        # no edit; new answers leave the plan as it is and say so; "Start over from my profile" rebuilds it.
         ada = self.black_and_white()
         with db.as_user(self.user_id("ada@example.com")):
             with db.connect() as con:
                 con.execute("DELETE FROM settings WHERE user_id = ? AND key = 'plan_edited'", (db.uid(),))
+                con.execute("PRAGMA user_version = 10")
             db.set_setting("slots_customised", True)
-            self.assertIsNone(db.get_setting("plan_edited"), "an account from before plan_edited")
             # None of the plan is in his wardrobe (a piece that is stays through a rebuild: test_yes.py).
             db.set_setting("kept_pieces", [])
+        db.init()                                           # the next start: version 11
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertIs(db.get_setting("plan_edited"), True, "it cannot tell a lock from an edit")
         self.assertEqual(self.post(ada, "/slot/black-merino-jumper/colour", headers=HX, colour="navy").status_code, 200)
         with db.as_user(self.user_id("ada@example.com")):
             self.assertEqual(db.get_slot("black-merino-jumper")["colour"], "navy")
-        rebuilt = self.post(ada, "/profile", top_size="M", waist="32", length="32", shoe="43", height_cm="180",
-                            weight_kg="75", budget="1500", liked="navy, grey", refused="", use="both", shoes="on",
-                            outerwear="on", owned="")
-        self.assertEqual(rebuilt.headers["Location"], "/outfits", "new answers still rebuild the plan")
-        self.assertNotIn("Your plan stays as you edited it", ada.get("/outfits").get_data(as_text=True))
+            before = db.list_slots()
+        answers = dict(top_size="M", waist="32", length="32", shoe="43", height_cm="180", weight_kg="75",
+                       budget="1500", liked="navy, grey", refused="", use="both", shoes="on", outerwear="on", owned="")
+        stays = self.post(ada, "/profile", **answers)
+        self.assertTrue(stays.headers["Location"].endswith("/profile"), "new answers leave it as it is")
+        self.assertIn("Your plan stays as you edited it", ada.get("/profile").get_data(as_text=True))
         with db.as_user(self.user_id("ada@example.com")):
-            self.assertIs(db.get_setting("plan_edited"), False, "the tap was no edit of the plan")
+            self.assertEqual(db.list_slots(), before)
+        self.post(ada, "/slots/repropose")                  # Start over from my profile
+        with db.as_user(self.user_id("ada@example.com")):
+            self.assertIs(db.get_setting("plan_edited"), False)
             self.assertIn("navy", {s["colour"] for s in db.list_slots()})
             self.assertNotIn("black", {s["colour"] for s in db.list_slots() if s["category"] != "jeans"},
                              "the plan follows the new colours (black jeans are a classic, liked or not)")

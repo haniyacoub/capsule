@@ -7,19 +7,24 @@ What this round promises:
   * "Best for budget" gives a piece with nothing rated 70 or more its cheapest option in his size, and says so: the
     best-rated one, which a price level takes, could break the budget by itself;
   * on the demo, the plan each budget proposes (capsule.py, config/budget.toml; its rule is tested in test_rules.py)
-    fits that budget at "Best for budget", with nothing rated under 70.
+    fits that budget at "Best for budget", with nothing rated under 70;
+  * a deploy changes no customer's plan: only his own plan-shaping Profile save or "Start over" makes a new one, as
+    before, and never of a plan he edited by hand.
 """
 import html
+import sqlite3
 import unittest
+from contextlib import closing
 
-from wardrobe import capsule, catalog, db, mock, programmes, scoring, selection, shared, sizes
+from wardrobe import capsule, catalog, db, mock, paths, programmes, scoring, selection, shared, sizes
 from wardrobe import profile as profile_mod
+from wardrobe.app import create_app
 from wardrobe.garments import GARMENTS
 
 from .test_app import AppCase
 from .test_production import ProductionCase
 from .test_production import words as page_words
-from .test_store_picker import empty_rows, rows
+from .test_store_picker import FORM, empty_rows, rows
 
 
 def rated(store: str, price: float, label: str, category: str, rules: dict | None = None) -> int:
@@ -212,3 +217,86 @@ class TheDemoFitsEachBudget(AppCase):
                 good = [c["price"] for c in demo["candidates"] if c["slot_id"] == f"piece-{category}"
                         and c["store"] == "otto" and scoring.score(c, category).total >= 70]
                 self.assertLessEqual(min(good), price)
+
+
+# The example's plan as it was made until 18 Nov 2026 (the lists before config/budget.toml, the example's colours,
+# everyday and office): (id, name, garment, colour, keywords, quantity). Every account of today has a plan like it.
+PLAN_BEFORE = [
+    ("charcoal-wool-coat", "Charcoal wool coat", "coat", "charcoal", "wool", 1),
+    ("navy-light-jacket", "Navy light jacket", "jacket", "navy", "lightweight", 1),
+    ("navy-wool-blazer", "Navy wool blazer", "blazer", "navy", "wool", 1),
+    ("olive-overshirt", "Olive overshirt", "overshirt", "olive", "", 1),
+    ("grey-merino-jumper", "Grey merino jumper", "knit", "grey", "merino crew-neck", 1),
+    ("navy-merino-jumper", "Navy merino jumper", "knit", "navy", "merino crew-neck", 1),
+    ("ecru-cardigan", "Ecru cardigan", "cardigan", "ecru", "wool", 1),
+    ("white-oxford-shirt", "White oxford shirt", "shirt", "white", "oxford", 1),
+    ("light-blue-oxford-shirt", "Light blue oxford shirt", "shirt", "light-blue", "oxford", 1),
+    ("white-tee", "White tee", "tee", "white", "heavyweight", 2),
+    ("navy-tee", "Navy tee", "tee", "navy", "heavyweight", 1),
+    ("grey-tee", "Grey tee", "tee", "grey", "heavyweight", 1),
+    ("grey-wool-trousers", "Grey wool trousers", "trousers", "grey", "wool", 1),
+    ("charcoal-tailored-trousers", "Charcoal tailored trousers", "trousers", "charcoal", "tailored", 1),
+    ("stone-chinos", "Stone chinos", "chinos", "stone", "", 1),
+    ("indigo-jeans", "Indigo jeans", "jeans", "indigo", "straight", 1),
+    ("white-leather-sneakers", "White leather sneakers", "sneakers", "white", "leather", 1),
+    ("dark-brown-derby-shoes", "Dark brown derby shoes", "shoes", "dark-brown", "leather derby", 1),
+]
+
+
+class ExistingCustomers(ProductionCase):
+    """Customers with today's plans, through the deploy of this round: a restart that brings the database to version
+    11, their pages, and a Profile save of sizes and budget."""
+
+    def from_before(self, email: str, edited: bool):
+        """A customer whose plan is the one every account has today, with a product locked and a piece he owns, and
+        his own answers saved once (an edited plan has a piece he renamed)."""
+        client = self.member(email)
+        self.assertEqual(self.post(client, "/profile", **FORM).status_code, 302)       # his answers, the example's
+        with db.as_user(self.user_id(email)):
+            db.replace_slots([{"id": i, "name": name, "category": garment, "colour": colour, "keywords": keywords,
+                               "qty": qty, "owned": False} for i, name, garment, colour, keywords, qty in PLAN_BEFORE])
+            catalog.save(mock.build(db.list_slots()))
+            db.update_slot("navy-merino-jumper", owned=True)
+            view = selection.build().get("stone-chinos")
+            db.update_slot("stone-chinos", locked=True, pick=view.chosen.id)
+            if edited:
+                db.update_slot("charcoal-wool-coat", name="My charcoal coat")
+            db.set_setting("plan_edited", edited)
+        return client
+
+    def plan(self, email: str) -> list[dict]:
+        with db.as_user(self.user_id(email)):
+            return db.list_slots()
+
+    def test_a_deploy_changes_no_plan_and_a_plan_edited_by_hand_is_never_rebuilt(self):
+        old = self.from_before("old@example.com", edited=False)
+        edited = self.from_before("edited@example.com", edited=True)
+        before = {email: self.plan(email) for email in ("old@example.com", "edited@example.com")}
+        with closing(sqlite3.connect(paths.DB_PATH)) as con:      # the database as the live servers have it
+            con.execute("PRAGMA user_version = 10")
+            con.commit()
+        self.app = create_app()                                    # the deploy: a restart with this round's code
+        for client in (old, edited):
+            for url in ("/", "/outfits", "/profile", "/slots", "/list"):
+                self.assertEqual(client.get(url).status_code, 200, url)
+        self.assertEqual({email: self.plan(email) for email in before}, before, "no plan changed")
+        # His budget and his sizes alone leave the plan as it is, also now that a plan's size follows the budget.
+        for client in (old, edited):
+            saved = self.post(client, "/profile", **{**FORM, "budget": "300", "top_size": "L"})
+            self.assertTrue(saved.headers["Location"].endswith("/profile"))
+        self.assertEqual({email: self.plan(email) for email in before}, before, "no plan changed")
+        # New colours: a plan edited by hand stays as it is, and says how to rebuild it ...
+        stays = self.post(edited, "/profile", **{**FORM, "budget": "300", "liked": "black, grey, white"})
+        self.assertTrue(stays.headers["Location"].endswith("/profile"))
+        self.assertIn("Your plan stays as you edited it", edited.get("/profile").get_data(as_text=True))
+        self.assertEqual(self.plan("edited@example.com"), before["edited@example.com"])
+        # ... and one that was not is rebuilt, as before: now for his budget, its ids each once.
+        rebuilt = self.post(old, "/profile", **{**FORM, "budget": "300", "liked": "black, grey, white"})
+        self.assertEqual(rebuilt.headers["Location"], "/outfits")
+        plan = self.plan("old@example.com")
+        self.assertEqual(len({s["id"] for s in plan}), len(plan))
+        self.assertEqual(sum(s["qty"] for s in plan), 9, "the plan of a 300 € budget")
+        self.assertFalse([s["name"] for s in plan if any(w in s["name"].lower() for w in ("merino", "wool", "leather"))
+                          and not s["owned"]])
+        self.assertTrue(any(s["owned"] and (s["category"], s["colour"]) == ("knit", "navy") for s in plan),
+                        "the piece he owns stays his")
