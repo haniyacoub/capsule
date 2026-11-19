@@ -1,8 +1,8 @@
 """Invented demo catalogue, used until real data is collected (Phase 2).
 
 NOTHING HERE IS A REAL PRODUCT. Names, prices and fabrics are made up to look
-like what COS, Weekday and OTTO typically sell on their German sites, so the app
-can be tried end to end. Product links go to each store's home page. Only stores
+like what COS, Weekday, OTTO and JD Sports typically sell on their German sites,
+so the app can be tried end to end. Product links go to each store's home page. Only stores
 with a partner programme are in it (programmes.py): there is no Zara.
 
 The data is deterministic: the same slot always gets the same candidates, so
@@ -22,6 +22,7 @@ STORE_HOME = {
     "cos": "https://www.cos.com/de-de",
     "weekday": "https://www.weekday.com/de-de",
     "otto": "https://www.otto.de",
+    "jd-sports": "https://www.jdsports.de",
 }
 
 FIT_TEXT = {
@@ -183,6 +184,14 @@ VARIANTS: dict[str, dict[str, list[tuple[str, float, str, str]]]] = {
             ("Workwear-Hose", 55, "65 polyester, 35 cotton", "relaxed"),
         ],
     },
+    "hoodie": {     # added 19 Nov 2026 with streetwear, as the cargo trousers below
+        "cos": [("Kapuzenpullover aus Baumwolljersey", 79, "100 organic_cotton", "relaxed")],
+        "weekday": [("Oversized Kapuzenpullover", 45, "100 cotton", "oversized")],
+    },
+    "cargo": {
+        "cos": [("Cargohose aus Baumwolltwill", 99, "100 cotton", "relaxed")],
+        "weekday": [("Weite Cargohose", 60, "100 cotton", "oversized")],
+    },
     "jeans": {
         "cos": [
             ("Jeans mit geradem Bein", 99, "100 organic_cotton", "regular"),
@@ -275,9 +284,25 @@ _OTTO: dict[str, list[tuple[str, float, str, str]]] = {
         ("Derby-Schuhe", 39.99, "100 polyurethane", "regular"),
     ],
     "boots": [("Chelsea-Boots aus Leder", 69.99, "100 leather", "regular")],
+    "hoodie": [
+        ("Kapuzenpullover aus Baumwollmix", 29.99, "80 cotton, 20 polyester", "regular"),
+        ("Kapuzenpullover aus Baumwolle", 34.99, "100 cotton", "relaxed"),
+    ],
+    "cargo": [
+        ("Cargohose aus Baumwolle", 29.99, "100 cotton", "regular"),
+        ("Cargohose mit Stretch", 34.99, "98 cotton, 2 elastane", "regular"),
+    ],
 }
 for _garment, _products in _OTTO.items():
     VARIANTS[_garment]["otto"] = _products
+
+# JD Sports, a sports and streetwear store (added 19 Nov 2026 with streetwear): a hoodie and cargo trousers.
+_JD_SPORTS: dict[str, list[tuple[str, float, str, str]]] = {
+    "hoodie": [("Hoodie aus schwerem Jersey", 54.99, "80 cotton, 20 polyester", "relaxed")],
+    "cargo": [("Cargohose aus Baumwolle", 49.99, "100 cotton", "relaxed")],
+}
+for _garment, _products in _JD_SPORTS.items():
+    VARIANTS[_garment]["jd-sports"] = _products
 
 _ALPHA = ["XS", "S", "M", "L", "XL", "XXL"]
 _EU_TAILORING = ["44", "46", "48", "50", "52", "54", "56"]

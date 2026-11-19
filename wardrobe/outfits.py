@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import random
+import re
 from collections import Counter
 from dataclasses import dataclass
 
@@ -19,8 +20,17 @@ from . import colours, english, style
 from .garments import LAYER_OVER
 from .selection import SlotView, Wardrobe
 
-OCCASIONS = {"all": "All", "everyday": "Everyday", "office": "Office"}
+# The filters over the outfits, in the order the page shows them. A customer sees All and the kinds he dresses for
+# (filters): "Street" only once he ticked streetwear on Profile.
+OCCASIONS = {"all": "All", "everyday": "Everyday", "street": "Street", "office": "Office"}
 SEP = "~"                 # joins the slot ids of an outfit into its address (slot ids never contain it)
+
+# Street pieces: a hoodie, cargo trousers, and a piece planned with one of these words in its name or in the words its
+# products are matched by ("Grey chunky sneakers", "Olive bomber jacket"; capsule.RANKED). An everyday outfit with at
+# least STREET_PIECES of them is titled "Street".
+STREET_GARMENTS = frozenset({"hoodie", "cargo"})
+STREET_WORDS = frozenset({"boxy", "loose", "bomber", "chunky", "workwear", "parka"})
+STREET_PIECES = 2
 
 MIN_SCORE = 60            # combinations scoring below this are not shown
 CLOSE = 20                # lightness difference under which two colours read as "the same"
@@ -69,6 +79,11 @@ class Piece:
     def lightness(self) -> float:
         return colours.lightness(self.hex)
 
+    @property
+    def street(self) -> bool:
+        """Whether this is a street piece (street_piece)."""
+        return street_piece(self.view.slot)
+
 
 @dataclass
 class Outfit:
@@ -96,14 +111,43 @@ class Outfit:
 
     @property
     def label(self) -> str:
+        """Its title over it: "Street" for an everyday outfit (level under 3) with at least two street pieces
+        (STREET_PIECES), else by its level: "Everyday" under 3, "Smart casual" at 3, "Office" over 3."""
+        if self.level < 3 and sum(1 for p in self.pieces if p.street) >= STREET_PIECES:
+            return "Street"
         return "Everyday" if self.level < 3 else "Office" if self.level > 3 else "Smart casual"
 
     def suits(self, occasion: str) -> bool:
+        """Whether it is shown under a filter (OCCASIONS). Everyday: level 3 or under, Street outfits too. Street:
+        titled Street. Office: level 3 or over."""
         if occasion == "everyday":
             return self.level <= 3
+        if occasion == "street":
+            return self.label == "Street"
         if occasion == "office":
             return self.level >= 3
         return True
+
+
+def street_piece(slot: dict) -> bool:
+    """Whether a piece of the plan is a street piece (STREET_GARMENTS, STREET_WORDS): by what the plan made it, never
+    by the store's name for its product, so "Jeans Loose Baggy" bought for plain indigo jeans is no street piece."""
+    words = set(re.findall(r"[a-z]+", f"{slot.get('name', '')} {slot.get('keywords', '')}".lower()))
+    return slot.get("category") in STREET_GARMENTS or bool(words & STREET_WORDS)
+
+
+def filters(kinds, occasion: str = "all") -> dict[str, str]:
+    """The filter row over a customer's outfits, in OCCASIONS' order (All · Everyday · Street · Office): All, and the
+    kinds of wardrobe he dresses for (`kinds`, profile "use"). Also the one shown now (`occasion`) where an address
+    asked for one he does not dress for (a link from before he changed it), so that the row says what is shown."""
+    return {key: label for key, label in OCCASIONS.items() if key == "all" or key in kinds or key == occasion}
+
+
+def opens_on(kinds) -> str:
+    """The filter the Outfits page opens on when its address names none: his only kind of wardrobe, or All where he
+    dresses for several (`kinds`, profile "use")."""
+    kinds = list(kinds)
+    return kinds[0] if len(kinds) == 1 and kinds[0] in OCCASIONS else "all"
 
 
 def roles(layers: list[str]) -> list[str]:

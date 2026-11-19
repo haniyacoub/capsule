@@ -169,8 +169,9 @@ The budget decides, step by step, with the numbers in [config/budget.toml](confi
    other half buys better versions of the same pieces).
 2. Each piece counts at its usual price at a budget store (a tee 9 €, jeans 25 €; only the tee's was read on
    shops' pages, the others are estimates).
-3. A kind of wardrobe joins when its first three pieces (a top, trousers and shoes) fit in that money. "Both" is
-   everyday, then office.
+3. Each kind of wardrobe he ticked (Everyday, Office, Streetwear) joins when its first three pieces (a top, trousers
+   and shoes) fit in that money, in that order; the first kind that does not fit waits, and so does every kind after
+   it. An answer from before kinds were ticked (19 Nov 2026) is read as its kinds: "both" is everyday and the office.
 4. The pieces of the kinds that joined stand in one line, most needed first, a shared piece once, and the plan is
    the line for as long as the money lasts, with at most 24 pieces. Under 450 € the names leave out merino, wool
    and leather, and so do the words a piece's products are matched by (so a small budget is not offered merino
@@ -179,6 +180,12 @@ The budget decides, step by step, with the numbers in [config/budget.toml](confi
 The pieces of each kind, in order, are `RANKED` in `wardrobe/capsule.py`. A plan that exists never changes when the
 file does: the next plan made from a profile follows it (a new account, "Start over from my profile", or a Profile
 save that rebuilds the plan).
+
+Streetwear's pieces are hoodies, cargo trousers, boxy tees, loose jeans, chunky sneakers, a bomber jacket, a workwear
+overshirt and a parka (the last six are the usual garments, planned with those words). An everyday outfit with two of
+them is titled "Street", and Outfits has a Street filter for a customer who ticked streetwear: the filters show All and
+the kinds he ticked, and the page opens on his only kind, or on All where he ticked several. Under the boxes on Profile
+a kind his budget does not reach yet is said with the budget it joins at ("Streetwear joins at about 346 €").
 
 Profile's Budget tab and the welcome's second step offer five budgets, `[presets]` in the same file: Starter 150 €,
 Basic 300 €, Solid 600 €, Full 1,000 €+ and "Other amount", which opens a field for any amount. Beside each is about

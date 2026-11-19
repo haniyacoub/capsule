@@ -33,6 +33,8 @@ WORDS = {
     "blazer": "blazer",
     "overshirt": "overshirt",
     "pullover": "jumper",
+    "kapuzenpullover": "hoodie",
+    "hoodie": "hoodie",
     "strickjacke": "cardigan",
     "cardigan": "cardigan",
     "hemd": "shirt",
@@ -46,6 +48,8 @@ WORDS = {
     "chino": "chinos",
     "chinos": "chinos",
     "jeans": "jeans",
+    "cargohose": "cargo trousers",
+    "cargo": "cargo",
     "trousers": "trousers",
     "turnschuhe": "sneakers",
     "sneaker": "sneakers",
@@ -61,6 +65,7 @@ WORDS = {
     "kragen": "collar",
     "schalkragen": "shawl collar",
     "kapuze": "hood",
+    "kapuzen": "hooded",
     "reissverschluss": "zip",
     "reißverschluss": "zip",
     "v-ausschnitt": "V-neck",
@@ -184,7 +189,7 @@ DASHES = {"-", "–"}
 _ENDINGS = ("", "e", "en", "er", "es", "em")      # what German adds to an adjective: "einreihig" + "er"
 # English words a German name borrows as they are: German adds none of its endings to them, so "Lowe" (a model's
 # name that only looks like "low" + "e") is not a word of the list, and a name with it is left as the store wrote it.
-NO_ENDINGS = {"blazer", "overshirt", "cardigan", "t-shirt", "trousers", "jeans", "sneaker", "loafer", "loafers",
+NO_ENDINGS = {"blazer", "overshirt", "cardigan", "hoodie", "cargo", "t-shirt", "trousers", "jeans", "sneaker", "loafer", "loafers",
               "derbys", "derby", "boots", "fit", "stretch", "used-details", "mix", "merino", "jersey", "twill",
               "denim", "canvas", "nylon", "modal", "bouclé", "doubleface", "slub", "selvedge", "oversize",
               "oversized", "relaxed", "boxy", "classic", "slim", "barrel", "standard", "tapered", "loose", "baggy",

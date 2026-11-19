@@ -2081,6 +2081,10 @@ main > .said.in-sight { position: sticky; top: var(--s-2); z-index: 38; box-shad
 .pick-colour input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--ink); }
 .pick-colour i { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--field); }
 .welcome-use { margin: var(--s-1) 0; }
+/* What he dresses for (Profile, and the welcome's last step): a box to tick for each kind of wardrobe, any number of
+   them, side by side where they fit, each 44px tall to tap. */
+.kinds { display: flex; flex-wrap: wrap; gap: 0 var(--s-4); }
+.kinds .check { min-height: 44px; }
 
 /* ── A visitor without an account: the example wardrobe (outfits_guest.html, guests.py) ───────── */
 /* Where a store, a product's name or a price would be: grey bars, softly blurred, in the colour of the words they

@@ -222,13 +222,13 @@ def budget_choices(profile: dict) -> dict:
             "chosen": chosen, "amount": budget if known else "",
             # An amount of his own: what it plans, said under its field.
             "own": {"pieces": capsule.pieces_at(profile, budget), "waits": waits(budget)} if chosen == "other" else None,
-            "words": capsule.kinds_words(capsule.KINDS.get(profile.get("use", "both"), capsule.KINDS["both"])),
+            "words": capsule.kinds_words(capsule.kinds_of(profile.get("use"))),
             "most": int(capsule.budget_rules()["money"]["most_pieces"])}     # the most pieces a plan has
 
 
 def plan_line(profile: dict, slots: list[dict], views: list, edited: bool) -> dict:
     """What the plan page says the plan was made for (slots.html): the kinds of wardrobe the budget lets in
-    (capsule.kinds_in: at 150 € "both" plans everyday only), the budget, and how many pieces that plans:
+    (capsule.kinds_in: at 150 € everyday and the office plan everyday only), the budget, and how many pieces that plans:
     "Planned for everyday and the office, for 300 €: 9 pieces."
     Said so only where the plan is what his answers propose now (`as_planned`), but for pieces of his wardrobe that a
     rebuild kept from the plan before (with_his_pieces: `kept`, counted apart). Else, his plan having been edited by
@@ -245,15 +245,29 @@ def plan_line(profile: dict, slots: list[dict], views: list, edited: bool) -> di
     as_planned = (capsule.same_plan([slot for slot in slots if slot["id"] in ids], profile)
                   and (not extra or (not edited and all(slot["id"] in mine for slot in extra))))
     stays = his_pieces(views)
-    planned = capsule.kinds_in(profile)
-    asked = capsule.KINDS.get(profile.get("use", "both"), capsule.KINDS["both"])
-    joins = capsule.joins_at(profile)
-    return {"as_planned": as_planned, "words": capsule.kinds_words(planned), "budget": profile.get("budget") or 0,
-            "pieces": capsule.count(proposed),
+    return {"as_planned": as_planned, "words": capsule.kinds_words(capsule.kinds_in(profile)),
+            "budget": profile.get("budget") or 0, "pieces": capsule.count(proposed),
             "kept": capsule.count(extra if as_planned else [slot for slot in extra if slot["id"] in stays]),
-            "known": profile_mod.budget_known(profile),
-            "waits": [(capsule.KIND_NAMES.get(kind, kind.title()), joins[kind]) for kind in asked
-                      if kind not in planned and joins.get(kind) is not None]}
+            "known": profile_mod.budget_known(profile), "waits": kinds_waiting(profile)}
+
+
+def kinds_waiting(profile: dict) -> list[tuple[str, int]]:
+    """The kinds of wardrobe he ticked that wait at the budget his plan is sized for, each by name with the budget it
+    joins at, in the order they join: [("Streetwear", 346)] for everyday, the office and streetwear at 300 €. From the
+    rule itself (capsule.kinds_in, capsule.joins_at). [] where every kind he ticked is in his plan."""
+    planned = capsule.kinds_in(profile)
+    joins = capsule.joins_at(profile)
+    return [(capsule.KIND_NAMES.get(kind, kind.title()), at) for kind in capsule.kinds_of(profile.get("use"))
+            if kind not in planned and (at := joins.get(kind)) is not None]
+
+
+def waiting_words(waits: list[tuple[str, int]]) -> str:
+    """The kinds that wait, in one sentence: "Streetwear joins at about 346 €.", "Office joins at about 206 €,
+    Streetwear at about 346 €." "" where none waits."""
+    if not waits:
+        return ""
+    first, *rest = waits
+    return f"{first[0]} joins at about {eur(first[1])}" + "".join(f", {kind} at about {eur(at)}" for kind, at in rest) + "."
 
 
 def recoloured_name(name: str, old: str, new: str) -> str:
@@ -412,7 +426,7 @@ def create_app() -> Flask:
     app.jinja_env.filters["english"] = english.name      # a store's German product name in English, or None
     app.jinja_env.globals.update(
         nav=NAV, GARMENTS=GARMENTS, COLOURS=colours.COLOURS, ALPHA=ALPHA,
-        USES=profile_mod.USES, MODES=selection.MODES, OCCASIONS=outfits.OCCASIONS,
+        KINDS=profile_mod.KINDS, MODES=selection.MODES, OCCASIONS=outfits.OCCASIONS,
         ink_on=colours.ink_on, level_hints=selection.HINTS,
         # The stores customers are offered, {key: name}, and their names in a sentence (programmes.py).
         STORES=programmes.OFFERED, store_names=programmes.names, stocked_stores=shared.stocked,
@@ -1139,9 +1153,16 @@ def create_app() -> Flask:
     # ── Outfits ───────────────────────────────────────────────────────────────
 
     def usual_occasion() -> str:
-        """The outfits the page opens on when its address names no occasion: what he dresses for (Profile)."""
-        use = profile_mod.load()["use"]
-        return "all" if use == "both" else use
+        """The outfits the page opens on when its address names no occasion: his only kind of wardrobe (Profile, "What
+        do you dress for?"), or All where he dresses for several (outfits.opens_on)."""
+        return outfits.opens_on(profile_mod.load()["use"])
+
+    def occasions(occasion: str) -> dict[str, str]:
+        """The filter row over the outfits: All and the kinds he dresses for, with the one shown now
+        (outfits.filters). A visitor's are the example wardrobe's: everyday and the office."""
+        return outfits.filters(profile_mod.load()["use"], occasion)
+
+    app.jinja_env.globals["occasions"] = occasions
 
     def place(source) -> tuple[int, int]:
         """Which row of outfits: how many it holds and which shuffle it is. Read from the page's address, or from a
@@ -1329,11 +1350,22 @@ def create_app() -> Flask:
                     looks_on and looks.needs_ok(board.get("look_pieces") or board["pieces"])):
                 board["ask"] = ""
         videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
+        # No outfits under the filter of a kind he ticked that his budget does not reach yet: said, with the budget it
+        # joins at ("Streetwear joins your plan at a budget of about 346 €").
+        waits_here = None
+        if not boards and occasion in capsule.KIND_ORDER:
+            waits_here = dict((name, at) for name, at in kinds_waiting(profile_mod.load())
+                              if name == capsule.KIND_NAMES[occasion]) or None
+        # No Street outfits while its pieces have no product yet (a published list without hoodies, cargo trousers or
+        # chunky sneakers): those pieces are named.
+        street_missing = [view.slot["name"] for view in w.slots if not boards and occasion == "street"
+                          and outfits.street_piece(view.slot) and view.chosen is None and view.state != "owned"]
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved), removed=removed,
                     answer=answer, n_declined=n_declined, news=wardrobe_news(w),
                     reusing=bool(yes_sigs) and any(b.get("adds") and b["adds"].have and not b["adds"].in_wardrobe
                                                    for b in boards[held:]) and len(boards) - held > 1,
                     occasion=occasion, n=n, seed=seed, next_seed=random.randrange(1, 1_000_000),
+                    waits_here=waits_here, street_missing=street_missing,
                     shown_first=first.sig if first else "",     # said in every form under an outfit (row_fields)
                     front=front, held=held,     # the outfits kept in front after a yes, and how many of them show
                     # Pieces whose chosen product is sold out in his size: said under the piece, with the swap.
@@ -2102,7 +2134,10 @@ def create_app() -> Flask:
                         # What he has not answered yet is said where it is asked, in a plain line: his sizes,
                         # his colours (the plan starts with Stilsmith's), his budget (its field stays empty).
                         sizes_given=not profile_mod.sizes_unconfirmed(current),
-                        answered=profile_mod.answered(current), budget=budget_choices(current))
+                        answered=profile_mod.answered(current), budget=budget_choices(current),
+                        # The kinds he ticked that wait at his budget, said under the boxes: "Streetwear joins at
+                        # about 346 €."
+                        kinds_wait=waiting_words(kinds_waiting(current)))
 
         new, notes = profile_mod.from_form(request.form, current)
         answer = save_answers(current, new, notes)
@@ -2178,7 +2213,10 @@ def create_app() -> Flask:
             return redirect(url_for("outfits_page"))
 
         plan, needs_refresh = rebuild_plan(new, current)
-        flash(rebuilt_message(plan) + (f" {REFRESH_HINT}" if needs_refresh else ""))
+        # A kind he just ticked that his budget does not reach yet is said, with the budget it joins at: his plan has
+        # none of its pieces until then.
+        waits = waiting_words(kinds_waiting(new)) if current["use"] != new["use"] else ""
+        flash(rebuilt_message(plan) + (f" {waits}" if waits else "") + (f" {REFRESH_HINT}" if needs_refresh else ""))
         edit_the_plan = Markup('<a href="%s">Edit the plan</a>') % url_for("slots_page")
         for line in plan.unmatched:
             flash(Markup("Couldn't tell what kind of garment “%s” is: add it to your plan by hand. %s")
@@ -2321,8 +2359,7 @@ def create_app() -> Flask:
 
     def first_outfit(w: selection.Wardrobe) -> list[dict] | None:
         """The pieces of the first outfit Outfits shows (for what the customer dresses for, unshuffled)."""
-        use = profile_mod.load()["use"]
-        chosen, _ = outfits.generate(w, occasion="all" if use == "both" else use, limit=1)
+        chosen, _ = outfits.generate(w, occasion=usual_occasion(), limit=1)
         return outfits.snapshot(chosen[0]) if chosen else None
 
     def model_picture(w: selection.Wardrobe) -> dict:
@@ -2370,10 +2407,11 @@ def create_app() -> Flask:
         care as that form's (profile.from_form), everything else staying as it is."""
         def names(keys) -> str:
             return ", ".join(colours.get(key).label.lower() for key in keys or [])
-        sent = {key: str(profile[key]) for key in ("top_size", "waist", "length", "shoe", "height_cm", "weight_kg",
-                                                   "budget", "use", "owned")}
+        sent: dict = {key: str(profile[key]) for key in ("top_size", "waist", "length", "shoe", "height_cm",
+                                                         "weight_kg", "budget", "owned")}
         sent.update(chest_cm=str(profile.get("chest_cm") or ""), waist_cm=str(profile.get("waist_cm") or ""),
-                    liked=names(profile.get("liked")), refused=names(profile.get("refused")))
+                    liked=names(profile.get("liked")), refused=names(profile.get("refused")),
+                    use=list(capsule.kinds_of(profile.get("use"))))     # the kinds, as the boxes send them
         for box in ("shoes", "outerwear"):
             if profile.get(box):
                 sent[box] = "on"
@@ -2437,8 +2475,9 @@ def create_app() -> Flask:
             elif budget.strip():        # "0", or not a number: no budget was given
                 flash(profile_mod.NOT_A_BUDGET)
         else:
-            if form.get("use") in profile_mod.USES:
-                sent["use"] = form["use"]
+            kinds = profile_mod.kinds_sent(form)        # none ticked: what he dresses for stays unanswered
+            if kinds:
+                sent["use"] = kinds
                 questions.append("use")
         new, notes = profile_mod.from_form(sent, current)
         for note in notes:

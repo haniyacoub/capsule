@@ -10,8 +10,8 @@
 #  The final score is their weighted average. The app shows the working for
 #  every item under "How it's rated".
 #
-#  Garment types: coat, jacket, blazer, overshirt, cardigan, knit, shirt, polo,
-#  tee, longsleeve, trousers, chinos, jeans, sneakers, shoes, boots
+#  Garment types: coat, jacket, blazer, overshirt, cardigan, knit, hoodie, shirt,
+#  polo, tee, longsleeve, trousers, chinos, jeans, cargo, sneakers, shoes, boots
 # ══════════════════════════════════════════════════════════════════════════════
 
 [weights]            # relative importance; they are rescaled to add up to 100 %
@@ -142,6 +142,16 @@ elastane  = 55
 lyocell   = 62
 polyester = 30
 
+[fabric.by_category.hoodie]       # added 19 Nov 2026 (streetwear)
+cotton    = 85
+organic_cotton = 88
+polyester = 35
+
+[fabric.by_category.cargo]        # cargo trousers; a little polyamide is common in ripstop
+cotton    = 85
+organic_cotton = 88
+polyamide = 55
+
 [fabric.by_category.sneakers]
 leather   = 90
 suede     = 85
@@ -212,6 +222,8 @@ jacket     = 78
 tee        = 74
 longsleeve = 74
 jeans      = 70
+hoodie     = 74
+cargo      = 74
 sneakers   = 72
 shoes      = 75
 boots      = 75
@@ -221,6 +233,8 @@ default    = 60
 jeans      = 88
 tee        = 82
 longsleeve = 80
+hoodie     = 80
+cargo      = 80
 chinos     = 68
 overshirt  = 66
 jacket     = 64
@@ -253,9 +267,24 @@ blazer     = 55
 trousers   = 60
 chinos     = 65
 jeans      = 65
+hoodie     = 62
+cargo      = 62
 sneakers   = 55
 shoes      = 60
 boots      = 60
+
+# JD Sports, a sports and streetwear store (Awin), added 19 Nov 2026 with streetwear: rated highest for the
+# hoodies, sneakers and cargo trousers of the street brands it sells. Set for the demo's invented JD Sports
+# products (mock.py): look at these again when its own product feed arrives.
+[brand.jd-sports]
+default    = 60
+hoodie     = 80
+cargo      = 75
+sneakers   = 82
+tee        = 70
+longsleeve = 68
+jacket     = 72
+jeans      = 62
 
 
 # ── Price sanity ──────────────────────────────────────────────────────────────
@@ -337,6 +366,17 @@ steep_above      = 150
 suspicious_below = 15
 fair             = [22, 120]
 steep_above      = 180
+
+# Added 19 Nov 2026 with streetwear, where budget and mid stores sell them.
+[price.bands.hoodie]
+suspicious_below = 12
+fair             = [20, 90]
+steep_above      = 140
+
+[price.bands.cargo]
+suspicious_below = 15
+fair             = [25, 110]
+steep_above      = 160
 
 [price.bands.sneakers]
 suspicious_below = 20

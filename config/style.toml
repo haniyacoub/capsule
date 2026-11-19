@@ -148,7 +148,7 @@ label    = "Street"
 levels   = [1.0, 2.5]
 words    = ["relaxed", "oversized", "baggy", "loose", "wide", "weit", "locker", "lässig", "boxy", "cargo",
             "denim", "bomber", "hoodie", "workwear", "heavyweight", "schwer"]
-garments = ["jeans", "overshirt", "tee", "longsleeve", "sneakers"]
+garments = ["jeans", "overshirt", "tee", "longsleeve", "sneakers", "hoodie", "cargo"]
 [styles.street.kinds]
 jacket = ["bomber", "blouson", "jeansjacke", "denim", "trucker", "coach", "harrington", "trainingsjacke", "track"]
 

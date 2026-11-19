@@ -173,6 +173,15 @@ programme_page = "https://ui.awin.com/merchant-profile/122628"
 notes          = """Listed as "Snipes EU"; the page covers Germany. Sneakers and streetwear. Its page states
                     neither a commission nor a product feed (read 15 Nov 2026)."""
 
+[stores.jd-sports]
+label          = "JD Sports"
+network        = "awin"
+programme_id   = "10073"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/10073"
+notes          = """Sportswear, sneakers and streetwear, open in Germany. A product feed is stated (research of
+                    18 Nov 2026). Offered to customers since 19 Nov 2026 for streetwear (config/stores.toml)."""
+
 [stores.lounge-by-zalando]
 label          = "Lounge by Zalando"
 network        = "awin"

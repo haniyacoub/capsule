@@ -23,7 +23,7 @@ PUBLISHED = "2026-11-11T17:55:27.180518+01:00"
 # The six men's stores of round 6: offered, but with no products yet. Only product links pasted by a customer come
 # from them (the research of 15 Nov 2026 recommends them; none has been applied to, none is collected).
 PASTE_ONLY = {"tom-tailor": "Tom Tailor", "otto": "OTTO", "hirmer": "Hirmer", "breuninger": "Breuninger",
-              "blue-tomato": "Blue Tomato", "bergfreunde": "Bergfreunde"}
+              "blue-tomato": "Blue Tomato", "bergfreunde": "Bergfreunde", "jd-sports": "JD Sports"}
 
 
 def shaped(store, sku, name, price, colour, category, **more):
@@ -83,10 +83,11 @@ class StoresWithAProgramme(unittest.TestCase):
         self.assertNotIn("zara", collect.STORE_ORDER)
         self.assertNotIn("garments", stores["zara"])
 
-    def test_the_six_stores_of_round_6_take_pasted_links_and_are_never_collected(self):
-        # Tom Tailor, OTTO, Hirmer, Breuninger, Blue Tomato and Bergfreunde: each has a partner programme on Awin, so
-        # each is offered, and its web address is known, so a product link from it can be pasted. None has category
-        # pages listed or a reader, so the collector has nowhere to go and nothing to read there.
+    def test_the_stores_of_round_6_and_jd_sports_take_pasted_links_and_are_never_collected(self):
+        # Tom Tailor, OTTO, Hirmer, Breuninger, Blue Tomato and Bergfreunde, and JD Sports since streetwear (19 Nov
+        # 2026): each has a partner programme on Awin, so each is offered, and its web address is known, so a product
+        # link from it can be pasted. None has category pages listed or a reader, so the collector has nowhere to go
+        # and nothing to read there.
         from wardrobe import collect, programmes
         from wardrobe.collect import manual
         stores = config.load("stores.toml")
@@ -103,7 +104,7 @@ class StoresWithAProgramme(unittest.TestCase):
         self.assertEqual(manual.hosts(), {
             "cos.com": "cos", "weekday.com": "weekday", "tom-tailor.de": "tom-tailor", "otto.de": "otto",
             "hirmer.de": "hirmer", "breuninger.com": "breuninger", "blue-tomato.com": "blue-tomato",
-            "bergfreunde.de": "bergfreunde"})
+            "bergfreunde.de": "bergfreunde", "jdsports.de": "jd-sports"})
 
     def test_a_store_must_say_its_programme(self):
         from wardrobe import programmes
@@ -130,8 +131,8 @@ class StoresWithAProgramme(unittest.TestCase):
         try:
             with mock.patch.object(programmes, "_stores", return_value=without):
                 self.assertEqual([c["store"] for c in catalog.load()["candidates"]], ["cos"])
-                self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#bergfreunde,blue-tomato,breuninger,cos,hirmer,otto,tom-tailor"))
-            self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#bergfreunde,blue-tomato,breuninger,cos,hirmer,otto,tom-tailor,weekday"))
+                self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#bergfreunde,blue-tomato,breuninger,cos,hirmer,jd-sports,otto,tom-tailor"))
+            self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#bergfreunde,blue-tomato,breuninger,cos,hirmer,jd-sports,otto,tom-tailor,weekday"))
         finally:
             paths.CATALOG_PATH.unlink(missing_ok=True)
             catalog._cache = None
@@ -428,7 +429,7 @@ class AccountsThatHadZara(ProductionCase):
         self.assertNotIn("zara", page.lower())
         counted.assert_not_called()
         with db.as_user(self.user_id("ada@example.com")):
-            self.assertEqual(db.get_setting("pool"), "2026-11-14T09:00:00.000000+01:00#refused#bergfreunde,blue-tomato,breuninger,cos,hirmer,otto,tom-tailor,weekday",
+            self.assertEqual(db.get_setting("pool"), "2026-11-14T09:00:00.000000+01:00#refused#bergfreunde,blue-tomato,breuninger,cos,hirmer,jd-sports,otto,tom-tailor,weekday",
                              "his products were rebuilt from the new publication")
         self.assertEqual(self.picks(), picks, "no piece was picked again")
         self.assertEqual(self.his_own(), [self.OWN], "still kept, set aside")

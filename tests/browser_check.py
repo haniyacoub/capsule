@@ -4374,7 +4374,10 @@ def run(base: str) -> None:
             the_whole_plan_is_his(EMAIL, his=False)
             pick_colours(page, ("black", "grey", "white"))
             open_tab(page, "you")
+            # What he dresses for is a box per kind of wardrobe (19 Nov 2026): he unticks Everyday, so the office alone
+            # is left, the new use.
             page.locator("input[name=use][value=office]").check(force=True)
+            page.locator("input[name=use][value=everyday]").uncheck(force=True)
             page.click("button:has-text('Save profile')")
             page.wait_for_url(base + "/outfits")
             in_view("main > .flash", "Your plan now has")
@@ -4538,7 +4541,8 @@ def run(base: str) -> None:
                     view.fill("input[name=budget]", "700")
                     tap("button:has-text('Continue')")
                     view.wait_for_url(base + "/welcome/3")
-                    view.locator("label:has(input[name=use][value=both])").click()
+                    for kind in ("everyday", "office"):        # a box for each kind of wardrobe he dresses for
+                        view.locator(f"label:has(input[name=use][value={kind}])").click()
                     tap("button:has-text('Show me outfits')")
                     view.wait_for_url(base + "/outfits")
                     assert top_bar(view)["words"].startswith("Your wardrobe: nothing yet"), f"{where}: after the welcome the bar reads {top_bar(view)['words']!r}"
@@ -6179,7 +6183,7 @@ def run(base: str) -> None:
                     delete_a_steps_customer(who)
 
         def the_style_chat():
-            # Profile, "What do you dress for?": six styles to tick beside Everyday/Office/Both. Below, "Describe your
+            # Profile, "What do you dress for?": six styles to tick beside Everyday/Office/Streetwear. Below, "Describe your
             # style": he writes in his own words, the assistant (a stand-in here) answers with one question back and a
             # suggested brief, and nothing changes until he presses "Use this brief". Then an outfit that is his style
             # as a whole says so in one line, and the others say nothing: no outfit titled Smart casual or Office is
@@ -6271,7 +6275,7 @@ def run(base: str) -> None:
                 assert phone.evaluate(whys) == [], "an outfit says why it fits a brief nobody gave"
                 # The styles: six choices to tap, any number of them, beside the three that were there.
                 phone.goto(base + "/profile", wait_until="networkidle")
-                assert phone.locator("input[name=use]").count() == 3, "Everyday, Office and Both are not all there"
+                assert phone.locator("input[name=use]").count() == 3, "Everyday, Office and Streetwear are not all there"
                 styles = phone.locator("[data-styles] label").all_inner_texts()
                 assert [text.strip() for text in styles] == ["Smart casual", "Street", "Minimal", "Tailored", "Workwear",
                                                               "Outdoor"], f"the styles to tick: {styles}"

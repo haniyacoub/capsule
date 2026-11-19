@@ -198,7 +198,7 @@ class TheBrief(AppCase):
             self.assertIsInstance(stores[key].get("styles"), list, f"{key} has a styles line")
             self.assertLessEqual(set(stores[key]["styles"]), known, f"{key}: a style config/style.toml does not have")
             self.assertRegex(stores[key].get("price", ""), r"^(budget|mid|premium)(-(mid|premium))?$", key)
-        self.assertEqual(style.stores_that_suit(STREET), ["weekday", "blue-tomato"])
+        self.assertEqual(style.stores_that_suit(STREET), ["weekday", "blue-tomato", "jd-sports"])
         self.assertEqual(style.stores_that_suit({**style.EMPTY, "styles": ["outdoor"]}), ["blue-tomato", "bergfreunde"])
         tailored_high = {**style.EMPTY, "styles": ["tailored", "smart-casual"], "price": "high"}
         self.assertEqual(style.stores_that_suit(tailored_high)[:3], ["cos", "hirmer", "breuninger"],
@@ -915,13 +915,15 @@ class Ticking(AppCase):
             data[name] = value
         for name, value in re.findall(r'<input type="radio" name="([^"]+)" value="([^"]*)" checked', form):
             data[name] = value
+        # What he dresses for: a box for each kind of wardrobe, any number of them ticked.
+        data["use"] = re.findall(r'<input type="checkbox" name="use" value="([^"]*)" checked', form)
         return {**data, **more}
 
-    def test_the_styles_are_tappable_choices_beside_everyday_office_both(self):
+    def test_the_styles_are_tappable_choices_beside_the_kinds_of_wardrobe(self):
         page = self.client.get("/profile").get_data(as_text=True)
         self.assertNotIn("Describe your style", page, "no key: no chat")
-        for value in ("everyday", "office", "both"):
-            self.assertRegex(page, rf'<input type="radio" name="use" value="{value}"')
+        for value in ("everyday", "office", "street"):
+            self.assertRegex(page, rf'<input type="checkbox" name="use" value="{value}"')
         for key, label in style.styles().items():
             self.assertRegex(page, rf'<input type="checkbox" name="styles" value="{key}"><span>{label}</span>')
         self.assertEqual(list(style.styles().values()),
@@ -1089,10 +1091,12 @@ class Ticking(AppCase):
         self.assertIn(f"Your styles changed {len(moved)} pieces, 1 of them in your wardrobe: "
                       f"{'+' if cents > 0 else '−'}{amount} {amount} {'more' if cents > 0 else 'less'} .", words(page))
 
-    def test_everyday_office_both_work_as_they_did(self):
-        for use in ("office", "everyday", "both"):
+    def test_the_kinds_of_wardrobe_and_the_answers_from_before_work_beside_the_styles(self):
+        # The boxes he ticks, and what a page from before kinds were ticked still sends ("both"), read as kinds.
+        for use, kinds in ((["office"], ["office"]), (["street", "everyday"], ["everyday", "street"]),
+                           ("office", ["office"]), ("everyday", ["everyday"]), ("both", ["everyday", "office"])):
             self.client.post("/profile", data={**self.form(use=use), "styles": ["minimal"]})
-            self.assertEqual(profile_mod.load()["use"], use)
+            self.assertEqual(profile_mod.load()["use"], kinds, use)
         self.assertEqual(style.current()["styles"], ["minimal"])
 
     def test_a_form_without_the_styles_leaves_the_brief_alone(self):
@@ -1644,7 +1648,7 @@ class FromTheWelcome(NoNetwork, ProductionCase):
         self.assertEqual((gone.status_code, gone.headers["Location"]), (302, "/profile#style"))
         with db.as_user(self.user_id("ada@example.com")):
             self.assertEqual(db.get_setting("welcome"), "done")
-            self.assertEqual((profile_mod.load()["use"], profile_mod.answered()), ("office", {"use"}))
+            self.assertEqual((profile_mod.load()["use"], profile_mod.answered()), (["office"], {"use"}))
         page = ada.get("/profile").get_data(as_text=True)
         self.assertIn('<div id="style"></div>', page, "the place the address leads to")
         chat = page.split('<div id="style"></div>', 1)[1]

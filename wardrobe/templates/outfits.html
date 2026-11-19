@@ -123,7 +123,7 @@
 {% if w is defined and w.source == 'mock' %}{% include "_demo.html" %}{% endif %}
 <div class="toolbar">
   <div class="chips" role="group" aria-label="Which outfits">
-    {% for key, label in OCCASIONS.items() %}
+    {% for key, label in occasions(occasion).items() %}
     <a class="chip-link{% if occasion == key %} on{% endif %}" href="{{ url_for('outfits_page', occasion=key) }}"{% if occasion == key %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
     {{ saved_chip(n_saved, on=occasion == 'saved') }}
@@ -345,6 +345,18 @@
   No more outfits to offer{% if occasion != 'all' %} for “{{ OCCASIONS[occasion]|lower }}”{% endif %}.
   {% if n_saved %}The ones you added are under <a href="{{ url_for('outfits_page', occasion='saved') }}">My outfits</a>.{% endif %}
   {% if occasion != 'all' %}Or try <a href="{{ url_for('outfits_page', occasion='all') }}">all occasions</a>.{% endif %}
+</p>
+{% elif waits_here %}
+{# A kind he ticked that his budget does not reach yet (config/budget.toml): its pieces are not in his plan. #}
+<p class="empty">
+  {% for kind, at in waits_here.items() %}No outfits for “{{ OCCASIONS[occasion]|lower }}” yet: {{ kind }} joins your plan at a budget of about {{ at|eur }}.{% endfor %}
+  <a href="{{ url_for('profile_page') }}#budget">Your budget</a> · <a href="{{ url_for('outfits_page', occasion='all') }}">All outfits</a>
+</p>
+{% elif street_missing %}
+{# His street pieces have no product yet (a list without hoodies, cargo trousers or chunky sneakers): named. #}
+<p class="empty">
+  No street outfits yet: {% for name in street_missing %}{{ name|lower if not loop.first else name }}{{ ', ' if loop.revindex > 2 else ' and ' if loop.revindex == 2 }}{% endfor %} {{ 'is' if street_missing|length == 1 else 'are' }} not in {{ site_name }}'s product list yet.
+  <a href="{{ url_for('outfits_page', occasion='all') }}">All outfits</a>
 </p>
 {% else %}
 <p class="empty">
