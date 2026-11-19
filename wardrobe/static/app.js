@@ -533,7 +533,9 @@ if (told.length && document.getElementById('reel') && 'ResizeObserver' in window
 // 13. Profile: About you is one form, the model's choices included (the Body tab); the photo's forms are others, and
 //     sending one of those loads the page again. Changes made in About you and not yet saved would then be lost without
 //     a word, so the page asks first. "Changed" is measured against what the page was loaded with, field by field.
-//     "Draw my model" draws the saved choices, so while there are changes a line beside it says to save first.
+//     "Draw my model" draws the saved choices, so while there are changes a line beside it says to save first. So does
+//     "Start over from my profile" in the line a save says when it left a plan edited by hand as it is (base.html,
+//     .plan-kept): it plans from the answers saved, not from the ones changed since.
 const aboutYou = document.getElementById('about-you');
 if (aboutYou) {
   const changed = () => [...aboutYou.elements].some((field) => {
@@ -549,7 +551,7 @@ if (aboutYou) {
   document.addEventListener('submit', (e) => {
     // (A form that already asked its own question and was told no, like deleting the photo, is not sent anyway; nor is
     // one HTMX sends without loading the page, like "Draw my model".)
-    if (e.defaultPrevented || e.target === aboutYou || !e.target.closest('[data-cc]') || !changed()) return;
+    if (e.defaultPrevented || e.target === aboutYou || !e.target.closest('[data-cc], .plan-kept') || !changed()) return;
     if (!window.confirm("You changed your profile but didn't save it. Leave those changes unsaved?")) {
       e.preventDefault();
     }
@@ -990,9 +992,21 @@ document.querySelectorAll('.budget-pick').forEach((pick) => {
       other.dispatchEvent(new Event('change', { bubbles: true }));     // (a change Profile's form notices: 13)
     }
   });
-  // Chosen, it opens the field (app.css): brought on to the screen if it opened below it (under a phone's Save bar).
+  // Chosen, it opens the field (app.css), and "Other amount" and its field are brought on to the screen together:
+  // clear of what stays on it at the top (a phone's Profile tabs) and at the foot (Save), which the page's scroll
+  // padding measures (app.css). Down as far as the field needs, never so far that "Other amount" goes under the top;
+  // up where the browser, bringing the chosen button on to the screen, left it under there.
   other.addEventListener('change', () => {
-    if (other.checked) requestAnimationFrame(() => field.scrollIntoView({ block: 'nearest' }));
+    if (!other.checked) return;
+    requestAnimationFrame(() => {
+      const padding = getComputedStyle(document.documentElement);
+      const top = parseFloat(padding.scrollPaddingTop) || 0;
+      const foot = window.innerHeight - (parseFloat(padding.scrollPaddingBottom) || 0);
+      const row = other.closest('label').getBoundingClientRect().top - top;
+      const below = field.getBoundingClientRect().bottom - foot;
+      const by = row < 0 ? row : Math.min(Math.max(below, 0), row);
+      if (by) window.scrollBy(0, by);
+    });
   });
 });
 

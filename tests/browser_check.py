@@ -6533,7 +6533,14 @@ def run(base: str) -> None:
                                 .map(el => ratio(getComputedStyle(el).color, ground(el))))})),
                         field: !!document.getElementById('budget').getClientRects().length,
                         wide: document.documentElement.scrollWidth > innerWidth}; }"""
-            plan_line = "() => document.getElementById('plan-for').textContent.replace(/\\s+/g, ' ').split(' Trousers')[0].trim()"
+            plan_line = "() => document.getElementById('plan-for').textContent.replace(/\\s+/g, ' ').trim()"
+            # "Other amount" and its field, opened, are both on the screen: the row not under the Profile tabs that stay
+            # at the top on a phone, the field not under Save.
+            clear = """() => { const row = document.querySelector('input[data-budget-other]').closest('label').getBoundingClientRect();
+                const field = document.getElementById('budget').getBoundingClientRect();
+                const tabs = document.querySelector('.cc-tabs').getBoundingClientRect();
+                const save = document.querySelector('.cc-save').getBoundingClientRect();
+                return {row: Math.round(row.top - tabs.bottom), field: Math.round(save.top - field.bottom)}; }"""
             try:
                 for width, height, scheme in ((390, 844, "light"), (1280, 860, "dark")):
                     phone = width < 500
@@ -6579,6 +6586,9 @@ def run(base: str) -> None:
                             ring = view.evaluate("() => getComputedStyle(document.activeElement).outlineStyle")
                             assert ring != "none", f"{where}: a chosen budget shows no focus"
                             expect(view.locator("#budget"), "'Other amount' does not open its field").to_be_visible()
+                            view.wait_for_timeout(150)
+                            room = view.evaluate(clear)
+                            assert room["row"] >= 0 and room["field"] >= 0, f"{where}: 'Other amount' or its field is under the tabs or Save: {room}"
                             view.keyboard.press("Tab")
                             assert view.evaluate("() => document.activeElement.id") == "budget", "Tab from Other amount misses its field"
                             view.keyboard.type("450")
@@ -6586,6 +6596,21 @@ def run(base: str) -> None:
                             view.keyboard.press("ArrowUp")
                             view.keyboard.press("ArrowUp")
                             assert view.evaluate("() => document.activeElement.value") == "600"
+                            expect(view.locator("#budget")).to_be_hidden()
+                            # Full chosen, the page scrolled to its foot ("Other amount" just under the tabs), then
+                            # "Other amount" chosen from there: the browser brings the chosen button on to the screen
+                            # and the field opens under it, which moved the row under the tabs (19 Nov 2026). Both stay
+                            # clear of the tabs and of Save.
+                            view.keyboard.press("ArrowDown")
+                            view.evaluate("() => scrollTo(0, document.documentElement.scrollHeight)")
+                            view.wait_for_timeout(150)
+                            view.keyboard.press("ArrowDown")
+                            assert view.evaluate("() => document.activeElement.value") == "other"
+                            view.wait_for_timeout(150)
+                            room = view.evaluate(clear)
+                            assert room["row"] >= 0 and room["field"] >= 0, f"{where}: scrolled on, 'Other amount' or its field is under the tabs or Save: {room}"
+                            view.keyboard.press("ArrowUp")
+                            view.keyboard.press("ArrowUp")
                             expect(view.locator("#budget")).to_be_hidden()
                             with view.expect_navigation(wait_until="networkidle"):
                                 view.locator(".cc-save button").tap()
@@ -6606,6 +6631,31 @@ def run(base: str) -> None:
                             view.goto(base + "/slots", wait_until="networkidle")
                             line = view.evaluate(plan_line)
                             assert line == "Planned for everyday and the office, for 300 €: 9 pieces.", f"{where}: the plan page says {line!r}"
+                            # Edited by hand, the plan stays as it is when the budget changes, and Profile says so in
+                            # one line, with "Start over from my profile". That plans from the answers saved, so with a
+                            # change not saved yet the page asks first, as for its other forms; told no, it stays.
+                            with view.expect_navigation(wait_until="networkidle"):
+                                view.click("button:has-text('Add piece')")
+                            view.goto(base + "/profile#budget", wait_until="networkidle")
+                            view.locator("label:has(input[name=budget_choice][value='600'])").click()
+                            with view.expect_navigation(wait_until="networkidle"):
+                                view.click(".cc-save button")
+                            kept = " ".join(view.locator(".flash.plan-kept").inner_text().split())
+                            assert kept == "Profile saved. Your plan stays as you edited it. Start over from my profile", f"{where}: {kept!r}"
+                            view.locator("label:has(input[name=budget_choice][value='1000'])").click()
+                            asked: list[str] = []
+
+                            def answer(dialog) -> None:
+                                asked.append(dialog.message.split("?")[0])
+                                dialog.accept() if len(asked) == 1 else dialog.dismiss()    # yes to Start over, no to leaving
+
+                            view.on("dialog", answer)
+                            view.locator(".plan-kept button").click()
+                            view.wait_for_timeout(400)
+                            assert asked == ["Start over from your profile", "You changed your profile but didn't save it. Leave those changes unsaved"], \
+                                f"{where}: 'Start over' with a change not saved asked {asked}"
+                            assert view.url.startswith(base + "/profile") and view.locator("input[name=budget_choice][value='1000']").is_checked(), \
+                                f"{where}: told no, the page did not stay as it was ({view.url})"
                     finally:
                         context.close()
             finally:

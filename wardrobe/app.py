@@ -188,9 +188,16 @@ def with_his_pieces(new: list[dict], old: list[dict], profile: dict | None = Non
     is, whatever new answers propose: his outfits go on being made of it, and nothing leaves his wardrobe that he
     did not take out himself. (What he owns follows its own rules: capsule.rebuild.) `profile`: the answers the
     plan before was built from."""
-    mine = {view.slot["id"] for view in selection.build(profile=profile).slots if view.outfits_in or view.kept}
+    mine = his_pieces(selection.build(profile=profile).slots)
     here = {slot["id"] for slot in new}
     return new + [slot for slot in old if slot["id"] in mine and slot["id"] not in here]
+
+
+def his_pieces(views: list) -> set[str]:
+    """The ids of the pieces a plan made afresh keeps from the plan before it (with_his_pieces): those an outfit he
+    said yes to wears, and those he kept. Not a piece he only marked as owned: "Start over" loses that mark, and its
+    question says so. `views`: selection.SlotView of each piece of the plan before."""
+    return {view.slot["id"] for view in views if view.outfits_in or view.kept}
 
 
 def budget_choices(profile: dict) -> dict:
@@ -219,26 +226,31 @@ def budget_choices(profile: dict) -> dict:
             "most": int(capsule.budget_rules()["money"]["most_pieces"])}     # the most pieces a plan has
 
 
-def plan_line(profile: dict, slots: list[dict], mine: set[str], edited: bool) -> dict:
+def plan_line(profile: dict, slots: list[dict], views: list, edited: bool) -> dict:
     """What the plan page says the plan was made for (slots.html): the kinds of wardrobe the budget lets in
     (capsule.kinds_in: at 150 € "both" plans everyday only), the budget, and how many pieces that plans:
     "Planned for everyday and the office, for 300 €: 9 pieces."
     Said so only where the plan is what his answers propose now (`as_planned`), but for pieces of his wardrobe that a
     rebuild kept from the plan before (with_his_pieces: `kept`, counted apart). Else, his plan having been edited by
-    hand, or made before the budget sized plans, or from other answers, it says what his answers would plan instead.
-    `mine`: the ids of the pieces in his wardrobe; `edited`: plan_edited(). `known`: the budget is one he gave; else
-    it is the amount plans are made for until he gives one. `waits`: the kinds that wait, with the budget each joins
-    at."""
+    hand, or made before the budget sized plans, or from other answers, it says what his answers would plan instead,
+    and, counted apart, the pieces of his wardrobe that "Start over" would keep (his_pieces): together, as many as
+    "Start over" then says his plan has.
+    `views`: selection.SlotView of each piece of his plan; `edited`: plan_edited(). `known`: the budget is one he
+    gave; else it is the amount plans are made for until he gives one. `waits`: the kinds that wait, with the budget
+    each joins at."""
     proposed = capsule.propose(profile)[0]
     ids = {slot["id"] for slot in proposed}
     extra = [slot for slot in slots if slot["id"] not in ids]
+    mine = {view.slot["id"] for view in views if view.mine}       # in his wardrobe: owned ones too
     as_planned = (capsule.same_plan([slot for slot in slots if slot["id"] in ids], profile)
                   and (not extra or (not edited and all(slot["id"] in mine for slot in extra))))
+    stays = his_pieces(views)
     planned = capsule.kinds_in(profile)
     asked = capsule.KINDS.get(profile.get("use", "both"), capsule.KINDS["both"])
     joins = capsule.joins_at(profile)
     return {"as_planned": as_planned, "words": capsule.kinds_words(planned), "budget": profile.get("budget") or 0,
-            "pieces": capsule.count(proposed), "kept": capsule.count(extra) if as_planned else 0,
+            "pieces": capsule.count(proposed),
+            "kept": capsule.count(extra if as_planned else [slot for slot in extra if slot["id"] in stays]),
             "known": profile_mod.budget_known(profile),
             "waits": [(capsule.KIND_NAMES.get(kind, kind.title()), joins[kind]) for kind in asked
                       if kind not in planned and joins.get(kind) is not None]}
@@ -1912,9 +1924,8 @@ def create_app() -> Flask:
     def slots_page():
         prof = profile_mod.load()     # the plan is part of the Wardrobe, so its tab stays lit
         w = selection.build(prof)
-        mine = {view.slot["id"] for view in w.slots if view.mine}
-        return page("slots.html", tab="wardrobe", palette=capsule.palette_summary(prof), profile=prof, w=w,
-                    plan=plan_line(prof, db.list_slots(), mine, plan_edited()))
+        return page("slots.html", tab="wardrobe", palette=capsule.plan_colours(prof, [view.slot for view in w.slots]),
+                    profile=prof, w=w, plan=plan_line(prof, db.list_slots(), w.slots, plan_edited()))
 
     def slot_fields() -> dict | None:
         form = request.form

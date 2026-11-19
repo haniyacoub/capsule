@@ -452,16 +452,25 @@ class BudgetShapesThePlan(AppCase):
         self.assertEqual(db.list_slots(), before)
 
 
-class ThePlanPageSays(AppCase):
-    """What the plan was made for, from the kinds the budget lets in, the budget and the count."""
+class PlanPage(AppCase):
+    """Reading the plan page: a line of it, its colours; and saving Profile with a budget chosen."""
 
-    def line(self) -> str:
+    def line(self, of: str = "plan-for") -> str:
         page = self.client.get("/slots").get_data(as_text=True)
-        found = re.search(r'<p class="muted small" id="plan-for">(.*?)Trousers and shoes stay neutral', page, re.S)
-        return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", found.group(1)))).strip()
+        found = re.search(rf'<p class="muted small" id="{of}">(.*?)</p>', page, re.S)
+        return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", found.group(1)))).strip() if found else ""
+
+    def chips(self) -> list[str]:
+        page = self.client.get("/slots").get_data(as_text=True)
+        return [" ".join(html.unescape(re.sub(r"<[^>]+>", " ", chip)).split())
+                for chip in re.findall(r'<span class="swatch-chip">(.*?)</span>', page, re.S)]
 
     def save(self, amount: str) -> None:
         self.client.post("/profile", data=answers_form(budget_choice=amount, budget=""))
+
+
+class ThePlanPageSays(PlanPage):
+    """What the plan was made for, from the kinds the budget lets in, the budget and the count."""
 
     def test_planned_for_the_kinds_the_budget_and_the_count(self):
         self.save("300")
@@ -490,6 +499,28 @@ class ThePlanPageSays(AppCase):
         self.assertEqual(self.line(), "From your profile as it is now (everyday and the office, 1,500 €), your plan "
                                       "would have 24 pieces.")
 
+    def test_what_start_over_would_keep_is_counted_as_start_over_then_says(self):
+        # Edited by hand, the plan stays as it is when the budget changes; the page says what his answers would plan,
+        # and apart from that the pieces of his wardrobe "Start over" keeps (app.his_pieces): together, as many as
+        # "Start over" then says. A piece he only marked as owned is not among them: "Start over" loses that mark, as
+        # its question says, and the piece leaves a plan that has no place for it.
+        self.save("600")
+        db.set_setting("kept_pieces", ["navy-light-jacket"])       # in his wardrobe; the 300 € plan has no jacket
+        self.client.post("/slot/stone-chinos/own")                  # owned; the 300 € plan has no chinos either
+        self.client.post("/slots/add", data={"name": "", "category": "overshirt", "colour": "rust", "qty": "1"})
+        self.save("300")
+        self.assertIn("navy-light-jacket", {s["id"] for s in db.list_slots()}, "the edited plan stays as it is")
+        self.assertTrue(db.get_slot("stone-chinos")["owned"], "the chinos are his, marked as owned")
+        self.assertEqual(self.line(), "From your profile as it is now (everyday and the office, 300 €), your plan "
+                                      "would have 9 pieces. Besides them, 1 piece of your wardrobe would stay.")
+        again = self.client.post("/slots/repropose")
+        told = re.findall(r'<p class="flash[^"]*" role="status">(.*?)</p>',
+                          self.client.get(again.headers["Location"]).get_data(as_text=True), re.S)
+        self.assertEqual(told, ["Started over from your profile: your plan has 10 pieces."])
+        self.assertNotIn("stone-chinos", {s["id"] for s in db.list_slots()})
+        self.assertEqual(self.line(), "Planned for everyday and the office, for 300 €: 9 pieces. Besides them, 1 piece "
+                                      "of your wardrobe stays from your plan before.")
+
     def test_pieces_of_his_wardrobe_a_new_budget_had_no_place_for_are_counted_apart(self):
         self.save("600")
         db.set_setting("kept_pieces", ["navy-light-jacket"])       # in his wardrobe; the 300 € plan has no jacket
@@ -497,6 +528,57 @@ class ThePlanPageSays(AppCase):
         self.assertIn("navy-light-jacket", {s["id"] for s in db.list_slots()}, "it stays in his plan")
         self.assertEqual(self.line(), "Planned for everyday and the office, for 300 €: 9 pieces. Besides them, 1 piece "
                                       "of your wardrobe stays from your plan before.")
+
+
+class ThePlanPagesColours(PlanPage):
+    """The colours beside the plan are the ones its pieces are in, as many as the page counts, and what is said of
+    how they go together is said only where the pieces show it (capsule.plan_colours)."""
+
+    def counted(self) -> str:
+        page = self.client.get("/slots").get_data(as_text=True)
+        return re.search(r"\d+ pieces? in (\d+) colours?, planned from your profile", page_words(page)).group(1)
+
+    def test_a_small_plan_shows_its_own_colours_and_no_accent(self):
+        # The starting colours (navy, grey, white, olive): at 150 € 7 pieces in 5 colours, at 300 € and 600 € no olive
+        # piece either. The palette's other colours (olive, ecru, charcoal ...) are not shown as if the plan wore them.
+        self.save("150")
+        self.assertEqual(self.chips(), ["Navy anchor", "Grey mid neutral", "White light", "Stone earth tone",
+                                        "Indigo denim"])
+        self.assertEqual(self.counted(), "5")
+        self.assertEqual(self.line("plan-colours"),
+                         "Trousers and shoes stay neutral so nearly every top works with every pair of trousers.")
+        for amount in ("300", "600"):
+            self.save(amount)
+            self.assertNotIn("accent", self.line("plan-colours"), amount)
+            self.assertNotIn("Olive accent", self.chips(), amount)
+            self.assertEqual(str(len(self.chips())), self.counted(), amount)
+
+    def test_the_accent_is_said_once_a_top_layer_wears_it(self):
+        self.save("1000")       # the olive overshirt comes in
+        self.assertIn("Olive accent", self.chips())
+        self.assertEqual(str(len(self.chips())), self.counted())
+        self.assertEqual(self.line("plan-colours"),
+                         "Trousers and shoes stay neutral so nearly every top works with every pair of trousers; the "
+                         "accent colour appears on a top layer or two.")
+        # Recoloured by hand, chinos in olive: the accent is no longer only on top layers, and the trousers are no
+        # longer all neutral, so neither is said. Olive is still the accent, and still shown as one.
+        self.client.post("/slots/stone-chinos/save", data={"name": "Olive chinos", "category": "chinos",
+                                                            "colour": "olive", "qty": "1", "keywords": ""})
+        self.assertIn("Olive accent", self.chips())
+        self.assertEqual(self.line("plan-colours"), "")
+        self.assertNotIn('id="plan-colours"', self.client.get("/slots").get_data(as_text=True))
+
+    def test_a_colour_he_chose_by_hand_is_shown_without_a_part(self):
+        self.save("150")
+        self.client.post("/slots/add", data={"name": "", "category": "tee", "colour": "rust", "qty": "1"})
+        self.assertEqual(self.chips()[-1], "Rust")
+        self.assertEqual(str(len(self.chips())), self.counted())
+
+    def test_without_shoes_only_the_trousers_are_said_to_stay_neutral(self):
+        self.client.post("/profile", data=answers_form(budget_choice="300", budget="", shoes=None))
+        self.assertFalse({s["category"] for s in db.list_slots()} & capsule.SHOES)
+        self.assertEqual(self.line("plan-colours"),
+                         "Trousers stay neutral so nearly every top works with every pair of trousers.")
 
 
 class TheLevelAtSignUp(ProductionCase):

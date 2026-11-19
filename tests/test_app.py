@@ -548,7 +548,8 @@ class SlotsAndProfile(AppCase):
         prof = profile_mod.load()
         self.assertEqual((prof["liked"], prof["refused"]), (["navy", "olive"], ["black"]))
         self.assertEqual(capsule.build_palette(prof["liked"], prof["refused"])["accent"], "olive")
-        self.assertIn(("Accent", colours.get("olive")), capsule.palette_summary(prof), "the plan's accent is not olive")
+        self.assertIn(("Accent", colours.get("olive")), capsule.plan_colours(prof, db.list_slots())["chips"],
+                      "the plan's accent is not olive")
         self.assertIn("olive", {s["colour"] for s in db.list_slots()}, "no olive piece in the rebuilt plan")
         page = self.client.get("/profile").data.decode()
         self.assertIn('name="liked" value="navy, olive"', page)

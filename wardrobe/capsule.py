@@ -6,7 +6,7 @@ below (RANKED), most needed first.
 
 The idea behind the palette:
   * one dark anchor, one mid neutral, one light — most pieces come from these
-  * one accent colour, used once or twice on top layers
+  * one accent colour, used once or twice on top layers, once the plan is big enough for it (a small one has none)
   * trousers and shoes stay neutral, so nearly every top works with every bottom
 
 The proposal is only a starting point: every slot can be edited, removed or
@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass, field
 
 from . import config
-from .colours import COLOURS, Colour, find as find_colour, get as get_colour
+from .colours import COLOURS, find as find_colour, get as get_colour
 from .garments import GARMENTS
 
 # Colour roles and, for each, the candidates in order of preference. A colour
@@ -42,10 +42,13 @@ ROLE_OPTIONS = {
 # liking grey should not turn the jeans grey.
 _CLASSIC_FIRST = {"shirt_blue", "denim", "denim2", "shoe_dark"}
 
+# The part each colour role plays, as the plan page names it beside the colours the plan wears (plan_colours), most
+# important first. A second accent and a second denim are named as the first.
 ROLE_LABELS = {
     "anchor": "Anchor", "mid": "Mid neutral", "light": "Light", "accent": "Accent",
     "dark2": "Second dark", "earth": "Earth tone", "light2": "Soft light",
     "shirt_blue": "Shirt colour", "denim": "Denim", "shoe_dark": "Dark shoes",
+    "accent2": "Accent", "denim2": "Denim",
 }
 
 # The pieces of each kind of wardrobe, most needed first: (garment, colour role, name, keywords, quantity). {c} is
@@ -188,17 +191,39 @@ def build_palette(liked: list[str], refused: list[str]) -> dict[str, str]:
     return p
 
 
-def palette_summary(profile: dict) -> list[tuple[str, Colour]]:
-    """[(role label, Colour)] for display, most important first, no repeats."""
+def plan_colours(profile: dict, slots: list[dict]) -> dict:
+    """The plan page's colours (slots.html), from the pieces the plan has, not from the palette alone: a plan of 7
+    pieces wears 5 of its colours, and the accent comes in with the overshirt (for everyday and the office in the
+    starting colours, olive from about 1,000 €).
+    `chips`: [(the part the colour plays in his palette, Colour)] for each colour a piece is in, most important first:
+        as many as the page's "in N colours". A colour he gave a piece by hand that his palette does not have: "".
+    `neutral`: "Trousers and shoes" ("Trousers" where the plan has no shoes) where every one of them is in a neutral
+        colour, so nearly every top works with every pair of trousers; "" where one is not (recoloured by hand).
+    `accent`: the palette's accent where one or two pieces wear it and all of them are top layers ("the accent colour
+        appears on a top layer or two"); None where no piece wears it, where more do or one lower down, and where he
+        liked only neutrals, so the accent is one of them."""
     palette = build_palette(profile.get("liked", []), profile.get("refused", []))
-    seen: set[str] = set()
-    out: list[tuple[str, Colour]] = []
+    worn = list(dict.fromkeys(slot["colour"] for slot in slots))
+    named: dict[str, str] = {}
     for role, label in ROLE_LABELS.items():
-        key = palette[role]
-        if key not in seen:
-            seen.add(key)
-            out.append((label, get_colour(key)))
-    return out
+        if palette[role] in worn:
+            named.setdefault(palette[role], label)
+    chips = [(label, get_colour(key)) for key, label in named.items()]
+    chips += [("", get_colour(key)) for key in worn if key not in named]
+
+    def layer(slot: dict) -> str:
+        return GARMENTS[slot["category"]].layer
+
+    below = [slot for slot in slots if layer(slot) in ("bottom", "shoes")]
+    neutral = ""
+    if any(layer(slot) == "bottom" for slot in below) and all(get_colour(slot["colour"]).neutral for slot in below):
+        neutral = "Trousers and shoes" if any(layer(slot) == "shoes" for slot in below) else "Trousers"
+    accent = get_colour(palette["accent"])
+    wearing = [slot for slot in slots if slot["colour"] == accent.key]
+    on_top = all(layer(slot) in ("outer", "mid", "top") for slot in wearing)
+    one_or_two = 1 <= sum(int(slot.get("qty") or 1) for slot in wearing) <= 2
+    return {"chips": chips, "neutral": neutral,
+            "accent": accent if not accent.neutral and one_or_two and on_top else None}
 
 
 def slugify(text: str) -> str:

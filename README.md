@@ -186,8 +186,11 @@ how many pieces it plans for what he dresses for, worked out by the rule above, 
 it, the budget it joins at ("Office joins at about 206 €"). The budget is part of what plans the wardrobe, like the
 colours: a save that changes it rebuilds the plan, keeping what he chose by hand and the pieces of the outfits he said
 yes to. A plan he edited on the plan page is never rebuilt without asking: Profile says so in one line, with "Start
-over from my profile". The plan page says what the plan was made for: "Planned for everyday and the office, for
-300 €: 9 pieces." A new account starts with the example's 300 € (until he gives his own) on "Best for budget"; an
+over from my profile" (which first asks about answers changed and not saved yet). The plan page says what the plan
+was made for: "Planned for everyday and the office, for 300 €: 9 pieces." Where the plan is not what his answers
+plan now, it says what they would plan, and apart from that the pieces of his wardrobe "Start over" would keep. Beside
+it are the colours its pieces are in, and only where the pieces show it does it say that trousers and shoes stay
+neutral and that the accent colour is on a top layer or two (a small plan has no accent piece). A new account starts with the example's 300 € (until he gives his own) on "Best for budget"; an
 account that never chose a price level stays on Cheapest.
 
 ## Price levels

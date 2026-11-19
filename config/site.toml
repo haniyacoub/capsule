@@ -26,4 +26,5 @@ guests = true
 # Changing it replans the example at the next start of the server, so its
 # outfits change: their AI pictures must then be drawn again
 # (python -m wardrobe example-pictures), as the old ones show other outfits.
+# (An outfit of the very same products as one drawn before keeps its picture.)
 example_budget = 600
