@@ -177,6 +177,9 @@ def _check_videos(videos: dict) -> None:
         value = videos.get(name)
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ConfigError(f"videos.{name} must be a whole number, 0 or more")
+    price = videos.get("price_per_second_usd")     # (only the owner's command reads it: videos.price_per_second)
+    if price is not None and (isinstance(price, bool) or not isinstance(price, (int, float)) or not 0 < price <= 10):
+        raise ConfigError("videos.price_per_second_usd must be what one second of video costs in US dollars, like 0.10")
     motion = config.table(videos.get("motion"), "videos.motion")
     for name in (FRONT, "other"):
         if name not in motion:

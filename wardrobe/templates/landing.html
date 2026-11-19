@@ -1,4 +1,8 @@
 {% extends "_public.html" %}
+{# What Stilsmith is, for whom, and how it works: the website's own words (app.py, landing). At /about for anyone, linked
+   from a visitor's header and from the foot of every page; at "/" only while visitors may not look through the example
+   wardrobe (guests = false in config/site.toml, or it could not be set up), where the outfits are the home page
+   otherwise. #}
 {% block title %}{{ site_name }} — menswear: a small wardrobe that works together{% endblock %}
 {# What search results and shared links show under the title. Like the lead below, it promises a model
    only while AI pictures are on (and the lead offers "you" as the model only while photos may be uploaded).
@@ -19,14 +23,17 @@
   <p class="hero-lead">{{ site_name }} plans a men's wardrobe in one colour palette, sized to your budget (up to {{ most }} pieces), picks a product for each and shows you the outfits they make{% if looks_on %}, worn by a model{% if photos %} — or by you{% endif %}{% endif %}. For now the products are invented examples, not real products, prices or stock.</p>
   {% endif %}
   {# `explore`: a visitor may look through the outfits of an example wardrobe without an account (guests.py,
-     config/site.toml): that is the main button, and creating an account the second, beside it. #}
-  {% if explore %}
-  <p class="hero-cta"><a class="btn" href="{{ url_for('outfits_page') }}">Explore outfits</a><a class="btn ghost" href="{{ url_for('auth.signup') }}">Create a free account</a></p>
+     config/site.toml): that is the main button, and creating an account the second, beside it. The outfits are the
+     home page, "/". A customer who reads this page has his own outfits to go back to. #}
+  {% if user %}
+  <p class="hero-cta"><a class="btn" href="{{ url_for('outfits_page') }}">Open my outfits</a></p>
+  {% elif explore %}
+  <p class="hero-cta"><a class="btn" href="{{ url_for('wardrobe') }}">Explore outfits</a><a class="btn ghost" href="{{ url_for('auth.signup') }}">Create a free account</a></p>
   {% else %}
   <p class="hero-cta"><a class="btn" href="{{ url_for('auth.signup') }}">Create a free account</a></p>
   {% endif %}
   <p class="hero-note">{% if explore %}No account needed to look around. {% endif %}Free. You buy straight from the stores, in your sizes. {{ site_name }} never takes payment.</p>
-  {% if invite %}
+  {% if invite and not user %}
   <p class="hero-note">Open by invitation for now: creating an account needs an invitation code.</p>
   {% endif %}
   {# The picture goes here: one AI picture of Stilsmith's generic model (never a customer's face), with its

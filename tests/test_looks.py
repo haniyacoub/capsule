@@ -2970,16 +2970,17 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         self.assertEqual(popup.count('name="csrf_token"'), popup.count("<form"))
 
     def test_the_public_page_mentions_the_pictures_only_when_they_are_on(self):
-        # The landing page and its description for search results promise a model only while pictures are
-        # drawn, and "you" as the model only while customers may upload a photo of themselves.
+        # The landing page's words (at /about: a visitor's home page is the example's outfits) and their description for
+        # search results promise a model only while pictures are drawn, and "you" as the model only while customers may
+        # upload a photo of themselves.
         visitor = self.app.test_client()
-        page = visitor.get("/").get_data(as_text=True)
+        page = visitor.get("/about").get_data(as_text=True)
         self.assertIn("the outfits they make, worn by a model — or by you.", words(page))
         self.assertIn("See the outfits one at a time, each drawn by AI on a model.", words(page))    # the second step
         self.assertIn("price level", words(page))
         self.assertIn("outfits shown on a model", description(page))
         self.with_rules(photos=False)
-        page = visitor.get("/").get_data(as_text=True)
+        page = visitor.get("/about").get_data(as_text=True)
         self.assertIn("the outfits they make, worn by a model.", words(page))
         self.assertNotIn("by you", words(page))
 
@@ -2988,7 +2989,7 @@ class PicturesForCustomers(WithPictures, ProductionCase):
         for off in (mock.patch.object(settings, "OPENAI_API_KEY", ""),     # no key: no pictures
                     mock.patch.object(looks, "load_rules", broken)):       # a typo must not take the website down
             with off:
-                response = visitor.get("/")
+                response = visitor.get("/about")
             page = response.get_data(as_text=True)
             self.assertEqual(response.status_code, 200)
             self.assertIn("the outfits they make.", words(page))

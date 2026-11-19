@@ -1299,6 +1299,70 @@ if (swatchGrid) {
   });
 }
 
+// 15a. A visitor's outfits are alive (outfits_guest.html): where the owner made a clip of an outfit's picture, the clip
+//      lies over it, the picture its poster: muted, looping, played in place. Only the outfit on screen plays; the
+//      others pause, and none plays while the page is out of sight. With "reduce motion" asked for in the device's
+//      settings none plays by itself: the picture stays, with the clip's button to play it. That button pauses a clip
+//      and plays it again; a clip the visitor paused stays paused until he plays it, and one he played plays whenever
+//      its outfit is on screen. Nothing of this is kept. Without JavaScript the clips stay hidden: the pictures show.
+{
+  const boxes = [...document.querySelectorAll('[data-clip]')];
+  const row = document.getElementById('reel');
+  const lessMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  // Whether a clip's outfit is the one on screen in the row (as inRow in 15).
+  const onScreen = (box) => {
+    const slide = box.closest('[data-slide]');
+    return !row || !slide || Math.round(row.scrollLeft / row.clientWidth) === [...row.children].indexOf(slide);
+  };
+  // data-clip: "" as the page came (it plays unless less motion is asked for), "play" or "stop" once he pressed it.
+  const wanted = (box) => box.dataset.clip === 'play' || (box.dataset.clip === '' && !lessMotion.matches);
+  // The button says what pressing it does: Pause while the clip plays, Play while it does not. Said at once, and again
+  // whenever the clip starts or stops (a browser that will not play it by itself stops it again: then Play).
+  const mark = (box) => box.classList.toggle('playing', !box.querySelector('video').paused);
+  const update = () => boxes.forEach((box) => {
+    const video = box.querySelector('video');
+    if (wanted(box) && onScreen(box) && !document.hidden) video.play().catch(() => {});   // (a browser that will not: the picture stays)
+    else if (!video.paused) video.pause();
+    mark(box);
+  });
+  boxes.forEach((box) => {
+    const video = box.querySelector('video');
+    video.addEventListener('play', () => mark(box));
+    video.addEventListener('pause', () => mark(box));
+    box.querySelector('[data-clip-toggle]').addEventListener('click', () => {
+      box.dataset.clip = video.paused ? 'play' : 'stop';
+      update();
+    });
+    box.hidden = false;
+  });
+  if (boxes.length) {
+    let rest;
+    if (row) {
+      row.addEventListener('scroll', () => {
+        clearTimeout(rest);
+        rest = setTimeout(update, 200);     // once the row has come to rest on an outfit (after a swipe too)
+      }, { passive: true });
+    }
+    document.addEventListener('visibilitychange', update);
+    lessMotion.addEventListener('change', update);
+    update();
+  }
+}
+
+// 18. A visitor's hints (outfits_guest.html: one on each of his first three outfits). Each has a × that puts it away for
+//     this page. Nothing of that is kept, no cookie and nothing in the browser's storage, so they are there again on his
+//     next visit. Keyboard focus that was on the × goes to the outfit itself, so it is not lost.
+document.querySelectorAll('[data-hint-close]').forEach((button) => {
+  button.hidden = false;
+  button.addEventListener('click', () => {
+    const hint = button.closest('.hint');
+    const slide = button.closest('[data-slide]');
+    const hadFocus = hint.contains(document.activeElement);
+    hint.remove();
+    if (hadFocus && slide) slide.focus({ preventScroll: true });
+  });
+});
+
 // 17. The wardrobe is the outfits he said yes to (yes.py): the two answers under an outfit, "Add to my wardrobe" and
 //     "Not for me". Each is a plain form, and the whole page comes back after it (the total, what every other outfit
 //     would add and their order change with a yes).

@@ -34,8 +34,9 @@ The start-up lines say whether the AI pictures are on. Without a key they are
 off and customers see no trace of them: the Outfits page shows the product
 photos instead.
 
-Open <http://127.0.0.1:8000>: you get the public landing page; create an account
-to reach the app. Password-reset emails are not sent without `SMTP_URL`.
+Open <http://127.0.0.1:8000>: you get the outfits of the example wardrobe, as a
+visitor does (or, with `guests = false` in `config/site.toml`, the public landing
+page); create an account to reach the app. Password-reset emails are not sent without `SMTP_URL`.
 
 Customers see invented demo items until the service has a store catalogue. To
 give it the products your last refresh collected, run this in a second terminal
@@ -110,6 +111,8 @@ hand where the service runs. On the server, put
 python -m wardrobe example-pictures                      # says what it would draw and cost; draws nothing
 python -m wardrobe example-pictures --sample 3 --yes     # draws the first 3 that are missing, to look at them first
 python -m wardrobe example-pictures --yes                # draws the rest of the first 12
+python -m wardrobe example-pictures --clips 3            # ... and says what the clips of the first 3 would cost
+python -m wardrobe example-pictures --clips 3 --max-cost 3 --yes    # makes them
 ```
 
 - It looks at the example wardrobe's first 12 outfits in the order a visitor
@@ -131,6 +134,18 @@ python -m wardrobe example-pictures --yes                # draws the rest of the
 - Running it again draws only what is still missing.
 - It refuses, with one line saying why, while AI pictures are off, and on your
   own machine, which has no example wardrobe.
+- `--clips K` also makes a 5-second clip of each of the first K outfits, from
+  its front picture: a visitor sees it in place of the picture, muted and
+  looping, labelled "AI video" (only the outfit on screen plays; with less
+  motion asked for, the picture stays, with a button to play it). The movement
+  is `example` under `[videos.motion]` in `config/looks.toml`: a slight turn
+  and back, so the cut and the drape show from the side, the feet stay put (the
+  dots stay on the pieces) and the loop does not jump. The clips are in the same
+  estimate (`price_per_second_usd` under `[videos]`, 10 US cents a second, so
+  about 50 cents a clip), under the same `--max-cost` and `--yes`, outside the
+  day's video limits, and again only what is missing. The pictures are drawn
+  first, as each clip is made from one. It refuses, in one line, while AI videos
+  are off.
 - The example wardrobe is planned for its own budget, `example_budget` in
   `config/site.toml` (600 €: everyday and the office, at "Best for budget").
   Changing it replans the example at the next start, so its outfits change:
@@ -150,14 +165,20 @@ python -m wardrobe example-pictures --yes                # draws the rest of the
 - CSRF token on every form and HTMX request; session cookie HttpOnly,
   SameSite=Lax, Secure on https; Content-Security-Policy and related headers;
   plain error pages; no stack traces to visitors.
-- Public landing page, installable on a phone's home screen, and pages for
-  Impressum, privacy policy and terms **that are placeholders**. While no product
-  list is published the landing page says the products are invented examples,
-  and names no store.
+- Public pages: what Stilsmith is (`/about`, the words of the landing page
+  there was; linked from a visitor's header and from the foot of every page),
+  installable on a phone's home screen, and pages for Impressum, privacy policy
+  and terms **that are placeholders**. While no product list is published
+  `/about` says the products are invented examples, and names no store.
 - Visitors without an account (`guests = true` in `config/site.toml`, the
-  default; `false` closes the door again): "Explore outfits" on the landing page
-  opens the outfits of one example wardrobe, the same for every visitor
-  (`wardrobe/guests.py`). Each piece shows its name and colour, drawn by the app;
+  default; `false` closes the door again, and `/` is the landing page again):
+  the home page, `/`, is the outfits of one example wardrobe, the same for every
+  visitor (`wardrobe/guests.py`), with a title and a description for search
+  results in its own numbers. On his first three outfits a hint each says what
+  the example is, in its own numbers (in the form "12 pieces from 2 stores,
+  combined into 84 outfits": no price, no budget, no store's name), that a piece can be tapped (swapping it needs an
+  account), and what the picture is; each can be put away, and nothing of that
+  is stored, so they come back on the next visit. Each piece shows its name and colour, drawn by the app;
   an outfit's AI picture shows only where one was drawn already (a visitor never
   causes a drawing), and the outfits that have one come first. "The example
   wardrobe's pictures" below says how to draw them. Stores, prices,

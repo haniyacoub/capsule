@@ -293,11 +293,12 @@ class AccountsThatHadZara(ProductionCase):
             self.assertEqual({c["store"] for c in db.get_catalog()["candidates"]}, {"cos", "weekday"})
 
     def test_the_public_pages_name_the_stores_that_are_offered(self):
+        # The website's words (/about: a visitor's home page is the example's outfits, which name no store) name them.
         visitor = self.app.test_client()
-        home = words(visitor.get("/").get_data(as_text=True))
+        home = words(visitor.get("/about").get_data(as_text=True))
         self.assertIn("picks real products for it from the high-street stores COS and Weekday wherever they sell the piece,", home)
         self.assertNotIn("invented examples", home, "with a published list the products are real ones")
-        for path in ("/", "/legal/impressum", "/legal/privacy", "/legal/terms", "/signup", "/login"):
+        for path in ("/", "/about", "/legal/impressum", "/legal/privacy", "/legal/terms", "/signup", "/login"):
             text = visitor.get(path).get_data(as_text=True)
             self.assertNotIn("zara", text.lower(), path)
             # Only the stores Stilsmith has products from are named: the six a customer may paste links from are not

@@ -65,10 +65,13 @@ the pop-up slides up and lets a tap through as it closes, the AI picture comes u
 pieces' photos (never blank, never half-loaded, on a slow connection too), all within 300 ms and without a layout
 shift; and with less motion asked for, the same taps move nothing.
 
-A visitor without an account opens "Explore outfits" on the landing page, on a phone and a computer, light and dark:
-the outfits of an example wardrobe, with no price, store or link, a line on each about creating an account, and a
-piece's name and colour in its pop-up; "Add to my wardrobe" leads him to "Create your account", which says why, and
-nothing he does is stored.
+A visitor without an account opens the home page, on a phone and a computer, light and dark: the outfits of an example
+wardrobe (the website's words are at /about, whose "Explore outfits" leads there too), with no price, store or link, a
+line on each about creating an account, and a piece's name and colour in its pop-up; "Add to my wardrobe" leads him to
+"Create your account", which says why, and nothing he does is stored. Once the owner's command has drawn the example's
+first pictures and made its first clips, his first three outfits each carry a hint he can put away (back after a
+reload: nothing is kept), and the clip of the outfit on screen plays in place of its picture, the others paused, with
+a button that pauses it; with less motion asked for, the pictures stay, with the button to play them.
 
 On the way a second customer, on a small product list published for that step alone, skips the welcome, finds on
 his Profile what he has not given said in plain lines, and fills a piece the list has nothing for with one tap.
@@ -119,7 +122,7 @@ from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
 from wardrobe import capsule, catalog, colours, db, guests, imagegen, looks, mock, mockchat, person, settings  # noqa: E402
-from wardrobe import shared, stylechat, videogen, videos  # noqa: E402
+from wardrobe import selection, shared, stylechat, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 # With an SQLite that can deadlock (db.sqlite_problem) the walk-through's first pages would wait for ever, and every
@@ -581,7 +584,7 @@ def run(base: str) -> None:
                     if seen[0] != width or seen[1] > width + 1:
                         wide.append(f"{path} at {width}px is {seen[1]}px wide")
 
-                for path in ("/", "/signup", "/login"):        # as a visitor
+                for path in ("/", "/about", "/signup", "/login"):        # as a visitor ("/": the example's outfits)
                     measure(path)
                 other.goto(base + "/login", wait_until="networkidle")
                 other.fill("input[name=email]", EMAIL)
@@ -626,13 +629,14 @@ def run(base: str) -> None:
             # A stranger gives the page a few seconds. It says what Stilsmith is and who it is for, in plain words,
             # with the way in on a phone's first screen and one 'Log in' there (the header's), the headline in
             # Stilsmith's wide Archivo, no text cut off, nothing drawn from the demo data, and a description for search
-            # results. A customer back on the public pages is one tap from the outfits.
+            # results. A customer back on the public pages is one tap from the outfits. (The page is /about: a
+            # visitor's home page is the example wardrobe's outfits.)
             for width, phone in ((390, True), (1280, False)):
                 context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
                 visitor = context.new_page()
                 fetched: list[str] = []
                 visitor.on("request", lambda r: fetched.append(r.url))
-                visitor.goto(base + "/", wait_until="networkidle")
+                visitor.goto(base + "/about", wait_until="networkidle")
                 seen = visitor.evaluate("""() => document.fonts.ready.then(() => {
                     const shown = el => { const b = el.getBoundingClientRect(); return b.width > 0 && b.bottom > 0 && b.top < innerHeight; };
                     const join = [...document.querySelectorAll('main a')].find(a => a.textContent.trim() === 'Create a free account');
@@ -671,7 +675,7 @@ def run(base: str) -> None:
             for width, phone in ((390, True), (1280, False)):
                 context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
                 visitor = context.new_page()
-                for path in ("/", "/legal/privacy", "/does-not-exist"):     # (the 404 at the end is expected)
+                for path in ("/", "/about", "/legal/privacy", "/does-not-exist"):     # (the 404 at the end is expected)
                     visitor.goto(base + path, wait_until="networkidle")
                 assert not context.cookies(), f"reading the website set a cookie: {[c['name'] for c in context.cookies()]}"
                 seen = visitor.evaluate("""() => ({
@@ -695,11 +699,12 @@ def run(base: str) -> None:
             page.wait_for_url(base + "/outfits")
 
         def a_visitor_explores_the_outfits():
-            # Most websites open without an account (guests.py). On a 390 x 664 phone and a 1280 x 800 computer, light
-            # and dark: "Explore outfits" on the landing page opens the outfits of an example wardrobe, with "Log in"
-            # and "Create account" at the top. The visitor goes through three outfits (a swipe on the phone, the
-            # arrow on the computer), each with its line about an account on the screen (on the phone in the bar at
-            # the foot, for the outfit showing) and grey bars where the prices are, and no price, store or link
+            # Most websites open without an account (guests.py), and Stilsmith's opens on its outfits: on a 390 x 664
+            # phone and a 1280 x 800 computer, light and dark, the home page is the outfits of an example wardrobe, with
+            # "About", "Log in" and "Create account" at the top, and "Explore outfits" on /about leads there too. The
+            # visitor goes through three outfits (a swipe on the phone, the arrow on the computer), each with its line
+            # about an account on the screen (on the phone in the bar at the foot, for the outfit showing) and grey
+            # bars where the prices are, and no price, store or link
             # anywhere; taps a piece and the pop-up says what it is (its name and colour); then taps "Add to my
             # wardrobe" and lands on "Create your account", which says why. Nothing sets a cookie before that form,
             # nothing he does is stored, no picture is drawn for him, and the page is never wider than the screen.
@@ -728,12 +733,13 @@ def run(base: str) -> None:
                 visitor.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
                            if r.status >= 400 and r.url.startswith(base) else None)
                 visitor.on("pageerror", lambda e: failures.append(f"script error: {e}"))
-                visitor.goto(base + "/", wait_until="networkidle")
+                visitor.goto(base + "/about", wait_until="networkidle")
                 visitor.locator("main a", has_text="Explore outfits").click()
-                visitor.wait_for_url(base + "/outfits")
+                visitor.wait_for_url(base + "/")
                 visitor.wait_for_load_state("networkidle")
+                assert visitor.locator("#reel .slide").count() >= 3, f"at {where} the home page shows no outfits"
                 header = [a.strip() for a in visitor.locator("header.top .public-nav a").all_inner_texts()]
-                assert header == ["Log in", "Create account"], f"at {where} the visitor's header reads {header}"
+                assert header == ["About", "Log in", "Create account"], f"at {where} the visitor's header reads {header}"
                 assert not context.cookies(), f"at {where} looking around set a cookie: {context.cookies()}"
                 touch = context.new_cdp_session(visitor) if phone else None
                 for i in range(3):
@@ -788,14 +794,125 @@ def run(base: str) -> None:
             assert after == before, \
                 f"a visitor's looking around was stored: {[(t, before[t], after[t]) for t in before if before[t] != after[t]]}"
 
+        def a_visitors_first_outfits():
+            # The owner's command (python -m wardrobe example-pictures --clips 2, run here as it runs, with the stand-ins)
+            # has drawn the pictures of the example's first three outfits and made the clips of the first two. On a
+            # 390 x 664 phone and a 1280 x 800 computer, light and dark, a visitor's home page has:
+            #   - one hint on each of its first three outfits, on the picture, white on a dark veil, notes a screen
+            #     reader reads: the example in its numbers (the outfits as many as the line under them says, and no
+            #     price), a piece to tap (to click, with a mouse), and the picture, drawn by AI;
+            #   - the clip of the outfit on screen playing in place of its picture, muted and looping, labelled
+            #     "AI video", the other one paused until its outfit is on screen; the button on it pauses it and plays
+            #     it again, and says which it does.
+            # The × puts a hint away; nothing is stored (no cookie, nothing in the browser's storage), so after a reload
+            # the hints are back. With less motion asked for, the clips stay the pictures, with the button to play them.
+            # Nothing is drawn or made for the visitor.
+            example = db.internal_account(guests.EXAMPLE_EMAIL)
+            with db.as_user(example):
+                for _, board in guests.first_outfits(selection.build(), 3):
+                    assert looks.draw_front_now(board["pieces"])[0] in ("ready", "there"), "the example's picture"
+                for _, board in guests.first_outfits(selection.build(), 2):
+                    assert videos.make_example_now(board["photos"][0].look)[0] in ("ready", "there"), "the example's clip"
+            before = (len(asked), len(made))
+            clip_state = """i => { const v = document.querySelectorAll('#reel [data-slide]')[i].querySelector('[data-clip] video');
+                return {paused: v.paused, time: v.currentTime, muted: v.muted, loop: v.loop}; }"""
+            for (width, height, phone), scheme in [(size, scheme) for size in ((390, 664, True), (1280, 800, False))
+                                                   for scheme in ("light", "dark")]:
+                where = f"{width} x {height}, {scheme}"
+                context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=phone,
+                                              has_touch=phone, color_scheme=scheme)
+                visitor = context.new_page()
+                visitor.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                visitor.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
+                           if r.status >= 400 and r.url.startswith(base) else None)
+                visitor.goto(base + "/", wait_until="networkidle")
+                assert visitor.get_by_role("note").count() == 3, f"at {where} no three notes for a screen reader"
+                notes = [text.strip() for text in visitor.locator("[role=note] p").all_inner_texts()]
+                total = re.search(r"of (\d+) outfits from an example wardrobe", visitor.locator(".lead.below").inner_text())
+                first = re.fullmatch(r"\d+ pieces(?: from \d+ stores?)?, combined into (\d+) outfits\.", notes[0]) if notes else None
+                assert len(notes) == 3 and first and total and first.group(1) == total.group(1), \
+                    f"at {where} the hints read {notes} (the line under the outfits: {total and total.group(0)})"
+                tap = "Tap" if phone else "Click"
+                assert notes[1:] == [f"{tap} a piece to see what it is. With an account you can swap it.",
+                                     "Drawn by AI on a model. Add your photo and it's you."], f"at {where} the hints read {notes}"
+                assert "€" not in " ".join(notes), f"at {where} a hint names a price"
+                seen = visitor.evaluate("""() => { const hint = document.querySelector('#reel [data-slide] .hint'), r = hint.getBoundingClientRect();
+                    const top = document.elementFromPoint(r.left + r.width / 3, r.top + r.height / 2), s = getComputedStyle(hint);
+                    const x = hint.querySelector('.hint-x');
+                    return {shown: r.top >= 0 && r.bottom <= innerHeight && !!top && hint.contains(top), colour: s.color,
+                            ground: s.backgroundColor, close: !!x && !x.hidden && x.getAttribute('aria-label'),
+                            wide: document.documentElement.scrollWidth}; }""")
+                assert seen["shown"] and seen["colour"] == "rgb(255, 255, 255)" and seen["ground"] == "rgba(27, 27, 26, 0.82)", \
+                    f"at {where} the first hint is not on the screen, white on its veil: {seen}"
+                assert seen["close"] == "Hide this hint" and seen["wide"] <= width + 1, f"at {where}: {seen}"
+                # The clip of the outfit on screen plays, labelled; the other waits for its outfit.
+                visitor.wait_for_function(f"() => ({clip_state})(0).time > 0.3", timeout=10000)
+                one, two = visitor.evaluate(clip_state, 0), visitor.evaluate(clip_state, 1)
+                assert one["muted"] and one["loop"] and not one["paused"] and two["paused"], f"at {where}: {one}, {two}"
+                labels = visitor.evaluate("""() => [...document.querySelector('#reel [data-slide]').querySelectorAll('.ai-chip')]
+                    .filter(e => e.getClientRects().length).map(e => e.textContent.trim())""")
+                assert labels == ["AI video"], f"at {where} the playing clip is labelled {labels}"
+                if phone:
+                    visitor.evaluate("() => { const r = document.getElementById('reel'); r.scrollBy({left: r.clientWidth}); }")
+                else:
+                    visitor.locator(".reel-nav.next").click()
+                visitor.wait_for_function(f"() => !({clip_state})(1).paused && ({clip_state})(0).paused", timeout=10000)
+                # Its button pauses it and plays it again, and says which it does.
+                toggle = visitor.locator("#reel [data-slide]:nth-child(2) .clip-toggle")
+                assert toggle.get_attribute("type") == "button" and "Pause the video" in toggle.inner_text(), f"at {where}"
+                toggle.tap() if phone else toggle.click()
+                visitor.wait_for_function(f"() => ({clip_state})(1).paused")
+                assert "Play the video" in toggle.inner_text(), f"at {where} the paused clip's button says {toggle.inner_text()!r}"
+                toggle.tap() if phone else toggle.click()
+                visitor.wait_for_function(f"() => !({clip_state})(1).paused")
+                # The second hint put away with its ×: gone for this page, and back after a reload, as nothing is kept.
+                close = visitor.locator("#reel [data-slide]:nth-child(2) .hint-x")
+                close.tap() if phone else close.click()
+                visitor.wait_for_function("() => document.querySelectorAll('#reel .hint').length === 2")
+                stored = visitor.evaluate("() => [localStorage.length, sessionStorage.length]")
+                assert stored == [0, 0] and not context.cookies(), f"at {where} something was kept: {stored}, {context.cookies()}"
+                visitor.reload(wait_until="networkidle")
+                assert visitor.get_by_role("note").count() == 3, f"at {where} the hints are not back after a reload"
+                context.close()
+            # Less motion asked for: the clips stay the pictures, with the button that plays them.
+            context = browser.new_context(viewport={"width": 390, "height": 664}, is_mobile=True, has_touch=True,
+                                          reduced_motion="reduce")
+            visitor = context.new_page()
+            visitor.goto(base + "/", wait_until="networkidle")
+            visitor.wait_for_timeout(800)
+            still = visitor.evaluate(clip_state, 0)
+            toggle = visitor.locator("#reel [data-slide]:nth-child(1) .clip-toggle")
+            assert still["paused"] and still["time"] == 0 and "Play the video" in toggle.inner_text(), \
+                f"with less motion asked for, the clip played by itself: {still}"
+            toggle.tap()
+            visitor.wait_for_function(f"() => !({clip_state})(0).paused")
+            context.close()
+            # On the narrowest phone (320px) the hint's words, its × and the clip's button sit side by side, none over
+            # another, and the page is no wider than the screen.
+            context = browser.new_context(viewport={"width": 320, "height": 568}, is_mobile=True, has_touch=True)
+            visitor = context.new_page()
+            visitor.goto(base + "/", wait_until="networkidle")
+            seen = visitor.evaluate("""() => { const slide = document.querySelector('#reel [data-slide]');
+                const box = s => slide.querySelector(s).getBoundingClientRect(), words = box('.hint p'), x = box('.hint-x'),
+                      button = box('.clip-toggle');
+                const apart = (a, b) => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+                return {apart: apart(words, x) && apart(words, button) && apart(x, button),
+                        wide: document.documentElement.scrollWidth}; }""")
+            context.close()
+            assert seen["apart"] and seen["wide"] <= 321, f"at 320px the hint and the clip's button: {seen}"
+            assert (len(asked), len(made)) == before, "a picture or a video was asked for a visitor"
+
         def the_wordmark_fits():
             # The name is Stilsmith, two letters longer than the old one. On the narrowest phone (320px), a usual one
             # (390px) and a computer, for a visitor and for a customer: every page's title and the wordmark say
             # Stilsmith, the wordmark is on one line, whole, and touches nothing else in the header, and "Log in",
             # "Create account", "Account" and the tabs keep their words on one line each.
             measure = """() => document.fonts.ready.then(() => {
-                const lines = el => { const range = document.createRange(); range.selectNodeContents(el);
-                    return new Set([...range.getClientRects()].filter(r => r.width > 0).map(r => Math.round(r.top))).size; };
+                const lines = el => { const tops = new Set(), walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                    for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+                        const range = document.createRange(); range.selectNodeContents(node);
+                        [...range.getClientRects()].filter(r => r.width > 0).forEach(r => tops.add(Math.round(r.top))); }
+                    return tops.size; };     // the lines its words take (a sign beside them, such as About's, is none)
                 const brand = document.querySelector('header.top .brand'), b = brand.getBoundingClientRect();
                 const others = [...document.querySelectorAll('header.top .public-nav a, header.top .account-link, nav.tabs a')]
                     .filter(el => el.getBoundingClientRect().width > 0);
@@ -811,7 +928,7 @@ def run(base: str) -> None:
                 context = browser.new_context(viewport={"width": width, "height": 800}, is_mobile=phone, has_touch=phone)
                 other = context.new_page()
                 seen = {}
-                for path in ("/", "/outfits", "/login", "/does-not-exist"):     # as a visitor (the 404 is expected)
+                for path in ("/", "/about", "/outfits", "/login", "/does-not-exist"):     # as a visitor (404 expected)
                     other.goto(base + path, wait_until="networkidle")
                     seen["visitor " + path] = other.evaluate(measure)
                 other.goto(base + "/login", wait_until="networkidle")
@@ -6721,6 +6838,8 @@ def run(base: str) -> None:
                  ("an option's two actions on three phones", options_fit_three_phones),
                  ("the plan answers inside the piece", the_plan_answers_next_to_the_piece),
                  ("the budget's five choices, by keyboard, light and dark", the_budget_choices),
+                 # (Last but one: it draws the example's first pictures and clips, which no step before it expects.)
+                 ("a visitor's first outfits: hints, and clips that play", a_visitors_first_outfits),
                  ("delete the account", delete_account)]
         for name, step in steps:
             known = len(failures)

@@ -153,8 +153,8 @@ class TheStorePicker(ProductionCase):
         db.save_store("weekday", {**sample, "label": "Weekday", "network": "rakuten", "rules": {}, "status": "approved"})
         self.assertIn("when you buy at COS or Weekday.", foot(self.ada.get("/list").get_data(as_text=True)))
         self.assertIn("Links to COS and Weekday are partner links", costs(self.ada.get("/list").get_data(as_text=True)))
-        # A visitor reads it on the public pages too.
-        self.assertIn("when you buy at COS or Weekday.", foot(self.app.test_client().get("/").get_data(as_text=True)))
+        # A visitor reads it on the website's pages too (not on his outfits, which show no store and no link).
+        self.assertIn("when you buy at COS or Weekday.", foot(self.app.test_client().get("/about").get_data(as_text=True)))
 
     def test_the_tab_lists_every_store_offered_all_ticked_with_its_programme(self):
         page = self.ada.get("/profile").get_data(as_text=True)

@@ -1,13 +1,18 @@
 """Visitors without an account ("guests"): one example wardrobe to look through, read-only.
 
-Most websites open without a gate. With `guests = true` in config/site.toml (the default), someone who has no account,
-or is not logged in, can open Outfits and swipe through the outfits of one example wardrobe, the same for every
-visitor: the example profile (its example sizes, no photo) with a budget of its own (config/site.toml,
+Most websites open without a gate, and many shops on their goods rather than on a page about themselves. With
+`guests = true` in config/site.toml (the default), someone who has no account, or is not logged in, opens the home
+page, "/", on the outfits of one example wardrobe (or Outfits, the same), the same for every visitor, to swipe through
+(the website's own words are at /about): the example profile (its example sizes, no photo) with a budget of its own (config/site.toml,
 `example_budget`: 600 €), planned for everyday and the office and fitted to that budget ("Best for budget"), with its
 pieces from Stilsmith's own product list. He sees each outfit's title, its pieces by their names and colours, drawn as the app's
 own colour drawings (never a store's photo), and its AI picture where one has been drawn already: of Stilsmith's house
 model, never of anyone's photo. The outfits that have one come first (row). A visitor never causes a drawing: the owner
-draws them by hand, after seeing what they would cost (python -m wardrobe example-pictures, __main__.py).
+draws them by hand, after seeing what they would cost (python -m wardrobe example-pictures, __main__.py). With --clips
+the owner also makes a short clip of the first outfits' pictures, which a visitor sees play in place of the picture
+(videos.example_clips, at its own address: app.example_clip). On the row he first opens, his first three outfits carry
+a hint each: what the example is in its own numbers (wardrobe_line: no price, no budget, no store's name), that a piece
+can be tapped, and what the picture is (outfits_guest.html). He can put each away; nothing of that is kept.
 
 What a visitor does not get is left out on the server, not hidden in the browser: the stores, the stores' names for
 their products, prices and totals, what a yes would add, sizes, links and the stores' photos are not in the page at
@@ -26,11 +31,12 @@ On your own machine (not settings.PRODUCTION) none of this applies: there is no 
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 
 from flask import g, redirect, request, url_for
 from werkzeug.wrappers import Response
 
-from . import capsule, catalog, config, db, looks, mock, outfits, settings, shared, yes
+from . import capsule, catalog, config, db, looks, mock, outfits, settings, shared, videos, yes
 from . import profile as profile_mod
 from .config import ConfigError
 
@@ -40,9 +46,10 @@ EXAMPLE_EMAIL = "example-wardrobe@stilsmith.invalid"
 EXAMPLE_LEVEL = "budget"        # "Best for budget" (selection.MODES): the whole plan fitted to the example's budget
 EXAMPLE_BUDGET = 600            # € when config/site.toml names none (`example_budget`)
 
-# What a visitor may open without an account: the outfits, the pop-up for one piece, and the AI picture of one of the
-# example's outfits (its own address: app.example_picture; every other picture, at /looks/, needs an account).
-LOOK_AROUND = {"outfits_page", "outfits_piece", "example_picture"}
+# What a visitor may open without an account: the outfits, the pop-up for one piece, and the AI picture and the clip of
+# one of the example's outfits (their own addresses: app.example_picture and app.example_clip; every other picture, at
+# /looks/, and every other video, at /videos/, needs an account). The home page, "/", is his outfits too (app.wardrobe).
+LOOK_AROUND = {"outfits_page", "outfits_piece", "example_picture", "example_clip"}
 
 # Why "Create your account" is shown, in one line over its form: by what was tapped (?why= in its address). Only
 # these words are ever shown there: the address names one of them, it never carries words of its own.
@@ -177,7 +184,8 @@ def outfit(w, o, board: dict) -> dict:
     each piece its name ("Dark brown loafers"), its kind of garment (for the app's own drawing of it) and its colour
     as the plan has it (name and hex), with the place of its dot on the picture (spot, once there is a picture).
     `picture`: the file of its front picture where one is there and finished (outfit_picture), else "": nothing is
-    drawn for a visitor.
+    drawn for a visitor. `clip`: the file of the clip the owner's command made of that picture, where it is finished
+    (videos.example_clips, which row gives each board), else "": nothing is made for a visitor either.
     `w`: the example wardrobe; `o`: the outfit (outfits.Outfit); `board`: its pieces (outfits.snapshot) and pictures."""
     pieces = []
     for p in board["pieces"]:
@@ -186,7 +194,9 @@ def outfit(w, o, board: dict) -> dict:
                        "colour": colour.label, "hex": colour.hex, "spot": p.get("spot"),
                        # the app's own drawing of this kind of garment in the plan's colour (mockimg.py)
                        "drawing": url_for("mock_image", kind=p["category"], c=colour.hex.lstrip("#"), ground=0)})
-    return {"key": o.key, "sig": o.sig, "label": o.label, "pieces": pieces, "picture": outfit_picture(board)}
+    picture = outfit_picture(board)
+    return {"key": o.key, "sig": o.sig, "label": o.label, "pieces": pieces, "picture": picture,
+            "clip": board.get("clip", "") if picture else ""}
 
 
 def outfit_picture(board: dict) -> str:
@@ -203,40 +213,91 @@ PAGE = 12       # the outfits on a visitor's first page, and how many more "Show
 MOST = 60       # the most outfits one page holds (as app.place)
 
 
-def row(w, occasion: str, n: int = PAGE, seed: int = 0,
-        front: list[str] | tuple[str, ...] = ()) -> tuple[list[tuple[outfits.Outfit, dict]], int, bool]:
-    """The outfits a visitor's Outfits page shows, in its order, each with its board: its pieces (outfits.snapshot)
-    and its pictures where they are there (looks.attach, which draws nothing). Returns (those outfits with their
-    boards, how many outfits there are to see in all, whether AI pictures are on).
+def row(w, occasion: str, n: int = PAGE, seed: int = 0, front: list[str] | tuple[str, ...] = (),
+        pictured: Callable[[dict], bool] | None = None) -> tuple[list[tuple[outfits.Outfit, dict]], int, bool]:
+    """The outfits a visitor's Outfits page shows, in its order, each with its board: its pieces (outfits.snapshot),
+    its pictures where they are there (looks.attach, which draws nothing) and the file of its clip where the owner's
+    command made one (board["clip"], videos.example_clips). Returns (those outfits with their boards, how many outfits
+    there are to see in all, whether AI pictures are on).
     The order is a customer's (yes.offer: varied; Shuffle is another `seed`), with one change: the outfits whose
     front picture is there (outfit_picture) come first, then the others, each group in that order.
     `front`: the outfits that were on the page before "Show more outfits" (their keys, in the order they were
     shown). They keep their places at the head of the row, so the visitor goes on from where he was; only the
     outfits behind them, the ones just added, are put in this order.
+    `pictured`: which outfits count as having their picture, in place of the pictures there now: for the owner's
+    command, which works out the order a visitor will see once the pictures it is about to draw are there.
     `w`: the example wardrobe (selection.build, as the example's account)."""
     chosen, total, _ = yes.offer(w, occasion, n, seed, front)
     boards = [{"key": o.key, "pieces": outfits.snapshot(o)} for o in chosen]
     looks_on = looks.attach(boards)
+    if looks_on:
+        videos.example_clips(boards)
     pairs = list(zip(chosen, boards))
     held = next((i for i, o in enumerate(chosen) if o.key not in front), len(chosen)) if front else 0
+    has = pictured or (lambda board: bool(outfit_picture(board)))
     # A stable sort, so each group keeps the row's order: those with a picture (False) before those without.
-    pairs[held:] = sorted(pairs[held:], key=lambda pair: not outfit_picture(pair[1]))
+    pairs[held:] = sorted(pairs[held:], key=lambda pair: not has(pair[1]))
     return pairs, total, looks_on
 
 
-def first_outfits(w, n: int = PAGE) -> list[tuple[outfits.Outfit, dict]]:
+def first_outfits(w, n: int = PAGE,
+                  pictured: Callable[[dict], bool] | None = None) -> list[tuple[outfits.Outfit, dict]]:
     """The first `n` outfits a visitor sees, in his order, with their boards (row): his first page, then each
     "Show more outfits" as he would press it, until there are `n` (at most MOST, as many as one page can hold).
-    For the owner's command, python -m wardrobe example-pictures. `w`: the example wardrobe."""
+    For the owner's command, python -m wardrobe example-pictures. `w`: the example wardrobe. `pictured`: as in row."""
     use = profile_mod.load()["use"]
     occasion = "all" if use == "both" else use       # the outfits his page opens on (as app.usual_occasion)
-    pairs, total, _ = row(w, occasion)
+    pairs, total, _ = row(w, occasion, pictured=pictured)
     while len(pairs) < min(n, total, MOST):
-        more, total, _ = row(w, occasion, min(len(pairs) + PAGE, MOST), 0, [o.key for o, _ in pairs])
+        more, total, _ = row(w, occasion, min(len(pairs) + PAGE, MOST), 0, [o.key for o, _ in pairs], pictured)
         if len(more) <= len(pairs):                  # (nothing more to see)
             break
         pairs = more
     return pairs[:n]
+
+
+# ── what the example is, in numbers, and the three hints on a visitor's first outfits ──────────
+
+def numbers(w) -> dict:
+    """The example wardrobe in its own real numbers: how many pieces its outfits are made of, from how many stores, and
+    how many outfits they make ({"pieces": 12, "stores": 2, "outfits": 84}). The outfits are all it has (every
+    occasion: a visitor's page names how many its own row shows); the pieces are the ones they wear, and the stores
+    those pieces' products come from (a store is counted, never named). No price, no budget. `w`: the example."""
+    every = outfits.all_outfits(w)
+    worn = {slot_id for o in every for slot_id in o.slots}
+    stores = {view.chosen.data.get("store") for view in w.slots
+              if view.slot["id"] in worn and view.chosen is not None and view.state != "owned"}
+    return {"pieces": len(worn), "stores": len(stores - {None, ""}), "outfits": len(every)}
+
+
+def plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def wardrobe_line(count: dict, real: bool = True) -> str:
+    """The first hint, on a visitor's first outfit: "12 pieces from 2 stores, combined into 84 outfits." From the
+    example's real numbers (`count`, numbers), with no price or budget figure and no store's name. `real`: whether the
+    products are real ones from a published list; the demo's invented products come from no store, so then no stores
+    are counted ("12 pieces, combined into 84 outfits.")."""
+    stores = f" from {plural(count['stores'], 'store')}" if real and count["stores"] else ""
+    return f"{plural(count['pieces'], 'piece')}{stores}, combined into {plural(count['outfits'], 'outfit')}."
+
+
+def description(count: dict) -> str:
+    """What search results and shared links say of the home page a visitor opens (app.wardrobe): the example's
+    outfits, in its real numbers (numbers), with no price, budget or store. "" while it has no outfits."""
+    if not count["outfits"]:
+        return ""
+    return (f"Look through {plural(count['outfits'], 'menswear outfit')} made from {plural(count['pieces'], 'piece')} "
+            "of one example wardrobe. Create a free account to plan your own, sized to your budget.")
+
+
+# The second and third hints (outfits_guest.html says each where it belongs; the piece's in the words of a touch screen
+# and of a mouse). The photo's sentence only while customers may upload a photo, and the picture's hint only on an
+# outfit that shows its AI picture.
+PIECE_HINT = ("Tap a piece to see what it is.", "Click a piece to see what it is.", "With an account you can swap it.")
+PICTURE_HINT = "Drawn by AI on a model."
+PHOTO_HINT = "Add your photo and it's you."
 
 
 # ── at the door: before every request of a visitor without an account ─────────

@@ -52,7 +52,7 @@ NAV = [
 
 
 # Pages anyone may open without an account (production mode).
-PUBLIC = {"static", "wardrobe", "legal_page", "healthz", "robots_txt", "mock_image",
+PUBLIC = {"static", "wardrobe", "about_page", "legal_page", "healthz", "robots_txt", "mock_image",
           "auth.signup", "auth.login", "auth.forgot", "auth.reset",
           "favicon"}
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
@@ -765,18 +765,38 @@ def create_app() -> Flask:
         cost = view.chosen.price * view.n_spare if view.chosen and not view.sold_out else 0
         return {"view": view, "did": did, "n": view.n_spare, "cost": cost}
 
+    def landing():
+        """The website's own words: what Stilsmith is, for whom, and how it works (landing.html).
+        `real`: a published product list is there (shared.published); without one every customer gets the invented
+        demo products, and the page says so instead of promising real ones from named stores.
+        `explore`: visitors may look through the example wardrobe's outfits without an account (guests.py): then the
+        page's main button leads there. `most`: the most pieces a plan has (config/budget.toml): the page promises the
+        plan's size, not its price, which on a store's real prices a small budget may not reach."""
+        return render_template("landing.html", looks_on=_pictures_on(), photos=_photos_on(),
+                               invite=bool(conf.INVITE_CODE), real=shared.published(),
+                               explore=g.user is None and guests.door_open() and guests.example_id() is not None,
+                               most=int(capsule.budget_rules()["money"]["most_pieces"]))
+
+    @app.get("/about")
+    def about_page():
+        """What Stilsmith is, in the words that were the landing page's (landing.html), for anyone: linked from a
+        visitor's header and from the foot of every page. It may name the stores Stilsmith picks from (its outfit pages
+        never do). On your own machine there is no website around the app: nothing here."""
+        if not conf.PRODUCTION:
+            abort(404)
+        return landing()
+
     @app.get("/")
     def wardrobe():
         if conf.PRODUCTION and g.user is None:
-            # `real`: a published product list is there (shared.published); without one every customer gets the
-            # invented demo products, and the page says so instead of promising real ones from named stores.
-            # `explore`: visitors may look through the example wardrobe's outfits without an account (guests.py).
-            # `most`: the most pieces a plan has (config/budget.toml): the page promises the plan's size, not its
-            # price, which on a store's real prices a small budget may not reach.
-            return render_template("landing.html", looks_on=_pictures_on(),      # the public website
-                                   photos=_photos_on(), invite=bool(conf.INVITE_CODE), real=shared.published(),
-                                   explore=guests.door_open() and guests.example_id() is not None,
-                                   most=int(capsule.budget_rules()["money"]["most_pieces"]))
+            # A visitor without an account: the home page is the example wardrobe's outfits (guests.py), as on a shop
+            # with no landing page; the website's words are on /about. While visitors may not look around (guests =
+            # false in config/site.toml, or the example could not be set up at start-up), the landing page, as before.
+            example = guests.example_id() if guests.door_open() else None
+            if example is None:
+                return landing()
+            guests.enter(example)       # the rest of this request reads the example wardrobe, and writes nothing
+            return guest_outfits(home=True)
         # Once, after a store stopped being offered: which, and how many pieces were picked again (shared.py).
         gone = shared.gone_message(keep=request.method != "GET") if conf.PRODUCTION else ""
         w = selection.build()
@@ -1172,14 +1192,22 @@ def create_app() -> Flask:
                 chosen = chosen[:held] + [first] + [o for o in chosen[held:] if o.key != first.key]
         return chosen, total, n_declined, held, first
 
-    def guest_outfits():
+    def guest_outfits(home: bool = False):
         """Outfits for a visitor without an account: the example wardrobe's outfits (guests.py). Each outfit is built
         for the page from nothing but what may be shown (guests.outfit): its title, its pieces by their names, in the
-        plan's colours, and its AI picture where one is there already. The stores, their names for the products, the
-        prices, what a yes would add, sizes, links and the stores' photos are never handed to the page.
+        plan's colours, its AI picture where one is there already, and the clip the owner made of it, where there is
+        one. The stores, their names for the products, the prices, what a yes would add, sizes, links and the stores'
+        photos are never handed to the page.
         From the address only which outfits are read: the occasion, how many and which shuffle (place), and those
         kept in front by "Show more outfits" (front_of). The outfits with an AI picture come first (guests.row: also
-        after Shuffle, and among those "Show more outfits" adds). Nothing is drawn, asked for or stored."""
+        after Shuffle, and among those "Show more outfits" adds). Nothing is drawn, asked for or stored.
+        `home`: this is the home page, "/" (wardrobe): its title and its description for search results and shared
+        links say what it is, in the example's real numbers.
+        On the row a visitor first opens (no occasion, shuffle or "Show more outfits" in its address), the first three
+        outfits carry a hint each (outfits_guest.html): what the example is, in its real numbers (guests.wardrobe_line:
+        no price, no budget, no store's name); that a piece can be tapped; and, on an outfit that shows its AI picture,
+        what the picture is (and that it can be him, while photos may be uploaded). Each can be put away for the page;
+        nothing of that is kept (app.js), so they are there again on his next visit."""
         if request.args.get("occasion") == "saved":     # My outfits: his own, so his account comes first
             return redirect(guests.sign_up("save"))
         w = selection.build()
@@ -1187,10 +1215,17 @@ def create_app() -> Flask:
         occasion = occasion if occasion in outfits.OCCASIONS else "all"
         n, seed = place(request.args)
         shown, total, looks_on = guests.row(w, occasion, n, seed, front_of(request.args))
+        real = w.source != "mock"
+        first_row = not request.args.keys() & {"occasion", "n", "seed", "front"}
+        count = guests.numbers(w) if first_row or home else None
+        hints = {"wardrobe": guests.wardrobe_line(count, real), "photo": _photos_on()} if first_row and count else None
         return render_template("outfits_guest.html", tab="outfits", occasion=occasion, n=n, seed=seed,
                                next_seed=random.randrange(1, 1_000_000), total=total, looks_on=looks_on,
                                boards=[guests.outfit(w, o, board) for o, board in shown],
-                               demo=w.source == "mock", lock=guests.reason("shop", real=w.source != "mock"))
+                               demo=not real, lock=guests.reason("shop", real=real), hints=hints,
+                               home=home, description=guests.description(count) if home and count else "",
+                               PIECE_HINT=guests.PIECE_HINT, PICTURE_HINT=guests.PICTURE_HINT,
+                               PHOTO_HINT=guests.PHOTO_HINT)
 
     def guest_piece():
         """The pop-up for one piece, for a visitor without an account: the piece's name and colour, drawn, and
@@ -1680,6 +1715,25 @@ def create_app() -> Flask:
         if path is None:
             abort(404)
         response = send_file(path, mimetype=imagegen.MIME[path.suffix.lstrip(".")])
+        response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
+        return response
+
+    @app.get("/outfits/<outfit_key>/clip/<name>")
+    def example_clip(outfit_key: str, name: str):
+        """The clip of one of the example wardrobe's outfits, for a visitor without an account (outfits_guest.html),
+        and only that: the outfit must be one of the example's, its front picture finished (Stilsmith's house model),
+        and `name` the file of the clip the owner's command made of that picture (videos.example_clips: never one of a
+        picture of someone's photo). Anything else is not there. Every other video stays at /videos/, for customers.
+        Sent in parts when the browser asks for a range of it, as phones do to play a video. A file never changes
+        under its name, so browsers keep it."""
+        outfit = outfits.find(selection.build(), outfit_key) if guests.is_guest() else None
+        board = {"key": outfit_key, "pieces": outfits.snapshot(outfit)} if outfit else None
+        if board is None or not looks.attach([board]):
+            abort(404)
+        videos.example_clips([board])
+        if not board["clip"] or board["clip"] != name:
+            abort(404)
+        response = send_file(videos.folder() / name, mimetype="video/mp4", conditional=True)
         response.headers["Cache-Control"] = "private, max-age=31536000, immutable"
         return response
 

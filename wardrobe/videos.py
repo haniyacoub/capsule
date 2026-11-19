@@ -17,6 +17,13 @@ and it is shown again whenever that picture is showing.
 A video of a picture drawn from someone's photo is theirs alone, like the picture:
 shown only to them, and deleted with the picture, the photo and the account.
 
+The example wardrobe's clips (example, make_example_now): the owner's command
+(python -m wardrobe example-pictures --clips K) makes a 5-second clip of the front
+picture of each of the first outfits that visitors without an account see, with a
+movement of its own ([videos.motion] example), outside the day's limits. A visitor's
+page plays it in place of the picture, muted and looping (example_clips). Nothing is
+ever made for a visitor.
+
 Drag to turn (the front picture's video only): where ffmpeg is installed, the
 turn (the clip's first seconds) is kept a second time with every frame a keyframe, so that dragging across the
 picture shows any moment of the turn at once. Without ffmpeg the clip itself is
@@ -48,6 +55,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 
 from . import db, imagegen, looks, paths, settings, videogen
@@ -378,10 +386,15 @@ def _spawn(job) -> None:
     threading.Thread(target=job, name="video", daemon=True).start()
 
 
-def _make(key: str, chosen: videogen.Service, clip: Clip, picture: bytes, ticket: int, personal: bool) -> None:
+def _make(key: str, chosen: videogen.Service, clip: Clip, picture: bytes, ticket: int,
+          personal: bool) -> imagegen.DrawError | None:
     """Background: have the clip made, keep it (and, for the front picture's, its turn for dragging) and record how
     it went. Never raises. `ticket` is this request's entry in the day's count, given back only when Google certainly made (and billed)
-    nothing. `personal`: the picture is drawn from the customer's own photo."""
+    nothing (0: nothing was counted, the owner's command, make_example_now). `personal`: the picture is drawn from the
+    customer's own photo.
+    Returns what went wrong when making it failed: Google's own words, or the kind of error. None when it was made (or
+    its account was deleted meanwhile). The owner's command prints it (make_example_now); a page shows the row's words
+    instead (_say)."""
     try:
         data = videogen.make(chosen, picture, clip.text, seconds=clip.seconds)
         stamp = int(time.time())                 # a new name each time, so browsers don't show an old one
@@ -397,8 +410,9 @@ def _make(key: str, chosen: videogen.Service, clip: Clip, picture: bytes, ticket
             for path in (folder() / name, turn):
                 if path:
                     path.unlink(missing_ok=True)
-            return
+            return None
         log.info("Made video %s (%s) with %s", key, clip.shot, _tag(chosen, clip.seconds))
+        return None
     except imagegen.DrawError as problem:
         if personal and problem.kind in ("refused", "request"):
             problem = imagegen.DrawError("person", problem.detail, problem.free)
@@ -409,12 +423,14 @@ def _make(key: str, chosen: videogen.Service, clip: Clip, picture: bytes, ticket
         level = logging.ERROR if problem.kind in looks.OPERATORS else logging.WARNING
         log.log(level, "Video %s was not made (%s): %s", key, problem.kind, problem.detail)
         looks._write_down(key, _tag(chosen, clip.seconds), problem.kind, problem.detail, what="video")
+        return problem
     except Exception as error:
         # Never the exception's own words in a log that outlives the process: they could quote the key.
         trace = traceback.format_exc()
         log.error("Video %s was not made\n%s", key, trace.replace(chosen.key, "(the key)") if chosen.key else trace)
         db.fail_video(key, SAY["unknown"])
         looks._write_down(key, _tag(chosen, clip.seconds), "unknown", type(error).__name__, what="video")
+        return imagegen.DrawError("unknown", type(error).__name__)
 
 
 def _say(problem: imagegen.DrawError) -> str:
@@ -450,6 +466,127 @@ def turn_file(clip: Path, target: Path) -> Path | None:
         tmp.unlink(missing_ok=True)
         log.warning("The turn of %s was not made, so the clip itself is dragged: %s", clip.name, type(problem).__name__)
         return None
+
+
+# ── the example wardrobe's clips: made by the owner, by hand ─────────────────
+# python -m wardrobe example-pictures --clips K (__main__.py) makes a short clip of the front picture of each of the
+# first K outfits that visitors without an account see (guests.py), once the owner has seen what they would cost. A
+# visitor's Outfits page shows it in place of the picture, muted and looping (outfits_guest.html, app.js 15a), at its
+# own address (app.example_clip). Never at start-up, never for a visitor, and never of a picture of someone's photo.
+
+EXAMPLE_SECONDS = 5     # each example clip's length: long enough for its movement, short enough to loop in place
+
+
+def example() -> Clip | None:
+    """What the owner's command makes of an example outfit's front picture: a clip of EXAMPLE_SECONDS with the
+    movement under [videos.motion] `example` in config/looks.toml, between `start` and `keep`, as every clip. Played
+    in a loop in place of the picture. None while that line is not there: then no example clip is made or shown."""
+    chosen = rules() or {}
+    words = (chosen.get("motion") or {}).get("example", "")
+    if not words.strip():
+        return None
+    text = " ".join(part.strip() for part in (chosen.get("start", ""), words, chosen.get("keep", "")) if part.strip())
+    return Clip(looks.FRONT, looks.FRONT_LABEL, EXAMPLE_SECONDS, False, text)
+
+
+def status() -> tuple[bool, str]:
+    """(on?, one line saying which model makes the videos, or why they are off): for the owner's command."""
+    chosen = rules()
+    if not chosen:
+        return False, "off — config/looks.toml has no [videos]"
+    if not chosen["on"]:
+        return False, "off — [videos] on = false in config/looks.toml"
+    if not settings.GEMINI_API_KEY:
+        if "GEMINI_API_KEY" in settings.UNUSABLE_KEYS or "GOOGLE_API_KEY" in settings.UNUSABLE_KEYS:
+            return False, "off — GEMINI_API_KEY is set, but what is in it cannot be a key. Paste the key itself."
+        return False, "off — set GEMINI_API_KEY"
+    return True, f"on — made by Google, model {chosen['model']}"
+
+
+def price_per_second() -> Decimal | None:
+    """What one second of video costs, in US dollars: price_per_second_usd under [videos] in config/looks.toml, an
+    estimate. None while it is not set. (A Decimal, as looks.price_each: 3 clips of 5 seconds at 0.10 are 1.50.)"""
+    price = (rules() or {}).get("price_per_second_usd")
+    return None if price is None else Decimal(str(price))
+
+
+def _front(board: dict) -> looks.Look | None:
+    """An outfit's front picture where it is there and finished (looks.attach gave the board its pictures)."""
+    photos = board.get("photos") or []
+    front = photos[0].look if photos else None
+    return front if front is not None and front.status == "ready" and front.file else None
+
+
+def example_clips(boards: list[dict]) -> None:
+    """Give each of the example's outfits on a visitor's page the file of its clip, board["clip"]: the clip the owner's
+    command made of its front picture, where it is finished and its file is there, else "". Only a clip of a picture
+    that belongs to no account (Stilsmith's house model), never one of a picture of someone's photo. Nothing is made
+    here. All "" while videos are off, or while there is no example movement (example)."""
+    for board in boards:
+        board["clip"] = ""
+    chosen, clip = service(), example()
+    if chosen is None or clip is None:
+        return
+    keys = {id(board): fingerprint(chosen, clip.text, front.file or "", clip.seconds)
+            for board in boards if (front := _front(board)) is not None}
+    rows = db.video_rows(list(keys.values()))
+    for board in boards:
+        row = rows.get(keys.get(id(board), ""))
+        video = _view(row) if row is not None and row["user_id"] is None else None
+        if video is not None and video.status == "ready" and video.file:
+            board["clip"] = video.file
+
+
+def example_state(board: dict) -> str:
+    """Where the example clip of an outfit stands, for the owner's command: there | working (being made already) |
+    missing (also while its front picture is not there yet: its clip is made from it)."""
+    chosen, clip, front = service(), example(), _front(board)
+    if chosen is None or clip is None or front is None:
+        return "missing"
+    video = get(fingerprint(chosen, clip.text, front.file or "", clip.seconds))
+    return video.status if video is not None and video.status in ("ready", "working") else "missing"
+
+
+def make_example_now(look: looks.Look) -> tuple[str, imagegen.DrawError | None]:
+    """Make the example clip (example) of one front picture here and now, and wait for it: for the owner's command,
+    which runs it as the example wardrobe (guests.py), one outfit after another.
+    The picture must be of Stilsmith's house model: a picture drawn from someone's photo is refused (ValueError), so
+    no clip of a person is ever made this way, and the clip belongs to no account. It is written as every clip is
+    (_make): its row in the database and its file in <data>/videos/, so a running site shows it from its next page
+    load. It is not counted in the day's limits ([videos] in config/looks.toml): the command is run by hand and has its
+    own ceiling (--max-cost).
+    Returns (what happened, what went wrong):
+        ("there", None)      it is there already: nothing was sent
+        ("working", None)    it is being made already (by another run of the command): left alone
+        ("ready", None)      made now
+        ("failed", problem)  not made, with Google's own words (None: it could not even be asked)
+    """
+    chosen, clip = service(), example()
+    if chosen is None or clip is None:
+        raise imagegen.DrawError("key", "videos are off, or [videos.motion] has no example", free=True)
+    if look.status != "ready" or not look.file:
+        return "failed", None
+    if (db.look_rows([look.key]).get(look.key) or {}).get("user_id") is not None:
+        raise ValueError("This picture is drawn from someone's photo: clips of a person are never made from the "
+                         "command line. Nothing more was made.")
+    key = fingerprint(chosen, clip.text, look.file, clip.seconds)
+    row = db.video_rows([key]).get(key)
+    video = _view(row)
+    if video is not None and video.status in ("ready", "working"):
+        return ("there" if video.status == "ready" else "working"), None
+    lost = row["file"] if row and row["file"] and row["user_id"] is None else None   # its file was deleted by hand
+    if not db.start_video(key, look.file, _tag(chosen, clip.seconds), None, time.time() - STALE_SECONDS, lost=lost):
+        return "working", None                  # another run asked for it a moment ago
+    try:
+        picture = (looks.folder() / look.file).read_bytes()
+    except OSError:                             # drawn again a moment ago: nothing was sent
+        db.fail_video(key, SAY["unknown"])
+        return "failed", None
+    problem = _make(key, chosen, clip, picture, 0, False)      # waits for the clip
+    video = get(key)
+    if problem is None and video is not None and video.status == "ready":
+        return "ready", None
+    return "failed", problem
 
 
 # ── forgetting ────────────────────────────────────────────────────────────────
