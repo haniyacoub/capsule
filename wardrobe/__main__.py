@@ -203,8 +203,13 @@ def check_looks(args: argparse.Namespace) -> None:
     on, line = looks.status()
     print(f"AI pictures of outfits: {line}")
     if not on:
-        sys.exit('\nGet a key from platform.openai.com or aistudio.google.com, then in this terminal:\n'
-                 '  export OPENAI_API_KEY="sk-…"      (or GEMINI_API_KEY="…")\n'
+        # The key of the service config/looks.toml names under [service] (Google, as the file comes).
+        where, export = {"openai": ("platform.openai.com", 'OPENAI_API_KEY="sk-…"'),
+                         "google": ("aistudio.google.com", 'GEMINI_API_KEY="…"')}.get(
+            looks.load_rules()["service"]["use"],
+            ("platform.openai.com or aistudio.google.com", 'OPENAI_API_KEY="sk-…"      (or GEMINI_API_KEY="…")'))
+        sys.exit(f"\nGet a key from {where}, then in this terminal:\n"
+                 f"  export {export}\n"
                  "and start the app from the same terminal. To keep the key for every new terminal,\n"
                  "add that line to the file ~/.zshrc.")
     if args.test_video is not None:

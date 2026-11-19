@@ -2,8 +2,10 @@
    block after a message was sent; "Use this brief", "Remove brief" and "Start again" load the page again, so that the
    styles ticked under "What do you dress for?" show what was saved.
 
-   `chat_on`: a key for Google's text model is set. Without it there is no chat; a brief that is in use is still
-   shown, to change by hand or remove. `chat`: the conversation (turns, the question asked back, and `draft`, the brief
+   `chat_on`: the chat is switched on (`on` under [chat] in config/style.toml) and a key for Google's text model is
+   set (stylechat.available). Without either there is no chat; a brief that is in use is still shown, to change by
+   hand or remove, and a conversation kept from before can still be deleted ("Start again", as the privacy page
+   says). `chat`: the conversation (turns, the question asked back, and `draft`, the brief
    the model suggested). `brief_shown`: the brief the editor shows: the suggestion while there is one, else the brief
    in use. Only "Use this brief" puts a brief in use. Everything the model wrote is shown as plain text (escaped).
 
@@ -99,8 +101,9 @@
     </p>
   </form>
   {% endif %}
-  {% if chat_on and chat.turns %}
+  {% if chat.turns %}
   <form method="post" action="{{ url_for('profile_style_brief') }}">{{ csrf_field() }}
+    {% if not chat_on %}<p class="muted small" data-chat-kept>The style chat is not available at the moment. Your earlier conversation with it is still kept with your account.</p>{% endif %}
     <button class="link" name="do" value="forget">Start again: delete this conversation</button>
   </form>
   {% endif %}

@@ -33,6 +33,17 @@
 # (GEMINI_API_KEY). Without that key the chat is not offered; the styles to
 # tick still work.
 [chat]
+# The chat's own switch, so the pictures can stay on without it. On today, for
+# the private test. Why it may have to be off once the site is public: an AI
+# chat with customers is likely on the German data protection authorities' list
+# of what always needs a data protection impact assessment (DSK "Muss-Liste",
+# item 11), and a business that needs one must name a data protection officer,
+# however small it is (§ 38 BDSG). Set it to false before going public, until a
+# data protection officer is named or a lawyer says none is needed (legal
+# drafts: dsfa.md). Off, there is no chat on Profile, a message sent to it is
+# answered as when no key is set, and a style brief can still be changed by hand.
+# `python -m wardrobe chat` says which applies. Takes effect on the next page load.
+on                   = true
 # Google renames and retires models every few months; its price page lists the
 # current ones. Read on 16 Nov 2026: gemini-3.5-flash-lite costs $0.30 per
 # million tokens in and $2.50 per million out. One message is about 1,200

@@ -27,8 +27,11 @@
 </head>
 {# In production every HTMX request carries the CSRF token in a header. Only a logged-in customer's pages
    have HTMX buttons, so only they ask for the token: a visitor reading the public pages gets no cookie.
-   (The forms on sign-up, log-in and forgotten password carry it in a hidden field, which sets the cookie.) #}
-<body{% if production and user %} hx-headers='{"X-CSRF-Token": "{{ csrf_token() }}"}'{% endif %}>
+   (The forms on sign-up, log-in and forgotten password carry it in a hidden field, which sets the cookie.)
+   `data-customer`: a customer's own page (logged in, or anyone on your own machine, where there are no accounts).
+   Only there does app.js use the browser tab's storage (sessionStorage, sections 9 and 17b): on a visitor's page
+   the script neither reads nor writes the browser's storage (TDDDG § 25). #}
+<body{% if user or not production %} data-customer{% endif %}{% if production and user %} hx-headers='{"X-CSRF-Token": "{{ csrf_token() }}"}'{% endif %}>
   {# What changed on the page without a new page, said once to a screen reader ("Outfit 2 of 12, Office, 257.75 €",
      "Picture ready"): app.js writes it. Unseen, and it takes no room, so nothing on the page moves. #}
   <p id="announce" class="sr" role="status" aria-live="polite"></p>

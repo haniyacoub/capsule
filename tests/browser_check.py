@@ -112,9 +112,9 @@ DATA = HOME / "data-production"
 
 # The app reads its settings when it is imported, so they are set first.
 os.environ.update(CAPSULE_ENV="production", SECRET_KEY=secrets.token_urlsafe(48), WARDROBE_DATA_DIR="./data-production",
-                  OPENAI_API_KEY="stand-in", SITE_URL="http://127.0.0.1",
-                  GEMINI_API_KEY="stand-in")     # for the videos ("See it move"); OpenAI still draws the pictures
-for name in ("GOOGLE_API_KEY", "SMTP_URL"):
+                  SITE_URL="http://127.0.0.1",
+                  GEMINI_API_KEY="stand-in")     # Google draws the pictures (config/looks.toml) and makes the videos
+for name in ("OPENAI_API_KEY", "GOOGLE_API_KEY", "SMTP_URL"):
     os.environ.pop(name, None)
 sys.path.insert(0, str(ROOT))
 
@@ -243,6 +243,34 @@ PICTURE_FRAMES = """s => { window.frames = []; const stage = document.querySelec
   requestAnimationFrame(look); }"""
 STILL = """() => document.getAnimations().every(a => a.playState !== 'running' || !(a.timeline instanceof DocumentTimeline)
                                                   || a.effect.getComputedTiming().iterations === Infinity)"""
+# Every time a page reaches for what it could keep on the device (its storage, its cookies from a script, its
+# databases), before any of the page's own scripts run: told to the walk-through (trap_storage), with the page's path.
+# Not only a write: under TDDDG § 25 reading counts too, and so does merely reaching for sessionStorage.
+STORAGE_TRAP = """(() => {
+  const tell = (what) => { try { window.storageTouched(`${what} on ${location.pathname}`); } catch (e) { /* not yet */ } };
+  for (const name of ['localStorage', 'sessionStorage', 'indexedDB', 'caches']) {
+    const own = Object.getOwnPropertyDescriptor(window, name) || Object.getOwnPropertyDescriptor(Window.prototype, name);
+    if (!own || !own.get) continue;
+    Object.defineProperty(window, name, {configurable: true, enumerable: own.enumerable,
+                                         get() { tell(name); return own.get.call(window); }});
+  }
+  const cookie = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+  Object.defineProperty(document, 'cookie', {configurable: true,
+    get() { tell('document.cookie, read'); return cookie.get.call(document); },
+    set(value) { tell('document.cookie, written'); cookie.set.call(document, value); }});
+})();"""
+
+
+def trap_storage(context) -> list[str]:
+    """What the pages of this browser context reach for of the device's storage, from now on (STORAGE_TRAP)."""
+    touched: list[str] = []
+
+    def told(what: str) -> None:            # (a function of its own: Playwright marks what it is given)
+        touched.append(what)
+
+    context.expose_function("storageTouched", told)
+    context.add_init_script(STORAGE_TRAP)
+    return touched
 EMAIL = f"check-{secrets.token_hex(4)}@example.com"
 
 
@@ -674,6 +702,7 @@ def run(base: str) -> None:
             # way home and the legal links, on a phone and on a computer. Stilsmith's icon is there for browsers to find.
             for width, phone in ((390, True), (1280, False)):
                 context = browser.new_context(viewport={"width": width, "height": 844}, is_mobile=phone, has_touch=phone)
+                touched = trap_storage(context)
                 visitor = context.new_page()
                 for path in ("/", "/about", "/legal/privacy", "/does-not-exist"):     # (the 404 at the end is expected)
                     visitor.goto(base + path, wait_until="networkidle")
@@ -693,6 +722,8 @@ def run(base: str) -> None:
                 assert icon.ok and icon.headers["content-type"].startswith("image/"), "no /favicon.ico"
                 visitor.goto(base + "/login", wait_until="networkidle")
                 assert [c["name"] for c in context.cookies()] == ["session"], "the log-in form has no cookie for its token"
+                visitor.wait_for_timeout(100)               # (what the last page told is in)
+                assert not touched, f"at {width}px a visitor's page reached for the device's storage: {touched}"
                 context.close()
             page.goto(base + "/does-not-exist", wait_until="networkidle")      # the customer is logged in here
             page.locator("main a", has_text="Go to your outfits").click()
@@ -729,6 +760,7 @@ def run(base: str) -> None:
                 where = f"{width} x {height}, {scheme}"
                 context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=phone,
                                               has_touch=phone, color_scheme=scheme)
+                touched = trap_storage(context)
                 visitor = context.new_page()
                 visitor.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
                            if r.status >= 400 and r.url.startswith(base) else None)
@@ -789,7 +821,17 @@ def run(base: str) -> None:
                 visitor.wait_for_url(base + "/signup?why=save")
                 why = visitor.locator("main .signup-why").inner_text().strip()
                 assert why == "Create a free account to save outfits.", f"at {where} the sign-up page says {why!r}"
+                visitor.wait_for_timeout(100)               # (what the last page told is in)
+                assert not touched, f"at {where} a visitor's page read or wrote the device's storage: {touched}"
                 context.close()
+            # The trap catches what it is there to catch: a customer's own outfits still use the tab's storage, to come
+            # back where he was after an answer (app.js 17b).
+            context, customer = logged_in_on(browser, viewport={"width": 1280, "height": 800})
+            touched = trap_storage(context)
+            customer.goto(base + "/outfits", wait_until="networkidle")
+            customer.wait_for_timeout(100)
+            assert "sessionStorage on /outfits" in touched, f"the storage trap saw nothing on a customer's page: {touched}"
+            context.close()
             after = counts()
             assert after == before, \
                 f"a visitor's looking around was stored: {[(t, before[t], after[t]) for t in before if before[t] != after[t]]}"
@@ -821,6 +863,7 @@ def run(base: str) -> None:
                 where = f"{width} x {height}, {scheme}"
                 context = browser.new_context(viewport={"width": width, "height": height}, is_mobile=phone,
                                               has_touch=phone, color_scheme=scheme)
+                touched = trap_storage(context)
                 visitor = context.new_page()
                 visitor.on("pageerror", lambda e: failures.append(f"script error: {e}"))
                 visitor.on("response", lambda r: failures.append(f"{r.status} {r.request.method} {r.url.replace(base, '')[:100]}")
@@ -869,6 +912,8 @@ def run(base: str) -> None:
                 close = visitor.locator("#reel [data-slide]:nth-child(2) .hint-x")
                 close.tap() if phone else close.click()
                 visitor.wait_for_function("() => document.querySelectorAll('#reel .hint').length === 2")
+                visitor.wait_for_timeout(100)               # (what the page told is in)
+                assert not touched, f"at {where} the clips or the hints reached for the device's storage: {touched}"
                 stored = visitor.evaluate("() => [localStorage.length, sessionStorage.length]")
                 assert stored == [0, 0] and not context.cookies(), f"at {where} something was kept: {stored}, {context.cookies()}"
                 visitor.reload(wait_until="networkidle")
@@ -1217,6 +1262,23 @@ def run(base: str) -> None:
             order = ["front", *changes]
             assert order == ["front", "walking", "turned", "street", "cafe", "library"], f"an outfit's pictures are {order}"
             names = dict(zip(order, ("Front", "Walking", "Turned", "Street", "Café", "Library")))
+            # Each small picture that is there is labelled as an AI picture (AI Act Art. 50), as the large one is: "AI"
+            # on it, whole, white on dark, leaving most of the picture to see; a screen reader hears "…, AI picture".
+            ai_labels = ("s => [...document.querySelectorAll(s + ' .shots-row button[aria-pressed]')].filter(b => b.querySelector('img'))"
+                         ".map(b => { const pic = b.querySelector('.shot-pic').getBoundingClientRect(), ai = b.querySelector('.shot-ai');"
+                         " if (!ai) return null; const a = ai.getBoundingClientRect(), style = getComputedStyle(ai);"
+                         " return {words: ai.textContent.trim(), hidden: ai.getAttribute('aria-hidden'), size: parseFloat(style.fontSize),"
+                         " inside: a.width > 0 && a.left >= pic.left - 0.5 && a.right <= pic.right + 0.5 && a.top >= pic.top - 0.5 && a.bottom <= pic.bottom + 0.5,"
+                         " shown: style.visibility === 'visible' && style.display !== 'none' && style.opacity === '1',"
+                         " colour: style.color, ground: style.backgroundColor, share: a.width * a.height / (pic.width * pic.height),"
+                         " heard: b.getAttribute('aria-label')}; })")
+
+            def labelled(seen: list, where: str) -> None:
+                assert seen and all(label and label["words"] == "AI" and label["hidden"] == "true" and label["inside"]
+                                    and label["shown"] and label["size"] >= 9 and label["colour"] == "rgb(255, 255, 255)"
+                                    and float(label["ground"].split(",")[-1].strip(" )")) >= 0.7 and label["share"] <= 0.2
+                                    and label["heard"].endswith(", AI picture") for label in seen), \
+                    f"{where} a small picture is not labelled as an AI picture, on it and for a screen reader: {seen}"
 
             def swipe(session, other, selector: str, distance: int = -250) -> None:
                 """A sideways swipe by touch that starts on `selector` in the first outfit (at its right end when
@@ -1304,7 +1366,9 @@ def run(base: str) -> None:
                     assert seen["height"] == 40 and seen["sizes"] == [[30, 40]] * 6 and seen["inside"] and not seen["names"] \
                         and seen["tall"] == [40] * 6, \
                         f"{where} the small pictures are not one 40px row of six 30 by 40px pictures without names: {seen}"
-                    assert seen["labels"] == [names[name] for name in order], f"{where} a small picture does not say its name: {seen['labels']}"
+                    assert seen["labels"] == [f"{names[name]}, AI picture" for name in order], \
+                        f"{where} a small picture does not say its name, and that it is an AI picture: {seen['labels']}"
+                    labelled(other.evaluate(ai_labels, first), where)
                     assert seen["overflow"] == "visible" and not seen["scrolls"] and seen["page"] <= width, \
                         f"{where} the row scrolls or is a scrolling box, or the page is wider than the screen: {seen}"
                     if width == 390:
@@ -1449,8 +1513,8 @@ def run(base: str) -> None:
             page.wait_for_selector(f"{first} .look-pic img")
             front = page.get_attribute(f"{first} .look-pic img", "src")
             group = f"{row} form[role=group]"
-            assert page.get_attribute(group, "aria-label") == "Photos of this outfit", \
-                "the small pictures are not one group named 'Photos of this outfit' for screen readers"
+            assert page.get_attribute(group, "aria-label") == "AI pictures of this outfit", \
+                "the small pictures are not one group named 'AI pictures of this outfit' for screen readers"
             at_first = page.evaluate(cells, first)
             assert [(cell["name"], cell["pressed"], cell["picture"]) for cell in at_first] == [("front", "true", True)], \
                 f"before 'More photos', the row is not the front picture alone, shown: {at_first}"
@@ -1486,6 +1550,7 @@ def run(base: str) -> None:
                     break
                 page.wait_for_timeout(200)
             assert 6 in arriving, f"the five pictures never all arrived: {sorted(arriving)}"
+            labelled(page.evaluate(ai_labels, first), "on a computer")
             assert arriving & {2, 3, 4, 5}, f"the pictures did not show one by one as they arrived: {sorted(arriving)}"
             assert not page.locator(f"{row} .btn").count(), "'More photos' is still offered once all six are there"
             assert page.evaluate("s => document.querySelector(s + ' .look-pic').dataset.kept", first) == "yes" \
@@ -3376,12 +3441,12 @@ def run(base: str) -> None:
                 assert box == {"under": True, "inside": True}, f"the sketch note's place: {box}"
                 open_tab(other, "body")
                 said = other.locator("#model").inner_text()
-                assert "These words go to OpenAI with each picture" in said and "never as numbers" in said, \
+                assert "These words go to Google with each picture" in said and "never as numbers" in said, \
                     "the Body tab does not say what goes to the image service"
                 average = other.evaluate("document.querySelector('[data-figure] [data-part=tee]').getAttribute('d')")
 
                 open_tab(other, "sizes")
-                assert "They go to OpenAI with each picture as a few words about your body" in other.locator("#panel-sizes").inner_text(), \
+                assert "They go to Google with each picture as a few words about your body" in other.locator("#panel-sizes").inner_text(), \
                     "the measurements do not say that they reach the image service as words"
                 other.fill("input[name=height_cm]", "172")
                 other.fill("input[name=weight_kg]", "95")

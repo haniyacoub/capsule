@@ -1,6 +1,11 @@
 // The little JavaScript the app needs. Everything else is HTML rendered by
 // Python and swapped in by HTMX (static/vendor/htmx.min.js).
 
+// A customer's own page (base.html, data-customer): logged in, or anyone on your own machine. Only such a page uses
+// the browser tab's storage (sections 9 and 17b). On a visitor's page this script neither reads nor writes the
+// browser's storage: under TDDDG § 25 even reading it needs a reason, and a visitor's pages have none.
+const customerPage = document.body.hasAttribute('data-customer');
+
 // 1. Picture fallback. Every picture sits on a swatch of the item's colour.
 //    If the image fails to load, hide it so the swatch and caption show.
 function markBroken(img) {
@@ -405,9 +410,19 @@ document.addEventListener('keydown', (e) => {
 //    and says how many are open. The ticks are kept while this tab stays open (never sent anywhere), so they are
 //    still there after a look at another page. When every page was opened the button says "Start again": pressing
 //    it opens nothing and takes the ticks off, and the button offers the first page once more.
+//    The ticks are read from the tab's storage only when a page has stores' lines to tick (the shopping list, Buy
+//    this outfit), and only on a customer's page: never on every page, never on a visitor's.
 const OPENED = 'stilsmith-opened-pages';
-let openedPages = new Set();
-try { openedPages = new Set(JSON.parse(sessionStorage.getItem(OPENED) || '[]')); } catch { /* private window: the ticks last until the page is left */ }
+let openedPages = null;                // read once, the first time a page with stores' lines needs them
+function opened() {
+  if (openedPages === null) {
+    openedPages = new Set();
+    if (customerPage) {
+      try { openedPages = new Set(JSON.parse(sessionStorage.getItem(OPENED) || '[]')); } catch { /* private window: the ticks last until the page is left */ }
+    }
+  }
+  return openedPages;
+}
 const openedTick = (link) => link.closest('.buy').querySelector('.buy-opened');
 const openedKey = (link) => `${openedTick(link).dataset.line} ${link.href}`;     // this piece's product page
 const storeLinks = (section) => [...section.querySelectorAll('a.buy-go')].filter((link) => link.getAttribute('href') !== '#');
@@ -415,11 +430,11 @@ function showOpened() {
   document.querySelectorAll('.store-list').forEach((section) => {
     const links = storeLinks(section);
     links.forEach((link) => {
-      openedTick(link).hidden = !openedPages.has(openedKey(link));
+      openedTick(link).hidden = !opened().has(openedKey(link));
     });
     const buttons = section.querySelectorAll('[data-open-next]');
     if (!buttons.length) return;
-    const left = links.filter((link) => !openedPages.has(openedKey(link)));
+    const left = links.filter((link) => !opened().has(openedKey(link)));
     const done = links.length - left.length;
     const partly = done > 0 && left.length > 0;
     const all = left.length === 0;
@@ -442,14 +457,16 @@ function noteOpened(e) {
   let link = tapped;
   if (tapped.matches('[data-open-next]')) {       // the button stands for the first line not yet opened
     const links = storeLinks(tapped.closest('.store-list'));
-    link = links.find((one) => !openedPages.has(openedKey(one)));
+    link = links.find((one) => !opened().has(openedKey(one)));
     if (!link) {                                   // every page was opened, and it says "Start again": the ticks
       e.preventDefault();                          // go, and no page is opened by this press
-      links.forEach((one) => openedPages.delete(openedKey(one)));
+      links.forEach((one) => opened().delete(openedKey(one)));
     }
   }
-  if (link) openedPages.add(openedKey(link));
-  try { sessionStorage.setItem(OPENED, JSON.stringify([...openedPages])); } catch { /* as above */ }
+  if (link) opened().add(openedKey(link));
+  if (customerPage) {
+    try { sessionStorage.setItem(OPENED, JSON.stringify([...opened()])); } catch { /* as above */ }
+  }
   // Shown after the browser has followed the link: moving the button's address on now would send this tap to the next page.
   setTimeout(showOpened, 0);
 }
@@ -1429,10 +1446,11 @@ if (dock && document.getElementById('reel')) {
 //      that says what was done. That line is read out to a screen reader, as it was there before the page finished
 //      loading. Only after the keyboard gave the answer: after a tap or a click the keyboard is given nothing (a
 //      button that had it would say yes at the next press of the space bar, meant to scroll).
-//      Both are noted while the form is sent, kept for this tab only and forgotten at once.
+//      Both are noted while the form is sent, kept for this tab only and forgotten at once. Only on a customer's
+//      page (the answers are his): a visitor's pages neither read these two notes nor write them (see the top).
 document.addEventListener('submit', (e) => {
   const form = e.target instanceof HTMLFormElement ? e.target : null;
-  if (!form || !form.matches('form.save, form.no, [data-answered] form')) return;
+  if (!customerPage || !form || !form.matches('form.save, form.no, [data-answered] form')) return;
   const by = e.submitter || document.activeElement;
   try {
     if (document.getElementById('reel')) window.sessionStorage.setItem('answered-at', String(Math.round(window.scrollY)));
@@ -1442,12 +1460,14 @@ document.addEventListener('submit', (e) => {
 (() => {
   let byKeyboard = false;
   let scrolledTo = null;
-  try {
-    byKeyboard = window.sessionStorage.getItem('answered-by-keyboard') === '1';
-    scrolledTo = window.sessionStorage.getItem('answered-at');
-    window.sessionStorage.removeItem('answered-by-keyboard');
-    window.sessionStorage.removeItem('answered-at');
-  } catch (err) { /* as above */ }
+  if (customerPage) {
+    try {
+      byKeyboard = window.sessionStorage.getItem('answered-by-keyboard') === '1';
+      scrolledTo = window.sessionStorage.getItem('answered-at');
+      window.sessionStorage.removeItem('answered-by-keyboard');
+      window.sessionStorage.removeItem('answered-at');
+    } catch (err) { /* as above */ }
+  }
   const said = document.querySelector('[data-answered]');
   if (!said && !(byKeyboard && document.getElementById('reel'))) return;
   const put = () => {

@@ -1,12 +1,15 @@
 """gunicorn.conf.py: the service stops when its workers keep dying as they start, instead of
-starting new ones for ever, and it runs without gunicorn's control socket.
+starting new ones for ever, it runs without gunicorn's control socket, and its access log
+holds no visitor's address and no name.
 
 The first half tests the counting with a made-up clock. The second half starts a real
 gunicorn; workers that are meant to die are killed with SIGKILL, which no operating system
 treats as a crash (on a Mac a real crash of Python puts a dialog on the screen each time).
 """
+import base64
 import importlib.util
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -14,6 +17,7 @@ import tempfile
 import time
 import types
 import unittest
+import urllib.request
 from pathlib import Path
 from unittest import mock
 
@@ -142,6 +146,18 @@ def app(environ, start_response):
     return [b"ok"]
 """
 
+# As the app runs behind the Cloudflare tunnel (app.py, TRUSTED_PROXY_HOPS = 1): ProxyFix puts the visitor's address,
+# from the tunnel's X-Forwarded-For, where gunicorn's own access line would show it.
+BEHIND_THE_TUNNEL = """
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+def plain(environ, start_response):
+    start_response("200 OK", [("Content-Type", "text/plain")])
+    return [b"ok"]
+
+app = ProxyFix(plain, x_for=1, x_proto=1, x_host=1)
+"""
+
 
 @needs_gunicorn
 class WithARealGunicorn(unittest.TestCase):
@@ -174,6 +190,37 @@ class WithARealGunicorn(unittest.TestCase):
         self.assertEqual(status, 3, log[-1500:])
         self.assertIn("5 workers died within seconds of starting", log)
         self.assertLessEqual(log.count("Booting worker"), 8, "it kept starting workers")
+
+    def test_the_access_log_has_no_address_no_name_and_no_query(self):
+        # gunicorn's own line would start with the visitor's real address and hold the name typed into the browser's
+        # password box (SITE_PASSWORD, sent as Basic authorization). The line written here holds the time, the
+        # method and path, the status, the size, how long it took and the browser's name for itself: nothing else.
+        name = base64.b64encode("Hani Yacoub:the site's password".encode()).decode()
+        with tempfile.TemporaryDirectory() as where:
+            folder = Path(where)
+            server = self.start(folder, BEHIND_THE_TUNNEL, "--access-logfile", str(folder / "access.txt"))
+            try:
+                port = re.search(r"Listening at: http://127\.0\.0\.1:(\d+)", self.wait_for(folder, "Listening at"))
+                assert port is not None
+                asked = urllib.request.Request(f"http://127.0.0.1:{port.group(1)}/signup?code=INVITE-2026", headers={
+                    "X-Forwarded-For": "203.0.113.77", "X-Forwarded-Proto": "https", "Authorization": f"Basic {name}",
+                    "Referer": "https://stilsmith.example/about?from=INVITE-2026", "User-Agent": "TestBrowser/1.0"})
+                with urllib.request.urlopen(asked, timeout=10) as answer:       # nosec B310 - this test's own server
+                    self.assertEqual(answer.read(), b"ok")
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline and not (folder / "access.txt").read_text().strip():
+                    time.sleep(0.05)
+                line = (folder / "access.txt").read_text().strip()
+            finally:
+                server.send_signal(signal.SIGTERM)
+                try:
+                    server.wait(timeout=30)
+                finally:
+                    if server.poll() is None:
+                        server.kill()
+        self.assertRegex(line, r'^\[[^\]]+\] "GET /signup" 200 2 \d+ms "TestBrowser/1\.0"$')
+        for private in ("203.0.113.77", "127.0.0.1", "Hani", "Yacoub", "INVITE-2026", "stilsmith.example", "?"):
+            self.assertNotIn(private, line)
 
     def test_a_healthy_service_starts_reloads_and_stops_as_before(self):
         with tempfile.TemporaryDirectory() as where:

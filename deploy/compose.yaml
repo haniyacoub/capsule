@@ -9,10 +9,22 @@
 #
 # Written without Docker to hand. The GitHub checks build the image and start the "app"
 # service on every push; the "tunnel" service has not been run by anyone yet.
+
+# What Docker keeps of what each container prints (its log): files of at most 1 MB, and at most 3 of them; when the
+# third is full, the oldest is deleted. So at most about 3 MB per container. A restart keeps the log; it goes with the
+# container when the container is replaced (as `up -d --build` does after the code has changed). What the app's lines
+# hold: PRODUCTION.md, "Logs".
+x-logs: &logs
+  driver: json-file
+  options:
+    max-size: "1m"
+    max-file: "3"
+
 services:
   app:
     build: ..
     restart: unless-stopped
+    logging: *logs
     env_file: app.env
     environment:
       TRUSTED_PROXY_HOPS: "1"       # the tunnel is the one proxy in front
@@ -24,6 +36,7 @@ services:
   tunnel:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
+    logging: *logs
     command: tunnel --no-autoupdate run
     env_file: tunnel.env            # TUNNEL_TOKEN, and nothing else: it never sees the app's secrets
     depends_on:

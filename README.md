@@ -279,10 +279,14 @@ Pictures are kept in `data/looks/` and never paid for twice.
 Switch it on:
 
 ```bash
-export OPENAI_API_KEY="sk-…"        # from platform.openai.com, or:
 export GEMINI_API_KEY="…"           # from aistudio.google.com
 python -m wardrobe
 ```
+
+Only the service named under `[service]` in `config/looks.toml` draws: Google,
+as the file comes. An `OPENAI_API_KEY` counts only once that line says
+`use = "openai"`, and with a customer's photo the privacy policy must then
+name OpenAI.
 
 For Google, use a key from a Google Cloud project with billing switched on:
 Google's image models have no free tier, and its terms forbid free keys for a
@@ -387,8 +391,9 @@ Things to know:
 
 On Profile, under "What do you dress for?", a customer can tick styles (Smart
 casual, Street, Minimal, Tailored, Workwear, Outdoor). With a Google key set
-(`GEMINI_API_KEY`, the same one as for the pictures) Profile also shows
-"Describe your style": he writes "street style, Berlin vibe", Google's text
+(`GEMINI_API_KEY`, the same one as for the pictures) and the chat's own
+switch on (`on = true` under `[chat]` in `config/style.toml`, as the file
+comes) Profile also shows "Describe your style": he writes "street style, Berlin vibe", Google's text
 model answers in two or three sentences and suggests a **style brief** (styles,
 how formal, colours to favour and avoid, fits, price feeling, things he does
 not want). He corrects it and presses "Use this brief". Only a brief he
@@ -457,6 +462,11 @@ each style are in `config/style.toml`.
   day for everyone together (at most about 60 cents a day).
 - **What is sent to Google:** his message, the last lines of the conversation
   and the brief. Never his name, email address, sizes, budget or photo.
+- **Its own switch:** `on = false` under `[chat]` in `config/style.toml`
+  takes the chat off Profile while the pictures stay on; a message sent to it
+  is then answered as without a key, and a brief can still be changed by hand.
+  The comment there says why it may have to be off on a public site (a data
+  protection officer). `python -m wardrobe chat` says which applies.
 - **What comes back is not trusted:** only a reply, one question and a brief
   are read from it; the brief keeps only styles, colours, fits and levels the
   app knows; the model never chooses a product or a store.

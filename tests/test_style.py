@@ -578,6 +578,8 @@ class TheBrief(AppCase):
         for change, said in ((lambda r: r["styles"].update(grunge={"label": "Grunge", "words": [], "garments": ["kilt"]}),
                               "not a garment type"),
                              (lambda r: r["chat"].update(model=""), "chat.model"),
+                             (lambda r: r["chat"].update(on="yes"), "chat.on must be true or false"),
+                             (lambda r: r["chat"].pop("on"), "chat.on must be true or false"),
                              (lambda r: r["chat"].update(per_day=-1), "cannot be negative"),
                              (lambda r: r["chat"].update(at_once=0), "chat.at_once must be at least 1"),
                              (lambda r: r["chat"].pop("wait_seconds"), "chat.wait_seconds must be a number"),
@@ -1139,6 +1141,41 @@ class Chat(NoNetwork, AppCase):
             self.assertIn(stylechat.SAY["closed"], answer)
         self.assertEqual((self.asked, stylechat.state()["turns"], db.chat_requests(0)), ([], [], 0))
 
+    def test_switched_off_the_chat_is_not_offered_and_takes_no_message_although_the_key_is_set(self):
+        # Its own switch (config/style.toml, [chat] on), so that the site can be public with the pictures and without
+        # the chat: off, everything is as without a key.
+        self.assertTrue(stylechat.available())
+        self.with_chat_rules(on=False)
+        self.assertFalse(stylechat.available())
+        page = self.client.get("/profile").get_data(as_text=True)
+        for trace in ("Describe your style", "/profile/style/say", "data-chat-sent", "What you write here goes to"):
+            self.assertNotIn(trace, page)
+        self.assertIn("And in which style?", page, "the tappable choices are still there")
+        answer = self.say("street style, Berlin vibe", **HX).get_data(as_text=True)
+        self.assertIn(stylechat.SAY["closed"], answer)
+        self.assertEqual((self.asked, stylechat.state()["turns"], db.chat_requests(0)), ([], [], 0), "nothing sent")
+
+    def test_switched_off_a_brief_and_a_kept_conversation_can_still_be_changed_or_deleted(self):
+        self.say("office, navy, no logos")                  # while it was on: a conversation and a suggestion
+        self.assertTrue(stylechat.state()["turns"])
+        self.with_chat_rules(on=False)
+        page = self.client.get("/profile").get_data(as_text=True)
+        self.assertNotIn("/profile/style/say", page)
+        self.assertIn('data-brief="suggested"', page, "the suggestion is there to correct and use, by hand")
+        self.assertIn("Your earlier conversation with it is still kept with your account.", words(page))
+        self.assertIn("Start again: delete this conversation", page, "the privacy page says it can be deleted here")
+        self.client.post("/profile/style/brief", data={"do": "use", "styles": ["minimal"], "formality": "",
+                                                       "colours_like": "navy", "colours_avoid": "", "price": "",
+                                                       "not_wanted": ""})
+        self.assertEqual(style.current()["styles"], ["minimal"])
+        self.assertTrue(stylechat.state()["turns"], "using the brief keeps the conversation, as when the chat is on")
+        self.client.post("/profile/style/brief", data={"do": "forget"})
+        self.assertEqual(stylechat.state()["turns"], [])
+        self.assertEqual(style.current()["styles"], ["minimal"], "the brief in use stays")
+        page = self.client.get("/profile").get_data(as_text=True)
+        self.assertNotIn("Start again: delete this conversation", page)
+        self.assertIn('data-brief="in-use"', page)
+
     def test_his_words_become_a_suggested_brief_and_only_confirming_it_changes_anything(self):
         before = picks(selection.build()), offered(selection.build())
         page = self.client.get("/profile").get_data(as_text=True)
@@ -1592,6 +1629,12 @@ class FromTheWelcome(NoNetwork, ProductionCase):
             self.assertFalse(stylechat.available())
             self.assertNotIn(self.OR, ada.get("/welcome/3").get_data(as_text=True))
             self.assertNotIn('name="then"', ada.get("/welcome/3").get_data(as_text=True))
+        self.with_chat_rules(on=False)                                  # switched off, with the key: the same
+        self.assertFalse(stylechat.available())
+        self.assertNotIn(self.OR, ada.get("/welcome/3").get_data(as_text=True))
+        self.assertNotIn('name="then"', ada.get("/welcome/3").get_data(as_text=True))
+        gone = self.post(ada, "/welcome/3", use="everyday", then="style")
+        self.assertEqual(gone.headers["Location"], "/outfits", "never a Profile without the chat it promised")
 
     def test_it_ends_the_welcome_saves_what_he_ticked_and_opens_the_chat_on_profile(self):
         self.chat_on()
@@ -1829,6 +1872,22 @@ class TheRequest(AppCase):
         with mock.patch.object(settings, "GEMINI_API_KEY", ""):
             self.assertIn("Style chat: off — set GEMINI_API_KEY", run())
             self.assertIn("Nothing was sent.", run("--test", "street"))
+        rules = style.load_rules()
+        off = {**rules, "chat": {**rules["chat"], "on": False}}
+        with mock.patch.object(style, "load_rules", lambda: off):      # which applies: the switch, the key, or both
+            with mock.patch.object(settings, "GEMINI_API_KEY", "k"):
+                self.assertIn("Style chat: off — switched off in config/style.toml (on = false under [chat]), "
+                              "although GEMINI_API_KEY is set", run())
+                self.assertIn("Nothing was sent.", run("--test", "street"))
+            with mock.patch.object(settings, "GEMINI_API_KEY", ""):
+                self.assertIn("Style chat: off — switched off in config/style.toml (on = false under [chat]); "
+                              "GEMINI_API_KEY is not set either", run())
+
+        def broken():
+            raise config.ConfigError("chat.on must be true or false")
+        with mock.patch.object(style, "load_rules", broken), mock.patch.object(settings, "GEMINI_API_KEY", "k"):
+            self.assertIn("Style chat: off — config/style.toml needs fixing: chat.on must be true or false", run())
+            self.assertFalse(stylechat.available())
         with mock.patch.object(settings, "GEMINI_API_KEY", "k"), mock.patch.object(stylechat, "ask", mockchat.answer):
             self.assertIn(f"on — answered by Google, model {style.load_rules()['chat']['model']}", run())
             said = run("--test", "office, navy, no logos")

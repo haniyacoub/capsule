@@ -749,6 +749,16 @@ p.look-msg { width: max(100%, 272px); margin: 0 min(0px, (100% - 272px) / 2) var
    no height, so the name does not show. */
 .shot-name { height: calc(var(--tall) * 16); overflow: hidden; font-size: var(--t-xs); line-height: 16px; white-space: nowrap; }
 .shots-row [aria-pressed="true"] .shot-name { color: var(--ink); }
+/* Each small picture is labelled as an AI picture, as the large one is (.ai-chip, in the same colours: the picture is
+   light in dark mode too): "AI" in its bottom right corner, where it covers the feet or the ground rather than the
+   face (on a short phone's 30 by 40px picture a label at the top sat on the head), 10px, and 9px on that small
+   picture, where it still leaves most of it to see; 4px in, clear of the frame round the one shown. A screen
+   reader hears it in the cell's name (_shots.html). */
+.shot-ai {
+  position: absolute; right: 4px; bottom: 4px; padding: 0 2px; background: rgba(27, 27, 26, .72); color: #fff;
+  font-size: calc(9px + var(--tall)); line-height: calc(12px + var(--tall)); font-weight: 600; letter-spacing: .04em;
+  pointer-events: none;
+}
 /* A hairline round each cell, over its picture: a white studio picture has an edge on a light page too. */
 .shot-pic::before { content: ""; position: absolute; inset: 0; border: 1px solid var(--line); border-radius: inherit; pointer-events: none; }
 .shots-row [aria-pressed="true"] { cursor: default; }

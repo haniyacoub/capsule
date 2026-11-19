@@ -6,7 +6,7 @@
 #     -e SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" \
 #     -e SITE_URL=https://your-domain.example -e TRUSTED_PROXY_HOPS=1 capsule
 #
-# Optional, for the AI pictures of outfits: add  -e OPENAI_API_KEY=…  (or GEMINI_API_KEY).
+# Optional, for the AI pictures of outfits: add  -e GEMINI_API_KEY=…  (Google draws them: [service] in config/looks.toml).
 # The videos of outfits ("See it move") need GEMINI_API_KEY. The pictures, the videos and customers' photos are
 # kept on the same volume, under /data/looks, /data/videos and /data/people.
 FROM python:3.13-slim

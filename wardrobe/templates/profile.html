@@ -8,9 +8,10 @@
    so), and so is what became of it. #}
 {% set model_menu = looks_on or not production %}
 {% set photo_part = model_menu or has_photo or get_flashed_messages(category_filter=['photo']) %}
-{# "Describe your style" (the style chat, where a key for it is set) and the style brief, once there is one; and
-   what the brief's own buttons just did, said there (also when "Remove brief" left nothing else to show). #}
-{% set style_part = chat_on or brief_shown or get_flashed_messages(category_filter=['style', 'style-bad']) %}
+{# "Describe your style" (the style chat, where it is switched on and a key for it is set) and the style brief, once
+   there is one; a conversation kept from before, to delete, also while the chat is off; and what the brief's own
+   buttons just did, said there (also when "Remove brief" left nothing else to show). #}
+{% set style_part = chat_on or brief_shown or chat.turns or get_flashed_messages(category_filter=['style', 'style-bad']) %}
 <div class="cc-head">
   <h1>About you</h1>
   <p class="muted">Your sizes decide what counts as in stock, your colours and what you dress for shape the outfits you are offered, and the budget sets the bar at the top.</p>

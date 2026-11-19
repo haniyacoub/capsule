@@ -26,7 +26,7 @@ export CAPSULE_ENV=production
 export SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
 export SITE_URL=http://127.0.0.1:8000
 export WARDROBE_DATA_DIR=./data-production      # keep it apart from your own data
-export OPENAI_API_KEY="sk-…"                    # optional: AI pictures of outfits (or GEMINI_API_KEY)
+export GEMINI_API_KEY="…"                       # optional: AI pictures of outfits (Google: config/looks.toml)
 gunicorn --workers 2 --threads 4 --bind 127.0.0.1:8000 wardrobe.wsgi:app
 ```
 
@@ -65,7 +65,7 @@ All through environment variables (documented in `wardrobe/settings.py`).
 | `SMTP_URL`, `MAIL_FROM` | for resets | `smtp://user:password@host:587` (or `smtps://…:465`) |
 | `SESSION_DAYS` | no | how long a login lasts (default 30) |
 | `INVITE_CODE` | while the service is not open to everyone | if set (8 characters or more), creating an account needs this code. Give it out as `<SITE_URL>/signup?code=<the code>`. Wrong codes count against the sign-up limit per connection |
-| `OPENAI_API_KEY` or `GEMINI_API_KEY` | for AI pictures | the image service's key; every picture is billed to it. Which service, model and limits: `config/looks.toml` |
+| `GEMINI_API_KEY` | for AI pictures | Google's key; every picture is billed to it. Only the service named under `[service]` in `config/looks.toml` draws (Google; `OPENAI_API_KEY` counts only with `use = "openai"` there). Model and limits: the same file |
 
 ## Deploying
 
@@ -98,6 +98,50 @@ only place they have run. The Tunnel has never been started.
   starts fresh workers and retires the old ones without dropping requests.
   Settings typed into the terminal (a key, `SITE_URL`) need a stop and a start
   instead.
+
+## Logs: what is written down, and for how long
+
+On the server (`deploy/compose.yaml`) Docker keeps what each container prints:
+
+- **The app's access log**, one line per request (`gunicorn.conf.py`): the
+  time, the method and the path (without the `?…` part), the status, the size
+  of the answer, how long it took, and the browser's name for itself (its user
+  agent). For example:
+  `[19/Nov/2026:10:15:02 +0000] "GET /outfits" 200 48213 87ms "Mozilla/5.0 (iPhone; …)"`.
+  Not in it: the visitor's network (IP) address, the name typed into the
+  browser's password box while `SITE_PASSWORD` is set, the `?…` part of the
+  address (an invitation code can be in it), and the page the visitor came
+  from. The path is kept, so the line of a visit to a password-reset link
+  (`/reset/…`) holds that link's one-time code.
+- **The app's own lines:** what is on and off when it starts; each AI picture
+  or video drawn or not drawn, by its key, with the service's own words when
+  it failed; a settings or program error, with the method and path and
+  Python's account of the error; and, while `SMTP_URL` is not set, the email
+  address a password-reset email could not be sent to (never the link).
+- **gunicorn's own lines:** starting, stopping, its workers, and a request it
+  could not read, with the address that request came from. Behind the tunnel
+  that is the tunnel container's address, not the visitor's.
+- **The tunnel's lines** (cloudflared, at its default level, `info`).
+  Cloudflare's documentation lists the request's address, method and headers
+  among what its `debug` level writes, so do not run it at that level on the
+  server.
+
+**How long.** Docker writes each container's log into files of at most 1 MB,
+keeps at most three of them and deletes the oldest when the third is full: at
+most about 3 MB per container. A restart keeps the log; replacing the container
+(`up -d --build` after the code has changed) deletes it. Docker deletes by size,
+not by age, so how many days that is depends on how busy the site is: one access
+line takes about 250 bytes as Docker stores it, so 3 MB is roughly 12,000
+requests. To read them: `docker compose -f deploy/compose.yaml logs app`.
+
+**Also kept, in the data folder** (on the volume, so it outlives the container
+and is in its backups): `looks/problems.log`, one line for each AI picture or
+video that failed (the time, the kind of problem, the service and model, the
+picture's key and the service's words). At 512 KB it becomes
+`looks/problems.old.log`, in place of the one before: at most about 1 MB.
+
+On your own machine gunicorn writes no access log unless you ask it to
+(`--access-logfile`), and `python -m wardrobe` writes no line per request.
 
 ## The example wardrobe's pictures
 
@@ -286,6 +330,10 @@ These block a launch, and most are yours rather than code:
      The five further photos and the videos cost more and are offered only on
      the outfits he said yes to (`more_only_on_yes`). Set the limits to what you
      are willing to pay per day.
+   - *The style chat.* It comes on with the Gemini key the pictures need, and it
+     has a switch of its own: `on` under `[chat]` in `config/style.toml`, whose
+     comment says why it may have to be off on a public site (a data protection
+     officer). `python -m wardrobe chat` says whether it is on, and if not, why.
    - *Customers' photos.* A face photo is personal data of a sensitive kind.
      Offering the upload needs the image service named in the privacy policy,
      a data-processing agreement with it, and a lawyer's look at the consent

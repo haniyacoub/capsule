@@ -28,13 +28,14 @@ from .test_production import PASSWORD, ProductionCase, words
 
 CLIP = (Path(__file__).parent / "fixtures" / "test-pattern.mp4").read_bytes()
 FFMPEG = shutil.which("ffmpeg") and shutil.which("ffprobe")
+REAL_RULES = videos.rules       # [videos] as config/looks.toml has it (WithPictures leaves the videos off)
 
 
 class WithVideos(WithPictures):
     """AI pictures and videos switched on, with stand-ins for both services and no way out to the network."""
 
     def switch_on(self):
-        super().switch_on()
+        super().switch_on()       # (which leaves the videos off: they are switched on again here, with videos.rules)
         self.made = []          # every video the "video model" was asked for
         self.refuse_video = None
 
@@ -47,6 +48,7 @@ class WithVideos(WithPictures):
         self.opener = mock.Mock()
         self.opener.open.side_effect = AssertionError("a network connection was opened")
         for patch in (mock.patch.object(settings, "GEMINI_API_KEY", "test-gemini-key"),
+                      mock.patch.object(videos, "rules", REAL_RULES),
                       mock.patch.object(videogen, "make", stand_in),
                       mock.patch.object(videos, "STARTED", 0.0),
                       mock.patch.object(videos, "_spawn", lambda job: job()),      # made at once, not in the background
