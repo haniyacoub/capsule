@@ -629,7 +629,7 @@ config/scoring.toml        quality score rules
 config/stores.toml         which category pages the collector reads, and how slowly
 config/size_charts.toml    each store's size labels and body measurements
 config/looks.toml          AI pictures and videos: service, limits, wording, where the dots sit
-config/style.toml          the styles to tick, what a style brief is worth, and the style chat's model and limits
+config/style.toml          the styles to tick, what a style brief is worth, and the style chat's switch, model and limits
 config/feeds.toml          the stores whose licensed product feeds are imported (see "Store feeds")
 data/catalog.json          what the stores sell (rewritten by refresh)
 data/wardrobe.db           your profile, slots, locks, saved outfits (SQLite)
@@ -643,7 +643,8 @@ data/browser-profile/      the collector's own Chrome profile (cookies and cache
 wardrobe/                  the code; wardrobe/__init__.py lists what each file does
 tests/                     python -m unittest; browser_check.py is the walk-through in a browser
 check.sh                   every check in one go (see "Checks")
-gunicorn.conf.py           read by gunicorn in production mode: stop if workers keep dying (PRODUCTION.md)
+gunicorn.conf.py           read by gunicorn in production mode: stop if workers keep dying, and an access-log line
+                           without the visitor's address or name (PRODUCTION.md, "Logs")
 deploy/                    running it on a server behind Cloudflare, or a preview from this Mac (deploy/README.md)
 ```
 

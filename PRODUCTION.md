@@ -122,20 +122,21 @@ On the server (`deploy/compose.yaml`) Docker keeps what each container prints:
   could not read, with the address that request came from. Behind the tunnel
   that is the tunnel container's address, not the visitor's.
 - **The tunnel's lines** (cloudflared, at its default level, `info`).
-  Cloudflare's documentation lists the request's address, method and headers
-  among what its `debug` level writes, so do not run it at that level on the
-  server.
+  Cloudflare's documentation says its `debug` level writes each request's URL,
+  method and all its headers, and Cloudflare puts the visitor's network address
+  into a header: do not run it at that level on the server.
 
-**How long.** Docker writes each container's log into files of at most 1 MB,
-keeps at most three of them and deletes the oldest when the third is full: at
-most about 3 MB per container. A restart keeps the log; replacing the container
-(`up -d --build` after the code has changed) deletes it. Docker deletes by size,
-not by age, so how many days that is depends on how busy the site is: one access
-line takes about 250 bytes as Docker stores it, so 3 MB is roughly 12,000
-requests. To read them: `docker compose -f deploy/compose.yaml logs app`.
+**How long.** Docker writes each container's log into files of at most 1 MB
+and keeps at most three of them: when the newest is full, a new one is started
+and the oldest is deleted. So at most about 3 MB per container. A restart keeps
+the log; replacing the container (`up -d --build` after the code has changed)
+deletes it. Docker deletes by size, not by age, so how many days that is depends
+on how busy the site is: one access line takes 250 to 300 bytes as Docker stores
+it, so 3 MB is roughly 10,000 requests. To read them:
+`docker compose -f deploy/compose.yaml logs app`.
 
-**Also kept, in the data folder** (on the volume, so it outlives the container
-and is in its backups): `looks/problems.log`, one line for each AI picture or
+**Also kept, in the data folder** (on the volume, so it outlives the
+container): `looks/problems.log`, one line for each AI picture or
 video that failed (the time, the kind of problem, the service and model, the
 picture's key and the service's words). At 512 KB it becomes
 `looks/problems.old.log`, in place of the one before: at most about 1 MB.

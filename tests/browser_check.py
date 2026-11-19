@@ -1273,7 +1273,7 @@ def run(base: str) -> None:
                          " colour: style.color, ground: style.backgroundColor, share: a.width * a.height / (pic.width * pic.height),"
                          " heard: b.getAttribute('aria-label')}; })")
 
-            def labelled(seen: list, where: str) -> None:
+            def small_ones_labelled(seen: list, where: str) -> None:
                 assert seen and all(label and label["words"] == "AI" and label["hidden"] == "true" and label["inside"]
                                     and label["shown"] and label["size"] >= 9 and label["colour"] == "rgb(255, 255, 255)"
                                     and float(label["ground"].split(",")[-1].strip(" )")) >= 0.7 and label["share"] <= 0.2
@@ -1368,7 +1368,7 @@ def run(base: str) -> None:
                         f"{where} the small pictures are not one 40px row of six 30 by 40px pictures without names: {seen}"
                     assert seen["labels"] == [f"{names[name]}, AI picture" for name in order], \
                         f"{where} a small picture does not say its name, and that it is an AI picture: {seen['labels']}"
-                    labelled(other.evaluate(ai_labels, first), where)
+                    small_ones_labelled(other.evaluate(ai_labels, first), where)
                     assert seen["overflow"] == "visible" and not seen["scrolls"] and seen["page"] <= width, \
                         f"{where} the row scrolls or is a scrolling box, or the page is wider than the screen: {seen}"
                     if width == 390:
@@ -1550,7 +1550,7 @@ def run(base: str) -> None:
                     break
                 page.wait_for_timeout(200)
             assert 6 in arriving, f"the five pictures never all arrived: {sorted(arriving)}"
-            labelled(page.evaluate(ai_labels, first), "on a computer")
+            small_ones_labelled(page.evaluate(ai_labels, first), "on a computer")
             assert arriving & {2, 3, 4, 5}, f"the pictures did not show one by one as they arrived: {sorted(arriving)}"
             assert not page.locator(f"{row} .btn").count(), "'More photos' is still offered once all six are there"
             assert page.evaluate("s => document.querySelector(s + ' .look-pic').dataset.kept", first) == "yes" \
