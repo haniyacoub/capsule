@@ -200,8 +200,8 @@ class PublicSite(ProductionCase):
         self.assertIn("<title>Stilsmith — menswear: a small wardrobe that works together</title>", page)
         # The size of the wardrobe follows the budget (config/budget.toml), and that is all it promises of the budget:
         # on the stores' real prices a small budget may not buy what it plans (test_budget.py).
-        self.assertIn("Stilsmith plans menswear pieces that all go together, more of them the bigger your budget, up "
-                      "to 24, and you can change any of them.", text)
+        self.assertIn("Stilsmith plans menswear pieces that all go together, as many as your budget sets (up to 24), "
+                      "and you can change any of them.", text)
         self.assertIn("plans a men's wardrobe in one colour palette, sized to your budget (up to 24 pieces),", text)
         self.assertIn("or let Stilsmith fit everything to your budget, and say so where even the cheapest options "
                       "cost more.", text)

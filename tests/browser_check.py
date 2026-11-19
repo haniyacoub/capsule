@@ -10,7 +10,10 @@ what a new customer would: signs up, is asked three short things he may skip (no
 him) and lands on the outfits with an empty wardrobe (the bar says so; the Wardrobe and the shopping list say so and
 lead to the outfits; the whole picture above the tab bar on three phones, with "Add to my wardrobe" where the screen
 is 800px tall or more). From then on this customer has the whole plan in his wardrobe, as someone has who was a customer
-before the wardrobe became the outfits he said yes to. He changes the price level, watches an outfit's picture
+before the wardrobe became the outfits he said yes to, and the plan and price level every account had until 19 Nov 2026
+(1,500 €, 24 pieces, Cheapest: a new account starts at 300 €, 9 pieces, on "Best for budget"). Profile's Budget tab
+offers five budgets, each saying about how many pieces it plans, by keyboard, on a phone and a computer, light and dark,
+and the plan page says what the plan was made for. He changes the price level, watches an outfit's picture
 arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
 page on a phone jumping), taps "More photos" (told first what it costs; five more pictures made from the front
 picture, each showing as it arrives), looks at one large (no dots on it), taps a small picture while another answer is
@@ -115,7 +118,8 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import make_server  # noqa: E402
 
-from wardrobe import colours, db, guests, imagegen, looks, mockchat, person, settings, stylechat, videogen, videos  # noqa: E402
+from wardrobe import capsule, catalog, colours, db, guests, imagegen, looks, mock, mockchat, person, settings  # noqa: E402
+from wardrobe import shared, stylechat, videogen, videos  # noqa: E402
 from wardrobe import profile as profile_mod  # noqa: E402
 from wardrobe.app import create_app  # noqa: E402
 # With an SQLite that can deadlock (db.sqlite_problem) the walk-through's first pages would wait for ever, and every
@@ -344,9 +348,31 @@ def run(base: str) -> None:
                 db.set_setting("spares", [slot["id"] for slot in db.list_slots() if slot["qty"] > 1] if his else [])
                 profile_mod.answer("budget")
 
+        def as_before(email: str = "") -> None:
+            """This customer (or, with no address, the one who signed up last) as every account was until 19 Nov 2026:
+            his plan made from the example's answers with 1,500 € (24 pieces, config/budget.toml: a coat, a blazer,
+            boots ...), on the price level Cheapest, with the products of that plan (the published list's while one
+            is published, else the demo's). A new account starts at 300 € (9 pieces) on "Best for budget": sign_up and
+            the steps of customers who answer the welcome walk that. The steps written before then walk the pages with
+            the bigger plan, as the customers they were written for have it."""
+            with db.connect() as con:
+                found = (con.execute("SELECT id FROM users WHERE email = ?", (email,)) if email
+                         else con.execute("SELECT MAX(id) FROM users")).fetchone()[0]
+            with db.as_user(found):
+                answers = {**profile_mod.EXAMPLE, "budget": 1500}
+                profile_mod.save(answers)
+                db.set_setting("mode", "cheapest")
+                db.set_setting("levels", True)
+                db.replace_slots(capsule.propose(answers)[0])
+                real = shared.build_catalog(db.list_slots(), None) if shared.published() else None
+                catalog.save(real or mock.build(db.list_slots()))
+                if real:
+                    db.set_setting("pool", real["pool"])
+
         def a_customer_from_before(where_page) -> None:
             """What the other steps' customers do after signing up: skip the welcome; and what they have (above)."""
             skip_the_welcome(where_page)
+            as_before()
             the_whole_plan_is_his()
             where_page.reload(wait_until="networkidle")
 
@@ -395,7 +421,11 @@ def run(base: str) -> None:
                 said = page.locator("main").inner_text()
                 assert f"STEP {step} OF 3" in said.upper() and title in said, f"the welcome's step {step} reads {said[:120]!r}"
                 assert not page.locator("#summary").count(), f"a budget bar on the welcome's step {step}, before he chose anything"
-                assert "€" not in page.locator("body").inner_text(), f"a price on the welcome's step {step}"
+                shown = page.locator("body").inner_text()
+                if step == 2:       # the budgets he may choose name their amounts: no price, no total
+                    shown = shown.replace(page.locator(".budget-pick").inner_text(), "")
+                    expect(page.locator("#budget"), "'Other amount' opens the field for his own").to_be_hidden()
+                assert "€" not in shown, f"a price on the welcome's step {step}"
                 assert not page.locator("nav.tabs a").count(), f"tabs to leave by on the welcome's step {step}"
                 filled = page.evaluate("""() => [...document.querySelectorAll('main input, main select')]
                     .filter(f => f.type !== 'hidden' && (f.type === 'checkbox' || f.type === 'radio' ? f.checked : f.value))
@@ -423,7 +453,9 @@ def run(base: str) -> None:
                 assert "€" not in page.locator("body").inner_text(), f"before any yes, {url} shows a sum"
                 page.click("main a.btn:has-text('See the outfits')")
                 page.wait_for_url(base + "/outfits")
-            # From here on this customer has the whole plan in his wardrobe (see the_whole_plan_is_his).
+            # From here on this customer is one from before (as_before) with the whole plan in his wardrobe (see
+            # the_whole_plan_is_his).
+            as_before()
             the_whole_plan_is_his()
             page.goto(base + "/outfits", wait_until="networkidle")
 
@@ -3529,7 +3561,10 @@ def run(base: str) -> None:
                 assert phone.evaluate("() => [document.activeElement.name, document.activeElement.value]") == ["stores", "cos"]
                 open_tab(phone, "budget")
                 phone.keyboard.press("Tab")
-                assert phone.evaluate("() => document.activeElement.id") == "budget", "Tab from the Budget tab"
+                # (The Budget tab's controls start with its five choices: Tab reaches the one chosen, his own amount.)
+                assert phone.evaluate("() => [document.activeElement.name, document.activeElement.value, "
+                                      "document.activeElement.closest('.cc-panel').id]") == ["budget_choice", "other", "panel-budget"], \
+                    "Tab from the Budget tab does not reach the budget chosen"
 
                 # On a phone the middle takes about 40% of the screen and stays at the top with the tabs under it while
                 # the controls scroll (every tab reaches that far); Save is in view at the bottom, above the tab bar,
@@ -3963,8 +3998,8 @@ def run(base: str) -> None:
         def one_tap_colour():
             # A piece the store list has nothing for says so and offers, in one tap, a colour Stilsmith has. The demo
             # data has something for every piece, so a small list is published first, the way the operator does:
-            # jumpers in grey and navy only. A second customer who likes black, grey and white then has a black
-            # jumper with nothing to buy. Every signed-in page picks up a list as soon as it is published, so it is
+            # jumpers in grey and navy only. A second customer who likes black, grey and white, with a budget of
+            # 1,500 € (a plan of 24 pieces, two jumpers among them), then has a black jumper with nothing to buy. Every signed-in page picks up a list as soon as it is published, so it is
             # taken away again at the end: the first customer's steps stay on the demo data, whatever their order.
             jumper = {"category": "knit", "store": "cos", "currency": "EUR", "composition_text": "100% Wolle",
                       "fit": "regular", "sizes_all": ["S", "M", "L"], "sizes_in_stock": ["S", "M", "L"],
@@ -3998,6 +4033,9 @@ def run(base: str) -> None:
                 assert [note.split(".")[0] for note in notes] == ["You have not given your sizes yet", "You have not chosen colours yet",
                                                                   "You have not set a budget yet"], f"what he has not given: {notes}"
                 pick_colours(phone, ("black", "grey", "white"))
+                open_tab(phone, "budget")
+                phone.locator("label:has(input[name=budget_choice][value=other])").click()     # opens its field
+                phone.fill("#budget", "1500")
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/outfits")
                 phone.wait_for_load_state("networkidle")
@@ -4314,6 +4352,7 @@ def run(base: str) -> None:
                     view.wait_for_url(base + "/welcome/2")
                     for colour in ("navy", "grey"):
                         view.locator(f"label.pick-colour:has(input[value={colour}])").click()
+                    view.locator("label:has(input[name=budget_choice][value=other])").click()      # opens its field
                     view.fill("input[name=budget]", "700")
                     tap("button:has-text('Continue')")
                     view.wait_for_url(base + "/welcome/3")
@@ -4325,8 +4364,9 @@ def run(base: str) -> None:
                     view.goto(base + "/profile", wait_until="networkidle")
                     assert not view.locator("main .not-given").count(), \
                         f"{where}: he answered the welcome, and Profile says he has not: {view.locator('main .not-given').all_inner_texts()}"
-                    given = [view.input_value("select[name=top_size]"), view.input_value("input[name=shoe]"), view.input_value("#budget")]
-                    assert given == ["L", "44", "700"], f"{where}: the welcome's answers on Profile: {given}"
+                    given = [view.input_value("select[name=top_size]"), view.input_value("input[name=shoe]"), view.input_value("#budget"),
+                             view.locator("input[name=budget_choice]:checked").get_attribute("value")]
+                    assert given == ["L", "44", "700", "other"], f"{where}: the welcome's answers on Profile: {given}"
                     # His plan is sized for his budget (config/budget.toml): on its cheapest options it fits, so at the
                     # level he starts on no outfit could take him over it. He picks "Expensive" (three quarters of the
                     # way up each piece's prices), where one can: what an outfit says of going over is checked below.
@@ -5472,6 +5512,7 @@ def run(base: str) -> None:
             assert other.eval_on_selector("#budget", "i => i.checkValidity()"), "the budget field refuses 999"
             other.click("button:has-text('Save profile')")
             other.wait_for_load_state("networkidle")
+            other.goto(base + "/", wait_until="networkidle")      # (a new budget plans afresh: the outfits show it)
             assert "of 999 €" in other.locator("#summary").inner_text().replace("\xa0", " "), "a budget of 999 € was not saved"
             context.close()
             context, other = logged_in(1280, 900, False)
@@ -5883,11 +5924,13 @@ def run(base: str) -> None:
                     for step in (1, 2):
                         assert not view.get_by_text(words).count(), f"{where}: the welcome's step {step} offers the style chat"
                         if step == 2 and "has_touch" in more:
-                            # The budget is on the first screen, above the colours: not below all 25 of them.
-                            budget = view.evaluate("""() => { const b = document.querySelector('input[name=budget]').getBoundingClientRect();
-                                return {bottom: b.bottom, colours: document.querySelector('.pick-colour').getBoundingClientRect().top,
+                            # The budget is on the first screen, above the colours: not below all 25 of them. (Its
+                            # five choices: the first ones on the first screen, all of them above the colours.)
+                            budget = view.evaluate("""() => { const b = document.querySelector('.budget-pick').getBoundingClientRect();
+                                const first = document.querySelector('.budget-choice').getBoundingClientRect();
+                                return {first: first.bottom, bottom: b.bottom, colours: document.querySelector('.pick-colour').getBoundingClientRect().top,
                                         screen: innerHeight}; }""")
-                            assert budget["bottom"] <= min(budget["colours"], budget["screen"]), \
+                            assert budget["first"] <= budget["screen"] and budget["bottom"] <= budget["colours"], \
                                 f"{where}: the welcome's budget is under the colours or off the first screen: {budget}"
                         view.click("button:has-text('Skip')")
                         view.wait_for_load_state("networkidle")
@@ -6225,19 +6268,20 @@ def run(base: str) -> None:
                 assert "I understood no leather" in heard_it, f"the second answer is not read out: {heard_it!r}"
                 wide.fill("#style-chat .chat-say textarea", "")
                 # He confirms "no leather". Every pair of shoes, sneakers and boots the example plan can take is
-                # leather, so they stay leather, and the page says that they still go against the brief. (With every
-                # option of a pair against the brief, his style no longer chooses among them (style.narrowed): the
-                # price level does, as without a brief, so a pair can move to another leather pair, and the page's
-                # sentence says so.) No outfit with them is said to fit it, and every outfit has shoes: no line at
-                # all, where the same brief without the wish had lines.
+                # leather, so they stay the pairs they were (with every option of a pair against the brief, the rest of
+                # it still chooses among them: style.narrowed), and the page says that they still go against the
+                # brief. No outfit with them is said to fit it, and every outfit has shoes: no line at all, where the
+                # same brief without the wish had lines.
                 assert wide.input_value("[data-brief=suggested] input[name=not_wanted]") == "logo, leather", "the suggestion"
                 before = bought(wide)
                 with wide.expect_navigation(wait_until="networkidle"):
                     wide.click("button:has-text('Use this brief')")
                 after = bought(wide)
                 sentence = said_on_screen(wide, "Style brief saved.", "/outfits", "Use this brief with no leather")
-                shoes = [piece for piece in after if any(kind in piece for kind in ("sneakers", "shoes", "loafers", "boots"))]
-                assert len(shoes) == 3, f"his wardrobe's pairs: {shoes}"
+                shoes = {piece: product for piece, (product, _, _) in after.items()
+                         if any(kind in piece for kind in ("sneakers", "shoes", "loafers", "boots"))}
+                assert len(shoes) == 3 and all(before[piece][0] == product for piece, product in shoes.items()), \
+                    f"no leather changed the shoes to other shoes: {[(before[piece][0], product) for piece, product in shoes.items()]}"
                 expected = (f"Style brief saved. {change(before, after, 'Your brief', 'It changed none of your pieces.')} "
                             "3 pieces still go against it: White leather sneakers, Dark brown derby shoes, "
                             "Dark brown chelsea boots. See your outfits")
@@ -6467,6 +6511,106 @@ def run(base: str) -> None:
             finally:
                 context.close()
 
+        def the_budget_choices():
+            # Profile's Budget tab: five choices, each a radio button in its label: Starter 150 €, Basic 300 €, Solid
+            # 600 €, Full 1,000 €+ (each with about how many pieces it plans for everyday and the office, and Starter
+            # with the budget the office joins at), and "Other amount", which opens the field for his own. On a phone
+            # (light) and a computer (dark): each row at least 44px to tap, its words readable (4.5:1), nothing wider
+            # than the screen. By keyboard the arrow keys choose among them, and Tab from "Other amount" reaches its
+            # field. Save plans the wardrobe for the budget chosen, and the plan page says what it was made for. A
+            # customer of his own (a new one: nothing chosen yet), deleted when the step ends.
+            who = "budget-" + EMAIL
+            rows = """() => { const rgb = c => c.match(/[\\d.]+/g).slice(0, 3).map(Number);
+                const lum = c => { const [r, g, b] = rgb(c).map(v => { v /= 255;
+                    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+                const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+                const ground = el => { for (let at = el; at; at = at.parentElement) { const c = getComputedStyle(at).backgroundColor;
+                    if (!/rgba\\(.*, 0\\)$/.test(c) && c !== 'transparent') return c; } return getComputedStyle(document.body).backgroundColor; };
+                return {rows: [...document.querySelectorAll('.budget-choice')].map(row => ({
+                            words: row.textContent.replace(/\\s+/g, ' ').trim(), height: row.getBoundingClientRect().height,
+                            chosen: row.querySelector('input').checked,
+                            contrast: Math.min(...[...row.querySelectorAll('b, .budget-size, .budget-wait, .budget-name')]
+                                .map(el => ratio(getComputedStyle(el).color, ground(el))))})),
+                        field: !!document.getElementById('budget').getClientRects().length,
+                        wide: document.documentElement.scrollWidth > innerWidth}; }"""
+            plan_line = "() => document.getElementById('plan-for').textContent.replace(/\\s+/g, ' ').split(' Trousers')[0].trim()"
+            try:
+                for width, height, scheme in ((390, 844, "light"), (1280, 860, "dark")):
+                    phone = width < 500
+                    context = browser.new_context(viewport={"width": width, "height": height}, color_scheme=scheme,
+                                                  is_mobile=phone, has_touch=phone)
+                    try:
+                        view = context.new_page()
+                        view.on("pageerror", lambda e: failures.append(f"script error: {e}"))
+                        where = f"{width}px, {scheme}"
+                        if phone:
+                            view.goto(base + "/signup", wait_until="networkidle")
+                            view.fill("input[name=email]", who)
+                            view.fill("input[name=password]", PASSWORD)
+                            view.click("button:has-text('Create account')")
+                            view.wait_for_url(base + "/welcome")
+                            skip_the_welcome(view)
+                        else:
+                            view.goto(base + "/login", wait_until="networkidle")
+                            view.fill("input[name=email]", who)
+                            view.fill("input[name=password]", PASSWORD)
+                            view.click("button:has-text('Log in')")
+                            view.wait_for_load_state("networkidle")
+                        view.goto(base + "/profile#budget", wait_until="networkidle")
+                        expect(view.locator("#tab-budget")).to_have_attribute("aria-selected", "true")
+                        seen = view.evaluate(rows)
+                        words = [row["words"] for row in seen["rows"]]
+                        assert words == ["Starter 150 € about 7 pieces Office joins at about 206 €", "Basic 300 € about 9 pieces",
+                                         "Solid 600 € about 12 pieces", "Full 1,000 €+ about 17 pieces", "Other amount"], \
+                            f"{where}: the budget's choices read {words}"
+                        assert all(row["height"] >= 44 for row in seen["rows"]), f"{where}: a choice is under 44px to tap: {seen['rows']}"
+                        assert all(row["contrast"] >= 4.5 for row in seen["rows"]), f"{where}: a choice's words are hard to read: {seen['rows']}"
+                        assert not seen["wide"], f"{where}: the Budget tab is wider than the screen"
+                        if phone:
+                            # A new customer has chosen none: the field for his own amount stays closed until he does.
+                            assert not any(row["chosen"] for row in seen["rows"]) and not seen["field"], f"{where}: {seen}"
+                            # By keyboard: Space chooses, the arrow keys move the choice, Tab leads from "Other amount"
+                            # into its field.
+                            view.locator("input[name=budget_choice][value='150']").focus()
+                            view.keyboard.press("Space")
+                            for _ in range(4):
+                                view.keyboard.press("ArrowDown")
+                            assert view.evaluate("() => document.activeElement.value") == "other", "the arrow keys do not reach Other amount"
+                            ring = view.evaluate("() => getComputedStyle(document.activeElement).outlineStyle")
+                            assert ring != "none", f"{where}: a chosen budget shows no focus"
+                            expect(view.locator("#budget"), "'Other amount' does not open its field").to_be_visible()
+                            view.keyboard.press("Tab")
+                            assert view.evaluate("() => document.activeElement.id") == "budget", "Tab from Other amount misses its field"
+                            view.keyboard.type("450")
+                            view.keyboard.press("Shift+Tab")
+                            view.keyboard.press("ArrowUp")
+                            view.keyboard.press("ArrowUp")
+                            assert view.evaluate("() => document.activeElement.value") == "600"
+                            expect(view.locator("#budget")).to_be_hidden()
+                            with view.expect_navigation(wait_until="networkidle"):
+                                view.locator(".cc-save button").tap()
+                            told = " ".join(view.locator("main > .flash").first.inner_text().split())
+                            assert told == "Your plan now has 12 pieces in your colours.", f"{where}: after Solid the page says {told!r}"
+                            view.goto(base + "/slots", wait_until="networkidle")
+                            line = view.evaluate(plan_line)
+                            assert line == "Planned for everyday and the office, for 600 €: 12 pieces.", f"{where}: the plan page says {line!r}"
+                        else:
+                            assert [row["chosen"] for row in seen["rows"]] == [False, False, True, False, False], f"{where}: {seen}"
+                            view.locator("label:has(input[name=budget_choice][value=other])").click()
+                            expect(view.locator("#budget")).to_be_visible()
+                            assert view.input_value("#budget") == "600", "the field for his own starts from his budget"
+                            view.locator("label:has(input[name=budget_choice][value='300'])").click()
+                            expect(view.locator("#budget")).to_be_hidden()
+                            with view.expect_navigation(wait_until="networkidle"):
+                                view.click(".cc-save button")
+                            view.goto(base + "/slots", wait_until="networkidle")
+                            line = view.evaluate(plan_line)
+                            assert line == "Planned for everyday and the office, for 300 €: 9 pieces.", f"{where}: the plan page says {line!r}"
+                    finally:
+                        context.close()
+            finally:
+                delete_a_steps_customer(who)
+
         steps = [("create an account", sign_up), ("Stilsmith's own typefaces load", own_typefaces),
                  ("price levels and best for budget", price_levels),
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
@@ -6526,6 +6670,7 @@ def run(base: str) -> None:
                  ("a piece's page by keyboard, links answered there", a_pieces_page_by_keyboard),
                  ("an option's two actions on three phones", options_fit_three_phones),
                  ("the plan answers inside the piece", the_plan_answers_next_to_the_piece),
+                 ("the budget's five choices, by keyboard, light and dark", the_budget_choices),
                  ("delete the account", delete_account)]
         for name, step in steps:
             known = len(failures)
