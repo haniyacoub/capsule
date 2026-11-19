@@ -111,7 +111,7 @@
             {% if o.clip %}
             <div class="clip" data-clip hidden>
               <video src="{{ url_for('example_clip', outfit_key=o.key, name=o.clip) }}" poster="{{ still }}"
-                     muted loop playsinline preload="none" disablepictureinpicture aria-hidden="true"></video>
+                     muted loop playsinline preload="none" disablepictureinpicture aria-hidden="true" tabindex="-1"></video>
               <span class="ai-chip">AI video</span>
               <button class="clip-toggle" type="button" data-clip-toggle>
                 <span class="when-playing">{{ icon('pause') }}<span class="sr">Pause the video</span></span>
