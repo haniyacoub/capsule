@@ -162,10 +162,13 @@ app = ProxyFix(plain, x_for=1, x_proto=1, x_host=1)
 @needs_gunicorn
 class WithARealGunicorn(unittest.TestCase):
     def start(self, folder: Path, app: str, *more: str) -> subprocess.Popen:
+        # --graceful-timeout 5: a worker still starting when a test stops the server can miss the stop signal, and
+        # gunicorn then waits its graceful timeout before it ends that worker: 30 s by default, as long as these tests
+        # wait for the server to stop (seen once on a slow CI machine, 22 Nov 2026).
         (folder / "theapp.py").write_text(app)
         return subprocess.Popen(
             [sys.executable, "-m", "gunicorn", "--config", str(SETTINGS), "--workers", "2", "--bind", "127.0.0.1:0",
-             "--error-logfile", str(folder / "log.txt"), *more, "theapp:app"],
+             "--graceful-timeout", "5", "--error-logfile", str(folder / "log.txt"), *more, "theapp:app"],
             cwd=folder, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def wait_for(self, folder: Path, text: str, times: int = 1, seconds: float = 20) -> str:
@@ -195,7 +198,7 @@ class WithARealGunicorn(unittest.TestCase):
         # gunicorn's own line would start with the visitor's real address and hold the name typed into the browser's
         # password box (SITE_PASSWORD, sent as Basic authorization). The line written here holds the time, the
         # method and path, the status, the size, how long it took and the browser's name for itself: nothing else.
-        name = base64.b64encode("Hani Yacoub:the site's password".encode()).decode()
+        name = base64.b64encode("Erika Mustermann:the site's password".encode()).decode()
         with tempfile.TemporaryDirectory() as where:
             folder = Path(where)
             server = self.start(folder, BEHIND_THE_TUNNEL, "--access-logfile", str(folder / "access.txt"))
@@ -219,7 +222,7 @@ class WithARealGunicorn(unittest.TestCase):
                     if server.poll() is None:
                         server.kill()
         self.assertRegex(line, r'^\[[^\]]+\] "GET /signup" 200 2 \d+ms "TestBrowser/1\.0"$')
-        for private in ("203.0.113.77", "127.0.0.1", "Hani", "Yacoub", "INVITE-2026", "stilsmith.example", "?"):
+        for private in ("203.0.113.77", "127.0.0.1", "Erika", "Mustermann", "INVITE-2026", "stilsmith.example", "?"):
             self.assertNotIn(private, line)
 
     def test_a_healthy_service_starts_reloads_and_stops_as_before(self):
