@@ -4462,6 +4462,18 @@ def run(base: str) -> None:
                             (target.tap() if phone else target.click())
                         return scrolled
 
+                    def level(key: str) -> None:
+                        """He picks a price level on the Wardrobe page. With JavaScript the choice is sent as he taps
+                        it: this waits for the answer, as a reload before it came cancelled the choice (seen once on a
+                        slow CI machine, 22 Nov 2026). Without JavaScript he presses Apply."""
+                        choice = view.locator(f"label:has(input[name=mode][value={key}])")
+                        if script:
+                            with view.expect_response(lambda r: r.request.method == "POST" and r.url.endswith("/settings")):
+                                choice.click()
+                        else:
+                            choice.click()
+                            tap("#controls button:has-text('Apply')")
+
                     def money(text: str) -> float:
                         if text == "":          # the yes of an outfit all his already says no sum: it adds 0 € (review N6)
                             return 0.0
@@ -4563,11 +4575,7 @@ def run(base: str) -> None:
                     # level he starts on no outfit could take him over it. He picks "Expensive" (three quarters of the
                     # way up each piece's prices), where one can: what an outfit says of going over is checked below.
                     view.goto(base + "/", wait_until="networkidle")
-                    view.locator("label:has(input[name=mode][value=expensive])").click()
-                    if script:
-                        view.wait_for_load_state("networkidle")
-                    else:
-                        tap("#controls button:has-text('Apply')")
+                    level("expensive")
                     view.reload(wait_until="networkidle")
                     assert view.locator("input[name=mode][value=expensive]").is_checked(), f"{where}: 'Expensive' was not chosen"
 
@@ -4774,8 +4782,7 @@ def run(base: str) -> None:
                         # showed. (The level is fitted for the whole plan, so a piece does not change its product when it
                         # joins his wardrobe; it did, and the bar went up by more than the button had said.)
                         view.goto(base + "/", wait_until="networkidle")
-                        view.locator("label:has(input[name=mode][value=budget])").click()
-                        view.wait_for_load_state("networkidle")
+                        level("budget")
                         view.reload(wait_until="networkidle")
                         assert view.locator("input[name=mode][value=budget]").is_checked(), f"{where}: 'Best for budget' was not chosen"
                         for _ in range(2):
@@ -4796,8 +4803,7 @@ def run(base: str) -> None:
                             view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
                             tap(f"{first} .btn.yes")
                         view.goto(base + "/", wait_until="networkidle")
-                        view.locator("label:has(input[name=mode][value=cheapest])").click()
-                        view.wait_for_load_state("networkidle")
+                        level("cheapest")
 
                     # Take the first outfit out under "My outfits": only what the other does not wear goes, and Undo.
                     view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
