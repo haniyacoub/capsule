@@ -355,8 +355,8 @@ class TheDemosStreetwear(unittest.TestCase):
 
 class TheDemoFitsStreetwear(AppCase):
     def test_best_for_budget_fits_with_nothing_rated_under_70(self):
-        for kinds in (["street"], ["everyday", "street"], ["everyday", "office", "street"]):
-            for budget in (150, 300, 600, 1000):
+        for kinds in (["street"], ["everyday", "street"], ["office", "street"], ["everyday", "office", "street"]):
+            for budget in (150, 216, 300, 600, 1000):
                 with self.subTest(kinds=kinds, budget=budget):
                     answers = {**EXAMPLE, "example": False, "use": kinds, "budget": budget}
                     profile_mod.save(answers)
@@ -408,6 +408,20 @@ class TheStreetTitle(AppCase):
         db.update_slot("indigo-jeans", locked=True, pick=baggy.id)
         piece = next(p for p in outfits.pieces_of(selection.build()) if p.view.slot["id"] == "indigo-jeans")
         self.assertEqual((piece.view.chosen.data["name"], piece.street), ("Jeans Loose Baggy", False))
+
+    def test_with_the_office_and_streetwear_its_first_pieces_make_a_street_outfit(self):
+        # From the budget streetwear joins at, its first three pieces (two boxy white tees, charcoal cargo trousers,
+        # grey chunky sneakers) are a Street outfit; without shoes the tees and the cargo trousers are.
+        for budget in (216, 300, 600, 1000):
+            w = self.wardrobe(["office", "street"], budget)
+            self.assertEqual(self.outfit(w, "white-boxy-tee", "charcoal-cargo-trousers", "grey-chunky-sneakers").label,
+                             "Street", budget)
+            self.assertTrue(all(o.label != "Street" or o.suits("everyday") for o in outfits.all_outfits(w)), budget)
+        answers = {**EXAMPLE, "example": False, "use": ["office", "street"], "budget": 300, "shoes": False}
+        profile_mod.save(answers)
+        db.replace_slots(capsule.propose(answers)[0])
+        catalog.save(mock.build(db.list_slots()))
+        self.assertEqual(self.outfit(selection.build(), "white-boxy-tee", "charcoal-cargo-trousers").label, "Street")
 
     def test_an_overshirt_or_a_jacket_goes_over_a_hoodie(self):
         w = self.wardrobe(["street"], 600)
