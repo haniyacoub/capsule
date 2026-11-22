@@ -52,7 +52,7 @@
 {% if demo %}{% include "_demo.html" %}{% endif %}
 <div class="toolbar">
   <div class="chips" role="group" aria-label="Which outfits">
-    {% for key, label in OCCASIONS.items() %}
+    {% for key, label in occasions(occasion).items() %}
     <a class="chip-link{% if occasion == key %} on{% endif %}" href="{{ url_for('outfits_page', occasion=key) }}"{% if occasion == key %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
   </div>

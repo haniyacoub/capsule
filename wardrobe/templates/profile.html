@@ -54,12 +54,17 @@
       <input type="hidden" name="tab" value="" data-cc-tab-field>
 
       <section class="cc-panel" id="panel-you" data-tab="you" aria-labelledby="tab-you">
+        {# The kinds of wardrobe he dresses for: any of them (capsule.KIND_ORDER). They join his plan in this order, as
+           his budget allows (config/budget.toml); a kind his budget does not reach yet is said under them, with the
+           budget it joins at. Unticking all of them keeps what he had (profile.from_form, `use_shown`). #}
         <h2 class="sec" id="use-label">What do you dress for?</h2>
-        <div class="seg" role="radiogroup" aria-labelledby="use-label">
-          {% for key, label in USES.items() %}
-          <label><input type="radio" name="use" value="{{ key }}"{% if profile.use == key %} checked{% endif %}><span>{{ label }}</span></label>
+        <input type="hidden" name="use_shown" value="1">
+        <div class="kinds" role="group" aria-labelledby="use-label" aria-describedby="kinds-say">
+          {% for key, label in KINDS.items() %}
+          <label class="check"><input type="checkbox" name="use" value="{{ key }}"{% if key in profile.use %} checked{% endif %}><span>{{ label }}</span></label>
           {% endfor %}
         </div>
+        <p class="muted small" id="kinds-say">Tick any. They join your plan in this order, as your budget allows.{% if kinds_wait %} {% if 'budget' in answered %}Your budget is {{ profile.budget|eur }}{% else %}Until you set your budget, plans are made for {{ profile.budget|eur }}{% endif %}: {{ kinds_wait }}{% endif %}</p>
         {# The styles: tappable, any number of them. They are the style brief's styles (style.py): they change which
            products and outfits come first, not the plan. `styles_shown` tells a form with them from one without. #}
         <input type="hidden" name="styles_shown" value="1">

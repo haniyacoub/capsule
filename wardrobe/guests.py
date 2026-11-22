@@ -153,7 +153,10 @@ def ensure_example() -> None:
         return
     with db.as_user(user_id):
         answers = {**profile_mod.EXAMPLE, "budget": example_budget()}
-        if db.get_setting("profile") != answers:
+        # What it dresses for, stored in one word before kinds were ticked ("both"), is the same answer as the kinds
+        # everyday and the office: compared by what it means, so that no deploy rewrites it.
+        stored = db.get_setting("profile")
+        if stored is None or {**stored, "use": list(capsule.kinds_of(stored.get("use")))} != answers:
             db.set_setting("profile", answers)
         given = sorted(profile_mod.QUESTIONS)       # its budget, colours and what it dresses for (profile.answered)
         if db.get_setting("answered") != given:
@@ -245,8 +248,7 @@ def first_outfits(w, n: int = PAGE,
     """The first `n` outfits a visitor sees, in his order, with their boards (row): his first page, then each
     "Show more outfits" as he would press it, until there are `n` (at most MOST, as many as one page can hold).
     For the owner's command, python -m wardrobe example-pictures. `w`: the example wardrobe. `pictured`: as in row."""
-    use = profile_mod.load()["use"]
-    occasion = "all" if use == "both" else use       # the outfits his page opens on (as app.usual_occasion)
+    occasion = outfits.opens_on(profile_mod.load()["use"])     # the outfits his page opens on (as app.usual_occasion)
     pairs, total, _ = row(w, occasion, pictured=pictured)
     while len(pairs) < min(n, total, MOST):
         more, total, _ = row(w, occasion, min(len(pairs) + PAGE, MOST), 0, [o.key for o, _ in pairs], pictured)

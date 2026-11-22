@@ -55,9 +55,11 @@ class UsualPrices(unittest.TestCase):
         self.assertLess(rated("anyone", 40, "64 % Polyester, 34 % Viskose, 2 % Elasthan", "trousers", best), 70)
 
     def test_only_the_lower_ends_moved(self):
-        # Where a price counts as steep stayed where it was, so dear products are rated as before.
+        # Where a price counts as steep stayed where it was, so dear products are rated as before. (The hoodie and the
+        # cargo trousers came later, with their own bands: test_streetwear.py.)
         bands = scoring.load_rules()["price"]["bands"]
-        self.assertEqual({key: (band["fair"][1], band["steep_above"]) for key, band in bands.items()}, {
+        self.assertEqual({key: (band["fair"][1], band["steep_above"]) for key, band in bands.items()
+                          if key not in ("hoodie", "cargo")}, {
             "tee": (40, 60), "longsleeve": (50, 75), "polo": (90, 130), "shirt": (95, 140), "knit": (140, 220),
             "cardigan": (150, 240), "overshirt": (150, 230), "blazer": (260, 400), "coat": (380, 550),
             "jacket": (200, 320), "trousers": (150, 230), "chinos": (100, 150), "jeans": (120, 180),
@@ -68,7 +70,7 @@ class TheDemosBudgetStore(unittest.TestCase):
     def test_its_stores_are_all_offered_so_none_of_its_products_is_dropped(self):
         slots = [{"id": f"piece-{category}", "category": category, "colour": "navy"} for category in GARMENTS]
         demo = mock.build(slots)
-        self.assertEqual({c["store"] for c in demo["candidates"]}, {"cos", "weekday", "otto"})
+        self.assertEqual({c["store"] for c in demo["candidates"]}, {"cos", "weekday", "otto", "jd-sports"})
         self.assertLessEqual(set(mock.STORE_HOME), set(programmes.offered()))
         self.assertEqual(programmes.only_offered(demo)["candidates"], demo["candidates"])
         for category in GARMENTS:       # OTTO has every garment, and one at least that reaches the minimum quality
@@ -103,9 +105,9 @@ class TheStoresTab(ProductionCase):
         # Every customer has the demo's products until a list is published, OTTO's among them: OTTO is not shown
         # under "No products yet" beside OTTO products in his wardrobe.
         self.assertFalse(shared.published())
-        self.assertEqual(shared.stocked(), ["cos", "weekday", "otto"])
+        self.assertEqual(shared.stocked(), ["cos", "weekday", "otto", "jd-sports"])     # (JD Sports: streetwear)
         page = self.member("ada@example.com").get("/profile").get_data(as_text=True)
-        self.assertEqual([key for key, _, _ in rows(page)], ["cos", "weekday", "otto"])
+        self.assertEqual([key for key, _, _ in rows(page)], ["cos", "weekday", "otto", "jd-sports"])
         self.assertNotIn("otto", [key for key, _, _ in empty_rows(page)])
 
 
@@ -598,8 +600,8 @@ class TheLevelAtSignUp(ProductionCase):
             self.assertIsNone(db.get_setting("mode"))
 
     def test_the_starting_values_are_300_euros_for_everyday_and_the_office(self):
-        self.assertEqual((profile_mod.EXAMPLE["budget"], profile_mod.EXAMPLE["use"]), (300, "both"))
-        self.assertEqual(capsule.KINDS[profile_mod.EXAMPLE["use"]], ("everyday", "office"))
+        self.assertEqual((profile_mod.EXAMPLE["budget"], profile_mod.EXAMPLE["use"]), (300, ["everyday", "office"]))
+        self.assertEqual(capsule.kinds_of(profile_mod.EXAMPLE["use"]), ("everyday", "office"))
 
 
 class TheExampleWardrobe(ProductionCase):

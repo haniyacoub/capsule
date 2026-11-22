@@ -27,6 +27,7 @@ _COAT = ("M126 46 L84 64 L50 286 L80 292 L98 136 L92 388 L208 388 L202 136 "
 _JACKET = ("M128 64 L88 82 L50 300 L82 308 L100 148 L100 320 L200 320 L200 148 "
            "L218 308 L250 300 L212 82 L172 64 Q150 80 128 64 Z")
 _LEGS = "M104 30 L196 30 L212 388 L162 388 L150 140 L138 388 L88 388 Z"
+_WIDE_LEGS = "M102 30 L198 30 L224 388 L164 388 L150 146 L136 388 L76 388 Z"     # cargo trousers: wider at the hem
 _SNEAKER = ("M40 250 L40 226 Q42 202 72 197 L112 189 Q142 162 185 140 Q200 168 228 166 "
             "Q244 164 255 150 Q266 200 264 250 Z")
 _DERBY = ("M40 250 L40 234 Q44 214 80 208 L132 198 Q160 180 190 170 Q204 192 230 188 "
@@ -98,6 +99,21 @@ def _details(kind: str, ink: str) -> tuple[str, str]:
         return _LEGS, ('<path d="M103 46 H197 M150 46 V98 Q150 110 139 110"/>'
                        '<path d="M112 46 Q116 80 104 86 M188 46 Q184 80 196 86 M89 378 H138 M162 378 H211"/>'
                        '<path d="M114 34 V44 M186 34 V44 M150 34 V44" stroke-width="3"/>')
+    if kind == "hoodie":
+        # A long-sleeved body with ribbed cuffs and hem, the hood lying behind the neck, two drawcords and the pocket
+        # across the front.
+        return _LONG, ('<path d="M116 84 Q108 34 150 28 Q192 34 184 84 Q150 110 116 84 Z"/>'
+                       '<path d="M128 80 Q150 62 172 80" stroke-width="1.4"/>'
+                       '<path d="M141 104 L139 146 M159 104 L161 146"/>'
+                       + _buttons(139, [149], ink, 2.6) + _buttons(161, [149], ink, 2.6) +
+                       '<path d="M116 236 H184 L196 294 H104 Z"/>'
+                       '<path d="M100 320 H200 M53 300 L84 305 M216 305 L247 300"/>')
+    if kind == "cargo":
+        # Wide legs, and a pocket with a flap on each thigh.
+        return _WIDE_LEGS, ('<path d="M101 46 H199 M150 46 V106 M118 46 L107 96 M182 46 L193 96"/>'
+                            '<path d="M95 188 H129 V246 H98 Z M171 188 H205 L202 246 H171 Z"/>'
+                            '<path d="M95 202 H129 M171 202 H205" stroke-width="1.4"/>'
+                            '<path d="M80 374 H134 M166 374 H220"/>')
     raise KeyError(kind)
 
 

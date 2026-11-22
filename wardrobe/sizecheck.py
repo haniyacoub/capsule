@@ -21,7 +21,7 @@ from .garments import GARMENTS
 from . import programmes, sizes
 from .sizes import SizeStatus
 
-ONE_LENGTH = {"coat", "blazer", "trousers", "chinos", "shirt", "overshirt"}   # no length to choose
+ONE_LENGTH = {"coat", "blazer", "trousers", "chinos", "cargo", "shirt", "overshirt"}   # no length to choose
 
 
 @dataclass

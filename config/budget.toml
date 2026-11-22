@@ -11,9 +11,10 @@
 #      better versions of the same pieces ("Best for budget").
 #        150 € -> 150 €   300 € -> 250 €   600 € -> 400 €   1,000 € -> 600 €
 #   2. Each piece counts at its usual price, below.
-#   3. Each kind of wardrobe joins when its first three pieces (a top, trousers
-#      and shoes) fit in that money; a piece already in the plan counts nothing.
-#      "Both" is everyday first, then office.
+#   3. Each kind of wardrobe he ticked joins when its first three pieces (a top,
+#      trousers and shoes) fit in that money; a piece already in the plan counts
+#      nothing. They join in this order: everyday, office, streetwear. The first
+#      kind that does not fit waits, and so does every kind after it.
 #   4. The pieces of the kinds that joined stand in one line: first all their
 #      first three, then each kind's 4th piece, then each kind's 5th, and so on.
 #      A piece already in the line (same garment, same colour) is skipped. The
@@ -67,6 +68,8 @@ blazer     = 70     # estimate
 trousers   = 35     # estimate, for cotton ones: trousers of polyester and viscose never rate 70 here
 chinos     = 25     # estimate
 jeans      = 25     # estimate
+cargo      = 30     # estimate (cargo trousers)
+hoodie     = 30     # estimate
 sneakers   = 40     # estimate
 shoes      = 60     # estimate (leather derby shoes)
 boots      = 70     # estimate

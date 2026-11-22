@@ -4,7 +4,8 @@ from __future__ import annotations
 from . import capsule, colours, db, programmes
 from .sizes import ALPHA
 
-USES = {"everyday": "Everyday", "office": "Office", "both": "Both"}
+# What "What do you dress for?" offers to tick, in the order the kinds join his plan (capsule.KIND_ORDER): any of them.
+KINDS = capsule.KIND_NAMES
 
 # The Profile page's tabs, in order: their names in the address (/profile#colours) and on screen. "body" is the
 # model's menu, shown where AI pictures are on (and on your own machine).
@@ -27,7 +28,7 @@ EXAMPLE = {
     "budget": 300,         # EUR, for the whole wardrobe: "Basic" (config/budget.toml, [presets])
     "liked": ["navy", "grey", "white", "olive"],
     "refused": [],
-    "use": "both",         # everyday | office | both
+    "use": ["everyday", "office"],     # what he dresses for: the kinds he ticked (KINDS), in the order they join
     "shoes": True,
     "outerwear": True,
     "owned": "",           # things you already own, one per line
@@ -41,7 +42,11 @@ SIZES = ("top_size", "waist", "length", "shoe")
 
 def load() -> dict:
     stored = db.get_setting("profile") or {}
-    return {**EXAMPLE, **stored}
+    profile = {**EXAMPLE, **stored}
+    # An account from before kinds were ticked (19 Nov 2026) holds one word: "everyday", "office" or "both" (everyday
+    # and the office). It is read as its kinds here, so every page reads a list; his next save stores the list.
+    profile["use"] = list(capsule.kinds_of(profile.get("use")))
+    return profile
 
 
 def save(profile: dict) -> None:
@@ -169,6 +174,18 @@ def budget_sent(form) -> str | None:
     return None if typed is None and not choice else str(typed or "")
 
 
+NO_KINDS = "Nothing was ticked under “What do you dress for?”, so it stays as it was."
+
+
+def kinds_sent(form) -> list[str]:
+    """The kinds of wardrobe a form ticked under "What do you dress for?" (its checkboxes, all named "use"), in the
+    order they join (capsule.ticked). An answer sent by a page from before kinds were ticked is read as its kinds
+    ("both": everyday and the office). [] where none was ticked, or the form has none. `form`: a sent form, or a
+    profile read as one (app.as_sent), whose "use" is a list."""
+    sent = form.getlist("use") if hasattr(form, "getlist") else form.get("use")
+    return list(capsule.ticked(sent))
+
+
 def given_budget(value) -> int | None:
     """The budget typed into a field, in whole euros, or None when the field holds no budget: nothing, a word, or
     0. (A budget of 0 € cannot be meant: every outfit would be "over" it. An empty field means no budget.)"""
@@ -221,6 +238,11 @@ def from_form(form, current: dict) -> tuple[dict, list[str]]:
     stores_off, stores_note = _stores_from(form, current)
     if stores_note:
         notes.append(stores_note)
+    # What he dresses for: the kinds he ticked. None ticked keeps what he had: a plan is always for something. Said
+    # where the page showed the boxes (`use_shown`), so that he knows his untick did not count.
+    kinds = kinds_sent(form)
+    if not kinds and "use_shown" in form:
+        notes.append(NO_KINDS)
 
     profile = {
         "example": False,
@@ -235,7 +257,7 @@ def from_form(form, current: dict) -> tuple[dict, list[str]]:
         "budget": given_budget(budget) or current["budget"],
         "liked": liked,
         "refused": refused,
-        "use": form.get("use") if form.get("use") in USES else current["use"],
+        "use": kinds or list(capsule.kinds_of(current.get("use"))),
         "shoes": form.get("shoes") == "on",
         "outerwear": form.get("outerwear") == "on",
         "owned": (form.get("owned") or "").strip(),

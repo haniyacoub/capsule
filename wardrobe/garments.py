@@ -23,6 +23,7 @@ _ALL = [
     Garment("overshirt", "Overshirt", "overshirts", "Layers", "mid", "tops", (1, 3)),
     Garment("cardigan", "Cardigan", "cardigans", "Layers", "mid", "tops", (2, 4)),
     Garment("knit", "Jumper", "knitwear", "Knitwear", "top", "tops", (2, 5)),
+    Garment("hoodie", "Hoodie", "hoodies", "Hoodies", "top", "tops", (1, 2)),
     Garment("shirt", "Shirt", "shirts", "Shirts", "top", "tops", (2, 5)),
     Garment("polo", "Polo", "polos", "Shirts", "top", "tops", (2, 4)),
     Garment("tee", "T-shirt", "T-shirts", "T-shirts", "top", "tops", (1, 3)),
@@ -30,6 +31,7 @@ _ALL = [
     Garment("trousers", "Trousers", "trousers", "Trousers", "bottom", "bottoms", (3, 5)),
     Garment("chinos", "Chinos", "chinos", "Trousers", "bottom", "bottoms", (2, 4)),
     Garment("jeans", "Jeans", "jeans", "Trousers", "bottom", "bottoms", (1, 3)),
+    Garment("cargo", "Cargo trousers", "cargo trousers", "Trousers", "bottom", "bottoms", (1, 2)),
     Garment("sneakers", "Sneakers", "sneakers", "Shoes", "shoes", "shoes", (1, 3)),
     Garment("shoes", "Leather shoes", "leather shoes", "Shoes", "shoes", "shoes", (3, 5)),
     Garment("boots", "Boots", "boots", "Shoes", "shoes", "shoes", (2, 4)),
@@ -39,10 +41,12 @@ GARMENTS: dict[str, Garment] = {g.key: g for g in _ALL}
 SECTIONS: list[str] = list(dict.fromkeys(g.section for g in _ALL))
 
 # Which mid layer can be worn over which top. A jumper counts as a mid layer
-# only over a shirt (the collar shows); over a tee it is simply the top.
+# only over a shirt (the collar shows); over a tee it is simply the top. A hoodie
+# is a top: an overshirt can go over it, as a jacket or a coat can (they are the
+# outer layer, which goes over any top).
 LAYER_OVER: dict[str, set[str]] = {
     "blazer": {"tee", "longsleeve", "shirt", "polo", "knit"},
-    "overshirt": {"tee", "longsleeve", "polo"},
+    "overshirt": {"tee", "longsleeve", "polo", "hoodie"},
     "cardigan": {"tee", "longsleeve", "shirt", "polo"},
     "knit": {"shirt"},
 }

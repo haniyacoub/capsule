@@ -4054,7 +4054,8 @@ def run(base: str) -> None:
                 [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
             empty_of = """() => [...document.querySelectorAll('.store-empty input[name=stores][data-empty]')].map(box =>
                 [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
-            # (OTTO has products in the demo since 18 Nov: it is among the stores with products here.)
+            # (OTTO has products in the demo since 18 Nov, and JD Sports since 19 Nov (streetwear): they are among the
+            # stores with products here.)
             five = [["tom-tailor", True, "Tom Tailor"], ["hirmer", True, "Hirmer"], ["breuninger", True, "Breuninger"],
                     ["blue-tomato", True, "Blue Tomato"], ["bergfreunde", True, "Bergfreunde"]]
             context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
@@ -4070,8 +4071,8 @@ def run(base: str) -> None:
                 assert "Weekday" in phone.locator("main").inner_text(), "the starter shopping list has nothing from Weekday"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
-                assert phone.evaluate(stores_of) == [["cos", True, "COS"], ["weekday", True, "Weekday"], ["otto", True, "OTTO"]], \
-                    phone.evaluate(stores_of)
+                assert phone.evaluate(stores_of) == [["cos", True, "COS"], ["weekday", True, "Weekday"], ["otto", True, "OTTO"],
+                                                     ["jd-sports", True, "JD Sports"]], phone.evaluate(stores_of)
                 # No programme has accepted Stilsmith yet: nothing on the tab calls a store a partner, as the page's
                 # foot says ("Not affiliated with any retailer").
                 assert "partner" not in phone.locator("#panel-stores").inner_text().lower(), \
@@ -4095,6 +4096,8 @@ def run(base: str) -> None:
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
                 phone.get_by_role("checkbox", name="OTTO", exact=True).tap()
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
+                phone.get_by_role("checkbox", name="JD Sports", exact=True).tap()
+                expect(phone.locator("[data-store-said]")).to_be_hidden()
                 # The last store with products cannot be unticked, however many of the five are ticked.
                 phone.get_by_role("checkbox", name="COS", exact=True).tap()
                 expect(phone.get_by_role("checkbox", name="COS", exact=True)).to_be_checked()
@@ -4117,14 +4120,17 @@ def run(base: str) -> None:
                 expect(told, "the line about the pieces picked again").to_be_in_viewport()
                 for path in ("/outfits", "/", "/list"):
                     phone.goto(base + path, wait_until="networkidle")
-                    for store in ("weekday", "otto"):       # (as a word: "bottom" is no OTTO)
+                    for store in ("weekday", "otto", "jd sports"):       # (as a word: "bottom" is no OTTO)
                         assert not re.search(rf"\b{store}\b", phone.locator("main").inner_text().lower()), \
                             f"{path} still shows {store}"
-                        assert not phone.locator(f"main a[href*='{store}']").count(), f"{path} still links to {store}"
+                        assert not phone.locator(f"main a[href*='{store.replace(' ', '')}']").count(), \
+                            f"{path} still links to {store}"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
-                assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False, False], "the unticked stores are not kept"
+                assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False, False, False], \
+                    "the unticked stores are not kept"
                 phone.get_by_role("checkbox", name="Weekday", exact=True).tap()
                 phone.get_by_role("checkbox", name="OTTO", exact=True).tap()
+                phone.get_by_role("checkbox", name="JD Sports", exact=True).tap()
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/profile#stores")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
@@ -4165,7 +4171,7 @@ def run(base: str) -> None:
                 plain.click("button:has-text('Log in')")
                 plain.wait_for_load_state("networkidle")
                 plain.goto(base + "/profile", wait_until="networkidle")
-                # (Only the three with products are unticked: the five with none yet, left ticked, are not enough.)
+                # (Only the four with products are unticked: the five with none yet, left ticked, are not enough.)
                 for box in plain.locator("input[name=stores]:not([data-empty])").all():
                     box.uncheck()
                 plain.click("button:has-text('Save profile')")
@@ -4173,7 +4179,7 @@ def run(base: str) -> None:
                 flashes = plain.locator("main > .flash").all_inner_texts()
                 assert "At least one store with products must stay ticked, so your stores stay as they were." in flashes, flashes
                 assert [on for _, on in plain.locator("input[name=stores]").evaluate_all(
-                    "bs => bs.map(b => [b.value, b.checked])")] == [True] * 8, "the stores did not stay as they were"
+                    "bs => bs.map(b => [b.value, b.checked])")] == [True] * 9, "the stores did not stay as they were"
             finally:
                 context.close()
 
@@ -4374,7 +4380,10 @@ def run(base: str) -> None:
             the_whole_plan_is_his(EMAIL, his=False)
             pick_colours(page, ("black", "grey", "white"))
             open_tab(page, "you")
+            # What he dresses for is a box per kind of wardrobe (19 Nov 2026): he unticks Everyday, so the office alone
+            # is left, the new use.
             page.locator("input[name=use][value=office]").check(force=True)
+            page.locator("input[name=use][value=everyday]").uncheck(force=True)
             page.click("button:has-text('Save profile')")
             page.wait_for_url(base + "/outfits")
             in_view("main > .flash", "Your plan now has")
@@ -4452,6 +4461,18 @@ def run(base: str) -> None:
                         with view.expect_navigation(wait_until="networkidle"):
                             (target.tap() if phone else target.click())
                         return scrolled
+
+                    def level(key: str) -> None:
+                        """He picks a price level on the Wardrobe page. With JavaScript the choice is sent as he taps
+                        it: this waits for the answer, as a reload before it came cancelled the choice (seen once on a
+                        slow CI machine, 22 Nov 2026). Without JavaScript he presses Apply."""
+                        choice = view.locator(f"label:has(input[name=mode][value={key}])")
+                        if script:
+                            with view.expect_response(lambda r: r.request.method == "POST" and r.url.endswith("/settings")):
+                                choice.click()
+                        else:
+                            choice.click()
+                            tap("#controls button:has-text('Apply')")
 
                     def money(text: str) -> float:
                         if text == "":          # the yes of an outfit all his already says no sum: it adds 0 € (review N6)
@@ -4538,7 +4559,8 @@ def run(base: str) -> None:
                     view.fill("input[name=budget]", "700")
                     tap("button:has-text('Continue')")
                     view.wait_for_url(base + "/welcome/3")
-                    view.locator("label:has(input[name=use][value=both])").click()
+                    for kind in ("everyday", "office"):        # a box for each kind of wardrobe he dresses for
+                        view.locator(f"label:has(input[name=use][value={kind}])").click()
                     tap("button:has-text('Show me outfits')")
                     view.wait_for_url(base + "/outfits")
                     assert top_bar(view)["words"].startswith("Your wardrobe: nothing yet"), f"{where}: after the welcome the bar reads {top_bar(view)['words']!r}"
@@ -4553,11 +4575,7 @@ def run(base: str) -> None:
                     # level he starts on no outfit could take him over it. He picks "Expensive" (three quarters of the
                     # way up each piece's prices), where one can: what an outfit says of going over is checked below.
                     view.goto(base + "/", wait_until="networkidle")
-                    view.locator("label:has(input[name=mode][value=expensive])").click()
-                    if script:
-                        view.wait_for_load_state("networkidle")
-                    else:
-                        tap("#controls button:has-text('Apply')")
+                    level("expensive")
                     view.reload(wait_until="networkidle")
                     assert view.locator("input[name=mode][value=expensive]").is_checked(), f"{where}: 'Expensive' was not chosen"
 
@@ -4764,8 +4782,7 @@ def run(base: str) -> None:
                         # showed. (The level is fitted for the whole plan, so a piece does not change its product when it
                         # joins his wardrobe; it did, and the bar went up by more than the button had said.)
                         view.goto(base + "/", wait_until="networkidle")
-                        view.locator("label:has(input[name=mode][value=budget])").click()
-                        view.wait_for_load_state("networkidle")
+                        level("budget")
                         view.reload(wait_until="networkidle")
                         assert view.locator("input[name=mode][value=budget]").is_checked(), f"{where}: 'Best for budget' was not chosen"
                         for _ in range(2):
@@ -4786,8 +4803,7 @@ def run(base: str) -> None:
                             view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
                             tap(f"{first} .btn.yes")
                         view.goto(base + "/", wait_until="networkidle")
-                        view.locator("label:has(input[name=mode][value=cheapest])").click()
-                        view.wait_for_load_state("networkidle")
+                        level("cheapest")
 
                     # Take the first outfit out under "My outfits": only what the other does not wear goes, and Undo.
                     view.goto(base + "/outfits?occasion=saved", wait_until="networkidle")
@@ -5861,7 +5877,8 @@ def run(base: str) -> None:
                 phone.wait_for_load_state("networkidle")
                 assert not phone.locator("#cand-hirmer-9000001, #cand-hirmer-9000077").count(), \
                     "the options added by their links were not removed"
-                stores = ("hirmer.de", "tom-tailor.de", "otto.de", "breuninger.com", "blue-tomato.com", "bergfreunde.de")
+                stores = ("hirmer.de", "tom-tailor.de", "otto.de", "breuninger.com", "blue-tomato.com", "bergfreunde.de",
+                          "jdsports.de")
                 reached = [url for url in asked_of if any(store in url.split("/")[2] for store in stores)]
                 assert not reached, f"a store was asked for something: {reached}"
             finally:
@@ -6179,7 +6196,7 @@ def run(base: str) -> None:
                     delete_a_steps_customer(who)
 
         def the_style_chat():
-            # Profile, "What do you dress for?": six styles to tick beside Everyday/Office/Both. Below, "Describe your
+            # Profile, "What do you dress for?": six styles to tick beside Everyday/Office/Streetwear. Below, "Describe your
             # style": he writes in his own words, the assistant (a stand-in here) answers with one question back and a
             # suggested brief, and nothing changes until he presses "Use this brief". Then an outfit that is his style
             # as a whole says so in one line, and the others say nothing: no outfit titled Smart casual or Office is
@@ -6271,7 +6288,7 @@ def run(base: str) -> None:
                 assert phone.evaluate(whys) == [], "an outfit says why it fits a brief nobody gave"
                 # The styles: six choices to tap, any number of them, beside the three that were there.
                 phone.goto(base + "/profile", wait_until="networkidle")
-                assert phone.locator("input[name=use]").count() == 3, "Everyday, Office and Both are not all there"
+                assert phone.locator("input[name=use]").count() == 3, "Everyday, Office and Streetwear are not all there"
                 styles = phone.locator("[data-styles] label").all_inner_texts()
                 assert [text.strip() for text in styles] == ["Smart casual", "Street", "Minimal", "Tailored", "Workwear",
                                                               "Outdoor"], f"the styles to tick: {styles}"

@@ -67,6 +67,12 @@ loafer      = ["loafer", "mokassin", "slipper"]
 chelsea     = ["chelsea"]
 harrington  = ["harrington"]
 bomber      = ["bomber"]
+# The streetwear pieces' words (added 19 Nov 2026): a boxy tee, loose jeans, chunky sneakers, a parka.
+boxy        = ["boxy", "kastig"]
+loose       = ["loose", "weit", "baggy"]
+chunky      = ["chunky"]
+cargo       = ["cargo"]
+parka       = ["parka"]
 
 
 # ── COS ───────────────────────────────────────────────────────────────────────
@@ -137,6 +143,18 @@ include = ["chino"]
 pages   = ["/de-de/men/jeans"]
 exclude = ["shorts", "jacke", "hemd"]
 
+# Hoodies and cargo trousers (added 19 Nov 2026, not collected yet). These addresses were not opened, so no
+# request was made to the store for them: if one comes back "not found", copy the right one from the store's menu.
+[cos.garments.hoodie]
+pages   = ["/de-de/men/sweatshirts-and-hoodies"]
+include = ["hoodie", "kapuze"]
+exclude = ["weste", "gilet"]
+
+[cos.garments.cargo]
+pages   = ["/de-de/men/trousers"]
+include = ["cargo"]
+exclude = ["shorts"]
+
 [cos.garments.sneakers]
 pages   = ["/de-de/men/shoes"]
 include = ["sneaker", "trainer"]
@@ -187,7 +205,7 @@ pages   = ["/de-de/men/knitwear/cardigans/"]
 
 [weekday.garments.knit]
 pages   = ["/de-de/men/knitwear/sweaters/"]
-exclude = ["cardigan", "strickjacke", "hoodie", "weste", "zip", "reißverschluss", "polo"]
+exclude = ["cardigan", "strickjacke", "hoodie", "kapuze", "weste", "zip", "reißverschluss", "polo"]
 
 [weekday.garments.shirt]
 pages   = ["/de-de/men/shirts/"]
@@ -218,6 +236,17 @@ include = ["chino"]
 [weekday.garments.jeans]
 pages   = ["/de-de/men/jeans/"]
 exclude = ["shorts", "jacke", "jorts"]
+
+# Hoodies and cargo trousers (added 19 Nov 2026, not collected yet; the addresses were not opened, as at COS).
+[weekday.garments.hoodie]
+pages   = ["/de-de/men/hoodies-and-sweatshirts/"]
+include = ["hoodie", "kapuze"]
+exclude = ["weste", "vest"]
+
+[weekday.garments.cargo]
+pages   = ["/de-de/men/trousers/"]
+include = ["cargo"]
+exclude = ["shorts", "jorts"]
 
 
 # ── Round 6: more men's stores, pasted links only ────────────────────────────
@@ -267,6 +296,14 @@ styles        = ["outdoor"]   # research: outdoor: jackets, fleece, boots
 price         = "mid-premium"
 programme     = "awin"         # Awin 14102: up to 15% for content sites, daily product feed
 base          = "https://www.bergfreunde.de"
+
+# Added 19 Nov 2026 with streetwear: hoodies, cargo trousers, sneakers (research of 18 Nov 2026).
+[jd-sports]
+label         = "JD Sports"
+styles        = ["street"]   # research: sportswear and streetwear brands, sneakers
+price         = "mid"
+programme     = "awin"         # Awin 10073, product feed stated
+base          = "https://www.jdsports.de"
 
 
 # ── Zara ──────────────────────────────────────────────────────────────────────

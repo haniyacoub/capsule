@@ -1690,7 +1690,7 @@ class TheWelcome(ProductionCase):
         ada = self.member("ada@example.com")
         done = self.post(ada, "/welcome/3", use="office")
         self.assertEqual(done.headers["Location"], "/outfits")
-        self.assertEqual(self.profile()["use"], "office")
+        self.assertEqual(self.profile()["use"], ["office"])      # the kinds he ticked
         self.assertEqual(self.answered(), {"use"})
         with db.as_user(self.user_id("ada@example.com")):
             self.assertEqual(db.get_setting("welcome"), "done")

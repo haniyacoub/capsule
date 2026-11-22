@@ -93,14 +93,39 @@ RANKED = {
         ("sneakers", "light", "{c} leather sneakers", "leather", 1),
         ("trousers", "anchor", "{c} tailored trousers", "tailored", 1),
     ],
+    # Streetwear: looser cuts and heavier cottons. A hoodie, cargo trousers, and a piece whose words say boxy, loose,
+    # chunky, bomber, workwear or parka are street pieces: an outfit with two of them is titled "Street" (outfits.py).
+    # A row in the same garment and colour as a row of a kind before it is that piece (one white tee, not two).
+    "street": [
+        ("tee", "light", "{c} boxy tee", "heavyweight boxy", 2),
+        ("cargo", "dark2", "{c} cargo trousers", "", 1),
+        ("sneakers", "mid", "{c} chunky sneakers", "chunky", 1),
+        ("hoodie", "mid", "{c} hoodie", "", 1),
+        ("jeans", "denim", "{c} loose jeans", "loose", 1),
+        ("tee", "anchor", "{c} boxy tee", "heavyweight boxy", 1),
+        ("jacket", "accent", "{c} bomber jacket", "bomber", 1),
+        ("hoodie", "anchor", "{c} hoodie", "", 1),
+        ("overshirt", "accent", "{c} workwear overshirt", "workwear", 1),
+        ("longsleeve", "anchor", "{c} long-sleeve tee", "", 1),
+        ("cargo", "earth", "{c} cargo trousers", "", 1),
+        ("tee", "mid", "{c} boxy tee", "heavyweight boxy", 1),
+        ("coat", "anchor", "{c} parka", "parka", 1),
+        ("jeans", "denim2", "{c} loose jeans", "loose", 1),
+        ("sneakers", "dark2", "{c} chunky sneakers", "chunky", 1),
+    ],
 }
 FIRST = 3       # a kind's first three pieces
 
-# What each answer to "What do you dress for?" plans: its kinds, in the order they join.
-KINDS = {"everyday": ("everyday",), "office": ("office",), "both": ("everyday", "office")}
-# Each kind by name ("Office joins at about 206 €"), and as the plan page says what a plan is for (kinds_words).
-KIND_NAMES = {"everyday": "Everyday", "office": "Office"}
-_KIND_WORDS = {"everyday": "everyday", "office": "the office"}
+# The kinds of wardrobe he can tick under "What do you dress for?", in the order they join the plan (config/budget.toml,
+# step 3) and Profile lists them. His answer is the kinds he ticked (profile "use": ["everyday", "street"]).
+KIND_ORDER = ("everyday", "office", "street")
+STARTING_KINDS = ("everyday", "office")     # a new account's answer (profile.EXAMPLE), and where none can be read
+# Answers from before kinds were ticked (until 19 Nov 2026), one word each, as accounts still hold them: read as their
+# kinds wherever an answer is read (kinds_of), so no stored answer had to change. "everyday" and "office" are kinds.
+OLD_ANSWERS = {"both": ("everyday", "office")}
+# Each kind by name ("Streetwear joins at about 346 €"), and as the plan page says what a plan is for (kinds_words).
+KIND_NAMES = {"everyday": "Everyday", "office": "Office", "street": "Streetwear"}
+_KIND_WORDS = {"everyday": "everyday", "office": "the office", "street": "streetwear"}
 
 # The garments "Include shoes" and "Include outerwear" leave out when unticked.
 SHOES = frozenset({"sneakers", "shoes", "boots"})
@@ -109,7 +134,8 @@ OUTERWEAR = frozenset({"coat", "jacket"})
 # Refusing one of these refuses the whole family ("green" also rules out olive).
 _FAMILY_HEADS = {"grey", "blue", "green", "brown", "red", "beige"}
 
-# Words that identify a garment in "things I already own" (first match wins).
+# Words that identify a garment in "things I already own" (first match wins). A word is looked for at the start of a
+# word, so "kapuzen" finds "Kapuzenpullover" and "Kapuzen-Pullover", and "pullover" does not find "Kapuzenpullover".
 _GARMENT_WORDS = [
     ("sneakers", ["sneaker", "trainer", "turnschuh"]),
     ("boots", ["boot", "stiefel"]),
@@ -117,6 +143,7 @@ _GARMENT_WORDS = [
     ("blazer", ["blazer", "sakko", "sport coat", "suit jacket"]),
     ("coat", ["coat", "overcoat", "trench", "parka", "mantel"]),
     ("overshirt", ["overshirt", "shacket", "hemdjacke"]),
+    ("hoodie", ["hoodie", "hoody", "kapuzen"]),         # before the jacket and the jumper: a "Kapuzen-Pullover"
     ("jacket", ["jacket", "bomber", "harrington", "jacke"]),
     ("cardigan", ["cardigan", "strickjacke"]),
     ("polo", ["polo"]),
@@ -124,10 +151,26 @@ _GARMENT_WORDS = [
     ("longsleeve", ["long sleeve", "longsleeve", "langarm"]),
     ("tee", ["t shirt", "tshirt", "tee"]),
     ("shirt", ["shirt", "hemd"]),
+    ("cargo", ["cargo"]),                                # before jeans and trousers: "cargo jeans", "cargo pants"
     ("jeans", ["jeans", "denim"]),
     ("chinos", ["chino"]),
     ("trousers", ["trousers", "pants", "slacks", "hose"]),
 ]
+
+
+def ticked(use) -> tuple[str, ...]:
+    """The kinds of wardrobe an answer to "What do you dress for?" names, in the order they join (KIND_ORDER): the
+    kinds he ticked (["street", "everyday"] -> ("everyday", "street")), or an answer from before kinds were ticked,
+    one word ("both" -> ("everyday", "office")). Words that name no kind are left out; () where none is left."""
+    words = [use] if isinstance(use, str) else list(use or [])
+    named = {kind for word in words for kind in OLD_ANSWERS.get(str(word), (str(word),))}
+    return tuple(kind for kind in KIND_ORDER if kind in named)
+
+
+def kinds_of(use) -> tuple[str, ...]:
+    """The kinds of wardrobe his answer plans, in the order they join (ticked): never none. An answer that names no
+    kind (no answer at all) plans what a new account starts with, everyday and the office (STARTING_KINDS)."""
+    return ticked(use) or STARTING_KINDS
 
 
 def banned(refused: list[str]) -> set[str]:
@@ -320,28 +363,34 @@ class _Piece:
 
 def _pieces(profile: dict) -> tuple[dict[tuple[str, str], _Piece], dict[str, list[tuple[int, tuple[str, str]]]]]:
     """Every piece the kinds of this profile could have, by (garment, colour), and each kind's rows as (rank, that
-    key), without the garments the shoes and outerwear ticks leave out. A piece's name and id are given here, in one
-    fixed order (the kinds in order, each top to bottom), so that a piece has the same id at every budget, whichever
-    kinds the budget lets in. Two rows in the same garment and colour are one piece: the first one's."""
+    key), without the garments the shoes and outerwear ticks leave out. Two rows in the same garment and colour are
+    one piece: the row that comes first in the line all his kinds would make (config/budget.toml, step 4: every
+    kind's first three pieces, then each kind's 4th, and so on), as the line skips the later one. So with the office
+    and streetwear the white tee is streetwear's first piece, two boxy tees, not the office's 13th, one plain tee.
+    That line is the same at every budget, so a piece has the same name and id at every budget, whichever kinds the
+    budget lets in."""
     palette = build_palette(profile.get("liked", []), profile.get("refused", []))
-    kinds = KINDS.get(profile.get("use", "both"), KINDS["both"])
+    kinds = kinds_of(profile.get("use"))
     left_out = (SHOES if not profile.get("shoes", True) else frozenset()) | \
                (OUTERWEAR if not profile.get("outerwear", True) else frozenset())
-    pieces: dict[tuple[str, str], _Piece] = {}
-    rows: dict[str, list[tuple[int, tuple[str, str]]]] = {}
-    ids: set[str] = set()
-    for kind in kinds:
-        rows[kind] = []
+    rows: dict[str, list[tuple[int, tuple[str, str]]]] = {kind: [] for kind in kinds}
+    in_line: list[tuple[tuple[int, int, int], tuple[str, str], str, str, int]] = []
+    for at, kind in enumerate(kinds):
         for rank, (category, role, name, keywords, qty) in enumerate(RANKED[kind]):
             if category in left_out:
                 continue
             key = (category, palette[role])
-            if key not in pieces:
-                full = name.format(c=get_colour(key[1]).label)
-                piece_id = unique_id(slugify(full), ids)
-                ids.add(piece_id)
-                pieces[key] = _Piece(piece_id, category, key[1], full, keywords, qty)
             rows[kind].append((rank, key))
+            place = (0, at, rank) if rank < FIRST else (1, rank, at)     # where the row stands in that line
+            in_line.append((place, key, name, keywords, qty))
+    pieces: dict[tuple[str, str], _Piece] = {}
+    ids: set[str] = set()
+    for _place, key, name, keywords, qty in sorted(in_line, key=lambda row: row[0]):
+        if key not in pieces:
+            full = name.format(c=get_colour(key[1]).label)
+            piece_id = unique_id(slugify(full), ids)
+            ids.add(piece_id)
+            pieces[key] = _Piece(piece_id, key[0], key[1], full, keywords, qty)
     return pieces, rows
 
 
@@ -398,16 +447,18 @@ def _sized(profile: dict) -> tuple[list[str], list[_Piece]]:
 
 
 def kinds_in(profile: dict) -> list[str]:
-    """The kinds of wardrobe ("everyday", "office") the profile's budget lets into the plan, in the order they join."""
+    """The kinds of wardrobe ("everyday", "office", "street") the profile's budget lets into the plan, in the order
+    they join."""
     return _sized(profile)[0]
 
 
 def kinds_words(kinds: list[str] | tuple[str, ...]) -> str:
     """What a plan of these kinds is for, as the plan page says it: "everyday wear", "the office", "everyday and the
-    office"."""
+    office", "everyday, the office and streetwear"."""
     if list(kinds) == ["everyday"]:
         return "everyday wear"
-    return " and ".join(_KIND_WORDS.get(kind, kind) for kind in kinds)
+    words = [_KIND_WORDS.get(kind, kind) for kind in kinds]
+    return " and ".join(words) if len(words) < 3 else ", ".join(words[:-1]) + " and " + words[-1]
 
 
 def count(slots: list[dict]) -> int:
@@ -424,12 +475,12 @@ MOST_BUDGET = 100000        # € (profile.given_budget never takes more): a kin
 
 
 def joins_at(profile: dict) -> dict[str, int | None]:
-    """For each of the kinds his answer plans (KINDS) after the first: the smallest budget, in whole euros, at which
+    """For each of the kinds his answer plans (kinds_of) after the first: the smallest budget, in whole euros, at which
     it joins the plan these answers propose ("Office joins at about 206 €"), or None where it never does (with
     config/budget.toml's numbers its first three pieces never fit). Found with the rule itself (_sized), whole euro by
     whole euro, as a budget is given: a kind never leaves as the budget grows, so the first budget it is in at is
     found by halving. The first kind is always in."""
-    kinds = KINDS.get(profile.get("use", "both"), KINDS["both"])
+    kinds = kinds_of(profile.get("use"))
     out: dict[str, int | None] = {}
     for kind in kinds[1:]:
         def joined(budget: int) -> bool:
@@ -539,7 +590,10 @@ def same_plan(slots: list[dict], profile: dict) -> bool:
 
 def detect_garment(text: str) -> str | None:
     t = re.sub(r"[-_]", " ", text.lower())
+    shorts = re.search(r"(?<![a-zäöüß])(shorts?|kurze|bermuda)", t)
     for category, words in _GARMENT_WORDS:
+        if category == "cargo" and shorts:
+            continue        # cargo shorts are not cargo trousers: as before cargo trousers came, no garment of the plans
         if any(re.search(rf"(?<![a-zäöüß]){re.escape(w)}", t) for w in words):
             return category
     return None

@@ -13,13 +13,13 @@ from wardrobe import english
 # Every word in english.WORDS, with what it must say. A word added to the list needs its line here too.
 EVERY_WORD = {
     "mantel": "coat", "jacke": "jacket", "bomberjacke": "bomber jacket", "windjacke": "windbreaker",
-    "blazer": "blazer", "overshirt": "overshirt", "pullover": "jumper", "strickjacke": "cardigan",
+    "blazer": "blazer", "overshirt": "overshirt", "pullover": "jumper", "kapuzenpullover": "hoodie", "hoodie": "hoodie", "strickjacke": "cardigan",
     "cardigan": "cardigan", "hemd": "shirt", "t-shirt": "T-shirt", "langarmshirt": "long-sleeved top",
     "poloshirt": "polo shirt", "strickpolo": "knitted polo", "hose": "trousers", "anzughose": "suit trousers",
-    "chinohose": "chinos", "chino": "chinos", "chinos": "chinos", "jeans": "jeans", "trousers": "trousers",
+    "chinohose": "chinos", "chino": "chinos", "chinos": "chinos", "jeans": "jeans", "cargohose": "cargo trousers", "cargo": "cargo", "trousers": "trousers",
     "turnschuhe": "sneakers", "sneaker": "sneakers", "schuhe": "shoes", "loafer": "loafers", "loafers": "loafers",
     "derbys": "derby shoes", "derby": "derby", "boots": "boots", "stiefel": "boots", "bein": "leg",
-    "kragen": "collar", "schalkragen": "shawl collar", "kapuze": "hood", "reissverschluss": "zip",
+    "kragen": "collar", "schalkragen": "shawl collar", "kapuze": "hood", "kapuzen": "hooded", "reissverschluss": "zip",
     "reißverschluss": "zip", "v-ausschnitt": "V-neck", "rundhalsausschnitt": "crew neck", "rundhals": "crew-neck",
     "falten": "pleats", "bundfalten": "pleats", "bügelfalten": "pressed creases", "taille": "waist",
     "passform": "fit", "fit": "fit", "taschendetail": "pocket detail", "stretch": "stretch",
@@ -61,6 +61,10 @@ NAMES = {
     "Markante Derbys aus Leder": "Bold derby shoes, leather",
     "Lässige Bomberjacke": "Casual bomber jacket",
     "Klassisches Baumwollhemd": "Classic cotton shirt",
+    "Kapuzenpullover aus Baumwolljersey": "Hoodie, cotton jersey",       # the hoodies and cargo trousers of 19 Nov
+    "Oversized Kapuzenpullover": "Oversized hoodie",
+    "Weite Cargohose": "Wide cargo trousers",
+    "Cargohose aus Baumwolltwill": "Cargo trousers, cotton twill",
 }
 
 
@@ -88,7 +92,9 @@ class EveryWord(unittest.TestCase):
                              ("Leinenhose", "linen trousers"), ("Strickpullover", "knit jumper"),
                              ("Rundhalspullover", "crew-neck jumper"), ("Feinstrickpullover", "fine knit jumper"),
                              ("Oversize-Mantel", "oversized coat"), ("Baumwoll-T-Shirt", "cotton T-shirt"),
-                             ("Doubleface-Woll-Mix", "double-faced wool blend"), ("Barrel-Bein", "barrel leg")):
+                             ("Doubleface-Woll-Mix", "double-faced wool blend"), ("Barrel-Bein", "barrel leg"),
+                             ("Kapuzen-Pullover", "hooded jumper"), ("Kapuzenjacke", "hooded jacket"),
+                             ("Cargo-Hose", "cargo trousers")):
             with self.subTest(german):
                 self.assertEqual(english.word(german), said)
 
@@ -108,7 +114,7 @@ class WholeNames(unittest.TestCase):
         for german in ("Rider Jeans mit Geradem Bein und Lockerer Passform",    # "Rider", a model's name
                        "Jacke mit Racer-Ausschnitt",                             # "Racer"
                        "Fold Lockere Jeans mit Weitem Bein",
-                       "Kapuzenpullover", "Wollhose mit Kapuzendetail", "Arbeitsjacke aus Canvas",
+                       "Sweatjacke", "Wollhose mit Kapuzendetail", "Arbeitsjacke aus Canvas",   # (a Kapuzenpullover is known)
                        "Schmales T-Shirt aus Pima-Baumwolle", "Basis T-Shirt Slim-Fit /01", "Hosen",
                        "aus Wolle", "Zzz"):
             with self.subTest(german):
