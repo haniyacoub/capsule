@@ -435,7 +435,7 @@ What a brief changes, all of it plain Python in `wardrobe/style.py`:
   never called street, whatever the store calls its fit. The style "Smart
   casual" is said only of outfits titled "Smart casual" (formality level 3),
   so the words mean one thing on the Outfits page and never stand under
-  "Office" or "Everyday". A jacket counts for Street, Workwear or Outdoor only
+  "Office", "Everyday" or "Street". A jacket counts for Street, Workwear or Outdoor only
   when the store's words say it is that kind (a bomber is street, a
   boiled-wool jacket is not: `kinds` in `config/style.toml`). Minimal asks for
   every piece, because its garments (T-shirt, jumper, shirt, trousers, coat,

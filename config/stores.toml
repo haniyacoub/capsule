@@ -205,7 +205,7 @@ pages   = ["/de-de/men/knitwear/cardigans/"]
 
 [weekday.garments.knit]
 pages   = ["/de-de/men/knitwear/sweaters/"]
-exclude = ["cardigan", "strickjacke", "hoodie", "weste", "zip", "reißverschluss", "polo"]
+exclude = ["cardigan", "strickjacke", "hoodie", "kapuze", "weste", "zip", "reißverschluss", "polo"]
 
 [weekday.garments.shirt]
 pages   = ["/de-de/men/shirts/"]

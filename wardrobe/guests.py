@@ -153,7 +153,10 @@ def ensure_example() -> None:
         return
     with db.as_user(user_id):
         answers = {**profile_mod.EXAMPLE, "budget": example_budget()}
-        if db.get_setting("profile") != answers:
+        # What it dresses for, stored in one word before kinds were ticked ("both"), is the same answer as the kinds
+        # everyday and the office: compared by what it means, so that no deploy rewrites it.
+        stored = db.get_setting("profile")
+        if stored is None or {**stored, "use": list(capsule.kinds_of(stored.get("use")))} != answers:
             db.set_setting("profile", answers)
         given = sorted(profile_mod.QUESTIONS)       # its budget, colours and what it dresses for (profile.answered)
         if db.get_setting("answered") != given:

@@ -802,6 +802,7 @@ PLAN_STORES = {
     "herrenausstatter": "awin", "just4men": "awin", "braun-hamburg": "awin", "tom-tailor": "awin",
     "s-oliver": "awin", "suitsupply": "awin", "snipes": "awin", "lounge-by-zalando": "awin",
     "hirmer": "awin", "blue-tomato": "awin", "bergfreunde": "awin",       # added by the research of 15 Nov 2026
+    "jd-sports": "awin",                        # added with streetwear (the research of 18 Nov 2026), offered since 19 Nov
     "cos": "rakuten", "weekday": "rakuten", "hm": "rakuten", "mango": "rakuten", "arket": "rakuten",
     "pull-and-bear": "tradedoubler", "about-you": "tradedoubler", "bershka": "tradedoubler",
     "massimo-dutti": "tradedoubler",
@@ -815,7 +816,8 @@ PLAN_IDS = {"breuninger": "11590", "peek-cloppenburg": "14716", "engelhorn": "13
             "lounge-by-zalando": "13789", "pull-and-bear": "317285", "bershka": "304030", "massimo-dutti": "359442",
             "levis": "19949",
             # read on the programmes' own pages on 15 Nov 2026 (research/round6/stores.md)
-            "hirmer": "14837", "blue-tomato": "11873", "bergfreunde": "14102", "snipes": "122628"}
+            "hirmer": "14837", "blue-tomato": "11873", "bergfreunde": "14102", "snipes": "122628",
+            "jd-sports": "10073"}
 # Those whose German programme, or what was said about it, could not be confirmed.
 PLAN_UNCONFIRMED = {"weekday", "hm", "mango", "arket", "about-you", "bershka", "massimo-dutti",
                     "jack-and-jones", "selected-homme", "end-clothing"}
@@ -1722,7 +1724,7 @@ class OwnerCatalogue(ProductionCase):
         real = [key for key, values in registry.load().items() if not values["rules"].get("sample")]
         self.assertIn(f"{len(real)} stores with a partner programme: none applied for yet. Grouped by network, in the order "
                       "to apply.", page)
-        self.assertIn("Awin 15 stores", page)
+        self.assertIn("Awin 16 stores", page)      # (JD Sports since 19 Nov 2026: streetwear)
         self.assertIn("Samples Invented stores for trying the importers, left out in production", page)
         rows = dict(re.findall(r'<tr role="row" data-store="([a-z0-9-]+)"[^>]*>(.*?)</tr>', html, re.DOTALL))
         self.assertEqual(sorted(rows), sorted(s["key"] for s in db.list_stores()), "every store, once")
@@ -1742,8 +1744,8 @@ class OwnerCatalogue(ProductionCase):
         awin = html.split('id="cat-group-awin"')[1].split('class="cat-h3"')[0]
         labels = [db.get_store(key)["label"] for key in re.findall(r'data-store="([a-z0-9-]+)"', awin)]
         self.assertEqual(labels, sorted(labels, key=str.casefold))
-        self.assertEqual(len(labels), 15)
-        # Customers see nothing of it: no store has a feed yet. (Breuninger is one of the six stores a customer may
+        self.assertEqual(len(labels), 16)
+        # Customers see nothing of it: no store has a feed yet. (Breuninger is one of the stores a customer may
         # paste links from, config/stores.toml: it is named on Profile's Stores tab, under "No products yet", and
         # nowhere else.)
         ada = self.member("ada@example.com")

@@ -129,7 +129,9 @@ high = { label = "Higher prices", stores = ["premium", "luxury"] }
 #             has no store's words, so it does not count.
 #   levels:   how formal an outfit can be and still be called this style, lowest
 #             and highest (an outfit's level: under 3 it is titled "Everyday",
-#             at 3 "Smart casual", over 3 "Office"). Street stops at 2.5, so an
+#             or "Street" where two of its pieces are street pieces (a hoodie,
+#             cargo trousers, a boxy tee ...: wardrobe/outfits.py), at 3 "Smart
+#             casual", over 3 "Office"). Street stops at 2.5, so an
 #             Office outfit is never called Street, and Tailored starts at 3.5.
 #             Smart casual is exactly 3: the outfits titled "Smart casual". So
 #             the words mean one thing on the Outfits page, and "Smart casual:

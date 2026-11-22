@@ -21,7 +21,6 @@ import hashlib
 import html
 import re
 import unittest
-from pathlib import Path
 
 from wardrobe import capsule, catalog, config, db, guests, looks, mock, mockimg, outfits, paths, person, programmes
 from wardrobe import scoring, selection, sizecheck, sizes, style
@@ -283,7 +282,8 @@ class HoodiesAndCargoTrousers(unittest.TestCase):
                 self.assertTrue(all(page.startswith("/de-de/men/") for page in rules["pages"]), f"{key} {category}")
             self.assertIn("cargo", stores[key]["garments"]["cargo"]["include"])
             self.assertIn("cargo", stores[key]["garments"]["trousers"]["exclude"], "never offered as plain trousers")
-            self.assertIn("hoodie", stores[key]["garments"]["knit"]["exclude"], "nor a hoodie as a jumper")
+            for word in ("hoodie", "kapuze"):      # (a "Strickpullover mit Kapuze" on a jumper page too)
+                self.assertIn(word, stores[key]["garments"]["knit"]["exclude"], f"{key}: nor a hoodie as a jumper")
         words = stores["collector"]["keyword_words"]
         for word in ("boxy", "loose", "chunky", "cargo", "parka", "bomber"):
             self.assertIn(word, words[word], word)
@@ -405,9 +405,24 @@ class TheStreetTitle(AppCase):
         catalog.update(lambda cat: cat.update(candidates=[c for c in cat["candidates"] if c["slot_id"] not in empty]))
         self.assertFalse([o for o in outfits.all_outfits(selection.build()) if o.label == "Street"])
         page = said(self.client.get("/outfits?occasion=street").get_data(as_text=True))
-        self.assertIn("No street outfits yet: Grey hoodie, charcoal cargo trousers and grey chunky sneakers are not in "
-                      "Stilsmith's product list yet. All outfits", page)
+        self.assertIn("No street outfits yet. Not in Stilsmith's product list yet: grey hoodie, charcoal cargo trousers "
+                      "and grey chunky sneakers. All outfits", page)
         self.assertNotIn("An outfit needs at least a top and trousers", page)
+        # Each with its own reason, as the budget bar counts them: options, but none in his size, is another one.
+        db.set_setting("sizes_confirmed", True)
+        catalog.update(lambda cat: cat.update(candidates=cat["candidates"] + [
+            {**c, "slot_id": "charcoal-cargo-trousers", "sizes_in_stock": []}
+            for c in mock.build([{"id": "charcoal-cargo-trousers", "category": "cargo", "colour": "charcoal"}])["candidates"]]))
+        page = said(self.client.get("/outfits?occasion=street").get_data(as_text=True))
+        self.assertIn("No street outfits yet. Not in Stilsmith's product list yet: grey hoodie and grey chunky sneakers. "
+                      "Not in stock in your size: charcoal cargo trousers. All outfits", page)
+        # Where Street outfits exist and he answered them all, it is the page's "no more to offer", not these words.
+        catalog.save(mock.build(db.list_slots()))
+        for outfit in [o for o in outfits.all_outfits(selection.build()) if o.label == "Street"]:
+            self.client.post("/outfits/no", data={"sig": outfit.sig})
+        page = said(self.client.get("/outfits?occasion=street").get_data(as_text=True))
+        self.assertIn("No more outfits to offer for “street”.", page)
+        self.assertNotIn("No street outfits yet", page)
 
     def test_the_street_filter_lists_only_street_outfits(self):
         w = self.wardrobe(["everyday", "street"], 600)
@@ -503,11 +518,16 @@ class TickingOnProfile(AppCase):
         page = self.client.get("/profile").get_data(as_text=True)
         self.assertIn("Your budget is 150 €: Office joins at about 206 €, Streetwear at about 346 €.",
                       said(re.search(r'id="kinds-say">.*?</p>', page, re.S).group(0)))
-        # Under the Street filter, where none of its pieces is in his plan yet, the page says why.
+        # Under the Street filter, where none of its pieces is in his plan yet, the page says why: also once he has
+        # outfits in his wardrobe ("No more outfits to offer" would say he had seen them all).
+        first = outfits.generate(selection.build(), limit=1)[0][0]
+        self.client.post("/outfits/save", data={"key": first.key, "sig": first.sig, "want": "save"})
+        self.assertEqual(len(db.list_saved()), 1)
         empty = said(self.client.get("/outfits?occasion=street").get_data(as_text=True))
         self.assertIn("No outfits for “street” yet: Streetwear joins your plan at a budget of about 346 €. Your budget "
                       "· All outfits", empty)
         self.assertNotIn("An outfit needs at least a top and trousers", empty)
+        self.assertNotIn("No more outfits to offer", empty)
         # A budget he has not given: said as such.
         profile_mod.unanswer("budget")
         page = self.client.get("/profile").get_data(as_text=True)
@@ -670,8 +690,8 @@ class TheExampleWardrobeOnTheList(WithExampleClips):
         self.app = create_app()
         self.visitor = self.app.test_client()
         with db.as_user(guests.example_id()):
-            self.assertEqual(db.get_setting("profile"), {**STORED_BEFORE, "use": ["everyday", "office"]},
-                             "only the answer's form changed")
+            self.assertEqual(db.get_setting("profile"), STORED_BEFORE, "nothing of it is written at the deploy")
+            self.assertEqual(profile_mod.load()["use"], ["everyday", "office"])
         self.assertEqual(the_example(self, ON_THE_LIST), keys)
         self.assertEqual(self.shown("/"), shown, "the same outfits, with the same pictures")
         self.assertEqual({key: self.board(key)["clip"] for key in clips}, clips, "and the same clips")

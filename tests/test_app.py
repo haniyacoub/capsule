@@ -513,7 +513,7 @@ class SlotsAndProfile(AppCase):
         self.assertIn("We use these to warn you when a cut runs slim or large, or a size may not fit. Add your chest and "
                       "body waist to compare yourself with each store's size chart.", about)
         self.assertIn('<h2 class="sec" id="use-label">What do you dress for?</h2>', about)
-        self.assertIn('role="radiogroup" aria-labelledby="use-label"', about, "the choice is named by its heading")
+        self.assertIn('role="group" aria-labelledby="use-label"', about, "the boxes are named by their heading")
         self.assertIn('<h2 class="sec" id="sizes">Sizes</h2>', about)
         for name in ("liked", "refused"):        # colour names: a phone's autocorrect would only change them
             field = re.search(rf'<input [^>]*name="{name}"[^>]*>', about).group(0)

@@ -4054,7 +4054,8 @@ def run(base: str) -> None:
                 [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
             empty_of = """() => [...document.querySelectorAll('.store-empty input[name=stores][data-empty]')].map(box =>
                 [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
-            # (OTTO has products in the demo since 18 Nov: it is among the stores with products here.)
+            # (OTTO has products in the demo since 18 Nov, and JD Sports since 19 Nov (streetwear): they are among the
+            # stores with products here.)
             five = [["tom-tailor", True, "Tom Tailor"], ["hirmer", True, "Hirmer"], ["breuninger", True, "Breuninger"],
                     ["blue-tomato", True, "Blue Tomato"], ["bergfreunde", True, "Bergfreunde"]]
             context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
@@ -4070,8 +4071,8 @@ def run(base: str) -> None:
                 assert "Weekday" in phone.locator("main").inner_text(), "the starter shopping list has nothing from Weekday"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
-                assert phone.evaluate(stores_of) == [["cos", True, "COS"], ["weekday", True, "Weekday"], ["otto", True, "OTTO"]], \
-                    phone.evaluate(stores_of)
+                assert phone.evaluate(stores_of) == [["cos", True, "COS"], ["weekday", True, "Weekday"], ["otto", True, "OTTO"],
+                                                     ["jd-sports", True, "JD Sports"]], phone.evaluate(stores_of)
                 # No programme has accepted Stilsmith yet: nothing on the tab calls a store a partner, as the page's
                 # foot says ("Not affiliated with any retailer").
                 assert "partner" not in phone.locator("#panel-stores").inner_text().lower(), \
@@ -4095,6 +4096,8 @@ def run(base: str) -> None:
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
                 phone.get_by_role("checkbox", name="OTTO", exact=True).tap()
                 expect(phone.locator("[data-store-said]")).to_be_hidden()
+                phone.get_by_role("checkbox", name="JD Sports", exact=True).tap()
+                expect(phone.locator("[data-store-said]")).to_be_hidden()
                 # The last store with products cannot be unticked, however many of the five are ticked.
                 phone.get_by_role("checkbox", name="COS", exact=True).tap()
                 expect(phone.get_by_role("checkbox", name="COS", exact=True)).to_be_checked()
@@ -4117,14 +4120,17 @@ def run(base: str) -> None:
                 expect(told, "the line about the pieces picked again").to_be_in_viewport()
                 for path in ("/outfits", "/", "/list"):
                     phone.goto(base + path, wait_until="networkidle")
-                    for store in ("weekday", "otto"):       # (as a word: "bottom" is no OTTO)
+                    for store in ("weekday", "otto", "jd sports"):       # (as a word: "bottom" is no OTTO)
                         assert not re.search(rf"\b{store}\b", phone.locator("main").inner_text().lower()), \
                             f"{path} still shows {store}"
-                        assert not phone.locator(f"main a[href*='{store}']").count(), f"{path} still links to {store}"
+                        assert not phone.locator(f"main a[href*='{store.replace(' ', '')}']").count(), \
+                            f"{path} still links to {store}"
                 phone.goto(base + "/profile#stores", wait_until="networkidle")
-                assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False, False], "the unticked stores are not kept"
+                assert [on for _, on, _ in phone.evaluate(stores_of)] == [True, False, False, False], \
+                    "the unticked stores are not kept"
                 phone.get_by_role("checkbox", name="Weekday", exact=True).tap()
                 phone.get_by_role("checkbox", name="OTTO", exact=True).tap()
+                phone.get_by_role("checkbox", name="JD Sports", exact=True).tap()
                 phone.click("button:has-text('Save profile')")
                 phone.wait_for_url(base + "/profile#stores")
                 expect(phone.locator("#tab-stores")).to_have_attribute("aria-selected", "true")
@@ -4165,7 +4171,7 @@ def run(base: str) -> None:
                 plain.click("button:has-text('Log in')")
                 plain.wait_for_load_state("networkidle")
                 plain.goto(base + "/profile", wait_until="networkidle")
-                # (Only the three with products are unticked: the five with none yet, left ticked, are not enough.)
+                # (Only the four with products are unticked: the five with none yet, left ticked, are not enough.)
                 for box in plain.locator("input[name=stores]:not([data-empty])").all():
                     box.uncheck()
                 plain.click("button:has-text('Save profile')")
@@ -4173,7 +4179,7 @@ def run(base: str) -> None:
                 flashes = plain.locator("main > .flash").all_inner_texts()
                 assert "At least one store with products must stay ticked, so your stores stay as they were." in flashes, flashes
                 assert [on for _, on in plain.locator("input[name=stores]").evaluate_all(
-                    "bs => bs.map(b => [b.value, b.checked])")] == [True] * 8, "the stores did not stay as they were"
+                    "bs => bs.map(b => [b.value, b.checked])")] == [True] * 9, "the stores did not stay as they were"
             finally:
                 context.close()
 
@@ -5865,7 +5871,8 @@ def run(base: str) -> None:
                 phone.wait_for_load_state("networkidle")
                 assert not phone.locator("#cand-hirmer-9000001, #cand-hirmer-9000077").count(), \
                     "the options added by their links were not removed"
-                stores = ("hirmer.de", "tom-tailor.de", "otto.de", "breuninger.com", "blue-tomato.com", "bergfreunde.de")
+                stores = ("hirmer.de", "tom-tailor.de", "otto.de", "breuninger.com", "blue-tomato.com", "bergfreunde.de",
+                          "jdsports.de")
                 reached = [url for url in asked_of if any(store in url.split("/")[2] for store in stores)]
                 assert not reached, f"a store was asked for something: {reached}"
             finally:

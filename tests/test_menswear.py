@@ -297,6 +297,9 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         "blue-tomato": ("https://www.blue-tomato.com/de-DE/product/Beispielmarke-Flanell-Overshirt-9000004/",
                         "Beispielmarke Flanell Overshirt"),
         "bergfreunde": ("https://www.bergfreunde.de/beispielmarke-merino-shirt-9000005/", "Beispielmarke merino shirt"),
+        # offered since 19 Nov 2026 (streetwear): its links are taken like the others'
+        "jd-sports": ("https://www.jdsports.de/product/beispielmarke-flanellhemd-kariert/9000006/",
+                      "Beispielmarke flanellhemd kariert"),
     }
 
     def setUp(self):
@@ -591,8 +594,8 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         shown = html.unescape(self.client.get(f"/slot/{self.sid}").get_data(as_text=True))
         section = re.search(r'<section class="card add" id="add">(.*?)</section>', shown, re.S).group(1)
         text = " ".join(re.sub(r"<[^>]+>", " ", section).split())
-        self.assertIn("Paste product page addresses from COS, Weekday, Tom Tailor, OTTO, Hirmer, Breuninger, Blue Tomato "
-                      "or Bergfreunde, one per line. Menswear only. Stilsmith does not open the page:", text)
+        self.assertIn("Paste product page addresses from COS, Weekday, Tom Tailor, OTTO, Hirmer, Breuninger, Blue Tomato, "
+                      "Bergfreunde or JD Sports, one per line. Menswear only. Stilsmith does not open the page:", text)
         self.assertIn('enctype="multipart/form-data"', section)
         self.assertIn('<input type="file" name="page" accept=".html,.htm,text/html" aria-describedby="page-help">', section)
         self.assertIn("The product's page, saved from your browser (optional)", text)

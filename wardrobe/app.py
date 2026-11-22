@@ -261,6 +261,21 @@ def kinds_waiting(profile: dict) -> list[tuple[str, int]]:
             if kind not in planned and (at := joins.get(kind)) is not None]
 
 
+def street_empty(w: selection.Wardrobe) -> str:
+    """Why his street pieces make no outfit, where nothing is picked for some of them (outfits.street_piece), in the
+    budget bar's reasons (selection.Wardrobe.unfilled_words), each followed by the pieces it holds for: "Not in
+    Stilsmith's product list yet: grey hoodie and charcoal cargo trousers." "" where each has something picked."""
+    reasons: dict[str, list[str]] = {}
+    for view in w.slots:
+        if view.state == "owned" or view.chosen is not None or not outfits.street_piece(view.slot):
+            continue
+        why = (f"Not in {conf.SITE_NAME}'s product list yet" if not view.cands
+               else "No price yet" if view.n_available else "Not in stock in your size")
+        reasons.setdefault(why, []).append(view.slot["name"][:1].lower() + view.slot["name"][1:])
+    return " ".join(f"{why}: {names[0] if len(names) == 1 else ', '.join(names[:-1]) + ' and ' + names[-1]}."
+                    for why, names in reasons.items())
+
+
 def waiting_words(waits: list[tuple[str, int]]) -> str:
     """The kinds that wait, in one sentence: "Streetwear joins at about 346 €.", "Office joins at about 206 €,
     Streetwear at about 346 €." "" where none waits."""
@@ -1350,16 +1365,15 @@ def create_app() -> Flask:
                     looks_on and looks.needs_ok(board.get("look_pieces") or board["pieces"])):
                 board["ask"] = ""
         videos_on = looks_on and videos.attach(boards)      # … and its video, "See it move" (videos.py)
-        # No outfits under the filter of a kind he ticked that his budget does not reach yet: said, with the budget it
-        # joins at ("Streetwear joins your plan at a budget of about 346 €").
-        waits_here = None
-        if not boards and occasion in capsule.KIND_ORDER:
+        # A kind's filter with no outfit at all, not even one he answered already: why, where it is one of these two.
+        # A kind he ticked that his budget does not reach yet: said, with the budget it joins at ("Streetwear joins
+        # your plan at a budget of about 346 €"). His street pieces with nothing picked (a published list without
+        # hoodies, cargo trousers or chunky sneakers): those pieces named, each with why (street_empty).
+        waits_here, street_missing = None, ""
+        if not boards and occasion in capsule.KIND_ORDER and not any(o.suits(occasion) for o in outfits.all_outfits(w)):
             waits_here = dict((name, at) for name, at in kinds_waiting(profile_mod.load())
                               if name == capsule.KIND_NAMES[occasion]) or None
-        # No Street outfits while its pieces have no product yet (a published list without hoodies, cargo trousers or
-        # chunky sneakers): those pieces are named.
-        street_missing = [view.slot["name"] for view in w.slots if not boards and occasion == "street"
-                          and outfits.street_piece(view.slot) and view.chosen is None and view.state != "owned"]
+            street_missing = street_empty(w) if occasion == "street" else ""
         return page("outfits.html", w=w, tab="outfits", boards=boards, total=total, n_saved=len(saved), removed=removed,
                     answer=answer, n_declined=n_declined, news=wardrobe_news(w),
                     reusing=bool(yes_sigs) and any(b.get("adds") and b["adds"].have and not b["adds"].in_wardrobe
