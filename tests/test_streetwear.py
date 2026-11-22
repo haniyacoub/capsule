@@ -132,6 +132,23 @@ class TheStreetwearList(unittest.TestCase):
         tees = [s for s in slots if (s["category"], s["colour"]) == ("tee", "white")]
         self.assertEqual([(s["name"], s["qty"]) for s in tees], [("White tee", 2)], "one white tee, everyday's")
 
+    def test_with_the_office_and_streetwear_the_white_tee_is_streetwears(self):
+        # The office's 13th piece is a plain white tee and streetwear's first is two boxy white tees: one garment in
+        # one colour, so one piece. In the line streetwear's first three come before the office's 13th piece, so the
+        # piece is streetwear's, at every budget. Streetwear joins when its two tees fit (about 216 €), and without
+        # shoes its first pieces, the boxy tees and the cargo trousers, are two street pieces: a Street outfit.
+        both = {**EXAMPLE, "use": ["office", "street"]}
+        self.assertEqual(capsule.joins_at(both), {"street": 216})
+        self.assertEqual(capsule.joins_at({**both, "shoes": False}), {"street": 108})
+        for budget in (216, 300, 600, 1000, 2000):
+            tees = [s for s in plan(both["use"], budget) if (s["category"], s["colour"]) == ("tee", "white")]
+            self.assertEqual([(s["id"], s["name"], s["keywords"], s["qty"]) for s in tees],
+                             [("white-boxy-tee", "White boxy tee", "heavyweight boxy", 2)], budget)
+        self.assertEqual(capsule.kinds_in({**both, "budget": 215}), ["office"])
+        no_shoes = plan(both["use"], 108, shoes=False)
+        self.assertEqual(sorted((s["name"], s["qty"]) for s in no_shoes if s["category"] in ("tee", "cargo")),
+                         [("Charcoal cargo trousers", 1), ("White boxy tee", 2)])
+
     def test_all_three_kinds_join_in_order_and_say_when(self):
         # Office's first three join from 206 €, streetwear's from 346 €: until then it waits, and so does every kind
         # after the first that waits.
@@ -221,8 +238,14 @@ class HoodiesAndCargoTrousers(unittest.TestCase):
                               ("Cargohose in Oliv", "cargo"), ("stone cargo trousers", "cargo"),
                               # what was there stays what it was
                               ("grey jumper", "knit"), ("denim jacket", "jacket"), ("indigo jeans", "jeans"),
-                              ("charcoal trousers", "trousers"), ("a white t-shirt", "tee")):
+                              ("charcoal trousers", "trousers"), ("a white t-shirt", "tee"),
+                              # cargo shorts are no garment of the plans, as before cargo trousers came: he is told
+                              ("cargo shorts", None), ("Cargo-Shorts in Khaki", None), ("kurze Cargohose", None)):
             self.assertEqual(capsule.detect_garment(line), garment, line)
+        slots, unmatched = capsule.propose({**EXAMPLE, "use": ["everyday", "street"], "budget": 300,
+                                            "owned": "olive cargo shorts"})
+        self.assertEqual(unmatched, ["olive cargo shorts"])
+        self.assertFalse(any(s["owned"] for s in slots), "his cargo trousers are still to buy")
         slots, unmatched = capsule.propose({**EXAMPLE, "use": ["everyday"], "budget": 300,
                                             "owned": "grey hoodie\nblack cargo pants"})
         self.assertEqual(unmatched, [])

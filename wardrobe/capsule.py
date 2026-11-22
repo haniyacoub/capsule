@@ -363,28 +363,34 @@ class _Piece:
 
 def _pieces(profile: dict) -> tuple[dict[tuple[str, str], _Piece], dict[str, list[tuple[int, tuple[str, str]]]]]:
     """Every piece the kinds of this profile could have, by (garment, colour), and each kind's rows as (rank, that
-    key), without the garments the shoes and outerwear ticks leave out. A piece's name and id are given here, in one
-    fixed order (the kinds in order, each top to bottom), so that a piece has the same id at every budget, whichever
-    kinds the budget lets in. Two rows in the same garment and colour are one piece: the first one's."""
+    key), without the garments the shoes and outerwear ticks leave out. Two rows in the same garment and colour are
+    one piece: the row that comes first in the line all his kinds would make (config/budget.toml, step 4: every
+    kind's first three pieces, then each kind's 4th, and so on), as the line skips the later one. So with the office
+    and streetwear the white tee is streetwear's first piece, two boxy tees, not the office's 13th, one plain tee.
+    That line is the same at every budget, so a piece has the same name and id at every budget, whichever kinds the
+    budget lets in."""
     palette = build_palette(profile.get("liked", []), profile.get("refused", []))
     kinds = kinds_of(profile.get("use"))
     left_out = (SHOES if not profile.get("shoes", True) else frozenset()) | \
                (OUTERWEAR if not profile.get("outerwear", True) else frozenset())
-    pieces: dict[tuple[str, str], _Piece] = {}
-    rows: dict[str, list[tuple[int, tuple[str, str]]]] = {}
-    ids: set[str] = set()
-    for kind in kinds:
-        rows[kind] = []
+    rows: dict[str, list[tuple[int, tuple[str, str]]]] = {kind: [] for kind in kinds}
+    in_line: list[tuple[tuple[int, int, int], tuple[str, str], str, str, int]] = []
+    for at, kind in enumerate(kinds):
         for rank, (category, role, name, keywords, qty) in enumerate(RANKED[kind]):
             if category in left_out:
                 continue
             key = (category, palette[role])
-            if key not in pieces:
-                full = name.format(c=get_colour(key[1]).label)
-                piece_id = unique_id(slugify(full), ids)
-                ids.add(piece_id)
-                pieces[key] = _Piece(piece_id, category, key[1], full, keywords, qty)
             rows[kind].append((rank, key))
+            place = (0, at, rank) if rank < FIRST else (1, rank, at)     # where the row stands in that line
+            in_line.append((place, key, name, keywords, qty))
+    pieces: dict[tuple[str, str], _Piece] = {}
+    ids: set[str] = set()
+    for _place, key, name, keywords, qty in sorted(in_line, key=lambda row: row[0]):
+        if key not in pieces:
+            full = name.format(c=get_colour(key[1]).label)
+            piece_id = unique_id(slugify(full), ids)
+            ids.add(piece_id)
+            pieces[key] = _Piece(piece_id, key[0], key[1], full, keywords, qty)
     return pieces, rows
 
 
@@ -584,7 +590,10 @@ def same_plan(slots: list[dict], profile: dict) -> bool:
 
 def detect_garment(text: str) -> str | None:
     t = re.sub(r"[-_]", " ", text.lower())
+    shorts = re.search(r"(?<![a-zäöüß])(shorts?|kurze|bermuda)", t)
     for category, words in _GARMENT_WORDS:
+        if category == "cargo" and shorts:
+            continue        # cargo shorts are not cargo trousers: as before cargo trousers came, no garment of the plans
         if any(re.search(rf"(?<![a-zäöüß]){re.escape(w)}", t) for w in words):
             return category
     return None
