@@ -1724,7 +1724,7 @@ class OwnerCatalogue(ProductionCase):
         real = [key for key, values in registry.load().items() if not values["rules"].get("sample")]
         self.assertIn(f"{len(real)} stores with a partner programme: none applied for yet. Grouped by network, in the order "
                       "to apply.", page)
-        self.assertIn("Awin 16 stores", page)      # (JD Sports since 19 Nov 2026: streetwear)
+        self.assertIn("Awin 19 stores", page)      # (JD Sports since 19 Nov 2026; Seidensticker, Foot Locker and OLYMP since 22 Nov)
         self.assertIn("Samples Invented stores for trying the importers, left out in production", page)
         rows = dict(re.findall(r'<tr role="row" data-store="([a-z0-9-]+)"[^>]*>(.*?)</tr>', html, re.DOTALL))
         self.assertEqual(sorted(rows), sorted(s["key"] for s in db.list_stores()), "every store, once")
@@ -1744,7 +1744,7 @@ class OwnerCatalogue(ProductionCase):
         awin = html.split('id="cat-group-awin"')[1].split('class="cat-h3"')[0]
         labels = [db.get_store(key)["label"] for key in re.findall(r'data-store="([a-z0-9-]+)"', awin)]
         self.assertEqual(labels, sorted(labels, key=str.casefold))
-        self.assertEqual(len(labels), 16)
+        self.assertEqual(len(labels), 19)
         # Customers see nothing of it: no store has a feed yet. (Breuninger is one of the stores a customer may
         # paste links from, config/stores.toml: it is named on Profile's Stores tab, under "No products yet", and
         # nowhere else.)

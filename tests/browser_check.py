@@ -4056,8 +4056,14 @@ def run(base: str) -> None:
                 [box.value, box.checked, box.closest('label').textContent.replace(/\\s+/g, ' ').trim()])"""
             # (OTTO has products in the demo since 18 Nov, and JD Sports since 19 Nov (streetwear): they are among the
             # stores with products here.)
+            # The stores with no products yet here: the five of round 6, and the shared list's first batch (22 Nov
+            # 2026), whose products are collected for testing on the owner's computer only (none in this demo).
             five = [["tom-tailor", True, "Tom Tailor"], ["hirmer", True, "Hirmer"], ["breuninger", True, "Breuninger"],
-                    ["blue-tomato", True, "Blue Tomato"], ["bergfreunde", True, "Bergfreunde"]]
+                    ["blue-tomato", True, "Blue Tomato"], ["bergfreunde", True, "Bergfreunde"],
+                    ["hm", True, "H&M"], ["herrenausstatter", True, "Herrenausstatter"], ["just4men", True, "just4men"],
+                    ["suitsupply", True, "Suitsupply"], ["seidensticker", True, "Seidensticker"],
+                    ["foot-locker", True, "Foot Locker"], ["carhartt-wip", True, "Carhartt WIP"],
+                    ["pull-and-bear", True, "Pull&Bear"], ["olymp", True, "OLYMP"]]
             context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
             try:
                 phone = context.new_page()
@@ -4151,7 +4157,10 @@ def run(base: str) -> None:
                 desk.click("button:has-text('Log in')")
                 desk.wait_for_load_state("networkidle")
                 desk.goto(base + "/profile#stores", wait_until="networkidle")
+                # (Each row is scrolled into the window before it is looked at: with the first batch's stores the list is
+                # taller than the window, and what is at a point outside the window cannot be asked.)
                 seen = desk.evaluate("""() => [...document.querySelectorAll('.store-row')].map(row => {
+                    row.scrollIntoView({block: 'center'});
                     const box = row.getBoundingClientRect(), card = document.querySelector('.cc-side').getBoundingClientRect();
                     const words = row.querySelector('span').getBoundingClientRect();
                     const top = document.elementFromPoint(box.left + 10, box.top + box.height / 2);
@@ -4179,7 +4188,8 @@ def run(base: str) -> None:
                 flashes = plain.locator("main > .flash").all_inner_texts()
                 assert "At least one store with products must stay ticked, so your stores stay as they were." in flashes, flashes
                 assert [on for _, on in plain.locator("input[name=stores]").evaluate_all(
-                    "bs => bs.map(b => [b.value, b.checked])")] == [True] * 9, "the stores did not stay as they were"
+                    "bs => bs.map(b => [b.value, b.checked])")] == [True] * (4 + len(five)), \
+                    "the stores did not stay as they were"
             finally:
                 context.close()
 

@@ -309,7 +309,7 @@ class Viewer(AppCase):
         # The picture is the page: right under the row of words comes the picture, and the line is under the outfits.
         page = self.client.get("/outfits").data.decode()
         total = outfits.generate(selection.build(), limit=12)[1]
-        day = " ".join(selection.build().collected.split()[:2])        # "12 Nov" of "12 Nov 2026, 15:02"
+        day = " ".join(selection.build().as_of.split()[:2])        # "12 Nov" of "12 Nov 2026, 15:02"
         self.assertEqual(page.count('<p class="lead'), 1, "one line, not one over the picture as well")
         self.assertLess(page.index('<div class="toolbar">'), page.index('class="reel"'))
         self.assertGreater(page.index('<p class="lead below">'), page.index('class="reel"'), "it is under the outfits")

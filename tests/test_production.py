@@ -1376,7 +1376,7 @@ class SharedStoreCatalogue(ProductionCase):
             return [c.id for c in selection.build().get(slot).cands]
 
     def test_new_customers_start_on_real_products(self):
-        self.assertEqual(self.publish(), 4, "your own additions are not published")
+        self.assertEqual(self.publish(), (4, 0), "your own additions are not published; nothing else was there")
         ada = self.member("ada@example.com")
         with db.as_user(self.user_id("ada@example.com")):
             having.the_whole_plan()         # the Wardrobe page shows the pieces of her wardrobe: here, all of the plan

@@ -595,7 +595,9 @@ class PastedLinksFromTheSixStores(unittest.TestCase):
         section = re.search(r'<section class="card add" id="add">(.*?)</section>', shown, re.S).group(1)
         text = " ".join(re.sub(r"<[^>]+>", " ", section).split())
         self.assertIn("Paste product page addresses from COS, Weekday, Tom Tailor, OTTO, Hirmer, Breuninger, Blue Tomato, "
-                      "Bergfreunde or JD Sports, one per line. Menswear only. Stilsmith does not open the page:", text)
+                      "Bergfreunde, JD Sports, H&M, Herrenausstatter, just4men, Suitsupply, Seidensticker, Foot Locker, "
+                      "Carhartt WIP, Pull&Bear or OLYMP, one per line. Menswear only. Stilsmith does not open the page:",
+                      text)
         self.assertIn('enctype="multipart/form-data"', section)
         self.assertIn('<input type="file" name="page" accept=".html,.htm,text/html" aria-describedby="page-help">', section)
         self.assertIn("The product's page, saved from your browser (optional)", text)

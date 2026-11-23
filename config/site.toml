@@ -30,3 +30,14 @@ guests = true
 # (python -m wardrobe example-pictures), as the old ones show other outfits.
 # (An outfit of the very same products as one drawn before keeps its picture.)
 example_budget = 600
+
+# Keep the visitors' example wardrobe exactly as it is when Stilsmith's product
+# list grows (more stores, more products): at each start, once it has real
+# products, each of its pieces is locked to the product it shows then, as a
+# customer's "Lock this choice" does (guests.py, lock_pieces). Its outfits, and
+# the AI pictures and clips drawn of them, stay as they are. A lock holds while
+# its product is still among the piece's options, at most 6 a store: so publish
+# COS's and Weekday's products as they are. Set false to let "Best for budget"
+# pick its products from the whole list again at the next start: its outfits
+# then change, and their pictures must be drawn again.
+example_locked = true

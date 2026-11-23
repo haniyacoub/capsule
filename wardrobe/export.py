@@ -16,7 +16,7 @@ import io
 from dataclasses import dataclass, field
 from datetime import date
 
-from . import programmes
+from . import catalog, programmes
 from .selection import Cand, SlotView, StoreSaid, Wardrobe, gone_words, said_once
 
 
@@ -150,8 +150,11 @@ def build(w: Wardrobe, only: tuple[str, ...] | None = None) -> ShoppingList:
     order = list(programmes.offered())       # the stores in the order config/stores.toml lists them
     ordered = sorted(groups.values(), key=lambda g: order.index(g.key) if g.key in order else 99)
     total = w.total if only is None else round(sum(g.subtotal for g in ordered), 2)
+    # As of the day the oldest product on it was collected: each price and stock holds as of its own day.
+    lines = [line for group in ordered for line in group.lines] + sold_out
+    collected = catalog.oldest_label([line.cand.data for line in lines if line.cand is not None], (w.plan or w).as_of)
     return ShoppingList(groups=ordered, owned=owned, missing=missing, total=total, budget=w.budget,
-                        collected=w.collected, demo=w.source == "mock", sold_out=sold_out,
+                        collected=collected, demo=w.source == "mock", sold_out=sold_out,
                         example_sizes=w.example_sizes, budget_known=w.budget_known)
 
 

@@ -22,7 +22,7 @@ from wardrobe.app import create_app
 
 from . import having
 from .test_production import ProductionCase, words
-from .test_programmes import PASTE_ONLY, PUBLISHED, STORES, shaped
+from .test_programmes import NO_PRODUCTS_YET, PUBLISHED, STORES, shaped
 
 # Four of the example plan's pieces: the grey jumper and the white tee in both stores (Weekday the cheaper), the jeans
 # in both (Weekday the cheaper), the charcoal coat at Weekday only. And Zara's jumper, which is never offered.
@@ -65,8 +65,10 @@ def empty_rows(page: str) -> list[tuple[str, bool, str]]:
         apart.group(0) if apart else "", re.S)]
 
 
-PASTED = list(PASTE_ONLY)          # the stores only pasted links come from: their keys, in config/stores.toml's order
-PASTED_NAMES = "Tom Tailor, OTTO, Hirmer, Breuninger, Blue Tomato, Bergfreunde or JD Sports"
+PASTED = list(NO_PRODUCTS_YET)     # the stores only pasted links come from: their keys, in config/stores.toml's order
+PASTED_NAMES = html.escape("Tom Tailor, OTTO, Hirmer, Breuninger, Blue Tomato, Bergfreunde, JD Sports, H&M, "
+                           "Herrenausstatter, just4men, Suitsupply, Seidensticker, Foot Locker, Carhartt WIP, Pull&Bear "
+                           "or OLYMP", quote=False)      # as the page writes it
 
 
 class TheStorePicker(ProductionCase):
@@ -318,7 +320,7 @@ class TheStorePicker(ProductionCase):
         # their programmes has been applied to.
         self.assertIn("""<h3 class="store-empty-head" id="stores-empty">No products yet: paste a link on a piece's page</h3>""",
                       panel(page))
-        self.assertEqual(empty_rows(page), [(key, True, name) for key, name in PASTE_ONLY.items()])
+        self.assertEqual(empty_rows(page), [(key, True, html.escape(name)) for key, name in NO_PRODUCTS_YET.items()])
         self.assertLess(panel(page).index('value="weekday"'), panel(page).index('id="stores-empty"'))
         self.assertEqual(shared.stocked(), ["cos", "weekday"])
         # Unticking one changes no piece, so nothing is said of pieces picked again.
@@ -397,6 +399,6 @@ class OnYourOwnMachine(unittest.TestCase):
         profile_mod.save({**profile_mod.load(), "stores_off": ["weekday"]})
         self.assertEqual([c["store"] for c in catalog.load()["candidates"]], ["cos"])
         with tempfile.TemporaryDirectory() as folder:
-            self.assertEqual(shared.publish(Path(folder)), 2)
+            self.assertEqual(shared.publish(Path(folder)), (2, 0))
             listed = json.loads((Path(folder) / shared.POOL_NAME).read_text(encoding="utf-8"))
         self.assertEqual(sorted(p["store"] for p in listed["products"]), ["cos", "weekday"])

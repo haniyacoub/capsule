@@ -309,7 +309,7 @@
   {% if occasion == 'saved' %}The outfits you said yes to, as they were when you added them. “Changed” marks a piece your wardrobe now fills with something else.
   {% else %}
   {{ '%d of ' % boards|length if boards|length < total }}{{ total }} {{ 'outfit' if total == 1 else 'outfits' }}
-  {%- if w.collected != 'never' %} · prices of {{ w.collected.split(',')[0].rsplit(' ', 1)[0] }}{% endif %}
+  {%- if w.as_of != 'never' %} · prices of {{ w.as_of.split(',')[0].rsplit(' ', 1)[0] }}{% endif %}
   {%- if boards|length > 1 or boards|length < total %}<span class="by-touch"> · swipe for more</span><span class="by-mouse"> · use the arrows or ← →</span>{% endif %}
   {% endif %}
   {# Why the outfits are in this order, once he has pieces: the ones that cost him least come first. After a yes

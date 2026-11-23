@@ -35,8 +35,9 @@
       {% else %}{% set how = 'no' if not c.available else 'ex' if example_sizes else 'yes' %}<span class="{{ how }}">{% if how != 'yes' %}{{ icon('flag') }} {% endif %}{% if c.size.label %}Your size: {% endif %}{{ c.size.text }}{% if example_sizes %} (example&nbsp;size){% endif %}</span>{% endif %}
       {% if example_sizes and c.size.known %}<a href="{{ url_for('profile_page') }}#sizes">Change<span class="sr"> your sizes</span></a>{% endif %}
     </p>
-    {# The day the prices and stock were collected, right under what it qualifies: "in stock" is as of then. #}
-    <p class="as-of">Prices and stock as of <span>{{ w.collected }}</span></p>
+    {# The day this product's price and stock were collected, right under what it qualifies: "in stock" is as of then.
+       (Each product has its own day: the stores are collected on different days.) #}
+    <p class="as-of">Prices and stock as of <span>{{ c.collected or w.collected }}</span></p>
     {# The first thing to check about the size (the cut is said above, after "Fit:"). "Sizes not checked at …",
        always the last note, is left out: the size line above says it already. #}
     {% set notes = c.check.notes if c.size.known else c.check.notes[:-1] %}

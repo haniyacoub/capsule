@@ -246,6 +246,13 @@ def score(candidate: dict, category: str, rules: dict | None = None) -> Score:
             if comp:
                 source = "name"
                 preface = f"The store page gave no composition — estimated from the name ({composition.GUESSED[how]})"
+            named = str(candidate.get("fabric_words") or "")
+            if not comp and named:
+                # The fabric its category page names without the shares ("Baumwolljersey"): collect/listing.py
+                comp, how = composition.guess(named, guess_rules)
+                if comp:
+                    source = "name"
+                    preface = f"The store gave no composition, only the fabric's name, “{named}”: estimated from that"
         if not comp:
             typical = fab.get("assume_when_unknown", {}).get(category)
             comp = composition.parse(typical) if typical else []

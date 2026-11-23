@@ -1,0 +1,43 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  An example of config/collect.local.toml, with INVENTED stores
+#
+#  Copy this file to config/collect.local.toml (which git never commits: see
+#  .gitignore) and list the real category pages there. The collector reads that
+#  file over config/stores.toml (wardrobe/collect/__init__.py, load_settings),
+#  so the public file names each store (label, web address, programme, styles,
+#  price) and this one, on your computer only, says where its products are.
+#  A store must also be in config/stores.toml with a partner programme, or it
+#  is never read.
+#
+#  `python -m wardrobe refresh --pool` reads, for each garment type, the pages
+#  listed for it. A page listed for several garment types is shared: each of
+#  its products is sorted into one of them by its name, with the general words
+#  of [collector.garment_rules] in config/stores.toml, or a store's own
+#  `include` / `exclude` given here.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Settings of the collector can be changed here too, for this computer only:
+# [collector]
+# pool_listing_pages = 3
+
+[musterhaus.garments.tee]
+pages = ["/herren/t-shirts"]
+[musterhaus.garments.longsleeve]
+pages = ["/herren/t-shirts"]          # shared with the tee: "Langarm" in a name decides
+
+[musterhaus.garments.trousers]
+pages = ["/herren/hosen"]
+[musterhaus.garments.chinos]
+pages = ["/herren/hosen"]
+[musterhaus.garments.cargo]
+pages = ["/herren/hosen"]
+
+[nordfaden.garments.jeans]            # its jeans have names without "Jeans": the page decides
+pages = ["/men/denim"]
+exclude = ["shorts", "jacket"]
+
+# A store can also say, for `refresh --pool` only:
+[nordfaden]
+skip_words = ["teamline"]             # words of its own that leave a product out (a sports line, a logo line)
+own_brands = ["Nordfaden"]            # it sells other brands' products too: keep only these, where its page
+                                      # names the brand

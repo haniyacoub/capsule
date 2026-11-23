@@ -179,3 +179,19 @@ def collected_label(catalog: dict) -> str:
         return datetime.fromisoformat(stamp).strftime("%-d %b %Y, %H:%M")
     except ValueError:
         return stamp
+
+
+def oldest_label(products: list[dict], fallback: str) -> str:
+    """The day the oldest of these products was collected, as collected_label says it: what "Prices and stock as of"
+    says over several products, since a list can hold stores collected on different days (COS on 11 Nov, H&M on
+    22 Nov) and each price holds as of its own day. `fallback` when none of them says when it was collected."""
+    stamps = []
+    for product in products:
+        try:
+            stamp = datetime.fromisoformat(str(product.get("collected_at") or ""))
+        except ValueError:
+            continue
+        stamps.append(stamp if stamp.tzinfo else stamp.astimezone())   # (a day without its offset: this computer's)
+    if not stamps:
+        return fallback
+    return collected_label({"collected_at": min(stamps).isoformat()})

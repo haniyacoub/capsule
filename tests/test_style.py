@@ -198,7 +198,8 @@ class TheBrief(AppCase):
             self.assertIsInstance(stores[key].get("styles"), list, f"{key} has a styles line")
             self.assertLessEqual(set(stores[key]["styles"]), known, f"{key}: a style config/style.toml does not have")
             self.assertRegex(stores[key].get("price", ""), r"^(budget|mid|premium)(-(mid|premium))?$", key)
-        self.assertEqual(style.stores_that_suit(STREET), ["weekday", "blue-tomato", "jd-sports"])
+        self.assertEqual(style.stores_that_suit(STREET), ["weekday", "blue-tomato", "jd-sports", "hm", "foot-locker",
+                                                          "carhartt-wip", "pull-and-bear"])
         self.assertEqual(style.stores_that_suit({**style.EMPTY, "styles": ["outdoor"]}), ["blue-tomato", "bergfreunde"])
         tailored_high = {**style.EMPTY, "styles": ["tailored", "smart-casual"], "price": "high"}
         self.assertEqual(style.stores_that_suit(tailored_high)[:3], ["cos", "hirmer", "breuninger"],

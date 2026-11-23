@@ -182,6 +182,33 @@ programme_page = "https://ui.awin.com/merchant-profile/10073"
 notes          = """Sportswear, sneakers and streetwear, open in Germany. A product feed is stated (research of
                     18 Nov 2026). Offered to customers since 19 Nov 2026 for streetwear (config/stores.toml)."""
 
+[stores.seidensticker]
+label          = "Seidensticker"
+network        = "awin"
+programme_id   = "13675"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/13675"
+notes          = """Shirts first, office and everyday; a daily product feed is stated (stores sheet of 18 Nov 2026).
+                    Offered since 22 Nov 2026; its products are collected for testing only until the feed arrives."""
+
+[stores.foot-locker]
+label          = "Foot Locker"
+network        = "awin"
+programme_id   = "14437"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/14437"
+notes          = """Sport, streetwear and shoes; two rates by brand (stores sheet of 18 Nov 2026). Offered since
+                    22 Nov 2026; its products are collected for testing only until a feed arrives."""
+
+[stores.olymp]
+label          = "OLYMP"
+network        = "awin"
+programme_id   = "14269"
+status         = "none"
+programme_page = "https://ui.awin.com/merchant-profile/14269"
+notes          = """Men only: shirts, knitwear, business (research of 15 Nov 2026). Offered since 22 Nov 2026; its
+                    products are collected for testing only until a feed arrives."""
+
 [stores.lounge-by-zalando]
 label          = "Lounge by Zalando"
 network        = "awin"

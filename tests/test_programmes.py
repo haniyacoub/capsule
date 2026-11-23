@@ -24,6 +24,17 @@ PUBLISHED = "2026-11-11T17:55:27.180518+01:00"
 # from them (the research of 15 Nov 2026 recommends them; none has been applied to, none is collected).
 PASTE_ONLY = {"tom-tailor": "Tom Tailor", "otto": "OTTO", "hirmer": "Hirmer", "breuninger": "Breuninger",
               "blue-tomato": "Blue Tomato", "bergfreunde": "Bergfreunde", "jd-sports": "JD Sports"}
+# The shared list's first batch (22 Nov 2026): offered, with their networks, and collected for testing on the owner's
+# computer only (their pages are in config/collect.local.toml, which the tests never read). In the tests' own lists
+# they have no products, so here they are stores without products yet, as the ones above.
+BATCH_1 = {"hm": ("H&M", "rakuten"), "herrenausstatter": ("Herrenausstatter", "awin"),
+           "just4men": ("just4men", "awin"), "suitsupply": ("Suitsupply", "awin"),
+           "seidensticker": ("Seidensticker", "awin"), "foot-locker": ("Foot Locker", "awin"),
+           "carhartt-wip": ("Carhartt WIP", "webgains"), "pull-and-bear": ("Pull&Bear", "tradedoubler"),
+           "olymp": ("OLYMP", "awin")}
+NO_PRODUCTS_YET = {**PASTE_ONLY, **{key: name for key, (name, _) in BATCH_1.items()}}
+# The stores offered, in the order shared.revision names them
+OFFERED_KEYS = ",".join(sorted(["cos", "weekday", *NO_PRODUCTS_YET]))
 
 
 def shaped(store, sku, name, price, colour, category, **more):
@@ -69,8 +80,8 @@ class StoresWithAProgramme(unittest.TestCase):
         stores = config.load("stores.toml")
         listed = {key: table["programme"] for key, table in stores.items() if key != "collector"}
         self.assertEqual(listed, {"cos": "rakuten", "weekday": "rakuten", **{key: "awin" for key in PASTE_ONLY},
-                                  "zara": "none"})
-        self.assertEqual(programmes.offered(), {"cos": "COS", "weekday": "Weekday", **PASTE_ONLY})
+                                  **{key: network for key, (_, network) in BATCH_1.items()}, "zara": "none"})
+        self.assertEqual(programmes.offered(), {"cos": "COS", "weekday": "Weekday", **NO_PRODUCTS_YET})
         self.assertFalse(programmes.is_offered("zara"))
         self.assertEqual(programmes.label("zara"), "Zara", "its name is still known, for the message that it went")
         # Weekday's German programme is not confirmed: it stays offered, and the file says so next to it.
@@ -104,7 +115,29 @@ class StoresWithAProgramme(unittest.TestCase):
         self.assertEqual(manual.hosts(), {
             "cos.com": "cos", "weekday.com": "weekday", "tom-tailor.de": "tom-tailor", "otto.de": "otto",
             "hirmer.de": "hirmer", "breuninger.com": "breuninger", "blue-tomato.com": "blue-tomato",
-            "bergfreunde.de": "bergfreunde", "jdsports.de": "jd-sports"})
+            "bergfreunde.de": "bergfreunde", "jdsports.de": "jd-sports", "www2.hm.com": "hm",
+            "herrenausstatter.de": "herrenausstatter", "just4men.de": "just4men", "suitsupply.com": "suitsupply",
+            "seidensticker.com": "seidensticker", "footlocker.de": "foot-locker", "carhartt-wip.com": "carhartt-wip",
+            "pullandbear.com": "pull-and-bear", "olymp.com": "olymp"})
+
+    def test_the_first_batch_is_offered_and_the_public_file_names_nothing_of_its_pages(self):
+        # H&M, Herrenausstatter, just4men, Suitsupply, Seidensticker, Foot Locker, Carhartt WIP, Pull&Bear and OLYMP
+        # (22 Nov 2026): offered, each with its network, and collected for testing on the owner's computer. Where the
+        # collector reads them is kept there (config/collect.local.toml, git-ignored); the public file says only what
+        # the servers need to offer their products: name, web address, programme, styles and price.
+        from wardrobe import programmes
+        stores = config.load("stores.toml")
+        for key, (name, network) in BATCH_1.items():
+            # (and `product_pages = false` where a store refuses its product pages: H&M)
+            self.assertEqual(sorted(set(stores[key]) - {"product_pages"}), ["base", "label", "price", "programme",
+                                                                            "styles"], key)
+            self.assertEqual((stores[key]["label"], stores[key]["programme"]), (name, network))
+            self.assertTrue(programmes.is_offered(key))
+        public = (paths.CONFIG_DIR / "stores.toml").read_text(encoding="utf-8")
+        for key in BATCH_1:
+            self.assertNotIn(f"[{key}.garments", public)
+        example = (paths.CONFIG_DIR / "collect.local.example.toml").read_text(encoding="utf-8")
+        self.assertNotRegex(example, r"\[(" + "|".join(map(re.escape, BATCH_1)) + r")[.\]]", "invented stores only")
 
     def test_a_store_must_say_its_programme(self):
         from wardrobe import programmes
@@ -131,8 +164,9 @@ class StoresWithAProgramme(unittest.TestCase):
         try:
             with mock.patch.object(programmes, "_stores", return_value=without):
                 self.assertEqual([c["store"] for c in catalog.load()["candidates"]], ["cos"])
-                self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#bergfreunde,blue-tomato,breuninger,cos,hirmer,jd-sports,otto,tom-tailor"))
-            self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#bergfreunde,blue-tomato,breuninger,cos,hirmer,jd-sports,otto,tom-tailor,weekday"))
+                self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith(
+                    "#" + OFFERED_KEYS.replace(",weekday", "")))
+            self.assertTrue(shared.revision({"published_at": PUBLISHED}).endswith("#" + OFFERED_KEYS))
         finally:
             paths.CATALOG_PATH.unlink(missing_ok=True)
             catalog._cache = None
@@ -304,8 +338,8 @@ class AccountsThatHadZara(ProductionCase):
             self.assertNotIn("zara", text.lower(), path)
             # Only the stores Stilsmith has products from are named: the six a customer may paste links from are not
             # (no product of theirs is shown, and none of their programmes has been applied to).
-            for name in PASTE_ONLY.values():
-                self.assertNotIn(name, text, path)
+            for name in NO_PRODUCTS_YET.values():
+                self.assertNotIn(html.escape(name), text, path)
 
     def test_the_message_counts_in_plain_words(self):
         with db.as_user(self.user_id("ada@example.com")):
@@ -429,7 +463,7 @@ class AccountsThatHadZara(ProductionCase):
         self.assertNotIn("zara", page.lower())
         counted.assert_not_called()
         with db.as_user(self.user_id("ada@example.com")):
-            self.assertEqual(db.get_setting("pool"), "2026-11-14T09:00:00.000000+01:00#refused#bergfreunde,blue-tomato,breuninger,cos,hirmer,jd-sports,otto,tom-tailor,weekday",
+            self.assertEqual(db.get_setting("pool"), "2026-11-14T09:00:00.000000+01:00#refused#" + OFFERED_KEYS,
                              "his products were rebuilt from the new publication")
         self.assertEqual(self.picks(), picks, "no piece was picked again")
         self.assertEqual(self.his_own(), [self.OWN], "still kept, set aside")

@@ -98,8 +98,10 @@ class Scoring(unittest.TestCase):
         # Stilsmith has products from (the ones the collector reads, and the demo's: OTTO's basics since 18 Nov) are
         # each rated. A store whose products can only be pasted in by their links (Hirmer and the others of round 6)
         # is not rated yet, and the working says so instead of claiming a rating nobody gave.
+        # (The shared list's first batch, collected for testing since 22 Nov 2026, is rated too: config/stores.toml.)
+        from .test_programmes import BATCH_1
         self.assertEqual(sorted(self.rules["brand"]),
-                         sorted(set(programmes.read_by_the_collector()) | set(mock.STORE_HOME)))
+                         sorted(set(programmes.read_by_the_collector()) | set(mock.STORE_HOME) | set(BATCH_1)))
         self.assertLessEqual(set(self.rules["brand"]), set(programmes.offered()))
         self.assertNotIn("zara", self.rules["brand"])
         self.assertIn("hirmer", programmes.offered())
