@@ -88,6 +88,20 @@ class SortingIntoOneGarment(unittest.TestCase):
         self.assertEqual(pool.sort(item("Langarm-Polo"), ["longsleeve"], longsleeve, []), (None, pool.NO_GARMENT),
                          "its exclude words still count")
 
+    def test_an_overshirt_among_the_blazers_is_no_blazer(self):
+        # A shop that names every link of a page for that page: each one says "sakko", whatever the product is.
+        sakko = item("Nordfaden Sakko", slug="nordfaden-sakkos-4711")
+        overshirt = item("Nordfaden Overshirt", slug="nordfaden-sakkos-4712")
+        blazers, both = rules("blazer"), rules("overshirt", "blazer")
+        self.assertEqual(pool.sort(sakko, ["blazer"], blazers, []), ("blazer", ""))
+        self.assertEqual(pool.sort(overshirt, ["blazer"], blazers, []), (None, pool.NO_GARMENT),
+                         "a page listed for blazers alone leaves it out")
+        self.assertEqual(pool.sort(overshirt, list(both), both, []), ("overshirt", ""),
+                         "a page listed for overshirts too files it with them")
+        self.assertEqual(pool.sort(sakko, list(both), both, []), ("blazer", ""))
+        self.assertEqual(pool.sort(item("Nordfaden Hemdjacke", slug="nordfaden-sakkos-4713"), list(both), both, []),
+                         ("overshirt", ""))
+
     def test_a_stores_own_words_replace_the_general_ones(self):
         cos = config.load("stores.toml")["cos"]
         self.assertEqual(pool.rules_of(cos, "chinos", SETTINGS), {"include": ["chino"], "exclude": [],

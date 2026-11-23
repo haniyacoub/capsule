@@ -151,9 +151,12 @@ exclude = ["mantel", "coat ", "parka", "trench", "weste", "gilet", " vest", "ove
 include = ["mantel", "coat ", "parka", "trench", "caban"]
 page_decides = true
 exclude = ["weste", "gilet"]
+# Some shops name every link of a page for that page ("…-sakkos-4711"), so the link says "sakko" of all its
+# products, and an overshirt listed among the blazers would pass for one: its name says what it is.
 [collector.garment_rules.blazer]
 include = ["blazer", "sakko", "anzugjacke", "suit jacket", "jackett"]
-exclude = ["weste", "hose", "trousers", "pants", "smoking", "tuxedo", "samt", "velvet"]
+exclude = ["weste", "hose", "trousers", "pants", "smoking", "tuxedo", "samt", "velvet", "overshirt", "hemdjacke",
+           "hemd-jacke", "shacket", "shirt jac", "shirt-jac"]
 [collector.garment_rules.trousers]
 exclude = ["chino", "jeans", "denim", "cargo", "jogg", "sweat", "shorts", "bermuda", "track", "leder", "pyjama",
            "schlaf", "bade", "5-pocket", "five pocket", "gürtel", "belt"]
