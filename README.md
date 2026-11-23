@@ -259,13 +259,15 @@ plan is".)
   where a euro buys the most quality on the pieces you would wear in the most
   outfits (shoes and trousers are in many, one of eight tops in few). So a
   slot's product never depends on which outfits you said yes to: a yes adds
-  the products the outfit showed, at the prices it showed. The plan as a whole
-  never goes over the budget: where the budget does not buy every piece an
-  option that reaches the minimum quality, the pieces where the least quality
-  is lost go under it, only as far as the budget needs, and each says so; if
-  even the cheapest options are over the budget, it says so. Locked and owned
-  pieces count as money already spent. The rules are `fit_budget` and
-  `lower_to_fit` in `wardrobe/selection.py`.
+  the products the outfit showed, at the prices it showed. A slot where
+  nothing reaches the minimum quality starts on its cheapest option and climbs
+  with the others, up to its best-rated one, as far as the budget pays for.
+  The plan as a whole never goes over the budget: where the budget does not
+  buy every piece an option that reaches the minimum quality, the pieces where
+  the least quality is lost go under it, only as far as the budget needs, and
+  each says so; if even the cheapest options are over the budget, it says so.
+  Locked and owned pieces count as money already spent. The rules are
+  `fit_budget` and `lower_to_fit` in `wardrobe/selection.py`.
 - **Minimum quality**: only candidates scoring at least this are lined up at
   all. 0 means anything goes. ("Best for budget" lets a piece go under it where
   the budget does not reach it for every piece, as above.)
