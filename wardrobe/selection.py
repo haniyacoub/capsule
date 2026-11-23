@@ -185,9 +185,12 @@ class SlotView:
     # where none fits. The piece's page says it: with a cheaper option in its list that the style passed over,
     # "the cheapest option rated 70 or more" alone would not be true.
     styled: str = ""
-    # "Best for budget" with nothing for this piece that reaches the minimum quality: it takes its cheapest option in
-    # his size (_fit), not the best-rated one a price level takes (choose). The piece's page says which.
+    # "Best for budget" with nothing for this piece that reaches the minimum quality: it starts on its cheapest option
+    # in his size and climbs with the other pieces as far as the budget pays for (_fit), up to the best-rated one a
+    # price level takes (choose). `cheapest_instead`: it is still on that cheapest option; `raised`: it climbed, but
+    # not as far as the best-rated one. The piece's page says which.
     cheapest_instead: bool = False
+    raised: bool = False
     # "Best for budget" with a budget that does not buy every piece an option that reaches the minimum quality: this
     # piece has such options, but is under the minimum for the budget (lower_to_fit). Said wherever it shows.
     lowered: bool = False
@@ -882,17 +885,33 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
             start = fitted.minimum.get(view.slot["id"])
             if view.chosen.score.total >= threshold:
                 continue
-            if start is None:       # nothing reaches it: the cheapest instead (_fit)
-                view.cheapest_instead, view.warn = True, True
-                view.note = cheapest_words(view.cands, threshold)
+            if start is None:       # nothing reaches it: from its cheapest option up, as far as the budget pays (_fit)
+                view.warn = True
+                available = [c for c in view.cands if c.available and c.price > 0]
+                pool = prefer_known_size(available)
+                cheapest = cheapest_instead(view.cands)
+                if cheapest is None or view.chosen.id == cheapest.id:
+                    view.cheapest_instead = True
+                    view.note = cheapest_words(view.cands, threshold)
+                elif view.chosen.score.total >= max(c.score.total for c in pool):     # as far as a price level goes
+                    # Said as a price level says it (choose): "in your size" only of one known to be, where one whose
+                    # sizes were not checked was passed over for it.
+                    sized = len(pool) < len(available) and view.chosen.size.rank == sizes.IN_YOUR_SIZE
+                    view.note = (f"Nothing reaches {threshold} — this is the best "
+                                 + ("in your size" if sized else "available"))
+                else:
+                    view.raised = True
+                    view.note = f"Nothing reaches {threshold} — this is what your budget allows"
             else:                   # under it for the budget (lower_to_fit), among what his style left of the cheaper
                 view.lowered, view.warn = True, True
                 view.note = (f"Rated under {threshold} to stay within your budget" if fitted.fits
                              else f"Rated under {threshold}: its cheapest option, to come closest to your budget")
                 view.styled = _under(view, start, threshold, brief)[1]
         lowered = [view for view in views if view.lowered]
-        # A piece with nothing that reaches the minimum quality is on its cheapest option all the same.
-        where = " where one does" if any(view.cheapest_instead for view in views) else ""
+        # A piece with nothing that reaches the minimum quality: where the plan needs lowering it stays on its cheapest
+        # option (_fit), so "their cheapest options that reach 70" holds only where one does.
+        where = " where one does" if any(view.slot["id"] in fitted.picks and view.slot["id"] not in fitted.minimum
+                                         for view in views) else ""
         if lowered and fitted.fits:
             # The budget comes first: the pieces under the minimum for it are named, with what would keep every piece
             # at it, so that he can choose between the two.
@@ -1001,9 +1020,10 @@ def _fit(wardrobe: Wardrobe) -> Fitted:
 
     The slots it may move are the automatic ones that have candidates reaching the minimum quality, and each
     moves among those, one known to be in your size before one about as good whose sizes were not checked
-    (prefer_known_size), as a price level does (choose). An automatic slot with none that does takes its cheapest
-    option (cheapest_instead), and is in the picks too. Everything else (owned,
-    locked, those cheapest options) is money already spent. A locked product that is sold out in his size counts
+    (prefer_known_size), as a price level does (choose). An automatic slot with none that does starts on its cheapest
+    option (cheapest_instead) and moves among all it has, up to the best-rated one, and is in the picks too; where
+    the plan does not fit, it stays on that cheapest option. Everything else (owned, locked) is money already
+    spent. A locked product that is sold out in his size counts
     nothing in the total, but its price is kept aside here: the swap offered for it costs about as much, and the
     money must not be spent on upgrades that the swap would then take back.
 
@@ -1036,9 +1056,17 @@ def _fit(wardrobe: Wardrobe) -> Fitted:
     basis = replace(wardrobe, slots=[replace(view, chosen=start[view.slot["id"]]) if view.slot["id"] in start
                                      else view for view in wardrobe.slots])
     slots, wear = [(view.slot["id"], view.planned, pool) for view, pool in free], _wear(basis)
-    picks, fits = fit_budget(slots, wardrobe.budget - spent - aside, wear)
+    # A piece with nothing that reaches the minimum quality climbs too, from that cheapest option, with the money its
+    # cheapest option was counted at given back: up to the best-rated option a price level would take (choose), among
+    # the same options (prefer_known_size, his style no say), as far as the budget pays for (fit_budget). So a minimum
+    # nothing reaches no longer means the cheapest of everything with money left. Every piece still starts where it
+    # did, so whether the plan fits is as before, and where it does not, these stay on their cheapest (just below).
+    short = [(view.slot["id"], view.planned, prefer_known_size([c for c in view.cands if c.available and c.price > 0]))
+             for view in wardrobe.slots if view.slot["id"] in instead]
+    back = sum(instead[sid].price * qty for sid, qty, _ in short)
+    picks, fits = fit_budget(slots + short, wardrobe.budget - spent - aside + back, wear)
     if not fits and aside:      # only the money kept aside is in the way: what can be bought does fit
-        picks, fits = fit_budget(slots, wardrobe.budget - spent, wear)
+        picks, fits = fit_budget(slots + short, wardrobe.budget - spent + back, wear)
     if not fits:
         # The budget does not buy every piece its cheapest option that reaches the minimum quality: the pieces where
         # the least is lost go under it, as far as the budget needs and no further (lower_to_fit), each to one of its
@@ -1046,7 +1074,8 @@ def _fit(wardrobe: Wardrobe) -> Fitted:
         picks, fits = lower_to_fit([(view.slot["id"], view.planned, moving[view.slot["id"]],
                                      _under(view, moving[view.slot["id"]], wardrobe.threshold, wardrobe.brief)[0])
                                     for view, _ in free], wardrobe.budget - spent, wear)
-    total = spent + sum(picks[view.slot["id"]].price * view.planned for view, _ in free)
+    total = (spent + sum(picks[view.slot["id"]].price * view.planned for view, _ in free)
+             + sum((picks[sid].price - instead[sid].price) * qty for sid, qty, _ in short if sid in picks))
     at_minimum = spent + sum(moving[view.slot["id"]].price * view.planned for view, _ in free)
     return Fitted({**instead, **picks}, fits, round(total, 2), moving, round(at_minimum, 2))
 

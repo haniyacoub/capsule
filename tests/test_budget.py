@@ -126,7 +126,7 @@ def derby(store: str, number: int, price: float, in_stock: list[str], sizes_all:
 class NothingGoodEnough(AppCase):
     """A piece whose every option is rated under 70: at a price level its best-rated option, as before; at "Best for
     budget", fitted to his budget, its cheapest option (in his size before one about as good whose sizes were not
-    checked)."""
+    checked), from which it climbs with the other pieces as far as the budget pays for."""
     PIECE = "dark-brown-derby-shoes"
 
     def setUp(self):
@@ -198,15 +198,129 @@ class NothingGoodEnough(AppCase):
         self.set_mode("cheapest")
         view = selection.build().get(self.PIECE)
         self.assertEqual((view.chosen.id, view.note), ("weekday-1", "Nothing reaches 70 — this is the best available"))
-        # "Best for budget" takes the COS pair, and its page does not say it is in his size.
+        # "Best for budget" with a budget that buys every piece no more than it starts on takes the COS pair, and its
+        # page does not say it is in his size.
         profile_mod.save({**profile_mod.load(), "example": False, "budget": 5000})
         profile_mod.answer("budget")
         self.set_mode("budget")
+        profile_mod.save({**profile_mod.load(), "budget": selection._fit(selection.build()).at_minimum})
         view = selection.build().get(self.PIECE)
         self.assertEqual((view.chosen.id, view.note), ("cos-3", "Nothing reaches 70 — this is the cheapest available"))
         said = self.piece_page()
         self.assertIn("Picked for you: the cheapest option you can buy. Choose another below to swap it in.", said)
         self.assertNotIn("in your size.", said.split("Choose another below")[0])
+        # With money for more, it climbs as far as a price level goes: the Weekday pair, said as a price level says it.
+        profile_mod.save({**profile_mod.load(), "budget": 5000})
+        view = selection.build().get(self.PIECE)
+        self.assertEqual((view.chosen.id, view.note), ("weekday-1", "Nothing reaches 70 — this is the best available"))
+        self.assertFalse(view.cheapest_instead or view.raised)
+
+    def test_best_for_budget_climbs_from_the_cheapest_shoes_as_far_as_the_budget_pays(self):
+        # Until 23 Nov 2026 the shoes stayed on their cheapest option whatever the budget. Now, with money for more,
+        # they climb with the other pieces (selection._fit), as far as the best-rated pair a price level takes.
+        self.set_mode("cheapest")
+        level = selection.build().get(self.PIECE)
+        profile_mod.save({**profile_mod.load(), "example": False, "budget": 5000})
+        profile_mod.answer("budget")
+        self.set_mode("budget")
+        w = selection.build()
+        view = w.get(self.PIECE)
+        self.assertEqual((view.chosen.id, view.note), (level.chosen.id, level.note))
+        self.assertEqual((view.chosen.id, view.note), ("weekday-1", "Nothing reaches 70 — this is the best in your size"))
+        self.assertTrue(view.warn)
+        self.assertFalse(view.cheapest_instead or view.raised)
+        self.assertEqual(w.note, "")
+        self.assertIn("Picked for you: the best-rated option in your size. Choose another below to swap it in. "
+                      "Nothing reaches your minimum quality of 70.", self.piece_page())
+        # Where the budget does not buy every other piece its cheapest option that reaches 70, some go under it
+        # (lower_to_fit), and the shoes stay on their cheapest pair: there is nothing for them to climb with.
+        fitted = selection._fit(w)
+        profile_mod.save({**profile_mod.load(), "budget": fitted.at_minimum - 1})
+        w = selection.build()
+        view = w.get(self.PIECE)
+        self.assertEqual((view.chosen.id, view.note), ("otto-2", "Nothing reaches 70 — this is the cheapest in your size"))
+        self.assertTrue(view.cheapest_instead)
+        self.assertTrue(any(v.lowered for v in w.slots), "a piece that has options reaching 70 goes under it")
+        self.assertLessEqual(selection._fit(w).total, fitted.at_minimum - 1)
+
+
+class NothingReachesTheMinimum(AppCase):
+    """"Best for budget" with a minimum quality no option reaches (100): every piece starts on its cheapest option and
+    climbs with the others as far as the budget pays for, up to the best-rated one a price level takes. Until 23 Nov
+    2026 every piece took its cheapest option, with the rest of the budget left unspent."""
+
+    def setUp(self):
+        super().setUp()
+        db.set_setting("sizes_confirmed", True)
+        profile_mod.save({**profile_mod.load(), "example": False, "budget": 100_000})
+        profile_mod.answer("budget")
+
+    def at(self, budget: float) -> selection.Wardrobe:
+        profile_mod.save({**profile_mod.load(), "budget": budget})
+        return selection.build()
+
+    @staticmethod
+    def pieces(w: selection.Wardrobe) -> dict:
+        return {v.slot["id"]: v for v in w.slots if v.state == "auto" and v.chosen}
+
+    @staticmethod
+    def options(view: selection.SlotView) -> list:
+        return selection.prefer_known_size([c for c in view.cands if c.available and c.price > 0])
+
+    def test_with_money_enough_each_piece_is_what_a_price_level_takes(self):
+        self.set_mode("cheapest", 100)
+        levels = {sid: (v.chosen.id, v.note) for sid, v in self.pieces(selection.build()).items()}
+        self.set_mode("budget", 100)
+        w = selection.build()
+        self.assertTrue(levels)
+        self.assertEqual({sid: (v.chosen.id, v.note) for sid, v in self.pieces(w).items()}, levels)
+        self.assertFalse(any(v.cheapest_instead or v.raised or v.lowered for v in w.slots))
+        self.assertTrue(all(v.warn for v in self.pieces(w).values()))
+        self.assertEqual(w.note, "")
+
+    def test_on_a_budget_that_buys_each_piece_only_its_cheapest_option_it_stays_there(self):
+        self.set_mode("budget", 100)
+        floor = selection._fit(selection.build()).at_minimum
+        w = self.at(floor)
+        for sid, view in self.pieces(w).items():
+            with self.subTest(piece=sid):
+                self.assertEqual(view.chosen.id, selection.cheapest_instead(view.cands).id)
+                self.assertTrue(view.cheapest_instead)
+                self.assertEqual(view.note, selection.cheapest_words(view.cands, 100))
+        self.assertEqual(selection._fit(w).total, floor)
+        self.assertEqual(w.note, "", "it fits the budget")
+
+    def test_in_between_a_piece_says_what_the_budget_allows(self):
+        having.the_whole_plan()         # every piece in his wardrobe: on its Wardrobe card too
+        self.set_mode("budget", 100)
+        floor = selection._fit(selection.build()).at_minimum
+        top = selection._fit(self.at(100_000)).total
+        self.assertLess(floor, top)
+        raised = None
+        for step in range(1, 20):
+            budget = round(floor + (top - floor) * step / 20, 2)
+            w = self.at(budget)
+            self.assertLessEqual(selection._fit(w).total, budget)
+            for sid, view in self.pieces(w).items():
+                with self.subTest(budget=budget, piece=sid):
+                    scores = [c.score.total for c in self.options(view)]
+                    cheapest = selection.cheapest_instead(view.cands)
+                    self.assertGreaterEqual(view.chosen.score.total, cheapest.score.total)
+                    self.assertLessEqual(view.chosen.score.total, max(scores))
+                    self.assertEqual(view.raised, cheapest.score.total < view.chosen.score.total < max(scores))
+                    if view.raised:
+                        self.assertEqual(view.note, "Nothing reaches 100 — this is what your budget allows")
+                        self.assertTrue(view.warn)
+                        raised = raised or (budget, sid)
+        self.assertIsNotNone(raised, "no budget puts a piece between its cheapest option and its best-rated one")
+        budget, sid = raised
+        self.at(budget)
+        said = html.unescape(page_words(self.client.get(f"/slot/{sid}").data.decode()))
+        self.assertIn("Picked for you: what your budget allows here. Choose another below to swap it in. "
+                      "Nothing reaches your minimum quality of 100.", said)
+        self.assertNotIn("Nothing reaches 100 —", said, "said once")
+        self.assertIn("Nothing reaches 100 — this is what your budget allows",
+                      html.unescape(page_words(self.client.get("/").data.decode())))
 
 
 class TheDemoFitsEachBudget(AppCase):
