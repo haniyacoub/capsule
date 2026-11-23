@@ -1250,6 +1250,7 @@ class Pictures(WithPictures, AppCase):
         self.assertIn("look-pic", self.post("/outfits/look", key=outfit.key).data.decode())
 
     def test_a_failing_service_is_left_alone_for_a_while(self):
+        self.with_rules(auto=True)       # drawn by itself when looked at (config/looks.toml comes with auto = false)
         first, second = some_outfits(2)
         self.refuse = imagegen.DrawError("key", "OpenAI answered 401: Incorrect API key provided")
         with self.assertLogs("capsule.looks", level="ERROR"):
@@ -1451,6 +1452,7 @@ class Pictures(WithPictures, AppCase):
             self.assertIn("did not accept the key", self.post("/outfits/look", key=outfit.key).data.decode())
 
     def test_what_went_wrong_is_not_shown_for_ever(self):
+        self.with_rules(auto=True)       # drawn by itself when looked at (config/looks.toml comes with auto = false)
         first, second = some_outfits(2)
         self.post("/outfits/look", key=first.key)
         self.refuse = imagegen.DrawError("busy", "OpenAI answered 503")
@@ -1518,6 +1520,11 @@ class Pictures(WithPictures, AppCase):
         self.assertIn("look-pic", self.post("/outfits/look", key=first.key).data.decode(), "the finished one stays")
 
     def test_drawing_when_an_outfit_is_looked_at_is_a_setting(self):
+        # As config/looks.toml comes (since 23 Nov 2026), a picture is drawn only when "See it worn" is pressed.
+        page = self.client.get("/outfits").data.decode()
+        self.assertNotIn("data-auto-look", page)
+        self.assertEqual(page.count("See it worn"), 12)
+        self.with_rules(auto=True)
         self.assertEqual(self.client.get("/outfits").data.decode().count("data-auto-look"), 12)
         self.with_rules(auto=False)
         page = self.client.get("/outfits").data.decode()
@@ -1685,6 +1692,7 @@ class Photos(WithPictures, AppCase):
             self.assertNotIn("{", opening, "a placeholder was left in the words")
 
     def test_only_the_front_picture_is_drawn_by_itself_and_the_row_waits_for_it(self):
+        self.with_rules(auto=True)       # drawn by itself when looked at (config/looks.toml comes with auto = false)
         page = self.client.get("/outfits").data.decode()
         self.assertEqual(page.count("data-auto-look"), 12)
         self.assertEqual(page.count('<div class="shots"'), 12, "every outfit keeps the room of its small pictures")
@@ -2063,6 +2071,7 @@ class Photos(WithPictures, AppCase):
             self.assertEqual(self.client.get(f"/outfits/photos?outfit={outfit.key}").status_code, 404)
 
     def test_the_drawings_question_never_undoes_a_tap_on_a_small_picture(self):
+        self.with_rules(auto=True)       # drawn by itself when looked at (config/looks.toml comes with auto = false)
         # While a picture is drawn its box asks every few seconds how it is going. A small picture tapped meanwhile
         # cancels a question under way (its answer, the front picture, would otherwise come back over the street), and
         # no question is asked while a small picture is being asked for. (The walk-through answers one late, for real.)

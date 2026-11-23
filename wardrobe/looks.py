@@ -14,7 +14,8 @@ background while the page asks every few seconds whether it is done.
 
 Each outfit has up to six pictures. The first is the front picture: the man
 standing, facing the camera, on a white studio background, drawn from the
-words. It is the one drawn by itself and the one the dots sit on. The other
+words. It is the one drawn first ("See it worn", or by itself with auto in
+config/looks.toml) and the one the dots sit on. The other
 five (two more poses in the studio, three surroundings: [poses] and [scenes]
 in config/looks.toml) are drawn only when the customer taps "More photos", and
 they are made FROM the front picture: that picture is sent to the image service
@@ -54,7 +55,7 @@ FORGET_FAILURE_SECONDS = 3600                  # after this, or once the app was
 STARTED = time.time()                          # when this server process started
 _TURNS = threading.BoundedSemaphore(2)         # pictures being drawn at once, per server process
 IN_LINE = "Waiting its turn · two pictures are drawn at a time"
-FRONT = "front"                                # the picture drawn by itself; the others are made from it ([poses], [scenes])
+FRONT = "front"                                # the picture drawn first; the others are made from it ([poses], [scenes])
 FRONT_LABEL = "Front"
 
 # What went wrong, in words. The lines a customer can meet say "the AI". The four operator lines (OPERATORS) name
@@ -506,10 +507,10 @@ def redraw_words(photos: list[Photo] | None, offered: bool = True) -> tuple[str,
 
 
 # ── "More photos" and "See it move": only on the outfits he said yes to ─────────
-# The front picture of every outfit he looks at is drawn (auto); the pictures made from it ("More photos", a pose or
-# a surrounding) and the videos ("See it move", videos.py) cost more and are offered only on an outfit in his
-# wardrobe (config/looks.toml, more_only_on_yes). Which outfit that is, the app knows (app.more_offered); here is
-# who is not held to it, and what is said.
+# The front picture can be drawn of any outfit ("See it worn"; with auto, by itself); the pictures made from it
+# ("More photos", a pose or a surrounding) and the videos ("See it move", videos.py) cost more and are offered only
+# on an outfit in his wardrobe (config/looks.toml, more_only_on_yes). Which outfit that is, the app knows
+# (app.more_offered); here is who is not held to it, and what is said.
 
 NOT_YET_SHORT = "Add it to your wardrobe for more photos and a video."      # under the picture, where they were
 NOT_YET_NO_VIDEO = "Add it to your wardrobe for more photos."               # … when videos are off

@@ -473,6 +473,7 @@ class WithExamplePictures(WithPictures, GuestCase):
 
 class AnOutfitsPicture(WithExamplePictures):
     def test_only_a_picture_that_is_there_already_and_never_one_of_a_persons_photo(self):
+        self.with_rules(auto=True)       # even where pictures are drawn by themselves for members
         ada = self.member("ada@example.com")
         keys = [re.search(r'id="outfit-(\w+)"', outfit).group(1) for outfit in slides(self.page("/outfits"))]
         with db.as_user(guests.example_id()):
