@@ -717,6 +717,11 @@ class TheExampleWardrobeOnTheList(WithExampleClips):
         with db.as_user(guests.example_id()):
             db.set_setting("profile", STORED_BEFORE)
             self.assertEqual(profile_mod.load()["use"], ["everyday", "office"])
+            # Each piece locked to its product, as on the live servers since 23 Nov (guests.lock_pieces): "Best for
+            # budget" now keeps a plan within a budget that its options rated 70 or more do not fit (as 600 € does
+            # not on this list: selection.lower_to_fit), which moves no locked piece.
+            for slot_id, pick in ON_THE_LIST["picks"].items():
+                db.update_slot(slot_id, locked=True, pick=pick)
         keys = the_example(self, ON_THE_LIST)
         files = self.pictures_for(keys)
         clips = {key: self.clip_for(key) for key in keys[:3]}

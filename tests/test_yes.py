@@ -1147,6 +1147,7 @@ class TheBudget(YesCase):
         self.assertIn('<a href="/profile#budget">Set a budget</a>', self.page("/list"))
 
     def test_the_bar_counts_his_wardrobe_against_his_budget(self):
+        self.set_mode("cheapest")       # a price level: its products do not depend on the budget given below
         outfit = outfits.find_by_sig(selection.build(), self.offered()[0])
         cost = yes.adds(selection.build(), outfit).cost
         self.give_budget(round(cost) + 100)
@@ -1158,6 +1159,9 @@ class TheBudget(YesCase):
         self.assertIn(plain(f"Left {eur(w.remaining)}"), bar)
 
     def test_an_outfit_that_would_take_him_over_says_by_how_much_before_he_says_yes(self):
+        # On a price level: "Best for budget" keeps the plan within any budget its cheapest options fit, so no outfit
+        # takes him over there (test_best_for_budget_says_so_when_the_whole_plan_cannot_fit_and_the_sums_stay_true).
+        self.set_mode("cheapest")
         a, b = self.two_that_share()
         first, second = yes.adds(selection.build(), a).cost, None
         self.say_yes(a)
@@ -1232,17 +1236,20 @@ class TheBudget(YesCase):
             self.assertNotIn("· changed", self.page("/outfits", occasion="saved"))
 
     def test_best_for_budget_says_so_when_the_whole_plan_cannot_fit_and_the_sums_stay_true(self):
-        floor = self.plan_at_its_cheapest()
+        # A budget under what the plan costs even with every piece on its cheapest option, whatever it is rated: a
+        # budget the cheapest options rated 60 or more do not fit, but those do, is met (lower_to_fit: test_looks.py).
+        self.set_mode("cheapest", 0)
+        bottom = round(sum(view.chosen.price * view.planned for view in selection.build().slots if view.chosen), 2)
         cheapest = self.products()
         a, b = self.two_that_share()
         first = yes.adds(selection.build(), a).cost
         self.give_budget(round(first) + 5)
-        self.assertLess(round(first) + 5, floor)
+        self.assertLess(round(first) + 5, bottom)
         self.set_mode("budget", 60)
         w = selection.build()
         self.assertEqual(self.products(), cheapest, "every piece is on its cheapest option")
-        note = ("Even on their cheapest options that reach your minimum quality, the pieces your outfits are made from "
-                "come to more than your budget together, so every piece is on its cheapest option.")
+        note = ("Even on their cheapest options, the pieces your outfits are made from come to more than your budget "
+                "together, so every piece is on its cheapest option")
         self.assertTrue(w.note.startswith(note), w.note)
         self.say_yes(outfits.find_by_sig(w, a.sig))
         self.assertIn(note, read(self.page("/")))
@@ -1252,6 +1259,25 @@ class TheBudget(YesCase):
         self.say_yes(outfits.find_by_sig(w, b.sig))
         self.assertAlmostEqual(selection.build().mine.remaining, -adds.over_by, places=2,
                                msg="after the yes he is over by what the outfit said")
+
+    def test_under_a_budget_too_small_for_the_minimum_a_yes_changes_no_product_either(self):
+        # Pieces go under the minimum quality for the budget (lower_to_fit) for the whole plan, as the rest is fitted:
+        # never for what he has said yes to so far.
+        self.set_mode("cheapest", 0)
+        bottom = round(sum(view.chosen.price * view.planned for view in selection.build().slots if view.chosen), 2)
+        self.give_budget(100000)
+        self.set_mode("budget", 60)
+        at_minimum = selection._fit(selection.build()).at_minimum
+        self.assertLess(bottom, at_minimum)
+        self.give_budget(round((bottom + at_minimum) / 2))
+        before = self.products()
+        self.assertTrue(any(view.lowered for view in selection.build().slots))
+        for _ in range(3):
+            self.say_yes(outfits.find_by_sig(selection.build(), self.offered()[0]))
+            self.assertEqual(self.products(), before)
+        w = selection.build()
+        self.assertGreater(w.mine.total, 0)
+        self.assertLessEqual(w.mine.total, w.budget, "his wardrobe is part of the plan, and the plan fits")
 
     def test_the_level_row_says_what_his_wardrobe_costs_at_best_for_budget(self):
         floor = self.plan_at_its_cheapest()

@@ -162,10 +162,10 @@ class PickedInYourSize(unittest.TestCase):
                                   cands=[option(cos(1, 15), quality=90), option(weekday(2, 25), quality=72),
                                          option(weekday(3, 9, in_stock=["S"]), quality=99)])
         w.slots.append(view)
-        picks, fits, total = selection._fit(w)
+        picks, fits, total = selection._fit(w)[:3]
         self.assertEqual((picks["white-tee"].id, fits, total), ("cos-1", True, 15))
         view.cands[0] = option(cos(1, 30), quality=76)
-        picks, fits, total = selection._fit(w)
+        picks, fits, total = selection._fit(w)[:3]
         self.assertEqual(picks["white-tee"].id, "weekday-2")
         self.assertTrue(fits)
         self.assertEqual(total, 25)

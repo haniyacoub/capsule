@@ -239,10 +239,11 @@ class BestForBudget(AppCase):
 
     def test_a_budget_that_cannot_be_met_gets_the_cheapest_and_says_so(self):
         w = self.fitted(50)
-        self.set_mode("cheapest", 60)
+        self.set_mode("cheapest", 0)        # every piece on its cheapest option, whatever it is rated
         cheapest = selection.build()
         self.set_mode("budget", 60)
         self.assertAlmostEqual(w.total, cheapest.total, places=2)
+        self.assertGreater(w.total, 50)
         self.assertIn("more than your budget", w.note)
         self.assertIn(b"more than your budget", self.client.get("/").data)
 
@@ -259,7 +260,9 @@ class BestForBudget(AppCase):
         self.assertLessEqual(w.total, round(floor + 40))
 
     def test_the_minimum_quality_still_holds_and_the_answer_is_always_the_same(self):
-        w = self.fitted(1500, threshold=80)
+        # Where the budget reaches it for every piece (1500 € does not, at 80: lower_to_fit, below).
+        self.fitted(1500, threshold=80)
+        w = self.fitted(round(selection._fit(selection.build()).at_minimum) + 1, threshold=80)
         for s in w.slots:
             if any(c.available and c.score.total >= 80 for c in s.cands):
                 self.assertGreaterEqual(s.chosen.score.total, 80, s.slot["name"])
@@ -278,6 +281,122 @@ class BestForBudget(AppCase):
         picks, fits = selection.fit_budget(free, 15, {})
         self.assertFalse(fits)
         self.assertEqual((picks["shoes"].id, picks["tee"].id), ("a1", "b1"))
+
+    def plan_at(self, mode, threshold) -> float:
+        """What the plan costs at a price level, each piece as often as the plan has it."""
+        self.set_mode(mode, threshold)
+        return round(sum(s.chosen.price * s.planned for s in selection.build().slots if s.chosen), 2)
+
+    def test_a_budget_under_the_minimum_is_kept_and_the_least_quality_is_lost(self):
+        # The owner chose this on 23 Nov 2026: where a budget does not buy every piece an option that reaches the
+        # minimum quality, stay within it, lowering quality only where it must, and say which pieces.
+        bottom = self.plan_at("cheapest", 0)                     # every piece on its cheapest option, however rated
+        fitted = selection._fit(self.fitted(100000))
+        self.assertLess(bottom + 10, fitted.at_minimum, "the demo has cheaper options, rated under 60")
+        for budget in (round(bottom) + 1, round((bottom + fitted.at_minimum) / 2), round(fitted.at_minimum) - 1):
+            with self.subTest(budget=budget):
+                w = self.fitted(budget)
+                now = selection._fit(w)
+                self.assertTrue(now.fits)
+                self.assertLessEqual(now.total, budget, "the plan, each piece as often as it has it")
+                self.assertLessEqual(w.total, budget)
+                lowered = [s for s in w.slots if s.lowered]
+                self.assertTrue(lowered)
+                for s in w.slots:
+                    start = fitted.minimum.get(s.slot["id"])
+                    if s.lowered:
+                        self.assertLess(s.chosen.score.total, 60, s.slot["name"])
+                        self.assertTrue(s.warn)
+                        self.assertEqual(s.note, "Rated under 60 to stay within your budget")
+                        self.assertGreater(round((start.price - s.chosen.price) * s.planned, 2),
+                                           round(budget - now.total, 2),
+                                           f"{s.slot['name']}: the money left would lift it back to 60")
+                    elif start is not None:
+                        self.assertEqual(s.chosen.id, start.id, f"{s.slot['name']}: on its cheapest rated 60 or more")
+                for s in lowered:
+                    self.assertIn(s.shown_name, w.note)
+                self.assertIn(f"To stay within it, the {len(lowered)} pieces where the least quality is lost are rated "
+                              "under 60: " if len(lowered) > 1 else "To stay within it, the piece where the least "
+                              "quality is lost is rated under 60: ", w.note)
+                self.assertIn(selection._eur(fitted.at_minimum), w.note)
+                self.assertAlmostEqual(w.levels["budget"], w.total, places=2)
+                self.assertEqual([s.chosen.id for s in selection.build().slots], [s.chosen.id for s in w.slots],
+                                 "the same answer every time")
+        # Where the budget reaches the minimum for every piece, none goes under it, as before.
+        w = self.fitted(round(fitted.at_minimum) + 1)
+        self.assertFalse(any(s.lowered for s in w.slots))
+        self.assertEqual(w.note, "")
+
+    def test_a_piece_under_the_minimum_for_the_budget_says_so_where_it_shows(self):
+        bottom = self.plan_at("cheapest", 0)
+        at_minimum = selection._fit(self.fitted(100000)).at_minimum
+        w = self.fitted(round((bottom + at_minimum) / 2))
+        s = next(s for s in w.slots if s.lowered)
+        said = " ".join(re.sub(r"<[^>]+>", " ", html_mod.unescape(
+            self.client.get(f"/slot/{s.slot['id']}").data.decode())).split())
+        self.assertIn("Picked for you: what your budget allows here. Choose another below to swap it in. Rated under "
+                      "60 to stay within your budget.", said)
+        self.assertNotIn("Nothing reaches", said, "it does have options that reach it")
+        self.assertNotIn("rated 60 or more", said)
+        page = self.client.get("/").data.decode()
+        card = re.search(rf'<article class="slot([^"]*)" id="card-{s.slot["id"]}">(.*?)</article>', page, re.S)
+        self.assertIn("has-warn", card.group(1))
+        self.assertIn("Rated under 60 to stay within your budget", card.group(2))
+        self.assertIn(html_mod.escape(w.note, quote=False).split(":")[0], page)
+
+    def test_products_he_locked_that_break_the_budget_are_said_apart(self):
+        coat = self.first("coat")
+        priciest = max((c for c in coat.cands if c.available), key=lambda c: c.price)
+        self.post(f"/slot/{coat.slot['id']}/pick", candidate=priciest.id)        # (a product chosen is locked)
+        w = self.fitted(round(priciest.price) - 1)
+        self.assertEqual(w.get(coat.slot["id"]).chosen.id, priciest.id)
+        self.assertTrue(w.note.startswith(
+            "Even on their cheapest options, the pieces your outfits are made from come to more than your budget "
+            "together, with the products you locked, so every piece you did not lock is on its cheapest option"), w.note)
+        self.assertTrue(w.note.endswith(". Unlock a piece, mark what you own, or raise the budget on the Profile page."),
+                        w.note)
+
+    def test_under_the_minimum_the_least_quality_is_lost_and_no_more_than_the_budget_needs(self):
+        def option(cid, price, score):
+            cand = mock.Mock(id=cid, price=price)
+            cand.score.total = score
+            return cand
+        a70, a30 = option("a70", 50.0, 70), option("a30", 25.0, 30)       # down: 25 € saved, 40 points lost
+        b70, b65 = option("b70", 30.0, 70), option("b65", 20.0, 65)       # down: 10 € saved, 5 points lost
+        c70, c65 = option("c70", 30.0, 70), option("c65", 20.0, 65)       # the same
+        free = [("a", 1, a70, [a30]), ("b", 1, b70, [b65]), ("c", 1, c70, [c65])]
+        picks, fits = selection.lower_to_fit(free, 110, {})
+        self.assertEqual((fits, [picks[k].id for k in "abc"]), (True, ["a70", "b70", "c70"]), "it fits: as they are")
+        picks, fits = selection.lower_to_fit(free, 90, {})                # 20 € over
+        self.assertEqual((fits, [picks[k].id for k in "abc"]), (True, ["a70", "b65", "c65"]),
+                         "two small steps lose less than one big one")
+        picks, fits = selection.lower_to_fit(free, 105, {})               # 5 € over: one small step does
+        self.assertEqual([picks[k].id for k in "abc"], ["a70", "b65", "c70"])
+        d70, d67 = option("d70", 10.0, 70), option("d67", 9.0, 67)       # down: 1 € saved, 3 points lost
+        picks, _ = selection.lower_to_fit([("b", 1, b70, [b65]), ("d", 1, d70, [d67])], 39, {})
+        self.assertEqual((picks["b"].id, picks["d"].id), ("b70", "d67"), "the step that saves just enough")
+        e70, e60, e30 = option("e70", 50.0, 70), option("e60", 40.0, 60), option("e30", 20.0, 30)
+        picks, _ = selection.lower_to_fit([("e", 1, e70, [e60, e30])], 45, {})
+        self.assertEqual(picks["e"].id, "e60", "never further down than the budget needs")
+        picks, _ = selection.lower_to_fit([("b", 1, b70, [b65]), ("c", 1, c70, [c65])], 50, {"b": 0.55, "c": 0.2})
+        self.assertEqual((picks["b"].id, picks["c"].id), ("b70", "c65"), "the piece worn least goes down first")
+        picks, _ = selection.lower_to_fit([("b", 2, b70, [b65]), ("e", 1, e70, [e60, e30])], 100, {})
+        self.assertEqual((picks["b"].id, picks["e"].id), ("b65", "e70"), "two of a piece save twice")
+        picks, fits = selection.lower_to_fit(free, 50, {})                # under even the cheapest: 65 €
+        self.assertEqual((fits, [picks[k].id for k in "abc"]), (False, ["a30", "b65", "c65"]))
+        # More money never buys less.
+        every = free + [("d", 1, d70, [d67]), ("e", 1, e70, [e60, e30])]
+        weight = {"a": 0.5, "b": 0.3, "c": 0.2, "d": 0.6, "e": 0.4}
+        last = None
+        for budget in range(94, 172):           # 94 €: every piece on its cheapest option
+            picks, fits = selection.lower_to_fit(every, budget, weight)
+            self.assertTrue(fits)
+            self.assertLessEqual(sum(p.price for p in picks.values()), budget)
+            lost = sum((start.score.total - picks[k].score.total) * weight[k] for k, _, start, _ in every)
+            if last is not None:
+                self.assertLessEqual(lost, last + 1e-9, budget)
+            last = lost
+        self.assertEqual(last, 0)
 
     def test_it_is_offered_next_to_the_price_levels(self):
         page = self.client.get("/").data.decode()

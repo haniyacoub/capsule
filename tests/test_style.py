@@ -784,21 +784,25 @@ class Steering(AppCase):
         self.assertEqual(said["fits"], ("what your budget allows here among the options that fit your style, rated 70 "
                                         "or more", ""))
         self.assertEqual(said[""], ("what your budget allows here, rated 70 or more", ""))
-        # A budget the plan cannot meet: "their cheapest options" are the cheapest of what his style left.
+        # A budget the plan cannot meet even on its cheapest options: "their cheapest options" are the cheapest of what
+        # his style left, of those rated 70 or more and of the cheaper ones, each narrowed on its own (selection._under).
         profile_mod.save({**profile_mod.load(), "budget": 50})
         w = selection.build()
         self.assertTrue(w.note.startswith(
-            "Even on their cheapest options that reach your minimum quality and suit your style best, the pieces your "
-            "outfits are made from come to more than your budget together, so every piece is on the cheapest of "
-            "those. Lower the minimum quality"), w.note)
+            "Even on their cheapest options that suit your style best, the pieces your outfits are made from come to "
+            "more than your budget together, so every piece is on the cheapest of those"), w.note)
+        self.assertTrue(w.note.endswith(". Mark what you own, or raise the budget on the Profile page."), w.note)
         for view in w.slots:
             if view.state == "auto" and view.chosen:
                 left = style.narrow(self.chosen_among(view, w), view.slot["category"], OFFICE)
-                self.assertEqual(view.chosen.price, min(c.price for c in left), view.slot["name"])
+                start = min(left, key=lambda c: (c.price, -c.score.total))
+                cheaper = selection._under(view, start, w.threshold, OFFICE)[0]
+                self.assertEqual(view.chosen.price, min(c.price for c in left + cheaper), view.slot["name"])
+                self.assertEqual(view.lowered, view.chosen.score.total < w.threshold, view.slot["name"])
         style.remove()
         self.assertTrue(selection.build().note.startswith(
-            "Even on their cheapest options that reach your minimum quality, the pieces your outfits are made from "
-            "come to more than your budget together, so every piece is on its cheapest option. Lower"))
+            "Even on their cheapest options, the pieces your outfits are made from come to more than your budget "
+            "together, so every piece is on its cheapest option"))
 
     def test_the_outfits_that_fit_the_brief_are_offered_first_and_say_why(self):
         style.save(STREET)
@@ -1533,7 +1537,10 @@ class AWishAgainstEveryProduct(AppCase):
                 if view.slot["category"] in ("shoes", "sneakers", "boots")}
 
     def test_no_leather_keeps_the_pairs_his_style_chose(self):
-        profile_mod.answer("budget")            # "Best for budget" fitted to his 300 €, then the price levels
+        # "Best for budget" fitted to a budget that buys every piece an option rated 70 or more (his 300 € does not,
+        # and the demo's cheaper pairs, rated under 70, are not all leather), then the price levels.
+        profile_mod.save({**profile_mod.load(), "budget": 5000})
+        profile_mod.answer("budget")
         for mode in ("budget", "cheapest", "medium"):
             with self.subTest(mode):
                 self.set_mode(mode)
