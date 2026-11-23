@@ -644,7 +644,7 @@ class Steering(AppCase):
             if view.state != "auto" or not view.chosen:
                 continue
             category = view.slot["category"]
-            pool = selection.in_your_size_first([c for c in view.cands if c.available and c.score.total >= w.threshold])
+            pool = selection.prefer_known_size([c for c in view.cands if c.available and c.score.total >= w.threshold])
             scores = [style.product_points(c.data, category, STREET) for c in pool]
             mine = style.product_points(view.chosen.data, category, STREET)
             if any(score > 0 for score in scores):
@@ -665,8 +665,8 @@ class Steering(AppCase):
         w = selection.build()
         for view in w.slots:
             if view.state == "auto" and view.chosen:
-                pool = selection.in_your_size_first([c for c in view.cands if c.available and c.price > 0
-                                                     and c.score.total >= w.threshold])
+                pool = selection.prefer_known_size([c for c in view.cands if c.available and c.price > 0
+                                                    and c.score.total >= w.threshold])
                 if any(style.product_points(c.data, view.slot["category"], OFFICE) > 0 for c in pool):
                     self.assertGreater(style.product_points(view.chosen.data, view.slot["category"], OFFICE), 0,
                                        view.slot["name"])
@@ -682,9 +682,9 @@ class Steering(AppCase):
 
     def chosen_among(self, view, w) -> list:
         """The products a price level chooses among for a piece when there is no style: those he can buy that reach
-        the minimum quality, in his size first."""
-        return selection.in_your_size_first([c for c in view.cands if c.available and c.price > 0
-                                             and c.score.total >= w.threshold])
+        the minimum quality, one known to be in his size before one about as good whose sizes were not checked."""
+        return selection.prefer_known_size([c for c in view.cands if c.available and c.price > 0
+                                            and c.score.total >= w.threshold])
 
     def test_a_pick_the_style_narrowed_says_so_on_the_pieces_own_page(self):
         # Seen on the preview: with "Workwear" ticked the trousers went from a 129 € pair to a 199 € pair, and their

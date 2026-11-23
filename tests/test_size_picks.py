@@ -1,13 +1,16 @@
-"""Sizes told truthfully, and only pieces in your size picked.
+"""Sizes told truthfully, and pieces known to be in your size preferred where they are about as good.
 
 The product list of 11 Nov had sizes for Weekday (26 of 26 products) and Zara (90 of 90), and none for COS (0 of 60):
 COS's list pages show no sizes and its product pages were never opened. So for a COS product nobody knows whether
-your size is in stock. The promises:
+your size is in stock. On the list of 23 Nov most stores are like COS. The promises:
 
   * that is said as it is, with the store's name: "Sizes not checked at COS: look on its page before you buy";
-  * the automatic pick takes a product known to be in stock in your size before one whose sizes were not checked,
-    at every price level and for the best your budget buys, and never one known to be sold out in your size or not
-    made in it (those stay on the piece's page, marked, to choose by hand);
+  * the automatic pick takes a product known to be in stock in your size before one whose sizes were not checked
+    where it is about as good (rated at most selection.KNOWN_SIZE_MARGIN points lower) and no dearer, at every price
+    level and for the best your budget buys; one whose sizes were not checked that is cheaper or clearly better
+    competes as an equal, so the stores that give no sizes are mixed in;
+  * never one known to be sold out in your size or not made in it (those stay on the piece's page, marked, to choose
+    by hand), and never "in your size" said of one whose sizes were not checked;
   * a piece's page counts only what is known: "8 options · 1 in your size · 6 with sizes not checked".
 
 The products below have the shapes of 11 Nov (COS without sizes, Weekday and Zara with them); the store's
@@ -85,14 +88,30 @@ class SaidTruthfully(unittest.TestCase):
 
 
 class PickedInYourSize(unittest.TestCase):
-    def test_in_your_size_is_picked_before_sizes_not_checked_at_every_level(self):
-        # COS is cheaper and dearer than the Weekday tees: whichever level, a tee known to be in your size is taken.
-        cands = [option(cos(1, 15)), option(weekday(2, 25)), option(weekday(3, 30)), option(cos(4, 59))]
+    def test_in_your_size_is_picked_before_one_about_as_good_whose_sizes_were_not_checked(self):
+        # Each COS tee costs at least as much as a Weekday tee rated at most 5 points lower: whichever level, a tee
+        # known to be in your size is taken.
+        cands = [option(cos(1, 30), quality=80), option(weekday(2, 25), quality=78),
+                 option(weekday(3, 30), quality=76), option(cos(4, 59), quality=81)]
         for level in LEVELS:
             pick, note, warn = selection.choose(cands, level, 70)
             self.assertEqual(pick.data["store"], "weekday", level)
             self.assertEqual((note, warn), (None, False), level)
         self.assertEqual(selection.choose(cands, "cheapest", 70)[0].id, "weekday-2")
+        self.assertEqual(selection.choose(cands, "top", 70)[0].id, "weekday-3")
+        self.assertEqual(selection.KNOWN_SIZE_MARGIN, 5)
+
+    def test_one_whose_sizes_were_not_checked_competes_where_it_is_cheaper_or_clearly_better(self):
+        # Most stores give no sizes on their listings: passing them all over left a few stores to choose from, and
+        # "Top" was not the dearest option these stores sell. A cheaper COS tee, and one rated more than 5 points
+        # higher, compete with the Weekday tees as equals; the level chooses among all four.
+        cands = [option(cos(1, 15), quality=80), option(weekday(2, 25), quality=80),
+                 option(weekday(3, 30), quality=80), option(cos(4, 59), quality=92)]
+        self.assertEqual(selection.choose(cands, "cheapest", 70), (cands[0], None, False))
+        self.assertEqual(selection.choose(cands, "medium", 70)[0].id, "weekday-2")
+        self.assertEqual(selection.choose(cands, "top", 70)[0].id, "cos-4")
+        # Rated 85, 5 points over the Weekday tees: no more than being sure of the size is worth.
+        cands[3] = option(cos(4, 59), quality=85)
         self.assertEqual(selection.choose(cands, "top", 70)[0].id, "weekday-3")
 
     def test_sizes_not_checked_are_picked_when_nothing_is_known_to_be_in_your_size(self):
@@ -118,26 +137,34 @@ class PickedInYourSize(unittest.TestCase):
 
     def test_the_minimum_quality_comes_first_then_your_size(self):
         # The customer's minimum quality is his own choice: a tee in your size that falls short of it is not taken
-        # over one that reaches it whose sizes were not checked. Among those that reach it, your size comes first.
+        # over one that reaches it whose sizes were not checked. Among those that reach it, the size rule applies.
         short = option(weekday(2, 20), quality=60)
         reaches = option(cos(1, 30), quality=75)
         self.assertEqual(selection.choose([short, reaches], "cheapest", 70)[0].id, reaches.id)
         self.assertEqual(selection.choose([short, reaches], "cheapest", 50)[0].id, short.id)
-        # Nothing reaches the minimum: the best in your size, said so, before a better one whose sizes are unknown.
+        # Nothing reaches the minimum: the best in your size, said so, before one whose sizes are unknown that is
+        # rated at most 5 points higher for no less money …
         pick, note, warn = selection.choose([short, option(cos(1, 30), quality=65)], "cheapest", 70)
         self.assertEqual((pick.id, note, warn), (short.id, "Nothing reaches 70 — this is the best in your size", True))
+        # … but not before one rated more than that: then the best available, never said to be in your size.
+        pick, note, warn = selection.choose([short, option(cos(1, 30), quality=66)], "cheapest", 70)
+        self.assertEqual((pick.id, note, warn), ("cos-1", "Nothing reaches 70 — this is the best available", True))
         pick, note, warn = selection.choose([option(cos(1, 30), quality=65), option(cos(4, 20), quality=50)], "top", 70)
         self.assertEqual((pick.id, note), ("cos-1", "Nothing reaches 70 — this is the best available"))
 
-    def test_best_for_budget_moves_among_those_in_your_size_first(self):
-        # A tee in your size is dearer than one whose sizes were not checked: best for budget, like every price
-        # level, still takes the one in your size, however much budget is left.
+    def test_best_for_budget_takes_one_whose_sizes_were_not_checked_where_it_is_clearly_better(self):
+        # A tee whose sizes were not checked is cheaper and rated far higher than the one in your size: best for
+        # budget takes it, as every price level would. One rated at most 5 points higher for no less money is passed
+        # over for the one in your size, however much budget is left.
         w = selection.Wardrobe(slots=[], mode="budget", threshold=70, budget=1000, source="collected", collected="")
         view = selection.SlotView(slot={**TEE, "qty": 1}, garment=selection.GARMENTS["tee"],
                                   colour=selection.colours.get("white"),
                                   cands=[option(cos(1, 15), quality=90), option(weekday(2, 25), quality=72),
                                          option(weekday(3, 9, in_stock=["S"]), quality=99)])
         w.slots.append(view)
+        picks, fits, total = selection._fit(w)
+        self.assertEqual((picks["white-tee"].id, fits, total), ("cos-1", True, 15))
+        view.cands[0] = option(cos(1, 30), quality=76)
         picks, fits, total = selection._fit(w)
         self.assertEqual(picks["white-tee"].id, "weekday-2")
         self.assertTrue(fits)
@@ -154,32 +181,37 @@ class AWardrobeInTheShapesOf11Nov(AppCase):
                                     if c["store"] == "cos"])
 
     def assert_picked_in_your_size(self, w: selection.Wardrobe, where: str) -> int:
-        """Every automatic pick is in your size when one in your size reaches the minimum quality, and never sold
-        out in your size or not made in it. Returns how many picks had sizes not checked."""
+        """No automatic pick is sold out in your size or not made in it, and none whose sizes were not checked is
+        picked where an option known to be in your size, among those it was chosen among, is rated at most
+        KNOWN_SIZE_MARGIN points lower and costs no more. Returns how many picks had sizes not checked."""
         not_checked = 0
         for view in w.slots:
             if view.state != "auto" or view.chosen is None:
                 continue
             name = f"{where}: {view.slot['name']}"
-            self.assertNotEqual(view.chosen.size.rank, sizes.NOT_IN_YOUR_SIZE, name)
-            known = [c for c in view.cands if c.size.rank == sizes.IN_YOUR_SIZE and c.price > 0
-                     and c.score.total >= w.threshold]
-            if known:
-                self.assertEqual(view.chosen.size.rank, sizes.IN_YOUR_SIZE, name)
-            not_checked += view.chosen.size.rank == sizes.NOT_CHECKED
+            pick = view.chosen
+            self.assertNotEqual(pick.size.rank, sizes.NOT_IN_YOUR_SIZE, name)
+            if pick.size.rank == sizes.NOT_CHECKED:
+                not_checked += 1
+                available = [c for c in view.cands if c.available and c.price > 0]
+                among = [c for c in available if c.score.total >= w.threshold] or available
+                rivals = [c for c in among if c.size.rank == sizes.IN_YOUR_SIZE and c.price <= pick.price
+                          and c.score.total >= pick.score.total - selection.KNOWN_SIZE_MARGIN]
+                self.assertEqual(rivals, [], name)
         return not_checked
 
     def check_every_level(self, who: str) -> None:
-        unchecked_options = 0
+        unchecked_options = unchecked_picks = 0
         for threshold in (0, 70):
             for level in [*LEVELS, "budget"]:
                 self.set_mode(level, threshold)
                 w = selection.build()
-                self.assert_picked_in_your_size(w, f"{who}, {level}, minimum {threshold}")
+                unchecked_picks += self.assert_picked_in_your_size(w, f"{who}, {level}, minimum {threshold}")
                 # The total the budget bar shows is the level's own total, to the cent.
                 self.assertEqual(w.total, w.levels[level], f"{who}, {level}, minimum {threshold}")
                 unchecked_options = sum(v.n_not_checked for v in w.slots)
         self.assertGreater(unchecked_options, 0, "the demo has COS options, now without sizes")
+        self.assertGreater(unchecked_picks, 0, "COS competes where it is cheaper or clearly better")
 
     def test_on_the_example_sizes(self):
         self.assertTrue(profile_mod.sizes_unconfirmed(profile_mod.load()))
@@ -282,9 +314,13 @@ class AWardrobeInTheShapesOf11Nov(AppCase):
                                   "Nothing reaches your minimum quality of 95.", said)
                     self.assertNotIn("rated 95 or more", said)
                     self.assertNotIn("Nothing reaches 95", said, "said once")
-                    best = max((c for c in view.cands if c.available and c.price > 0),
-                               key=lambda c: (c.size.rank == sizes.IN_YOUR_SIZE, c.score.total))
+                    # The best-rated option, or one known to be in your size rated at most 5 points lower for no
+                    # more money (selection.prefer_known_size).
+                    pool = selection.prefer_known_size([c for c in view.cands if c.available and c.price > 0])
+                    best = max(pool, key=lambda c: c.score.total)
                     self.assertEqual(view.chosen.score.total, best.score.total, "it is the best-rated option")
+                    top = max(c.score.total for c in view.cands if c.available and c.price > 0)
+                    self.assertLessEqual(top - view.chosen.score.total, selection.KNOWN_SIZE_MARGIN)
         self.set_mode("cheapest", 70)
         w = selection.build()
         fine = next(v for v in w.slots if v.state == "auto" and v.chosen and v.chosen.score.total >= 70)

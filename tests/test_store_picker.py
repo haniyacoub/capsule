@@ -245,10 +245,12 @@ class TheStorePicker(ProductionCase):
         with self.as_ada():
             self.assertEqual((db.get_slot("grey-merino-jumper")["locked"], db.get_slot("grey-merino-jumper")["pick"]),
                              (False, None))
-        # Ticking Weekday again says nothing of the kind, and its products are among the options again.
+        # Ticking Weekday again says nothing of the kind, and its products are among the options again. The pick stays
+        # COS's merino jumper, rated 93, which his budget pays for: Weekday's, rated 73, is known to be in his size,
+        # but being sure of the size is worth 5 points, not 20 (selection.prefer_known_size).
         again = self.save(stores=["cos", "weekday"], stores_shown="1")
         self.assertEqual(self.said(again), "Profile saved. See your outfits")
-        self.assertEqual(self.picks()["grey-merino-jumper"], ("auto", "weekday-1000000201", ["cos", "weekday"]))
+        self.assertEqual(self.picks()["grey-merino-jumper"], ("auto", "cos-1000000101", ["cos", "weekday"]))
 
     def test_the_line_counts_in_plain_words(self):
         with self.as_ada():

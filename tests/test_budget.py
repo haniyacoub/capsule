@@ -125,7 +125,8 @@ def derby(store: str, number: int, price: float, in_stock: list[str], sizes_all:
 
 class NothingGoodEnough(AppCase):
     """A piece whose every option is rated under 70: at a price level its best-rated option, as before; at "Best for
-    budget", fitted to his budget, its cheapest option in his size."""
+    budget", fitted to his budget, its cheapest option (in his size before one about as good whose sizes were not
+    checked)."""
     PIECE = "dark-brown-derby-shoes"
 
     def setUp(self):
@@ -133,8 +134,8 @@ class NothingGoodEnough(AppCase):
         db.set_setting("sizes_confirmed", True)          # "in your size", not "in the example size"
         options = [derby("weekday", 1, 90, ["43"]),       # rated 35: the best-rated in his size
                    derby("otto", 2, 39.99, ["43"]),       # rated 34: the cheapest in his size
-                   derby("cos", 3, 25, [], sizes_all=[]),  # sizes not checked: passed over for those in his size
-                   derby("weekday", 4, 20, ["44"])]        # sold out in his size: never picked automatically
+                   derby("cos", 3, 39.99, [], sizes_all=[]),  # rated 38, sizes not checked: passed over for otto-2,
+                   derby("weekday", 4, 20, ["44"])]        # as dear and at most 5 lower; sold out: never picked
 
         def only_these(cat: dict) -> None:
             cat["candidates"] = [c for c in cat["candidates"] if c["slot_id"] != self.PIECE] + [
@@ -176,13 +177,36 @@ class NothingGoodEnough(AppCase):
 
     def test_the_cheapest_in_his_size_is_never_one_he_cannot_buy(self):
         view = selection.build().get(self.PIECE)
+        self.assertEqual([c.score.total for c in sorted(view.cands, key=lambda c: c.id)], [38, 34, 35, 23],
+                         "cos-3, otto-2, weekday-1, weekday-4: as the notes in setUp say")
         self.assertEqual(selection.cheapest_instead(view.cands).id, "otto-2", "not the sold-out one, nor the "
-                                                                              "one whose sizes were not checked")
+                                                                              "as dear one whose sizes were not checked")
         unchecked = [c for c in view.cands if c.id == "cos-3"]
         self.assertEqual(selection.cheapest_instead(unchecked).id, "cos-3", "where none is known to be in his size")
         self.assertEqual(selection.cheapest_words(unchecked, 70),
                          "Nothing reaches 70 — this is the cheapest available")
         self.assertIsNone(selection.cheapest_instead([c for c in view.cands if c.id == "weekday-4"]))
+
+    def test_a_cheaper_option_whose_sizes_were_not_checked_is_the_cheapest_and_never_said_in_your_size(self):
+        # COS's derby at 25 €: no option known to be in his size costs as little, so it competes as an equal.
+        catalog.update(lambda cat: [c.update(price=25.0) for c in cat["candidates"] if c["id"] == "cos-3"])
+        view = selection.build().get(self.PIECE)
+        cos = next(c for c in view.cands if c.id == "cos-3")
+        self.assertEqual(selection.cheapest_instead(view.cands), cos)
+        self.assertEqual(selection.cheapest_words(view.cands, 70), "Nothing reaches 70 — this is the cheapest available")
+        # A price level takes the best-rated option, the Weekday pair, which is in his size; nothing was passed over.
+        self.set_mode("cheapest")
+        view = selection.build().get(self.PIECE)
+        self.assertEqual((view.chosen.id, view.note), ("weekday-1", "Nothing reaches 70 — this is the best available"))
+        # "Best for budget" takes the COS pair, and its page does not say it is in his size.
+        profile_mod.save({**profile_mod.load(), "example": False, "budget": 5000})
+        profile_mod.answer("budget")
+        self.set_mode("budget")
+        view = selection.build().get(self.PIECE)
+        self.assertEqual((view.chosen.id, view.note), ("cos-3", "Nothing reaches 70 — this is the cheapest available"))
+        said = self.piece_page()
+        self.assertIn("Picked for you: the cheapest option you can buy. Choose another below to swap it in.", said)
+        self.assertNotIn("in your size.", said.split("Choose another below")[0])
 
 
 class TheDemoFitsEachBudget(AppCase):
@@ -654,7 +678,7 @@ class SaidInTheExampleSize(AppCase):
         # example size while his sizes are the example's, on the shopping list too (export: line.said).
         piece = NothingGoodEnough.PIECE
         options = [derby("otto", 2, 39.99, ["43"]), derby("weekday", 1, 90, ["43"]),
-                   derby("cos", 3, 25, [], sizes_all=[])]        # sizes not checked: passed over for those in his size
+                   derby("cos", 3, 39.99, [], sizes_all=[])]     # sizes not checked: passed over for otto-2, as dear
         catalog.update(lambda cat: cat.update(candidates=[c for c in cat["candidates"] if c["slot_id"] != piece]
                                               + [{**option, "slot_id": piece} for option in options]))
         having.the_whole_plan()
