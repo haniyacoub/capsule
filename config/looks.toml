@@ -44,12 +44,14 @@ image_size = "1K"                 # 1K | 2K | 4K — larger costs more
 
 
 [pictures]
-auto   = true      # draw an outfit's picture as soon as it is looked at (false: only when "See it worn" is pressed)
+# Off since 23 Nov 2026: a picture is drawn only when "See it worn" is pressed, so
+# the bill follows what is asked for, not every outfit scrolled past.
+auto   = false     # true: draw an outfit's picture as soon as it is looked at
 photos = true      # people may upload a photo of themselves to be the model
 # "More photos" (five more pictures) and "See it move" (a video) are offered only on
 # the outfits a customer has added to his wardrobe, where he has said yes: the money
-# follows what he wants, not every outfit he scrolls past. The front picture is still
-# drawn for every outfit looked at. Owners and Pro accounts (python -m wardrobe owner
+# follows what he wants, not every outfit he scrolls past. The front picture can be
+# drawn for any outfit (see auto). Owners and Pro accounts (python -m wardrobe owner
 # add / pro add), and your own machine, may make them of any outfit.
 # false: offered on every outfit, as before.
 more_only_on_yes = true

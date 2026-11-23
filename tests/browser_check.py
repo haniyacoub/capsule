@@ -13,10 +13,11 @@ is 800px tall or more). From then on this customer has the whole plan in his war
 before the wardrobe became the outfits he said yes to, and the plan and price level every account had until 19 Nov 2026
 (1,500 €, 24 pieces, Cheapest: a new account starts at 300 €, 9 pieces, on "Best for budget"). Profile's Budget tab
 offers five budgets, each saying about how many pieces it plans, by keyboard, on a phone and a computer, light and dark,
-and the plan page says what the plan was made for. He changes the price level, watches an outfit's picture
-arrive (said to be drawing inside its box, then labelled 'AI picture' on itself, without the
-page on a phone jumping), taps "More photos" (told first what it costs; five more pictures made from the front
-picture, each showing as it arrives), looks at one large (no dots on it), taps a small picture while another answer is
+and the plan page says what the plan was made for. He changes the price level, asks for an outfit's picture with "See
+it worn" (nothing is asked for by itself, as config/looks.toml comes), watches it arrive (said to be drawing inside
+its box, then labelled 'AI picture' on itself, without the page on a phone jumping), taps "More photos" (told first
+what it costs; five more pictures made from the front picture, each showing as it arrives), looks at one large (no
+dots on it), taps a small picture while another answer is
 under way (no late answer undoes the tap) and
 does all of it with JavaScript off (the page comes back showing the picture tapped), makes the outfit's AI video with "See it move" (told
 first, under the picture and on five phones, that it is his one video today), watches it play under the caption 'Look
@@ -166,6 +167,20 @@ def stand_in(service, prompt, photo=None, references=()):
 
 
 imagegen.draw = stand_in
+# config/looks.toml comes with auto = false (since 23 Nov 2026: a picture only when "See it worn" is pressed). The
+# first picture step keeps it so, and taps "See it worn" (picture_arrives); after it, outfits draw their picture by
+# themselves, as auto = true has them do, to see that path work in a browser too (app.js). The steps without
+# JavaScript press "See it worn".
+_shipped_rules = looks.load_rules
+AUTO = [True]
+
+
+def drawn_by_themselves() -> dict:
+    rules = _shipped_rules()
+    return {**rules, "pictures": {**rules["pictures"], "auto": AUTO[0]}}
+
+
+looks.load_rules = drawn_by_themselves
 
 made: list[str] = []        # what the "video model" was asked to make
 refuse: list[imagegen.DrawError] = []   # a problem the "video model" is to have instead, next time (nothing made)
@@ -1127,9 +1142,29 @@ def run(base: str) -> None:
             where_page.evaluate("() => document.querySelector('.looks').style.removeProperty('--stage-w')")
 
         def picture_arrives():
-            page.goto(base + "/outfits", wait_until="networkidle")
-            assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
-            page.wait_for_selector(f"{first} .look-bar.wait")              # asked for by itself, then waited for
+            # As config/looks.toml comes (auto = false), nothing is asked for by itself, however long the outfit is on
+            # screen (app.js asks after 1.2 s where auto is on): "See it worn" asks for the picture.
+            AUTO[0] = False
+            posts: list[str] = []
+
+            def a_post(request) -> None:
+                if request.method == "POST" and request.url.endswith("/outfits/look"):
+                    posts.append(request.url)
+
+            page.on("request", a_post)
+            try:
+                page.goto(base + "/outfits", wait_until="networkidle")
+                assert page.locator(f"{first} .collage .tile").count() >= 2, "no pieces on the first outfit"
+                assert not page.locator("[data-auto-look]").count(), "with auto = false an outfit asks for its picture by itself"
+                page.wait_for_timeout(2500)
+                assert not posts and not page.locator(f"{first} .look-bar.wait").count(), \
+                    f"with auto = false a picture was asked for by itself: {posts}"
+                page.click(f"{first} .look-bar.ask button:has-text('See it worn')")
+                page.wait_for_selector(f"{first} .look-bar.wait")          # asked for, then waited for
+                assert len(posts) == 1, f"one tap asked for the picture {len(posts)} times"
+            finally:
+                page.remove_listener("request", a_post)
+                AUTO[0] = True
             status = drawing_status(page)
             # It asks the server again every 3 s: a screen reader must not read it out each time (the page's one live
             # region says 'Picture ready' instead, once).
@@ -6874,7 +6909,7 @@ def run(base: str) -> None:
                  ("price levels and best for budget", price_levels),
                  ("price levels fit a phone and a computer", levels_fit_every_screen),
                  ("an option not in your size fades only its photo", out_of_size_fades_only_the_photo),
-                 ("the picture of an outfit arrives by itself", picture_arrives),
+                 ("the picture of an outfit: asked for with 'See it worn', then it arrives", picture_arrives),
                  ("the yes is on a phone's first screen", the_yes_is_on_a_phones_first_screen),
                  ("on a phone it arrives labelled, without a jump", a_picture_arrives_on_a_phone_without_a_jump),
                  ("more photos and a video only on an outfit said yes to", more_only_on_a_yes),

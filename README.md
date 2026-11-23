@@ -368,10 +368,10 @@ Things to know:
   to the service with every picture. It has to be a JPEG or PNG: an iPhone's
   HEIC photo cannot be opened by most browsers, and the page says so as soon
   as you choose one (save a copy as JPEG in Photos or Preview first).
-- By default a picture is drawn as soon as you look at an outfit. Set
-  `auto = false` in [config/looks.toml](config/looks.toml) to draw only when
-  you press "See it worn". `per_day` in the same file caps how many are started
-  in 24 hours.
+- A picture is drawn when you press "See it worn" (`auto = false` in
+  [config/looks.toml](config/looks.toml), since 23 Nov 2026). Set `auto = true`
+  there to draw one as soon as you look at an outfit. `per_day` in the same file
+  caps how many are started in 24 hours.
 - **More only on a yes:** "More photos" and "See it move" (below) are offered
   only on an outfit the customer has added to his wardrobe; on the others one
   line says so ("Add it to your wardrobe for more photos and a video."). The
@@ -380,7 +380,7 @@ Things to know:
   own machine, get them on every outfit. `more_only_on_yes = false` under
   `[pictures]` in [config/looks.toml](config/looks.toml) offers them on every
   outfit again.
-- **Six pictures of an outfit:** the one drawn by itself is the front picture:
+- **Six pictures of an outfit:** the first one drawn is the front picture:
   the man standing, facing the camera, on a white studio background, with the
   dots. Under it, "More photos" draws five more: walking and turned (white
   studio), then on a street, in a café and in a library, each with its own
