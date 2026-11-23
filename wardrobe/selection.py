@@ -18,7 +18,11 @@ Rules, in order:
                          outfits he said yes to: a yes adds exactly the products
                          the outfit showed, at the prices it showed. A piece with
                          nothing that reaches the minimum quality takes its
-                         cheapest option, with a warning (_fit)
+                         cheapest option, with a warning (_fit). Where the budget
+                         does not buy every piece an option that reaches it, the
+                         pieces where the least quality is lost go under it, as
+                         far as the budget needs and no further, each with a
+                         warning (lower_to_fit)
      Sizes: a candidate known to be in stock in your size is taken before one whose store
      gave no sizes (most stores' listings give none) only where it is about as good: rated at
      most KNOWN_SIZE_MARGIN points lower, and no dearer (prefer_known_size). Otherwise the two
@@ -42,6 +46,7 @@ import math
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from functools import cached_property
+from typing import NamedTuple
 
 from . import capsule
 from . import catalog as catalog_mod
@@ -60,7 +65,8 @@ POSITION = {"cheapest": 0.0, "cheap": 0.25, "medium": 0.5, "expensive": 0.75, "t
 HINTS = {
     "budget": "The most quality your budget buys for all the pieces your outfits are made from, taken together: "
               "every piece starts on its cheapest option, and what is left pays for upgrades, first where a euro "
-              "improves most the pieces you would wear most",
+              "improves most the pieces you would wear most. Where your budget does not reach your minimum quality "
+              "for every piece, it stays within your budget: the pieces where the least is lost go under it",
     "cheapest": "The lowest-priced option for each piece",
     "cheap": "A low-priced option: about a quarter of the way up each piece's price range",
     "medium": "The middle-priced option for each piece",
@@ -182,6 +188,9 @@ class SlotView:
     # "Best for budget" with nothing for this piece that reaches the minimum quality: it takes its cheapest option in
     # his size (_fit), not the best-rated one a price level takes (choose). The piece's page says which.
     cheapest_instead: bool = False
+    # "Best for budget" with a budget that does not buy every piece an option that reaches the minimum quality: this
+    # piece has such options, but is under the minimum for the budget (lower_to_fit). Said wherever it shows.
+    lowered: bool = False
 
     @property
     def mine(self) -> bool:
@@ -719,6 +728,50 @@ def fit_budget(free: list[tuple[str, int, list[Cand]]], budget: float,
         picks[best[2]], left = best[3], left + best[1]
 
 
+def lower_to_fit(free: list[tuple[str, int, Cand, list[Cand]]], budget: float,
+                 weight: dict[str, float]) -> tuple[dict[str, Cand], bool]:
+    """The picks that fit `budget` where the slots' cheapest options that reach the minimum quality do not, together:
+    some slots go under it, those where the least quality is lost (score points, times how much the slot is worn:
+    `weight`), and only as far as the budget needs.
+
+    `free` lists the slots as (slot id, quantity, the option it starts on: its cheapest that reaches the minimum
+    quality, the cheaper options it may go down to). Each slot stays where it starts or takes one cheaper option. Of
+    all the ways to save what the budget needs, the one that loses the least is taken: every way is weighed, slot by
+    slot, keeping for each sum saved only the way that loses the least for it, so more money never buys less, and no
+    slot goes further down than it must. A slot goes down only to an option rated higher than every
+    cheaper one (_worth_paying_for). Of two ways that lose as much, the one weighed first (the slots in the order
+    given). Returns the picks and whether they fit: they do unless even every slot's cheapest option costs more
+    together, in which case those are returned.
+    """
+    cents = {sid: {c.id: round(c.price * 100) * qty for c in [start, *cheaper]} for sid, qty, start, cheaper in free}
+    picks = {sid: start for sid, _, start, _ in free}
+    over = sum(cents[sid][start.id] for sid, _, start, _ in free) - round(budget * 100)
+    if over <= 0:
+        return picks, True
+    downs = {sid: [(cents[sid][start.id] - cents[sid][c.id], (start.score.total - c.score.total) * weight.get(sid, 1.0), c)
+                   for c in _worth_paying_for(cheaper) if cents[sid][c.id] < cents[sid][start.id]]
+             for sid, _, start, cheaper in free}
+    if sum(max((saved for saved, _, _ in steps), default=0) for steps in downs.values()) < over:
+        return {sid: min([start, *cheaper], key=lambda c: (c.price, -c.score.total))
+                for sid, _, start, cheaper in free}, False
+    # For each sum saved (anything past what the budget needs counts as that: it buys nothing more), the least
+    # quality lost for it so far, and the slots that go down for it.
+    ways: dict[int, tuple[float, tuple[tuple[str, Cand], ...]]] = {0: (0.0, ())}
+    for sid, _, _, _ in free:
+        reach = dict(ways)                                  # the slot stays where it starts
+        for saved, (lost, down) in ways.items():
+            for more, loses, cand in downs[sid]:
+                key = min(over, saved + more)
+                if key not in reach or lost + loses < reach[key][0]:
+                    reach[key] = (lost + loses, down + ((sid, cand),))
+        ways, least = {}, math.inf      # dropped: a way that saves less than another and loses as much or more
+        for key in sorted(reach, reverse=True):
+            if reach[key][0] < least:
+                ways[key], least = reach[key], reach[key][0]
+    picks.update(ways[over][1])
+    return picks, True
+
+
 def _controls() -> tuple[str, int]:
     """The price level and minimum quality in force.
 
@@ -738,6 +791,12 @@ def _controls() -> tuple[str, int]:
     if mode not in MODES:
         mode = DEFAULT_MODE
     return mode, int(DEFAULT_THRESHOLD if threshold is None else threshold)
+
+
+def _eur(value: float) -> str:
+    """'375 €' or '374.92 €', as the pages show a sum (the sign after a no-break space)."""
+    text = f"{value:,.0f}" if abs(value - round(value)) < 0.005 else f"{value:,.2f}"
+    return f"{text} €"
 
 
 def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrobe:
@@ -815,23 +874,51 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
         # changes under him. His wardrobe is a part of the plan, so whatever he adds stays within his budget
         # whenever the plan as a whole does. (It is also what this level did before the wardrobe was the outfits he
         # said yes to: nobody's products change with that upgrade.)
-        picks, fits, _ = _fit(wardrobe)
+        fitted = _fit(wardrobe)
         for view in views:
-            if view.slot["id"] in picks:
-                view.chosen = picks[view.slot["id"]]
-                if view.chosen.score.total < threshold:     # nothing reaches it: the cheapest instead (_fit)
-                    view.cheapest_instead, view.warn = True, True
-                    view.note = cheapest_words(view.cands, threshold)
-        if not fits:
-            # A piece with nothing that reaches the minimum quality is on its cheapest option all the same.
-            where = " where one does" if any(view.cheapest_instead for view in views) else ""
+            if view.slot["id"] not in fitted.picks:
+                continue
+            view.chosen = fitted.picks[view.slot["id"]]
+            start = fitted.minimum.get(view.slot["id"])
+            if view.chosen.score.total >= threshold:
+                continue
+            if start is None:       # nothing reaches it: the cheapest instead (_fit)
+                view.cheapest_instead, view.warn = True, True
+                view.note = cheapest_words(view.cands, threshold)
+            else:                   # under it for the budget (lower_to_fit), among what his style left of the cheaper
+                view.lowered, view.warn = True, True
+                view.note = (f"Rated under {threshold} to stay within your budget" if fitted.fits
+                             else f"Rated under {threshold}: its cheapest option, to come closest to your budget")
+                view.styled = _under(view, start, threshold, brief)[1]
+        lowered = [view for view in views if view.lowered]
+        # A piece with nothing that reaches the minimum quality is on its cheapest option all the same.
+        where = " where one does" if any(view.cheapest_instead for view in views) else ""
+        if lowered and fitted.fits:
+            # The budget comes first: the pieces under the minimum for it are named, with what would keep every piece
+            # at it, so that he can choose between the two.
+            named = [view.shown_name for view in lowered]
+            which = (f"the {len(named)} pieces where the least quality is lost are" if len(named) > 1
+                     else "the piece where the least quality is lost is")
+            wardrobe.note = (
+                f"Your budget does not reach your minimum quality of {threshold} for every piece. To stay within it, "
+                f"{which} rated under {threshold}: "
+                f"{', '.join(named[:-1]) + ' and ' + named[-1] if len(named) > 1 else named[0]}. On their cheapest "
+                f"options that reach {threshold}{of_style}{where}, the pieces your outfits are made from would come to "
+                f"{_eur(fitted.at_minimum)}. Raise the budget, lower the minimum quality, or mark what you own.")
+        elif not fitted.fits:
+            # Not even every piece's cheapest option fits: each is on it, and lowering the minimum would not help. A
+            # piece he locked keeps its product, so it is said apart: "every piece" would not be on its cheapest.
             on = "the cheapest of those" if of_style else "its cheapest option"
             if of_style and where:
-                on += " (its cheapest option where none does)"
+                on += " (its cheapest option where none reaches your minimum quality)"
+            locked = any(view.state == "locked" and not view.sold_out for view in views)
+            under = f", {len(lowered)} of them rated under your minimum quality of {threshold}" if lowered else ""
             wardrobe.note = (
-                f"Even on their cheapest options that reach your minimum quality{of_style}{where}, the pieces your "
-                f"outfits are made from come to more than your budget together, so every piece is on {on}. Lower the "
-                "minimum quality, mark what you own, or raise the budget on the Profile page.")
+                f"Even on their cheapest options{' that suit your style best' if of_style else ''}, the pieces your "
+                f"outfits are made from come to more than your budget together"
+                + (", with the products you locked, so every piece you did not lock" if locked else ", so every piece")
+                + f" is on {on}{under}. " + ("Unlock a piece, mark what you own, " if locked else "Mark what you own, ")
+                + "or raise the budget on the Profile page.")
         if not wardrobe.budget_known:
             wardrobe.note = (f"“Best for budget” is still fitted to {wardrobe.budget:,.0f} €, the budget your account "
                              "started with, as before. Set your own budget on the Profile page. " + wardrobe.note).strip()
@@ -900,8 +987,17 @@ def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -
         view.left_out = f"{why}, so this piece is left out of your outfits and your total."
 
 
-def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
-    """Best for budget, for this wardrobe: (the pick per automatic slot, whether it fits, what it all costs).
+class Fitted(NamedTuple):
+    """What "Best for budget" gives the plan (_fit)."""
+    picks: dict[str, Cand]      # the product of each automatic slot
+    fits: bool                  # whether the plan then fits the budget
+    total: float                # what the plan then costs
+    minimum: dict[str, Cand]    # each slot that has options reaching the minimum quality: its cheapest that does
+    at_minimum: float           # what the plan costs with each of those on it: the budget no piece under it needs
+
+
+def _fit(wardrobe: Wardrobe) -> Fitted:
+    """Best for budget, for this wardrobe: the pick per automatic slot, whether it fits, what it all costs (Fitted).
 
     The slots it may move are the automatic ones that have candidates reaching the minimum quality, and each
     moves among those, one known to be in your size before one about as good whose sizes were not checked
@@ -910,6 +1006,9 @@ def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
     locked, those cheapest options) is money already spent. A locked product that is sold out in his size counts
     nothing in the total, but its price is kept aside here: the swap offered for it costs about as much, and the
     money must not be spent on upgrades that the swap would then take back.
+
+    Where even the free slots' cheapest options that reach the minimum quality do not fit together, some go under it
+    (lower_to_fit): the budget comes first, and the minimum gives way where the least quality is lost.
 
     Every piece counts as often as the plan has it (two white tees), whether or not his wardrobe holds the spare:
     what is picked must not depend on what he has said yes to so far (build).
@@ -940,8 +1039,26 @@ def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
     picks, fits = fit_budget(slots, wardrobe.budget - spent - aside, wear)
     if not fits and aside:      # only the money kept aside is in the way: what can be bought does fit
         picks, fits = fit_budget(slots, wardrobe.budget - spent, wear)
+    if not fits:
+        # The budget does not buy every piece its cheapest option that reaches the minimum quality: the pieces where
+        # the least is lost go under it, as far as the budget needs and no further (lower_to_fit), each to one of its
+        # cheaper options that his style leaves (_under). What can be bought is what must fit, as just above.
+        picks, fits = lower_to_fit([(view.slot["id"], view.planned, moving[view.slot["id"]],
+                                     _under(view, moving[view.slot["id"]], wardrobe.threshold, wardrobe.brief)[0])
+                                    for view, _ in free], wardrobe.budget - spent, wear)
     total = spent + sum(picks[view.slot["id"]].price * view.planned for view, _ in free)
-    return {**instead, **picks}, fits, round(total, 2)
+    at_minimum = spent + sum(moving[view.slot["id"]].price * view.planned for view, _ in free)
+    return Fitted({**instead, **picks}, fits, round(total, 2), moving, round(at_minimum, 2))
+
+
+def _under(view: SlotView, start: Cand, threshold: int, brief: dict | None) -> tuple[list[Cand], str]:
+    """What "Best for budget" may take for a piece instead of `start`, its cheapest option that reaches the minimum
+    quality, where the budget does not buy every piece such an option (lower_to_fit): the options he can buy that cost
+    less (so they are rated under the minimum), one known to be in his size before one about as good whose sizes were
+    not checked, and of those the ones his style leaves; with how his style narrowed them (style.narrowed), for the
+    piece's page."""
+    cheaper = [c for c in view.cands if c.available and 0 < c.price < start.price and c.score.total < threshold]
+    return style.narrowed(prefer_known_size(cheaper), view.slot["category"], brief)
 
 
 def _wear(wardrobe: Wardrobe) -> dict[str, float]:

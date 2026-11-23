@@ -19,8 +19,9 @@
      it is the cheapest one (s.cheapest_instead, selection._fit). It is said once, never "rated 70 or more" over
      "Nothing reaches 70". "In your size" only for a size the customer gave: "in the example size" until then (in
      selection.choose's notes too). Where no option's sizes were checked: "the best-rated option you can buy", as
-     one sold out in your size or without a price is passed over. #}
-  {% set under = s.chosen and s.state == 'auto' and w.threshold > 0 and s.chosen.score.total < w.threshold %}
+     one sold out in your size or without a price is passed over. A piece "Best for budget" put under the minimum
+     for the budget (s.lowered, selection.lower_to_fit) does have options that reach it: its own note says why, once. #}
+  {% set under = s.chosen and s.state == 'auto' and w.threshold > 0 and s.chosen.score.total < w.threshold and not s.lowered %}
   {% set size = (' in the example size' if example_sizes else ' in your size') if s.chosen and s.chosen.size.known else '' %}
   {% set note = s.note|replace(' in your size', ' in the example size') if s.note and example_sizes else s.note %}
   <p class="state">
@@ -39,7 +40,7 @@
       Picked for you: {% if under %}the {{ 'cheapest' if s.cheapest_instead else 'best-rated' }} option{{ size or ' you can buy' }}
       {%- elif w.mode == 'budget' and not no_budget %}what your budget allows here
         {%- if s.styled == 'fits' %} among the options that fit {{ your_style }}{% elif s.styled %} among the options that suit {{ your_style }} best{% endif %}
-        {%- if w.threshold > 0 %}, rated {{ w.threshold }} or more{% endif %}
+        {%- if w.threshold > 0 and not s.lowered %}, rated {{ w.threshold }} or more{% endif %}
       {%- else %}the {{ 'cheapest' if no_budget else MODES[w.mode]|lower }} option{{ size }}
         {%- if s.styled == 'fits' %} that fits {{ your_style }}{% elif s.styled %} among those that suit {{ your_style }} best{% endif %}
         {%- if w.threshold > 0 %}{{ ',' if s.styled else '' }} rated {{ w.threshold }} or more{% endif %}{% endif %}. Choose another below to swap it in.

@@ -254,16 +254,21 @@ plan is".)
   quarters, the highest.
 - **Best for budget** is the sixth choice, and not a level: it looks at the
   whole plan, every slot your outfits are made from, not only the ones in your
-  wardrobe so far. Every slot starts on its cheapest option, and what is left
-  of your budget pays for upgrades, first where a euro buys the most quality on
-  the pieces you would wear in the most outfits (shoes and trousers are in
-  many, one of eight tops in few). So a slot's product never depends on which
-  outfits you said yes to: a yes adds the products the outfit showed, at the
-  prices it showed. The plan as a whole never goes over the budget; if even
-  the cheapest options do, it says so. Locked and owned pieces count as money
-  already spent. The rule is `fit_budget` in `wardrobe/selection.py`.
+  wardrobe so far. Every slot starts on its cheapest option that reaches the
+  minimum quality, and what is left of your budget pays for upgrades, first
+  where a euro buys the most quality on the pieces you would wear in the most
+  outfits (shoes and trousers are in many, one of eight tops in few). So a
+  slot's product never depends on which outfits you said yes to: a yes adds
+  the products the outfit showed, at the prices it showed. The plan as a whole
+  never goes over the budget: where the budget does not buy every piece an
+  option that reaches the minimum quality, the pieces where the least quality
+  is lost go under it, only as far as the budget needs, and each says so; if
+  even the cheapest options are over the budget, it says so. Locked and owned
+  pieces count as money already spent. The rules are `fit_budget` and
+  `lower_to_fit` in `wardrobe/selection.py`.
 - **Minimum quality**: only candidates scoring at least this are lined up at
-  all. 0 means anything goes.
+  all. 0 means anything goes. ("Best for budget" lets a piece go under it where
+  the budget does not reach it for every piece, as above.)
 
 "Top" is the dearest option these stores sell for a slot; none of them is
 a luxury brand. To rename a level, change its label in `MODES` at the top of
