@@ -3,7 +3,7 @@
 Rules, in order:
   1. A slot marked "already own" costs nothing and needs no candidate.
   2. A locked slot keeps its candidate, whatever the price level says.
-  3. Otherwise two controls decide, among candidates in stock in your size:
+  3. Otherwise two controls decide, among the candidates that can be bought (sizes: see below):
        minimum quality   only candidates scoring at least this are considered
                          (if none does: the best-scoring one, with a warning)
        price level       which of those to take, by where its price sits among
@@ -18,11 +18,13 @@ Rules, in order:
                          outfits he said yes to: a yes adds exactly the products
                          the outfit showed, at the prices it showed. A piece with
                          nothing that reaches the minimum quality takes its
-                         cheapest option in your size, with a warning (_fit)
-     "In stock in your size" first: a candidate whose store gave no sizes (COS)
-     is considered only when none known to be in your size reaches the minimum
-     quality. One known to be sold out in your size, or not made in it, is never
-     picked automatically; it stays on the piece's page, marked, to choose by hand.
+                         cheapest option, with a warning (_fit)
+     Sizes: a candidate known to be in stock in your size is taken before one whose store
+     gave no sizes (most stores' listings give none) only where it is about as good: rated at
+     most KNOWN_SIZE_MARGIN points lower, and no dearer (prefer_known_size). Otherwise the two
+     compete as equals, so the stores that give no sizes are mixed in like the others. One known
+     to be sold out in your size, or not made in it, is never picked automatically; it stays on
+     the piece's page, marked, to choose by hand.
   4. A product chosen by hand (rule 2) can sell out in your size afterwards, or be chosen
      although it is. It stays the piece's product, so the outfits stay as they are, but it
      is said to be sold out, it counts nothing in the total (it cannot be bought), and the
@@ -559,10 +561,22 @@ def at_level(pool: list[Cand], mode: str) -> Cand:
     return max((c for c in ranked if c.price == price), key=lambda c: c.score.total)
 
 
-def in_your_size_first(pool: list[Cand]) -> list[Cand]:
-    """The candidates of `pool` known to be in stock in your size, or, when there are none, all of `pool` (those
-    whose sizes were not checked). `pool` never holds one known to be sold out in your size or not made in it."""
-    return [c for c in pool if c.size.rank == sizes.IN_YOUR_SIZE] or pool
+# Being sure of the size is worth this many quality points, no more (prefer_known_size). Chosen on the test store list
+# of 23 Nov, where most stores' listings give no sizes: at 5 a wardrobe's picks rate within a point of those chosen with
+# no preference at all, and two or three more of them are known to be in stock in your size; at 10 they rate two points
+# lower; at 0 the preference is only a tie-break.
+KNOWN_SIZE_MARGIN = 5
+
+
+def prefer_known_size(pool: list[Cand]) -> list[Cand]:
+    """`pool` without the candidates whose sizes were not checked that one known to be in stock in your size matches
+    or nearly matches for no more money: rated at most KNOWN_SIZE_MARGIN points lower, and no dearer. One whose store
+    gave no sizes that is clearly better, or cheaper, stays and competes as an equal: most stores' listings give no
+    sizes, and passing them all over would leave a few stores to choose from. `pool` never holds one known to be sold
+    out in your size or not made in it."""
+    known = [c for c in pool if c.size.rank == sizes.IN_YOUR_SIZE]
+    return [c for c in pool if c.size.rank == sizes.IN_YOUR_SIZE
+            or not any(k.score.total >= c.score.total - KNOWN_SIZE_MARGIN and k.price <= c.price for k in known)]
 
 
 def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "", brief: dict | None = None,
@@ -583,12 +597,14 @@ def choose(cands: list[Cand], mode: str, threshold: int, colour: str = "", brief
         return None, "Nothing in stock in your size", True
     good = [c for c in available if c.score.total >= threshold]
     if not good:
-        pool = in_your_size_first(available)
+        pool = prefer_known_size(available)
         best = max(pool, key=lambda c: (c.score.total, -c.price))
-        if len(pool) < len(available):      # options whose sizes were not checked were passed over
+        # "In your size" only of one known to be: an option whose sizes were not checked, rated a little higher for
+        # no less money, was passed over for it.
+        if len(pool) < len(available) and best.size.rank == sizes.IN_YOUR_SIZE:
             return best, f"Nothing reaches {threshold} — this is the best in your size", True
         return best, f"Nothing reaches {threshold} — this is the best available", True
-    return at_level(style.narrow(in_your_size_first(good), category, brief), mode), None, False
+    return at_level(style.narrow(prefer_known_size(good), category, brief), mode), None, False
 
 
 def next_best(cands: list[Cand], sold_out: Cand, threshold: int) -> Cand | None:
@@ -610,21 +626,24 @@ def next_best(cands: list[Cand], sold_out: Cand, threshold: int) -> Cand | None:
 # ── best for budget: the wardrobe as a whole ──────────────────────────────────
 
 def cheapest_instead(cands: list[Cand]) -> Cand | None:
-    """"Best for budget" for a piece with nothing that reaches the minimum quality: its cheapest option in your
-    size (one whose sizes were not checked only where none is known to be in your size), never one sold out in your
-    size, not made in it, or without a price. At equal prices the better one. None when there is nothing to buy."""
+    """"Best for budget" for a piece with nothing that reaches the minimum quality: its cheapest option, never one
+    sold out in your size, not made in it, or without a price, and one known to be in your size rather than one whose
+    sizes were not checked that costs as much and is rated at most a little higher (prefer_known_size). At equal
+    prices the better one. None when there is nothing to buy."""
     available = [c for c in cands if c.available and c.price > 0]
     if not available:
         return None
-    return min(in_your_size_first(available), key=lambda c: (c.price, -c.score.total))
+    return min(prefer_known_size(available), key=lambda c: (c.price, -c.score.total))
 
 
 def cheapest_words(cands: list[Cand], threshold: int) -> str:
     """The warning on a piece that takes its cheapest option because nothing reaches the minimum quality
-    (cheapest_instead): 'Nothing reaches 70 — this is the cheapest in your size' where options whose sizes were not
-    checked were passed over (one of them might cost less), else '… — this is the cheapest available'."""
+    (cheapest_instead): 'Nothing reaches 70 — this is the cheapest in your size' where it is known to be in your size
+    and an option whose sizes were not checked, at its price or more, was passed over for it; else '… — this is the
+    cheapest available'. Never "in your size" of one whose sizes were not checked."""
     available = [c for c in cands if c.available and c.price > 0]
-    if len(in_your_size_first(available)) < len(available):
+    pick = cheapest_instead(cands)
+    if pick is not None and pick.size.rank == sizes.IN_YOUR_SIZE and len(prefer_known_size(available)) < len(available):
         return f"Nothing reaches {threshold} — this is the cheapest in your size"
     return f"Nothing reaches {threshold} — this is the cheapest available"
 
@@ -822,12 +841,13 @@ def build(profile: dict | None = None, catalogue: dict | None = None) -> Wardrob
 def _styled(view: SlotView, threshold: int, brief: dict | None) -> str:
     """How his style narrowed what this piece's automatic pick was chosen among (SlotView.styled). The products are
     the ones a price level (choose) and "Best for budget" (_fit) choose among: those he can buy that reach the
-    minimum quality, in his size first. Where none reaches it the pick is the best-rated one and his style has no
-    say, and a piece he owns or locked is not picked for him at all."""
+    minimum quality, one known to be in his size before one about as good whose sizes were not checked
+    (prefer_known_size). Where none reaches it the pick is the best-rated one and his style has no say, and a piece
+    he owns or locked is not picked for him at all."""
     if not brief or view.state != "auto" or view.chosen is None:
         return ""
     good = [c for c in view.cands if c.available and c.price > 0 and c.score.total >= threshold]
-    return style.narrowed(in_your_size_first(good), view.slot["category"], brief)[1] if good else ""
+    return style.narrowed(prefer_known_size(good), view.slot["category"], brief)[1] if good else ""
 
 
 def _offer(view: SlotView, views: list[SlotView], profile: dict, charts: dict) -> None:
@@ -884,8 +904,9 @@ def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
     """Best for budget, for this wardrobe: (the pick per automatic slot, whether it fits, what it all costs).
 
     The slots it may move are the automatic ones that have candidates reaching the minimum quality, and each
-    moves among those in your size first, as a price level does (choose). An automatic slot with none that does
-    takes its cheapest option in your size (cheapest_instead), and is in the picks too. Everything else (owned,
+    moves among those, one known to be in your size before one about as good whose sizes were not checked
+    (prefer_known_size), as a price level does (choose). An automatic slot with none that does takes its cheapest
+    option (cheapest_instead), and is in the picks too. Everything else (owned,
     locked, those cheapest options) is money already spent. A locked product that is sold out in his size counts
     nothing in the total, but its price is kept aside here: the swap offered for it costs about as much, and the
     money must not be spent on upgrades that the swap would then take back.
@@ -898,12 +919,12 @@ def _fit(wardrobe: Wardrobe) -> tuple[dict[str, Cand], bool, float]:
 
     free = [(view, [c for c in view.cands if c.available and c.price > 0 and c.score.total >= wardrobe.threshold])
             for view in wardrobe.slots if view.state == "auto"]
-    # A piece with nothing that reaches the minimum quality takes its cheapest option in his size (cheapest_instead),
-    # not the best-rated one a price level takes: the best-rated one, counted as money already spent, could break
-    # the budget by itself. It is money already spent all the same: there is nothing better for it to move to.
+    # A piece with nothing that reaches the minimum quality takes its cheapest option (cheapest_instead), not the
+    # best-rated one a price level takes: the best-rated one, counted as money already spent, could break the budget
+    # by itself. It is money already spent all the same: there is nothing better for it to move to.
     instead = {view.slot["id"]: cheapest for view, pool in free if not pool
                and (cheapest := cheapest_instead(view.cands)) is not None}
-    free = [(view, style.narrow(in_your_size_first(pool), view.slot["category"], wardrobe.brief))
+    free = [(view, style.narrow(prefer_known_size(pool), view.slot["category"], wardrobe.brief))
             for view, pool in free if pool]
     moving = {view.slot["id"]: min(pool, key=lambda c: (c.price, -c.score.total)) for view, pool in free}
     fixed = [replace(view, chosen=instead[view.slot["id"]]) if view.slot["id"] in instead else view
