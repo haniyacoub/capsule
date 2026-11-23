@@ -6,6 +6,9 @@
 #  never search pages, never whole catalogues. It reads each store's robots.txt
 #  first and skips anything that file disallows. The first "Access Denied" or
 #  captcha from a store ends that store's run; nothing is retried or disguised.
+#  `refresh --pool` reads the same category pages for the shared list, and
+#  `refresh --pool --fabric` each collected product's own page, once, only for
+#  its fabric (agreed by the owner on 22 Nov 2026; see product_pages below).
 #
 #  Category addresses change when a store reorganises its menu. If a page comes
 #  back "not found", open the store, copy the new address into the list below.
@@ -30,6 +33,19 @@ headless           = false      # the stores refuse headless browsers outright, 
 pause_seconds      = [5, 9]     # wait a random time in this range between two page loads
 max_candidates     = 6          # per slot, per store
 max_listing_pages  = 3          # pages of a category to read ("?page=2", …) before giving up
+pool_listing_pages = 2          # the same for `refresh --pool`, which reads every garment's pages: about an hour for 8 stores
+
+# The fabric pass (`refresh --pool --fabric`, wardrobe/collect/fabric.py): each
+# collected product's own page, read once, only for its fabric, through the same
+# window and pauses. It costs time: about 9 seconds a page with the pause, so
+# 300 pages are about 45 minutes a store, and the first batch's 3,000 or so
+# products about 7 to 8 hours in all, over several runs: each run reads at most
+# max_product_pages a store and the next carries on where it stopped. A store
+# whose product pages are refused to automated browsers says
+# `product_pages = false` in its own table and is never asked; false here
+# switches the pass off altogether.
+product_pages      = true
+max_product_pages  = 300
 max_pages_per_store = 160       # hard ceiling on page loads per store in one run
 page_timeout_seconds = 45
 
@@ -38,8 +54,18 @@ page_timeout_seconds = 45
 skip_words = [
   "gestreift", "streifen", "striped", "stripe", "kariert", "karo", "check", "print", "bedruckt",
   "jacquard", "muster", "camouflage", "grafik", "graphic", "logo", "stickerei", "embroider",
-  "batik", "tie-dye", "kontrast", "contrast", "farbblock", "color block", "colour block",
-  "mehrfarbig", "bunt", "schriftzug", "slogan", "cropped", "pack", "set ",
+  "batik", "tie-dye", "kontrast", "contrast", "farbblock", "color block", "colour block", "colorblock",
+  "colourblock", "camo",
+  "mehrfarbig", "bunt", "schriftzug", "slogan", "cropped", "pack", "set ", "houndstooth", "hahnentritt", "paisley",
+]
+# `refresh --pool` only (it keeps every product of a category page): these are
+# left out too, as clothes for sport or underneath, and lines named for their
+# logo. Not read by the per-piece refresh or when products are matched.
+pool_skip_words = [
+  "drymove", "thermomove", "training", "sportshirt", "sport-t-shirt", "sportjacke", "sporthose",
+  "basketball", "trikot", "unterzieh", "undershirt", "unterhemd", "script", "gfx",
+  "dri-fit", "therma-fit", "running", "track jacket", "trackjacket", "track pant", "trackpant",
+  "nba", "disney", "subaru",                                                     # licensed prints
 ]
 
 # Slot keywords are written in English; product names are mostly German.
@@ -74,6 +100,85 @@ chunky      = ["chunky"]
 cargo       = ["cargo"]
 parka       = ["parka"]
 
+# ── Which garment a product is, for the shared list (refresh --pool) ──────────
+# `python -m wardrobe refresh --pool` keeps every plain product of a store's
+# category pages and sorts each into ONE garment type, by the page it came
+# from and its name (collect/pool.py). Where a store lists one page for
+# several garment types (trousers, chinos and cargo trousers often share one),
+# these words decide: a product counts as a garment when its name holds one of
+# the `include` words (if there are any) and none of the `exclude` words. A
+# product that fits no garment of its page, or two, is left out and counted in
+# the run's report. A store's own [<store>.garments.<garment>] include/exclude
+# replace these for that store. Words are matched inside the name, ignoring
+# case: "chino" finds "Chinohose". A space before a word means it must start a
+# word (" t-shirt" is not the end of "Draft-Shirt"), a space after it that it
+# must end one ("coat " is not "Coating"); a hyphen, a slash and the start or
+# end of the name count as edges too. `page_decides = true`: on a page listed for
+# that garment alone, its include words are not needed (a long-sleeve page's
+# "T-Shirt 4711" is a long-sleeve tee); hoodies and blazers keep needing theirs,
+# as their pages also show sweatshirts and suit trousers.
+[collector.garment_rules.tee]
+exclude = ["langarm", "long sleeve", "long-sleeve", "longsleeve", "l/s ", "tank", "ärmellos", "polo", "henley",
+           "unterhemd", "pyjama", "schlaf", " vest"]
+[collector.garment_rules.longsleeve]
+include = ["langarm", "long sleeve", "long-sleeve", "longsleeve", "l/s "]
+page_decides = true
+exclude = ["polo", "henley", "hemd", "pyjama", "schlaf"]
+[collector.garment_rules.polo]
+include = ["polo"]
+page_decides = true
+[collector.garment_rules.shirt]
+exclude = ["overshirt", "hemdjacke", "shacket", "shirt jac", "kurzarm", "short sleeve", "short-sleeve", " s/s ",
+           "polo", " t-shirt", "tshirt", "jacke", "jacket", "weste", "pyjama"]
+[collector.garment_rules.overshirt]
+include = ["overshirt", "hemdjacke", "hemd-jacke", "shacket", "shirt jac", "shirt-jac"]
+page_decides = true
+exclude = ["leder"]
+[collector.garment_rules.knit]
+exclude = ["cardigan", "strickjacke", "polo", "hoodie", "kapuze", "weste", "pullunder", "sweatshirt", "sweat-shirt",
+           "reißverschluss", "zip", "troyer", "jacke", "sakko", "blazer", " vest"]
+[collector.garment_rules.cardigan]
+include = ["cardigan", "strickjacke", "knit jacket", "sweater jacket"]
+exclude = ["weste", "pullunder", " vest"]
+[collector.garment_rules.hoodie]
+include = ["hoodie", "hoody", "hooded", "kapuze"]
+exclude = ["weste", "gilet", "jacke", "zip"]
+[collector.garment_rules.jacket]
+exclude = ["mantel", "coat ", "parka", "trench", "weste", "gilet", " vest", "overshirt", "hemdjacke", "shacket",
+           "shirt jac", "strickjacke", "cardigan", "knit jacket", "sweater jacket", "blazer", "sakko", "anzug", "kapuze",
+           "hoodie"]
+[collector.garment_rules.coat]
+include = ["mantel", "coat ", "parka", "trench", "caban"]
+page_decides = true
+exclude = ["weste", "gilet"]
+[collector.garment_rules.blazer]
+include = ["blazer", "sakko", "anzugjacke", "suit jacket", "jackett"]
+exclude = ["weste", "hose", "trousers", "pants", "smoking", "tuxedo", "samt", "velvet"]
+[collector.garment_rules.trousers]
+exclude = ["chino", "jeans", "denim", "cargo", "jogg", "sweat", "shorts", "bermuda", "track", "leder", "pyjama",
+           "schlaf", "bade", "5-pocket", "five pocket", "gürtel", "belt"]
+[collector.garment_rules.chinos]
+include = ["chino"]
+page_decides = true
+exclude = ["shorts", "bermuda", "cargo", "gürtel", "belt"]
+[collector.garment_rules.jeans]
+include = ["jeans", "denim"]
+exclude = ["shorts", "jorts", "bermuda", "jacke", "jacket", "hemd", "shirt", "weste", "gürtel", "belt"]
+[collector.garment_rules.cargo]
+include = ["cargo"]
+page_decides = true
+exclude = ["shorts", "bermuda", "jorts", "gürtel", "belt"]
+[collector.garment_rules.sneakers]
+exclude = ["boot", "stiefel", "sandal", "slide", "pantolette", "badeschlappe", "clog", "socke", "sock", "pflege",
+           "loafer", "derby", "mokassin", "oxford", "brogue", "budapester", "monk", "slipper", "halbschuh"]
+[collector.garment_rules.shoes]
+include = ["loafer", "derby", "mokassin", "oxford", "brogue", "budapester", "monk", "schnürschuh", "slipper",
+           "halbschuh", "anzugschuh", "business"]
+exclude = ["sneaker", "trainer", "turnschuh", "boot", "stiefel", "sandal", "hausschuh"]
+[collector.garment_rules.boots]
+include = ["boot", "stiefel", "chelsea"]
+exclude = ["bootcut", "boot cut", "boot-cut", "sneaker"]
+
 
 # ── COS ───────────────────────────────────────────────────────────────────────
 # Category pages give name, price, colour, picture and link. COS answers
@@ -86,6 +191,7 @@ styles        = ["minimal", "smart-casual", "tailored"]   # our own reading of i
 price         = "mid-premium"
 programme     = "rakuten"      # Germany is listed; it recruits "content creators", which may not cover a styling site (PLAN.md, medium confidence)
 base          = "https://www.cos.com"
+product_pages = false          # refused to automated browsers: the fabric pass never asks
 
 [cos.garments.coat]
 pages   = ["/de-de/men/coats-and-jackets/wool-coats", "/de-de/men/coats-and-jackets"]
@@ -181,6 +287,7 @@ price         = "budget-mid"
 # says otherwise; set "none" if Weekday has no programme open to a German site.
 programme     = "rakuten"
 base          = "https://www.weekday.com"
+product_pages = false          # refused to automated browsers, as at COS
 
 [weekday.garments.coat]
 pages   = ["/de-de/men/jackets-and-coats/"]
@@ -304,6 +411,82 @@ styles        = ["street"]   # research: sportswear and streetwear brands, sneak
 price         = "mid"
 programme     = "awin"         # Awin 10073, product feed stated
 base          = "https://www.jdsports.de"
+
+
+# ── The shared list's first batch (22 Nov 2026): collected for testing ───────
+# Each has a partner programme (the network below; research/round6/stores.md
+# and the stores sheet of 18 Nov). None has been applied to yet. Their
+# products are collected into the shared list for TESTING only, while the
+# test site is locked (python -m wardrobe refresh --pool); the list comes off
+# before any partner network's reviewer is let in, and each store's licensed
+# product feed replaces it once its programme accepts. Where the collector
+# reads them is kept on the owner's computer only (config/collect.local.toml,
+# never committed; config/collect.local.example.toml shows its shape), so this
+# file names the stores and nothing about their pages.
+
+[hm]
+label         = "H&M"
+styles        = ["minimal", "smart-casual", "street"]   # basics, smart casual and young street
+price         = "budget"
+programme     = "rakuten"
+base          = "https://www2.hm.com"
+product_pages = false          # its product pages answered 403 (Access Denied) on 22 Nov 2026: the fabric pass never asks
+
+[herrenausstatter]
+label         = "Herrenausstatter"
+styles        = ["smart-casual", "tailored"]   # research: men only, 230+ brands, casual to business
+price         = "mid-premium"
+programme     = "awin"         # Awin 11952
+base          = "https://www.herrenausstatter.de"
+
+[just4men]
+label         = "just4men"
+styles        = ["smart-casual", "tailored"]   # the same shop system and much the same brands as Herrenausstatter
+price         = "mid-premium"
+programme     = "awin"
+base          = "https://www.just4men.de"
+
+[suitsupply]
+label         = "Suitsupply"
+styles        = ["tailored", "smart-casual"]   # research: suits, jackets, shirts, shoes
+price         = "premium"
+programme     = "awin"         # Awin 10009
+base          = "https://suitsupply.com"
+
+[seidensticker]
+label         = "Seidensticker"
+styles        = ["tailored", "smart-casual"]   # research: office and everyday, shirts first
+price         = "mid"
+programme     = "awin"         # Awin 13675, product feed stated
+base          = "https://www.seidensticker.com"
+
+[foot-locker]
+label         = "Foot Locker"
+styles        = ["street"]   # research: sport, streetwear and shoes
+price         = "mid"
+programme     = "awin"         # Awin 14437
+base          = "https://www.footlocker.de"
+
+[carhartt-wip]
+label         = "Carhartt WIP"
+styles        = ["street", "workwear"]   # research: workwear and streetwear
+price         = "mid-premium"
+programme     = "webgains"     # Webgains, "Datafeed available"
+base          = "https://www.carhartt-wip.com"
+
+[pull-and-bear]
+label         = "Pull&Bear"
+styles        = ["street"]   # research: young casual, streetwear
+price         = "budget"
+programme     = "tradedoubler" # Tradedoubler 317285
+base          = "https://www.pullandbear.com"
+
+[olymp]
+label         = "OLYMP"
+styles        = ["tailored", "smart-casual"]   # research: men only, shirts, knitwear, business
+price         = "mid"
+programme     = "awin"         # Awin 14269
+base          = "https://www.olymp.com"
 
 
 # ── Zara ──────────────────────────────────────────────────────────────────────

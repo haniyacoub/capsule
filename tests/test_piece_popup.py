@@ -7,9 +7,10 @@ compare them all on the piece's own page, which leads back to the same outfit. I
 while the sizes are still our example's it says so.
 """
 import html
+import json
 import re
 
-from wardrobe import catalog, db, english, outfits, programmes, selection
+from wardrobe import catalog, db, english, export, outfits, paths, programmes, selection
 from wardrobe.app import eur
 
 from .test_app import HX, AppCase
@@ -141,11 +142,47 @@ class PiecePopUp(AppCase):
         self.assertNotIn("Your size", said, "nothing is said to be in your size")
         self.assertNotIn('#sizes">Change', page, "no size is said, so there is no example size to change here")
 
+    def test_each_product_says_its_own_day_and_a_page_of_several_the_oldest(self):
+        # The stores are collected on different days (COS on 11 Nov, others later), and a price holds as of its own
+        # day: the pop-up says its product's, a page of several products the oldest of theirs, not the list's newest.
+        outfit, coat = self.outfit_with("outer")
+        with paths.CATALOG_PATH.open(encoding="utf-8") as f:
+            data = json.load(f)
+        for cand in data["candidates"]:
+            if cand["id"] == coat.view.chosen.id:
+                cand["collected_at"] = "2026-11-01T09:30:00+01:00"
+        data["collected_at"] = "2026-11-22T22:59:00+01:00"
+        paths.CATALOG_PATH.write_text(json.dumps(data), encoding="utf-8")
+        catalog._cache = None
+        w = selection.build()
+        coat_said = self.read(self.popup(outfit, coat.view.slot["id"]))
+        self.assertIn("Prices and stock as of 1 Nov 2026, 09:30", coat_said)
+        other = next(p for p in outfit.pieces if p.view.chosen and p.view.chosen.id != coat.view.chosen.id)
+        other_said = self.read(self.popup(outfit, other.view.slot["id"]))
+        self.assertIn(f"Prices and stock as of {other.view.chosen.collected}", other_said)
+        self.assertNotIn("1 Nov 2026", other_said)
+        self.assertEqual(w.as_of, "1 Nov 2026, 09:30", "the oldest of the products shown")
+        self.assertEqual(export.build(w.mine).collected, "1 Nov 2026, 09:30",
+                         "an empty shopping list says the day its wardrobe's pieces say")
+        self.assertIn(" · prices of 1 Nov · ", self.read(self.client.get("/outfits").data.decode()))
+        self.post("/outfits/save", key=outfit.key)            # a yes: the coat's outfit joins his wardrobe
+        bought = export.build(selection.build().mine)
+        on_list = [line.cand.id for group in bought.groups for line in group.lines]
+        self.assertIn(coat.view.chosen.id, on_list)
+        self.assertEqual(bought.collected, "1 Nov 2026, 09:30", "the shopping list: the oldest of its products")
+        self.assertIn("Prices and stock as of 1 Nov 2026, 09:30", self.read(self.client.get("/list").data.decode()))
+
+    def test_a_day_without_its_offset_is_compared_with_the_others(self):
+        days = [{"collected_at": "2026-11-22T22:59:00+01:00"}, {"collected_at": "2026-11-11T17:00:00"}, {}]
+        self.assertEqual(catalog.oldest_label(days, "never"), "11 Nov 2026, 17:00")
+        self.assertEqual(catalog.oldest_label([{}, {"collected_at": "yesterday"}], "never"), "never")
+
     def test_the_day_of_the_prices_and_stock_sits_with_the_size_line(self):
         # "In stock" holds as of the day the products were collected: that day is said right under the size line, on
         # the pop-up's first screen, in the words used everywhere else, and not again at the pop-up's end.
         outfit, coat = self.outfit_with("outer")
-        when = selection.build().collected
+        when = coat.view.chosen.collected        # the day its own product was collected
+        self.assertTrue(when)
         page = self.popup(outfit, coat.view.slot["id"])
         said = self.read(page)
         self.assertIn(f"Prices and stock as of {when}", said)

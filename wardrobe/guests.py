@@ -167,13 +167,53 @@ def ensure_example() -> None:
         if replanned:
             db.replace_slots(capsule.propose(answers)[0])
             db.set_setting("slots_initialised", True)
+        elif example_locked():
+            lock_pieces()       # to what it shows now, before a newer list (more stores) is brought in below
         pool = shared.load()
         products = shared.revision(pool) if pool and pool.get("products") else "demo"
         if replanned or db.get_setting("pool") != products or catalog.stored().get("source") == "empty":
             real = shared.build_catalog(db.list_slots(), None) if products != "demo" else None
             catalog.save(real or mock.build(db.list_slots()))
             db.set_setting("pool", products)
+        if example_locked():
+            lock_pieces()       # a new plan, or its first real products: locked from now on
     _ready = True
+
+
+def example_locked() -> bool:
+    """config/site.toml's `example_locked` (true when it says nothing): each piece of the example wardrobe is locked to
+    the product it shows, once it has real products, so that a bigger product list (more stores) changes none of
+    its products, outfits, pictures or clips (lock_pieces)."""
+    try:
+        return config.load("site.toml").get("example_locked", True) is not False
+    except ConfigError:
+        return True
+
+
+def lock_pieces() -> int:
+    """Lock each piece of the example wardrobe (the account of this request: ensure_example) to the product it shows
+    now, as a customer's "Lock this choice" does, once its products are real ones (from a published list, not the
+    demo's). A piece locked already keeps its lock; an owned one is left as it is. Returns how many were locked now.
+
+    A lock holds while its product is among the piece's options, which are at most 6 a store (shared.candidates_for):
+    publishing COS's and Weekday's products as they are keeps them there. A piece that shows no product cannot be
+    held empty: should one get its first product from a bigger list, its outfits change, and the log says so."""
+    from . import selection        # (here: selection builds on much of what this module needs)
+
+    if catalog.stored().get("source") != "collected":
+        return 0
+    locked = 0
+    for view in selection.build().slots:
+        slot = view.slot
+        if slot["owned"] or slot["locked"]:
+            continue
+        if view.chosen is None:
+            print(f"Note: the example wardrobe's {slot['name'].lower()} shows no product, so it cannot be locked: "
+                  "a bigger product list may give it one, and change its outfits.", file=sys.stderr, flush=True)
+            continue
+        db.update_slot(slot["id"], locked=True, pick=view.chosen.id)
+        locked += 1
+    return locked
 
 
 def example_id() -> int | None:

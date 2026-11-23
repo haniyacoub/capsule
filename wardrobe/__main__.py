@@ -110,7 +110,8 @@ def serve(args: argparse.Namespace) -> None:
 
 # What `python -m wardrobe refresh --help` says above its options.
 COLLECTOR_IS_PRIVATE = (
-    "Reads COS and Weekday category pages in a visible Chrome window (never their product pages) and keeps "
+    "Reads the stores' category pages in a visible Chrome window (product pages only with --pool --fabric, and only "
+    "for each product's fabric; never COS's or Weekday's, which refuse them) and keeps "
     "what it finds on this computer. For your own machine and for testing only: run "
     "it by hand, never on a schedule (no cron job, timer or start-up call), and never use what it collects as "
     "the source for the public site. The public site is to use the stores' licensed product feeds "
@@ -128,15 +129,21 @@ def refresh(args: argparse.Namespace) -> None:
     _local_only("The collector")
     from . import db
     from .app import bootstrap
-    from .collect import STORE_ORDER, load_settings
+    from .collect import STORE_ORDER, collected_stores, load_settings
     from .collect import refresh as collect
 
+    if args.pool:
+        return refresh_pool(args)
     bootstrap()   # in case the app has never been started: profile, slots
     slots = {s["id"]: s for s in db.list_slots()}
     unknown = [s for s in args.slot if s not in slots]
     if unknown:
         sys.exit(f"No slot called {', '.join(unknown)}. Slot ids: {', '.join(slots)}")
     settings = load_settings()
+    others = [k for k in args.store if k not in STORE_ORDER and k in collected_stores(settings)]
+    if others:
+        sys.exit(f"{', '.join(settings[k].get('label', k) for k in others)}: collected for the shared list only. "
+                 "Run:  python -m wardrobe refresh --pool --store " + " --store ".join(others))
     names = [settings[k].get("label", k) for k in STORE_ORDER if not args.store or k in args.store]
     wanted = len(args.slot) or sum(1 for s in slots.values() if not s["owned"])
     print(f"Collecting {wanted} slot{'s' if wanted != 1 else ''} from {', '.join(names)}.\n"
@@ -160,17 +167,97 @@ def refresh(args: argparse.Namespace) -> None:
     print("Reload the app to see them.")
 
 
+def refresh_pool(args: argparse.Namespace) -> None:
+    """`refresh --pool`: every plain product of the chosen stores' category pages, into data/pool.json (pool.py).
+    With --fabric: the fabric pass instead, each collected product's own page read once for its fabric (fabric.py)."""
+    from .collect import collected_stores, load_settings
+    from .collect import pool
+
+    if args.fabric:
+        return refresh_fabric(args)
+    if args.sort_again:
+        return refresh_sort_again(args)
+    settings = load_settings()
+    keys = [k for k in collected_stores(settings) if not args.store or k in args.store]
+    if not keys:
+        sys.exit("No store to collect: none of these has category pages listed (config/stores.toml, "
+                 "config/collect.local.toml).")
+    names = ", ".join(settings[k].get("label", k) for k in keys)
+    print(f"Collecting every plain product of {names} for the shared list.\n"
+          "A Chrome window opens and reads each store's category pages one at a time, with a few\n"
+          "seconds between two pages of a store, so this is slow on purpose: about 5 to 10 minutes\n"
+          "a store. Leave that window alone; you can keep using the computer. Ctrl+C stops and keeps\n"
+          "what has been collected so far.")
+    try:
+        results = pool.run(keys)
+    except KeyboardInterrupt:
+        sys.exit("\nStopped. What was collected up to here has been saved.")
+    except RuntimeError as problem:
+        sys.exit(f"\n{problem}")
+    print("\nDone.\n")
+    for read in results.values():
+        print("\n".join(pool.report(read)))
+    print(f"\nThe pool: {pool.pool_path()}\nThis report: {pool.report_path()}\n"
+          "Copy the pool into a service's list with:  python -m wardrobe publish FOLDER")
+
+
+def refresh_sort_again(args: argparse.Namespace) -> None:
+    """`refresh --pool --sort-again`: the pool's products sorted again with the words as they are now, without
+    opening any page (pool.sort_again)."""
+    from .collect import load_settings, pool
+
+    the_pool = pool.load()
+    keys = [k for k in the_pool["stores"] if not args.store or k in args.store]
+    if not keys:
+        sys.exit("The pool has no products of these stores yet. Run:  python -m wardrobe refresh --pool")
+    results = pool.sort_again(the_pool, load_settings(), keys)
+    pool.save(the_pool)
+    pool.write_report(the_pool)
+    for read in results.values():
+        left = sum(len(names) for names in read.left_out.values())
+        print(f"{read.label}: {len(read.products)} products kept" + (f", {left} left out now" if left else ""))
+    print(f"\nNo page was opened. The pool: {pool.pool_path()}\nThe report, every store: {pool.report_path()}")
+
+
+def refresh_fabric(args: argparse.Namespace) -> None:
+    """`refresh --pool --fabric`: each pooled product's own page, read once for its fabric (collect/fabric.py)."""
+    from .collect import fabric, load_settings, pool
+
+    settings = load_settings().get("collector", {})
+    most = args.max_pages or int(settings.get("max_product_pages", 300))
+    stores = [k for k in pool.load()["stores"] if not args.store or k in args.store]
+    if not stores:
+        sys.exit("The pool has no products of these stores yet. Run:  python -m wardrobe refresh --pool")
+    print(f"Reading the product pages of {len(stores)} store{'s' if len(stores) != 1 else ''}, at most {most} a "
+          f"store, only for each product's fabric.\n"
+          f"A Chrome window opens; with the pause between two pages this takes about {most * fabric.SECONDS_A_PAGE // 60} "
+          "minutes a store.\nLeave that window alone; Ctrl+C stops and keeps what has been read so far.")
+    try:
+        results = fabric.run(stores, most)
+    except KeyboardInterrupt:
+        sys.exit("\nStopped. What was read up to here has been saved.")
+    except RuntimeError as problem:
+        sys.exit(f"\n{problem}")
+    print("\nDone.")
+    for done in results.values():
+        print("  " + fabric.report(done))
+
+
 def publish(args: argparse.Namespace) -> None:
     _local_only("Publishing")
     from pathlib import Path
 
-    from . import catalog, db, shared
+    from . import db, shared
 
     db.init()
-    if catalog.load().get("source") != "collected":
-        sys.exit("There is no collected store data to publish yet. Run:  python -m wardrobe refresh")
-    count = shared.publish(Path(args.folder))
-    print(f"Published {count} products to {Path(args.folder) / shared.POOL_NAME}.\n"
+    fresh, _, _ = shared.to_publish()
+    if not fresh:
+        sys.exit("There is no collected store data to publish yet. Run:  python -m wardrobe refresh  "
+                 "(or  python -m wardrobe refresh --pool)")
+    count, kept = shared.publish(Path(args.folder))
+    print(f"Published {count} products of {len(fresh)} store{'s' if len(fresh) != 1 else ''} to "
+          f"{Path(args.folder) / shared.POOL_NAME}" + (f"; the {kept} products of the other stores in it were kept as "
+                                                       "they were." if kept else ".") + "\n"
           "A service running on that folder shows them to its customers from their next page load.\n"
           "Showing them to the public needs the stores' permission; on your own machine it is yours to try.")
 
@@ -552,9 +639,25 @@ def main(argv: list[str] | None = None) -> None:
 
     p_refresh = sub.add_parser("refresh", help="collect store data by hand, for this computer only (never scheduled)",
                                description=COLLECTOR_IS_PRIVATE)
-    from .collect import STORE_ORDER
-    p_refresh.add_argument("--store", action="append", default=[], choices=STORE_ORDER,
+    from .collect import STORE_ORDER, collected_stores
+    from .config import ConfigError
+    try:
+        collected = collected_stores()
+    except ConfigError:         # a typo in the stores' files must not stop the app from starting: refresh says it
+        collected = STORE_ORDER
+    p_refresh.add_argument("--store", action="append", default=[], choices=collected,
                            help="only this store (repeatable)")
+    p_refresh.add_argument("--pool", action="store_true",
+                           help="every plain product of the stores' category pages, for the shared list (collect/pool.py)")
+    p_refresh.add_argument("--fabric", action="store_true",
+                           help="with --pool: read each collected product's own page once, only for its fabric "
+                                "(collect/fabric.py)")
+    p_refresh.add_argument("--sort-again", action="store_true",
+                           help="with --pool: sort the pool's products again with the words as they are now, "
+                                "without opening any page (collect/pool.py)")
+    p_refresh.add_argument("--max-pages", type=int, default=None, metavar="N",
+                           help="with --fabric: at most N product pages a store in this run (default: "
+                                "max_product_pages in config/stores.toml)")
     p_refresh.add_argument("--slot", action="append", default=[], metavar="SLOT_ID",
                            help="only this slot, e.g. white-tee (repeatable)")
     p_refresh.add_argument("--max", type=int, default=None, metavar="N",

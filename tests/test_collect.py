@@ -219,7 +219,8 @@ class Politeness(unittest.TestCase):
         with self.assertRaises(SystemExit), contextlib.redirect_stdout(printed):
             main(["refresh", "--help"])
         said = " ".join(printed.getvalue().split())
-        for promise in ("Reads COS and Weekday category pages in a visible Chrome window (never their product pages)",
+        for promise in ("Reads the stores' category pages in a visible Chrome window (product pages only with --pool "
+                        "--fabric, and only for each product's fabric; never COS's or Weekday's, which refuse them)",
                         "For your own machine and for testing only", "never on a schedule",
                         "never use what it collects as the source for the public site"):
             self.assertIn(promise, said)
@@ -391,7 +392,8 @@ class PublishedListReadAgain(unittest.TestCase):
             shared.refresh_customer()
             shared.refresh_customer()                   # the next page they open
         self.assertEqual(rebuild.call_count, 1, "rebuilt once, not on every page")
-        self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#refused#bergfreunde,blue-tomato,breuninger,cos,hirmer,jd-sports,otto,tom-tailor,weekday")
+        from .test_programmes import OFFERED_KEYS
+        self.assertEqual(db.get_setting("pool"), self.PUBLISHED + "#refused#" + OFFERED_KEYS)
         after = selection.build().get("indigo-jeans")
         self.assertEqual({c.id: c.data["fit"] for c in after.cands},
                          {"weekday-0100000140": "regular", "weekday-0100000240": "regular"})

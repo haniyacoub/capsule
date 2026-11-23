@@ -287,6 +287,144 @@ jacket     = 72
 jeans      = 62
 
 
+# The shared list's first batch (22 Nov 2026), collected for testing (config/stores.toml): Stilsmith's own first
+# reading of each store, from what it is known for. Look at these again when each store's own product feed arrives.
+[brand.hm]                  # cheap basics, uneven quality
+default    = 52
+tee        = 60
+longsleeve = 58
+polo       = 54
+shirt      = 54
+overshirt  = 55
+knit       = 50
+cardigan   = 50
+hoodie     = 60
+jacket     = 55
+coat       = 50
+blazer     = 50
+trousers   = 54
+chinos     = 56
+jeans      = 58
+cargo      = 60
+sneakers   = 48
+shoes      = 48
+boots      = 50
+
+[brand.herrenausstatter]    # many established menswear brands
+default    = 74
+shirt      = 80
+knit       = 78
+cardigan   = 76
+blazer     = 78
+coat       = 78
+jacket     = 74
+trousers   = 76
+chinos     = 76
+jeans      = 74
+polo       = 76
+tee        = 72
+longsleeve = 72
+shoes      = 76
+boots      = 76
+
+[brand.just4men]            # much the same brands as Herrenausstatter
+default    = 72
+shirt      = 78
+knit       = 76
+cardigan   = 74
+blazer     = 76
+coat       = 76
+trousers   = 74
+chinos     = 74
+jeans      = 72
+polo       = 74
+tee        = 70
+longsleeve = 70
+
+[brand.suitsupply]          # tailoring first
+default    = 80
+blazer     = 92
+trousers   = 88
+shirt      = 88
+coat       = 88
+knit       = 86
+cardigan   = 84
+shoes      = 84
+boots      = 82
+polo       = 80
+tee        = 74
+longsleeve = 74
+sneakers   = 72
+jacket     = 80
+chinos     = 82
+
+[brand.seidensticker]       # shirts first
+default    = 66
+shirt      = 86
+overshirt  = 70
+polo       = 70
+tee        = 66
+longsleeve = 66
+knit       = 68
+cardigan   = 66
+trousers   = 64
+chinos     = 64
+jacket     = 62
+
+[brand.foot-locker]         # sneakers and sportswear of the big brands
+default    = 56
+sneakers   = 84
+boots      = 66
+hoodie     = 68
+tee        = 60
+longsleeve = 58
+jacket     = 62
+trousers   = 54
+cargo      = 60
+
+[brand.carhartt-wip]        # sturdy workwear and streetwear
+default    = 76
+jacket     = 86
+coat       = 82
+overshirt  = 84
+cargo      = 88
+trousers   = 82
+chinos     = 80
+jeans      = 82
+hoodie     = 84
+tee        = 80
+longsleeve = 80
+polo       = 72
+shirt      = 78
+knit       = 72
+cardigan   = 72
+sneakers   = 60
+boots      = 70
+
+[brand.pull-and-bear]       # cheap young streetwear
+default    = 50
+tee        = 56
+hoodie     = 58
+jeans      = 56
+cargo      = 58
+jacket     = 52
+sneakers   = 48
+
+[brand.olymp]               # shirts first, business knitwear
+default    = 70
+shirt      = 88
+overshirt  = 72
+knit       = 76
+cardigan   = 74
+polo       = 74
+tee        = 66
+longsleeve = 66
+hoodie     = 62
+trousers   = 70
+chinos     = 70
+jacket     = 66
+
+
 # ── Price sanity ──────────────────────────────────────────────────────────────
 # Per garment type, in EUR:
 #   suspicious_below  cheaper than this usually means corners were cut

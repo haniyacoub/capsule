@@ -1,9 +1,10 @@
 """Small helpers for reading what a store page carries inside its own HTML."""
 from __future__ import annotations
 
+import html as html_lib
 import json
 import re
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 _SMALL_WORDS = {"aus", "mit", "und", "in", "im", "für", "von", "zum", "zur", "am", "an", "auf",
                 "der", "die", "das", "dem", "den", "of", "and", "with"}
@@ -27,12 +28,22 @@ def blocks(html: str) -> list[dict]:
 
 
 def next_page_url(html: str, url: str) -> str | None:
-    """The address of the next page of a category, if the page links to one."""
+    """The address of the next page of a category, if the page links to one: a "?page=2" link, or the page's own
+    link marked rel="next" (on the same site, and not the page itself)."""
     parts = urlsplit(url)
-    current = int(parse_qs(parts.query).get("page", ["1"])[0])
-    if not re.search(rf'href="[^"]*[?&](?:amp;)?page={current + 1}(?!\d)', html):
-        return None
-    return f"{parts.scheme}://{parts.netloc}{parts.path}?page={current + 1}"
+    try:
+        current = int(parse_qs(parts.query).get("page", ["1"])[0])
+    except ValueError:
+        current = 1
+    if re.search(rf'href="[^"]*[?&](?:amp;)?page={current + 1}(?!\d)', html):
+        return f"{parts.scheme}://{parts.netloc}{parts.path}?page={current + 1}"
+    marked = re.search(r'<(?:link|a)\b[^>]*\brel="next"[^>]*\bhref="([^"]+)"|<(?:link|a)\b[^>]*\bhref="([^"]+)"'
+                       r'[^>]*\brel="next"', html)
+    if marked:
+        found = urljoin(url, html_lib.unescape(marked.group(1) or marked.group(2)))
+        if urlsplit(found).netloc == parts.netloc and found != url:
+            return found
+    return None
 
 
 def _capitalise(word: str) -> str:

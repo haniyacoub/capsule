@@ -8,9 +8,13 @@ colour, keyword matches first, cheapest first.
 
     python -m wardrobe publish ./data-production
 
-copies what your last refresh collected into that list. A licensed product
-feed would be loaded into the same file. Whether a list may be shown to the
-public is a question of the stores' permission, not of this code.
+copies what your last refresh collected into that list: the products of your
+pieces, and every plain product of the stores collected with `refresh --pool`
+(collect/pool.py). It is merged per store: a store collected here replaces its
+own products in the list, and the other stores' products in it stay exactly as
+they are. A licensed product feed would be loaded into the same file. Whether
+a list may be shown to the public is a question of the stores' permission, not
+of this code.
 
 Only the products of stores customers are offered are read from the list
 (programmes.py): a store without a partner programme, such as Zara, stays in the
@@ -132,18 +136,56 @@ def _collected(cat: dict) -> dict[str, dict]:
     return products
 
 
-def publish(target: Path) -> int:
-    """Write the locally collected products, tagged with their garment type, into `target`."""
+def to_publish() -> tuple[dict[str, list[dict]], dict[str, dict], str | None]:
+    """What this computer has collected, per store: ({store: its products, tagged with their garment type},
+    {store: its notes}, when it was collected). From the pool (`refresh --pool`, collect/pool.py) and from the
+    refresh for your own pieces; a store in both comes from the pool, which holds all its plain products."""
+    from .collect import pool as pool_mod      # (here: the collector is for your own machine only)
+
+    fresh: dict[str, list[dict]] = {}
+    notes: dict[str, dict] = {}
+    stamps: list[str] = []
     cat = catalog.load(every_store=True)        # every store's, whatever this computer's profile ticked
-    products = _collected(cat)
+    if cat.get("source") == "collected":
+        for product in _collected(cat).values():
+            fresh.setdefault(product.get("store", ""), []).append(product)
+        notes.update({key: value for key, value in cat.get("stores", {}).items() if key in fresh})
+        stamps.append(cat.get("collected_at") or "")
+    pooled = pool_mod.load()
+    for key in pooled["stores"]:
+        # (a product whose own page was gone when the fabric pass opened it is no longer sold: left out)
+        fresh[key] = [p for p in pooled["products"] if p.get("store") == key and not p.get("page_gone")]
+        notes[key] = {**{k: v for k, v in pooled["stores"][key].items() if k not in pool_mod.ONLY_HERE},
+                      "products": len(fresh[key])}
+    if pooled["stores"]:
+        stamps.append(pooled.get("collected_at") or "")
+    return fresh, notes, max(stamps) if any(stamps) else None
+
+
+def publish(target: Path) -> tuple[int, int]:
+    """Write what this computer collected (to_publish) into `target`'s list, merged per store: each store collected
+    here replaces its own products there, and every other store's products in it stay exactly as they are (the
+    file is read as it is, not through load, which leaves out stores and corrects details). Returns (the products
+    written from here, the other stores' products kept)."""
+    fresh, notes, collected_at = to_publish()
+    path = target / POOL_NAME
+    before: dict = {}
+    if path.exists():
+        with path.open(encoding="utf-8") as f:
+            before = json.load(f)
+    kept = [p for p in before.get("products", []) if p.get("store") not in fresh]
     stamp = datetime.now().astimezone().isoformat(timespec="microseconds")   # tells two publishes apart
-    pool = {"published_at": stamp, "collected_at": cat.get("collected_at"),
-            "stores": cat.get("stores", {}), "products": list(products.values())}
+    stores = {key: value for key, value in (before.get("stores") or {}).items() if key not in fresh}
+    stores.update({key: notes[key] for key in fresh if key in notes})
+    written = [p for key in fresh for p in fresh[key]]
+    pool = {"published_at": stamp,
+            "collected_at": max(filter(None, [before.get("collected_at"), collected_at]), default=None),
+            "stores": stores, "products": kept + written}
     target.mkdir(parents=True, exist_ok=True)
     tmp = target / (POOL_NAME + ".tmp")
     tmp.write_text(json.dumps(pool, ensure_ascii=False, indent=1), encoding="utf-8")
-    os.replace(tmp, target / POOL_NAME)
-    return len(products)
+    os.replace(tmp, path)
+    return len(written), len(kept)
 
 
 def candidates_for(pool: dict, slot: dict, collector: dict, refused: frozenset[str] = frozenset()) -> list[dict]:

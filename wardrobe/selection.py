@@ -121,6 +121,11 @@ class Cand:
         return self.data["id"]
 
     @property
+    def collected(self) -> str:
+        """The day this product's price and stock were collected ("11 Nov 2026, 17:00"), or "" when it does not say."""
+        return catalog_mod.oldest_label([self.data], "")
+
+    @property
     def price(self) -> float:
         return usable_price(self.data.get("price"))
 
@@ -373,7 +378,7 @@ class Wardrobe:
     threshold: int
     budget: float
     source: str                  # mock | collected | empty
-    collected: str
+    collected: str               # when the list was collected: its newest store's day (as_of says it for the pieces)
     stores: dict = field(default_factory=dict)   # per store: how the last refresh went
     note: str = ""               # something to say about the whole wardrobe (the budget cannot be met)
     example_sizes: bool = False  # the sizes are still the example's: "in the example size", not "in your size"
@@ -435,6 +440,13 @@ class Wardrobe:
     @property
     def total(self) -> float:
         return round(sum(s.cost for s in self.slots), 2)
+
+    @property
+    def as_of(self) -> str:
+        """"Prices and stock as of …" for these pieces: the day the oldest of their products was collected (a product
+        collected on 11 Nov holds as of 11 Nov, though the list also has stores collected later), or the list's."""
+        return catalog_mod.oldest_label([view.chosen.data for view in self.slots
+                                         if view.chosen is not None and view.state != "owned"], self.collected)
 
     @property
     def remaining(self) -> float:

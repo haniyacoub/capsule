@@ -60,11 +60,19 @@ _SECONDARY = re.compile(
 _PCT = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
 
 
+# A fibre's name made into a word saying what was done to the cloth ("gummierte": rubberised, "gewachst" is no fibre
+# either): not the fibre itself. "100% gummierte" cut from a sentence names no fibre.
+_TREATED = re.compile(r"i?ert")
+
+
 def _fibre_key(name: str) -> str:
     n = name.lower()
     for alias in _ALIAS_ORDER:
-        if alias in n:
-            return _ALIASES[alias]
+        at = n.find(alias)
+        while at != -1:
+            if not _TREATED.match(n, at + len(alias)):
+                return _ALIASES[alias]
+            at = n.find(alias, at + 1)
     return "other"
 
 
@@ -90,6 +98,26 @@ def _totals(main: str) -> list[tuple[str, float]]:
         key = _fibre_key(name)
         totals[key] = totals.get(key, 0.0) + pct
     return sorted(totals.items(), key=lambda kv: -kv[1])
+
+
+_PAIRED = re.compile(r"(\d{1,3})\s*/\s*(\d{1,3})\s*%\s*([A-Za-zÄÖÜäöüß]+)\s*/\s*([A-Za-zÄÖÜäöüß]+)")
+_SHARE_FIRST = re.compile(r"(?:[^\W\d_]+\s*:\s*)?\d{1,3}(?:[.,]\d+)?\s*%")         # "89% …", "Obermaterial: 70% …"
+_NEXT_SHARE = re.compile(r"(?<=[^\W\d_])(?<!\bund)(?<!\band)\s+(?=\d{1,3}(?:[.,]\d+)?\s*%)")   # "… Baumwolle| 9% …"
+
+
+def stated(text: str | None) -> str:
+    """A store's words about a product's fibres as a label states them, or "" when they are not that: the fibres
+    known here must add up to at least 90% ("100% aus" or "30% Polyamid, 10% Kaschmir" are pieces of a sentence,
+    not a label). "80/20% Lambswool/Nylon" is read as "80% Lambswool, 20% Nylon", "54% Leinen/ 44% Baumwolle" as
+    "54% Leinen, 44% Baumwolle", and a label that gives each share before its fibre without commas ("89% Baumwolle
+    9% Viskose 2% Elastan") as "89% Baumwolle, 9% Viskose, 2% Elastan"."""
+    words = " ".join(str(text or "").split())[:300]
+    words = _PAIRED.sub(lambda m: f"{m[1]}% {m[3]}, {m[2]}% {m[4]}", words)
+    words = re.sub(r"\s*/\s*(?=\d)", ", ", words)          # "54% Leinen/ 44% Baumwolle/ 2% Elasthan"
+    if _SHARE_FIRST.match(words):          # (never "Baumwolle 98% Elasthan 2%", whose shares follow their fibres)
+        words = _NEXT_SHARE.sub(", ", words)
+    known = sum(share for fibre, share in parse(words) if fibre != "other")
+    return words if known >= 90 else ""
 
 
 def parse(text: str | None) -> list[tuple[str, float]]:

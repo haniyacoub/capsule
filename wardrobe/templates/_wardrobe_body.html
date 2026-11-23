@@ -107,9 +107,9 @@
 {% if w.slots %}
 <div class="foot">
   {% if w.source == 'mock' %}
-  <p>Store data: demo, {{ w.collected }}.{% if not production %} Collect real data with <code>python -m wardrobe refresh</code>.{% endif %}</p>
+  <p>Store data: demo, {{ w.as_of }}.{% if not production %} Collect real data with <code>python -m wardrobe refresh</code>.{% endif %}</p>
   {% else %}
-  <p>Store data collected {{ w.collected }}.{% if not production %} Update it with <code>python -m wardrobe refresh</code>.{% endif %}</p>
+  <p>Store data collected {{ w.as_of }}.{% if not production %} Update it with <code>python -m wardrobe refresh</code>.{% endif %}</p>
   <ul>
     {% for key, st in w.stores.items() %}
     <li><b>{{ STORES.get(key, key) }}</b> — {{ st.gives if st.status == 'ok' else st.message }}</li>

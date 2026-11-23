@@ -109,6 +109,44 @@ How it behaves:
 - Category addresses change when a store reorganises its menu. If the refresh
   says a page no longer exists, paste the new address into `config/stores.toml`.
 
+### Every product of a store, for the shared list (testing only)
+
+```bash
+python -m wardrobe refresh --pool                       # every store with category pages
+python -m wardrobe refresh --pool --store hm            # one store
+python -m wardrobe refresh --pool --fabric              # each collected product's own page, for its fabric
+python -m wardrobe refresh --pool --fabric --max-pages 20    # a sample: 20 pages a store
+python -m wardrobe refresh --pool --sort-again          # sort the pool again with changed words, opening no page
+python -m wardrobe publish ./data-production            # copy it into a service's list
+```
+
+`--pool` reads the same kind of category pages, with the same window and pauses,
+but keeps every plain product in every colour, each sorted into one garment type
+(`wardrobe/collect/pool.py`), in `data/pool.json`, and writes what it kept and
+left out to `data/pool-report.txt` (every store the pool holds). A product is
+left out when it fits no garment or two, is patterned (its name or its colour
+says so), is sportswear, underwear or a logo line, is another brand's sold at a
+store that keeps only its own (`own_brands`), is sold out or has no price of its
+own, or is listed twice (the same link and colour). A store collected again
+replaces only its own products; `publish` replaces only the collected stores'
+products in the service's list and keeps every other store's exactly as they
+are. Each product shows the day it was collected ("Prices and stock as of").
+
+After changing the words that sort products (`config/stores.toml`, or a store's
+own in the local file), `--sort-again` sorts what the pool holds again, the
+same way a collection does, without opening any page.
+
+Stores without a reader of their own are read by a generic one
+(`wardrobe/collect/listing.py`). Their category addresses are kept on your
+computer only, in `config/collect.local.toml` (git-ignored; the shape is in
+`config/collect.local.example.toml`); `config/stores.toml` names the stores.
+
+`--fabric` opens each collected product's own page once, only to read its fabric,
+about 9 seconds a page (300 pages, the most a store per run, are about 45
+minutes; a later run carries on). COS and Weekday refuse product pages and are
+never asked (`product_pages = false`). This list is for testing while the site is
+locked: each store's licensed product feed is to replace it.
+
 ### Adding things by hand
 
 On any slot's page:
