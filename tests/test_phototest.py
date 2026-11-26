@@ -104,15 +104,19 @@ class WhatAFolderHolds(WithAFolder, unittest.TestCase):
                 ({"jeans blue.jpg": some, "chinos beige.jpg": some, "shirt white.jpg": some},
                  "There are 2 pairs of trousers"),
                 ({"shirt white.jpg": some, "shirt blue.jpg": some, "jeans blue.jpg": some},
-                 "There are 2 shirts in"),
+                 "are “shirt”: one outfit has one of a kind"),
+                ({"jumper navy.jpg": some, "sweater grey.jpg": some, "jeans blue.jpg": some},
+                 "2 photographs in"),
                 ({"coat grey.jpg": some, "jacket black.jpg": some, "shirt white.jpg": some, "jeans blue.jpg": some},
                  "There are 2 coats or jackets"),
                 ({"sneakers white.jpg": some, "boots brown.jpg": some, "tee white.jpg": some, "jeans blue.jpg": some},
                  "There are 2 pairs of shoes"),
                 ({"blazer navy.jpg": some, "cardigan grey.jpg": some, "jumper navy.jpg": some, "shirt white.jpg": some,
                   "jeans blue.jpg": some}, "There are 4 tops and layers"),
-                ({"coat grey.jpg": some, "jeans blue.jpg": some}, "has no a top"),
-                ({"shirt white.jpg": some, "sneakers white.jpg": some}, "has no trousers")):
+                ({"coat grey.jpg": some, "jeans blue.jpg": some},
+                 "has no top (a shirt, a T-shirt, a jumper …): the model would be drawn in one the service makes up"),
+                ({"shirt white.jpg": some, "sneakers white.jpg": some},
+                 "has no trousers: the model would be drawn in some the service makes up")):
             with self.subTest(files=sorted(files)):
                 with self.assertRaises(phototest.Unusable) as refused:
                     phototest.read(self.a_folder(files))
@@ -137,6 +141,7 @@ class WhatAFolderHolds(WithAFolder, unittest.TestCase):
         # Piece k is photograph k: his words for it stand in its line, in the order the photographs are sent in.
         for line, photo in zip(lines, photos):
             self.assertIn(f"Sold as: {photo.words}.", line)
+        self.assertEqual(phototest.listed(photos), lines, "what is shown before anything is drawn")
         self.assertTrue(with_photos.startswith(words + "\n\n"))
         said = with_photos[len(words):]
         self.assertIn("The 5 pictures sent along are photographs of these exact pieces", said)
@@ -283,6 +288,11 @@ class TheCommand(WithAFolder, WithPictures, AppCase):
         self.assertIn("without where and when they were taken", said)
         self.assertIn("This computer has no `sips`", said)
         self.assertNotIn("No colour in the name", said, "every name here says its colour")
+        # The pieces as the service is told them, so that a colour read wrongly is seen while it costs nothing.
+        self.assertIn("The image service is told of them, in the picture from words and with the photographs alike:\n"
+                      "  1. Coat, worn open as the outer layer, so that what is underneath stays visible: charcoal, "
+                      "wool. Sold as: charcoal wool coat.\n  2. Jumper, worn over the shirt", said)
+        self.assertIn("  5. Sneakers: white, leather. Sold as: white leather sneakers.\n", said)
         self.assertEqual((stopped, self.asked), ("Nothing was drawn.", 1))
         self.assertEqual((self.drawn, self.runs()), ([], []), "not a picture, not a folder")
 

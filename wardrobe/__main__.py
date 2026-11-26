@@ -323,6 +323,9 @@ def test_photos(args: argparse.Namespace, on: bool, line: str) -> None:
               f"{max(1, len(picture) // 1024)} KB as sent)")
     if skipped:
         print("Left alone, no photographs: " + ", ".join(skipped))
+    print("The image service is told of them, in the picture from words and with the photographs alike:")
+    for said in phototest.listed(photos):
+        print("  " + said)
     plain = phototest.colourless(photos)
     if plain:
         print("No colour in the name of: " + ", ".join(plain) + ". The picture from words alone has only the names "

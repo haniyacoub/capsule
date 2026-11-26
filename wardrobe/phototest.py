@@ -154,8 +154,8 @@ def read(folder: Path) -> tuple[list[Photo], list[str]]:
     kinds = [photo.kind for photo in photos]
     twice = next((kind for kind in kinds if kinds.count(kind) > 1), None)
     if twice is not None:
-        raise Unusable(f"There are {kinds.count(twice)} {GARMENTS[twice].plural} in {folder}: one outfit has one. "
-                       "Put each outfit in a folder of its own.")
+        raise Unusable(f"{kinds.count(twice)} photographs in {folder} are “{GARMENTS[twice].label.lower()}”: one "
+                       "outfit has one of a kind. Put each outfit in a folder of its own.")
     layers = [GARMENTS[photo.kind].layer for photo in photos]
     for layer, most, what in (("outer", 1, "coats or jackets"), ("bottom", 1, "pairs of trousers"),
                               ("shoes", 1, "pairs of shoes")):
@@ -166,9 +166,9 @@ def read(folder: Path) -> tuple[list[Photo], list[str]]:
     if uppers > 3:
         raise Unusable(f"There are {uppers} tops and layers in {folder}: one outfit wears three at most.")
     if not uppers or "bottom" not in layers:
-        missing = "a top (a shirt, a T-shirt, a jumper …)" if not uppers else "trousers"
-        raise Unusable(f"The outfit in {folder} has no {missing}: the model would be drawn in one the service "
-                       "makes up. Add its photograph.")
+        missing, made_up = (("top (a shirt, a T-shirt, a jumper …)", "one") if not uppers else ("trousers", "some"))
+        raise Unusable(f"The outfit in {folder} has no {missing}: the model would be drawn in {made_up} the service "
+                       "makes up. Add a photograph.")
     return photos, skipped
 
 
@@ -191,6 +191,12 @@ def pieces(photos: list[Photo]) -> list[dict]:
                     "composition": "", "fit": "", "name": photo.words, "store_name": photo.words, "slug": "",
                     "description": "", "source": "collected", "slot_name": ""})
     return out
+
+
+def listed(photos: list[Photo]) -> list[str]:
+    """The pieces as the image service is told them, line by line (looks.prompt's own list): shown before anything
+    is drawn, so that a colour or fabric read wrongly out of a file's name is seen while it costs nothing."""
+    return looks._listed(outfits.with_roles(pieces(photos)))
 
 
 def prompts(photos: list[Photo], rules: dict) -> tuple[str, str]:
@@ -219,8 +225,9 @@ def converter() -> Convert | None:
 def _sips(tool: str, photo: Path, copy: Path) -> None:
     # In two steps. First to BMP, a kind of file that cannot carry the note "turn me" a phone writes into a
     # photograph taken upright: sips then turns the picture itself. Straight to JPEG it keeps the note instead, and
-    # with the note taken out (person.tidy) the garment would lie on its side. Then to JPEG. Tried on 26 Nov 2026
-    # with JPEG and HEIC files turned each way: upright every time.
+    # with the note taken out (person.tidy) the garment would lie on its side. Then to JPEG. Tried on a Mac on
+    # 26 Nov 2026: a JPEG with the note each of the four ways, and a HEIC that sips itself made from two of them,
+    # came out upright every time. A file straight from a phone was not among them.
     with tempfile.TemporaryDirectory(prefix="stilsmith-photo-") as scratch:
         upright = Path(scratch) / "upright.bmp"
         to_bmp = [tool, "-s", "format", "bmp", "-Z", str(LONGEST), str(photo.resolve()), "--out", str(upright)]
