@@ -54,6 +54,7 @@ NAV = [
 # Pages anyone may open without an account (production mode).
 PUBLIC = {"static", "wardrobe", "about_page", "legal_page", "healthz", "robots_txt", "mock_image",
           "auth.signup", "auth.login", "auth.forgot", "auth.reset",
+          "auth.checked",       # the one button of someone Cloudflare Access has checked (access.py): it asks him who he is
           "favicon"}
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
 # The date of the words a customer agrees to when he uploads his photo (the box on Profile, profile.html). It is

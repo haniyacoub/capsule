@@ -45,6 +45,7 @@ Running for customers (see PRODUCTION.md):
 
     settings.py     local or production, read from environment variables
     auth.py         accounts, log-in, password reset, CSRF, your-data and delete
+    access.py       behind Cloudflare Access: whoever it has checked needs no password
     onboarding.py   what a new user starts with
     shared.py       the store catalogue all customers share, and `publish`
     mail.py         outgoing email

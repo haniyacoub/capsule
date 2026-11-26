@@ -676,7 +676,9 @@ python -m wardrobe stores end musterhaus    # a programme ended: all its product
   filters by store, category, colour, size in stock and words, and no export.
   On your own machine you are the owner; in production, sign up, then mark the
   account: `python -m wardrobe owner add you@example.com` (also `owner remove`,
-  `owner list`). Anyone else gets "We can't find that page" there.
+  `owner list`). Anyone else gets "We can't find that page" there. Behind
+  Cloudflare Access an owner can be named before he has an account
+  (PRODUCTION.md, "Behind Cloudflare Access").
 
 ## Checks
 

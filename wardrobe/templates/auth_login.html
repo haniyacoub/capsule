@@ -6,6 +6,15 @@
 {% block main %}
 <section class="card auth">
   <h1>Log in</h1>
+  {% if checked %}
+  {# He logged out in this browser, and Cloudflare Access still vouches for his address (access.py, auth.checked):
+     his account, which has no password, is one button away. The form under it is for any other account. #}
+  <form class="form" method="post" action="{{ url_for('auth.checked') }}">{{ csrf_field() }}
+    <input type="hidden" name="next" value="{{ next or '' }}">
+    <button class="btn">Continue as {{ checked }}</button>
+  </form>
+  <p class="muted small">No password needed: this address was checked with a code before the site opened. For another account, use the form.</p>
+  {% endif %}
   <form class="form" method="post" action="{{ url_for('auth.login') }}">{{ csrf_field() }}
     <input type="hidden" name="next" value="{{ next or '' }}">
     <label class="field"><span>Email</span>

@@ -8,6 +8,11 @@ that every form and HTMX request must carry.
 Passwords are stored only as salted scrypt hashes (werkzeug). A login cookie
 holds the user id and a counter; changing the password raises the counter,
 which signs the account out everywhere else.
+
+Behind Cloudflare Access (access.py) someone whose email address Cloudflare has
+already checked needs no password: one button makes his account (checked), and
+from then on Cloudflare's check opens it (load_user). An account with a password
+is never opened that way.
 """
 from __future__ import annotations
 
@@ -21,7 +26,7 @@ from flask import (Blueprint, Flask, Response, abort, flash, g, redirect, render
 from flask.sessions import SecureCookieSessionInterface, SessionMixin
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from . import db, guests, looks, mail, person, settings, shared
+from . import access, db, guests, looks, mail, person, settings, shared
 from .onboarding import ensure_setup
 
 bp = Blueprint("auth", __name__)
@@ -50,6 +55,11 @@ class LoginCookie(SecureCookieSessionInterface):
         super().save_session(app, session, response)
 
 
+# In the cookie of a browser that logged out while Cloudflare vouches for its user (access.py): his account is not
+# opened again by itself. It stays so until he asks: "Continue as …" on Log in (checked).
+LEFT = "left"
+
+
 def load_user() -> None:
     """Runs before every request: find the signed-in user and scope the database to them."""
     g.user = None
@@ -58,11 +68,49 @@ def load_user() -> None:
     user_id = session.get("uid")
     if user_id is not None:
         user = db.get_user(user_id)
-        if user and user["session_epoch"] == session.get("epoch"):
+        if user and user["session_epoch"] == session.get("epoch") and not _someone_else(user):
             g.user = user
         else:
-            session.clear()             # deleted account, or signed out everywhere
+            session.clear()             # deleted account, signed out everywhere, or now somebody else's browser
+    if g.user is None and _opens_a_page() and not session.get(LEFT):
+        user = checked_account()
+        if user:        # Cloudflare has checked him, and his account was made through that check: he is in
+            _fresh_cookie(user)
+            g.user = user
     g.user_token = db.set_user(g.user["id"] if g.user else None)
+
+
+def _opens_a_page() -> bool:
+    """Whether this request opens a page, by its address or a link: not a form being sent, not a page's own script
+    (HTMX), not a picture. Only then is someone logged in by Cloudflare's check: logging in starts a new cookie,
+    and with it a new token for the forms (csrf_token), which a page that is already open would not have."""
+    return (request.method == "GET" and not request.headers.get("HX-Request")
+            and "text/html" in request.headers.get("Accept", ""))
+
+
+def _checked() -> str | None:
+    """The email address Cloudflare vouches for on this request (access.py), or None: always None where Cloudflare
+    Access is not set up."""
+    return _email(access.checked_email())
+
+
+def checked_account() -> dict | None:
+    """The account that Cloudflare's check opens for whoever sent this request: the one with the address Cloudflare
+    vouches for, if it was made through that check (it has no password). Never an account with a password: whoever
+    chose that password may be somebody else. And never one of Stilsmith's own (db.internal_account)."""
+    email = _checked()
+    user = db.get_user_by_email(email) if email else None
+    return user if user and user["password_hash"] == access.NO_PASSWORD else None
+
+
+def _someone_else(user: dict) -> bool:
+    """Whether Cloudflare now vouches for another address than this account's, in a browser that is logged in to an
+    account its check opens: somebody else has sat down at it. (No token, or one that is not believed, changes
+    nothing: he stays logged in, as with a password.)"""
+    if user["password_hash"] != access.NO_PASSWORD:
+        return False
+    email = _checked()
+    return email is not None and email != user["email"]
 
 
 def is_owner() -> bool:
@@ -81,11 +129,15 @@ def unload_user(_exc=None) -> None:
         db.reset_user(token)
 
 
-def start_session(user: dict) -> None:
+def _fresh_cookie(user: dict) -> None:
     session.clear()                     # a fresh cookie: nothing carries over from before login
     session["uid"], session["epoch"] = user["id"], user["session_epoch"]
     session["csrf"] = secrets.token_urlsafe(32)
     session.permanent = True
+
+
+def start_session(user: dict) -> None:
+    _fresh_cookie(user)
     db.set_user(user["id"])
     g.user = user
 
@@ -151,8 +203,17 @@ def signup():
     if request.method in ("GET", "HEAD"):
         # `why`: what a visitor without an account tapped, in one line over the form ("Create a free account to save
         # outfits."): only words of guests.WHY, picked by the word in the address (?why=save), never words from it.
-        return render_template("auth_signup.html", invite=invite, code=request.args.get("code", "")[:200],
-                               why=guests.reason(request.args.get("why"), real=shared.published()))
+        why = guests.reason(request.args.get("why"), real=shared.published())
+        # Someone Cloudflare has checked (access.py) gets one button in place of the form (checked): his address is
+        # known and proved. Not with an invitation code set, which the form asks for, and not when he asks for the
+        # form himself (?password=1: another address, or a password of his own).
+        email = None if invite or request.args.get("password") else _checked()
+        account = db.get_user_by_email(email) if email else None
+        if account and account["password_hash"] == access.NO_PASSWORD:
+            return redirect(url_for("auth.login"))      # he has one, and logged out here: "Continue as …"
+        if email and not account:
+            return render_template("auth_signup.html", checked=email, why=why)
+        return render_template("auth_signup.html", invite=invite, code=request.args.get("code", "")[:200], why=why)
     email, password = _email(request.form.get("email")), request.form.get("password", "")
     code = request.form.get("code", "").strip()[:200]
     problem = "Enter a valid email address." if not email else password_problem(password, email)
@@ -180,25 +241,72 @@ def signup():
     return redirect(url_for("welcome"))
 
 
+def _login_page(**shown) -> str:
+    """The Log in page. For someone Cloudflare has checked, whose account that check opens and who logged out in
+    this browser, it has one button over the form: "Continue as …" (checked)."""
+    account = checked_account()
+    return render_template("auth_login.html", checked=account["email"] if account else None, **shown)
+
+
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if g.user:
         return redirect(_next_page())
     if request.method in ("GET", "HEAD"):
-        return render_template("auth_login.html", next=request.args.get("next", ""))
+        return _login_page(next=request.args.get("next", ""))
     email = _email(request.form.get("email")) or ""
     password = request.form.get("password", "")
     if _throttled(email):
         flash("Too many attempts. Wait fifteen minutes, or reset the password.")
-        return render_template("auth_login.html", email=email, next=request.form.get("next", "")), 429
+        return _login_page(email=email, next=request.form.get("next", "")), 429
     user = db.get_user_by_email(email) if email else None
-    stored = user["password_hash"] if user and user["password_hash"] else _DUMMY_HASH
-    if not check_password_hash(stored, password) or not user or not user["password_hash"]:
+    # An account without a password (Stilsmith's own, or one that Cloudflare's check opens: access.py) is treated
+    # as an unknown address is: the same work, the same answer.
+    has_password = bool(user and user["password_hash"] and user["password_hash"] != access.NO_PASSWORD)
+    stored = user["password_hash"] if user and has_password else _DUMMY_HASH
+    if not check_password_hash(stored, password) or not user or not has_password:
         db.note_failed_login(email, request.remote_addr or "")
         flash("Email or password is wrong.")
-        return render_template("auth_login.html", email=email, next=request.form.get("next", "")), 401
+        return _login_page(email=email, next=request.form.get("next", "")), 401
     db.clear_failed_logins(email)
     start_session(user)
+    if not request.values.get("next") and db.get_setting("welcome") == "new":
+        return redirect(url_for("welcome"))     # he left the welcome before its end: it is offered once more
+    return redirect(_next_page())
+
+
+@bp.post("/checked")
+def checked():
+    """The one button of someone Cloudflare has checked (access.py). "Create my account", the first time: his
+    account has no password, and Cloudflare's check opens it from then on. And "Continue as …" on Log in, after he
+    logged out in this browser. The address is the one in Cloudflare's token on this very request, never one the
+    browser sends."""
+    if g.user:
+        return redirect(_next_page())
+    email = _checked()
+    if not email:
+        flash("The check of your email address has run out. Reload the page and try again.")
+        return redirect(url_for("auth.login"))
+    user = db.get_user_by_email(email)
+    if user is None and settings.INVITE_CODE:       # by invitation: the form asks for the code, this button cannot
+        flash(f"{settings.SITE_NAME} is open by invitation for now. Create your account with the form and your code.")
+        return redirect(url_for("auth.signup", password=1))
+    new = False
+    if user is None:
+        user_id = db.create_user(email, access.NO_PASSWORD)
+        new = user_id is not None                   # (None: the button was pressed twice at once, and the other won)
+        user = db.get_user(user_id) if user_id is not None else db.get_user_by_email(email)
+    if not user or user["password_hash"] != access.NO_PASSWORD:
+        # An account with a password: his own from before, or one somebody else made with his address. Cloudflare's
+        # check does not open it, and it is not his to take over here.
+        flash("This email address already has an account with a password. Log in with that password.")
+        return redirect(url_for("auth.login"))
+    start_session(user)
+    if new:
+        db.owner_at_last(user["id"], email)     # named as an owner before he had an account (owner.py)
+        ensure_setup()
+        db.set_setting("welcome", "new")        # first the welcome, as after the sign-up form
+        return redirect(url_for("welcome"))
     if not request.values.get("next") and db.get_setting("welcome") == "new":
         return redirect(url_for("welcome"))     # he left the welcome before its end: it is offered once more
     return redirect(_next_page())
@@ -207,6 +315,9 @@ def login():
 @bp.post("/logout")
 def logout():
     session.clear()
+    if access.on():         # Cloudflare's check would open his account again at the next page: not until he asks
+        session[LEFT] = True
+        session.permanent = True
     flash("You are logged out.")
     return redirect(url_for("wardrobe"))
 
@@ -257,13 +368,18 @@ def reset(token: str):
 
 @bp.get("/account")
 def account():
-    return render_template("account.html", tab="account", owner=is_owner())    # owner: the link to /stores
+    # owner: the link to /stores. no_password: an account that Cloudflare's check opens (access.py) has none to
+    # change, and none to ask for before it is deleted.
+    return render_template("account.html", tab="account", owner=is_owner(),
+                           no_password=g.user["password_hash"] == access.NO_PASSWORD)
 
 
 @bp.post("/account/password")
 def change_password():
     current, new = request.form.get("current", ""), request.form.get("password", "")
-    if not check_password_hash(g.user["password_hash"], current):
+    if g.user["password_hash"] == access.NO_PASSWORD:
+        flash("This account has no password: the check of your email address logs you in.")
+    elif not check_password_hash(g.user["password_hash"], current):
         flash("The current password is wrong.")
     elif (problem := password_problem(new, g.user["email"])):
         flash(problem)
@@ -289,7 +405,12 @@ def export_data():
 
 @bp.post("/account/delete")
 def delete_account():
-    if not check_password_hash(g.user["password_hash"], request.form.get("current", "")):
+    if g.user["password_hash"] == access.NO_PASSWORD:
+        # No password to type again: in its place, Cloudflare's check of this account's address on this very request.
+        if _checked() != g.user["email"]:
+            flash("The check of your email address has run out, so nothing was deleted. Reload the page and try again.")
+            return redirect(url_for("auth.account"))
+    elif not check_password_hash(g.user["password_hash"], request.form.get("current", "")):
         flash("The password is wrong, so nothing was deleted.")
         return redirect(url_for("auth.account"))
     looks.forget_photo(g.user["id"])    # the files: their photo and the pictures drawn from it

@@ -65,6 +65,7 @@ All through environment variables (documented in `wardrobe/settings.py`).
 | `SMTP_URL`, `MAIL_FROM` | for resets | `smtp://user:password@host:587` (or `smtps://…:465`) |
 | `SESSION_DAYS` | no | how long a login lasts (default 30) |
 | `INVITE_CODE` | while the service is not open to everyone | if set (8 characters or more), creating an account needs this code. Give it out as `<SITE_URL>/signup?code=<the code>`. Wrong codes count against the sign-up limit per connection |
+| `ACCESS_TEAM`, `ACCESS_AUD` | only behind Cloudflare Access | the team's name (the first part of `<name>.cloudflareaccess.com`) and the application's audience tag. With both set, someone Cloudflare has checked makes his account with one button and needs no password ("Behind Cloudflare Access", below). Set both or neither |
 | `GEMINI_API_KEY` | for AI pictures | Google's key; every picture is billed to it. Only the service named under `[service]` in `config/looks.toml` draws (Google; `OPENAI_API_KEY` counts only with `use = "openai"` there). Model and limits: the same file |
 
 ## Deploying
@@ -118,6 +119,11 @@ On the server (`deploy/compose.yaml`) Docker keeps what each container prints:
   it failed; a settings or program error, with the method and path and
   Python's account of the error; and, while `SMTP_URL` is not set, the email
   address a password-reset email could not be sent to (never the link).
+  Behind Cloudflare Access: once, that the first token was checked and
+  believed; and at most once a minute per kind, that a token was not believed,
+  with the kind of refusal (`ExpiredSignatureError`, `InvalidAudienceError` …),
+  or that the team's keys could not be fetched. Never the token, and never the
+  address in it.
 - **gunicorn's own lines:** starting, stopping, its workers, and a request it
   could not read, with the address that request came from. Behind the tunnel
   that is the tunnel container's address, not the visitor's.
@@ -206,7 +212,9 @@ python -m wardrobe example-pictures --clips 3 --max-cost 3 --yes    # makes them
 ## What is in place
 
 - Accounts: sign-up, log-in, log-out, password reset by emailed one-hour link,
-  password change that signs out other devices.
+  password change that signs out other devices. Behind Cloudflare Access, an
+  account without a password for whoever Cloudflare has checked ("Behind
+  Cloudflare Access", below).
 - Passwords stored only as salted scrypt hashes. Wrong-password attempts are
   limited per address and per connection; sign-ups per connection per hour.
 - Each customer's profile, slots, choices, saved outfits and added items are
@@ -293,6 +301,43 @@ python -m wardrobe example-pictures --clips 3 --max-cost 3 --yes    # makes them
   - Pictures are drawn in the background by the web workers themselves, two at
     a time per worker. That is fine for a small service; a busy one wants a
     proper job queue.
+
+## Behind Cloudflare Access
+
+A private trial can sit behind Cloudflare Access ([deploy/README.md](deploy/README.md),
+step 4): Cloudflare asks each visitor for his email address, sends a code to
+it, and lets through only the addresses on your list. With `ACCESS_TEAM` and
+`ACCESS_AUD` set, Stilsmith takes Cloudflare's word for whose address that is
+(`wardrobe/access.py`):
+
+- **A new person** finds his address and one button under "Create account":
+  no form, no password. What he agrees to is said there as on the form.
+- **His account has no password at all.** Cloudflare's check opens it when he
+  opens a page. If he logs out, that browser stays logged out until he presses
+  "Continue as …" on "Log in". If Cloudflare vouches for somebody else in the
+  same browser, his account closes.
+- **An account with a password is never opened by the check.** The sign-up
+  form checks nobody's address, so whoever chose that password may be somebody
+  else. It logs in with its password, as always, and the form stays one link
+  away ("Use the form") for another address or a password of one's own.
+- **What is believed:** only Cloudflare's signed token, checked on every
+  request: the team's signature, that it was made for this application and
+  has not run out, and that it names an address. A token that fails counts as
+  none, and so do the team's keys while they cannot be fetched: people then
+  get the forms with a password. No header that merely says an address is
+  read. Without the two settings no token is read at all.
+- **An owner named ahead:** `python -m wardrobe owner add EMAIL` for an
+  address without an account notes it, and the account that address makes with
+  the button is an owner from its first page. An account made with the form
+  never takes such a note up.
+- **Deleting such an account** asks for no password: Cloudflare's check of its
+  address on that request stands in for it.
+- **The day Cloudflare Access is taken away** (the site opens to everyone),
+  those accounts have no way in until their owners choose a password: set
+  `SMTP_URL` first, and "Forgot your password?" sends each of them a link. The
+  same if you remove the two settings.
+- It needs two packages on top of Flask, PyJWT and cryptography
+  (`requirements-prod.txt`), which check the signature.
 
 ## Before customers
 

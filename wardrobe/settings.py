@@ -16,6 +16,10 @@ and optionally:
     SESSION_DAYS             how long a login lasts (default 30)
     INVITE_CODE              if set, only people who know it can create an account ("by invitation").
                              At least 8 characters. Give it out as  <SITE_URL>/signup?code=<the code>
+    ACCESS_TEAM, ACCESS_AUD  behind Cloudflare Access (deploy/README.md): the team's name (the first part of
+                             <name>.cloudflareaccess.com) and the application's audience tag. With both set,
+                             whoever Cloudflare has checked needs no password here (access.py). Set both or
+                             neither; leave them out wherever Cloudflare Access is not in front.
 
 In either mode, one of these switches on the AI pictures of outfits (looks.py):
     OPENAI_API_KEY           a key from platform.openai.com
@@ -24,7 +28,9 @@ Which one is used, and with which model, is set in config/looks.toml.
 """
 from __future__ import annotations
 
+import importlib.util
 import os
+import re
 
 MODE = os.environ.get("CAPSULE_ENV", "local").strip().lower()
 PRODUCTION = MODE == "production"
@@ -46,6 +52,20 @@ MIN_INVITE_CODE_LENGTH = 8
 # nothing is public. Empty: the site is open as usual.
 SITE_PASSWORD = os.environ.get("SITE_PASSWORD", "").strip()
 MIN_SITE_PASSWORD_LENGTH = 12
+
+
+def _team(value: str) -> str:
+    """A Cloudflare Access team's name on its own, whether the setting holds the name, its domain or its address."""
+    value = value.strip().lower().removeprefix("https://").split("/")[0]
+    return value.removesuffix(".cloudflareaccess.com")
+
+
+# Cloudflare Access in front of the site (access.py). With both set, Stilsmith reads the signed token Cloudflare adds
+# to every request it lets through, and whoever that token names needs no password. Neither is a secret: the tag is
+# in the address of Cloudflare's own login page. Empty: no request's token is read.
+ACCESS_TEAM = _team(os.environ.get("ACCESS_TEAM", ""))
+ACCESS_AUD = os.environ.get("ACCESS_AUD", "").strip()
+MIN_ACCESS_AUD_LENGTH = 32      # Cloudflare's tags are 64 letters and digits
 
 # Keys of the image services. Secrets: they come from the environment only, never from a file in the project.
 UNUSABLE_KEYS: list[str] = []      # names of keys that are set but cannot be keys
@@ -108,3 +128,21 @@ def check() -> None:
                else f"use at least {MIN_SITE_PASSWORD_LENGTH} characters") + ".\n"
             "Make one with:  python -c \"import secrets; print(secrets.token_urlsafe(12))\"\n"
             "(or leave SITE_PASSWORD out to open the site)")
+    if bool(ACCESS_TEAM) != bool(ACCESS_AUD):
+        raise SystemExit(
+            f"{'ACCESS_TEAM' if ACCESS_TEAM else 'ACCESS_AUD'} is set and "
+            f"{'ACCESS_AUD' if ACCESS_TEAM else 'ACCESS_TEAM'} is not: Cloudflare's tokens are only read with both.\n"
+            "ACCESS_TEAM is the first part of <name>.cloudflareaccess.com, ACCESS_AUD the application's audience tag "
+            "(deploy/README.md says where to find them). Or leave both out.")
+    if ACCESS_TEAM and not re.fullmatch(r"[a-z0-9][a-z0-9-]*", ACCESS_TEAM):
+        raise SystemExit(
+            "ACCESS_TEAM is not a Cloudflare Access team's name: use the first part of <name>.cloudflareaccess.com, "
+            "like  my-team  (letters, digits and hyphens).")
+    if ACCESS_AUD and (len(ACCESS_AUD) < MIN_ACCESS_AUD_LENGTH or not ACCESS_AUD.isalnum()):
+        raise SystemExit(
+            "ACCESS_AUD is not an audience tag: copy the application's \"Application Audience (AUD) Tag\" from "
+            "Cloudflare (64 letters and digits; deploy/README.md says where it is).")
+    if ACCESS_TEAM and not all(importlib.util.find_spec(name) for name in ("jwt", "cryptography")):
+        raise SystemExit(
+            "ACCESS_TEAM is set, and checking Cloudflare's tokens needs the packages PyJWT and cryptography:\n"
+            "    pip install -r requirements-prod.txt")
