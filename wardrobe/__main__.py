@@ -10,6 +10,7 @@
     python -m wardrobe looks --test           draw one sample picture, to check the key (costs one picture)
     python -m wardrobe looks --test-set       draw a sample outfit's whole set: the front picture and the five made from it
     python -m wardrobe looks --test-video     make one "See it move" video from that set (--video-model NAME tries another model)
+    python -m wardrobe looks --test-photos FOLDER    draw an outfit of your own garments from words, and with their photos sent along
     python -m wardrobe example-pictures       what drawing the example wardrobe's pictures (what visitors see) would cost
     python -m wardrobe example-pictures --yes ... and draw them (billed; --sample 3: only three; --max-cost 1.00)
     python -m wardrobe example-pictures --clips 3     ... and the clips of its first three outfits (--yes to make them)
@@ -283,22 +284,100 @@ def check_chat(args: argparse.Namespace) -> None:
         print(f"  {what}: {value}")
 
 
+def _key_help(then: str = "and start the app from the same terminal. To keep the key for every new terminal,\n"
+                          "add that line to the file ~/.zshrc.") -> str:
+    """How to set the key of the service config/looks.toml names under [service] (Google, as the file comes), and
+    what to do `then`."""
+    from . import looks
+
+    where, export = {"openai": ("platform.openai.com", 'OPENAI_API_KEY="sk-…"'),
+                     "google": ("aistudio.google.com", 'GEMINI_API_KEY="…"')}.get(
+        looks.load_rules()["service"]["use"],
+        ("platform.openai.com or aistudio.google.com", 'OPENAI_API_KEY="sk-…"      (or GEMINI_API_KEY="…")'))
+    return (f"\nGet a key from {where}, then in this terminal:\n"
+            f"  export {export}\n" + then)
+
+
+def test_photos(args: argparse.Namespace, on: bool, line: str) -> None:
+    """The owner's test of reference photographs (phototest.py): one outfit of his own garments, drawn from the
+    words alone and with the garments' photographs sent along, to compare. Says how each photograph was read, what
+    will be drawn and about what it costs, and draws nothing before that was answered with y (or --yes)."""
+    from pathlib import Path
+
+    from . import looks, phototest
+    from .config import ConfigError
+    from .garments import GARMENTS
+
+    folder = Path(args.test_photos).expanduser()
+    try:
+        photos, skipped = phototest.read(folder)
+        convert = phototest.converter()
+        sent = [phototest.prepare(photo.file, convert) for photo in photos]
+        rules, price = looks.load_rules(), looks.price_each()
+    except (phototest.Unusable, ConfigError) as problem:
+        sys.exit(f"Nothing was drawn: {problem}")
+    n, more = len(photos), args.pictures
+    print(f"One outfit from {n} {'photograph' if n == 1 else 'photographs'} in {folder}, read as:")
+    for number, (photo, picture) in enumerate(zip(photos, sent), 1):
+        print(f"  {number}. {GARMENTS[photo.kind].label + ':':<17}{photo.words}   ({photo.file.name}, "
+              f"{max(1, len(picture) // 1024)} KB as sent)")
+    if skipped:
+        print("Left alone, no photographs: " + ", ".join(skipped))
+    print("The image service is told of them, in the picture from words and with the photographs alike:")
+    for said in phototest.listed(photos):
+        print("  " + said)
+    plain = phototest.colourless(photos)
+    if plain:
+        print("No colour in the name of: " + ", ".join(plain) + ". The picture from words alone has only the names "
+              "to go on:\nadd each garment's colour and fabric to its file's name for a fair comparison.")
+    if convert is None:
+        print("This computer has no `sips` (it is part of macOS): the photographs are sent as they are, less\n"
+              "everything but the picture. One taken with a phone held upright may then lie on its side.")
+    cost = phototest.estimate(n, more, price)
+    print("\nTo draw, on Stilsmith's house model (no photo of a person is used):\n"
+          "  1 picture from the words alone, as the app draws today\n"
+          f"  {more} {'picture' if more == 1 else 'pictures'} with your {n} photographs sent along\n"
+          f"That is {more + 1} pictures billed to your key"
+          + (f": about {_usd(cost)}." if cost is not None
+             else ". (No price is set in config/looks.toml to estimate from.)")
+          + "\nYour photographs go to the image service for this, resized, without where and when they were taken.")
+    if not on:      # (the status line is the app's: "… and start the app again" is not what this command needs)
+        why = line.removesuffix(" and start the app again").rstrip(".")
+        sys.exit(f"\nNothing was drawn: AI pictures are {why}.\n"
+                 + _key_help("and run this command again in the same terminal."))
+    chosen = looks.service()
+    if chosen is None:      # (as `on` said; for the type checker)
+        sys.exit("\nNothing was drawn: no key is set.")
+    print(f"Drawn by {chosen.label} ({chosen.model}).")
+    if not args.yes:
+        if not sys.stdin.isatty():
+            sys.exit("\nNothing was drawn: answer in a terminal, or add --yes.")
+        if input("\nDraw them? [y/N] ").strip().lower() not in ("y", "yes"):
+            sys.exit("Nothing was drawn.")
+    out = phototest.folder_for(folder)
+    print(f"Drawing into {out}\nEach picture takes up to a minute…", flush=True)
+    run = phototest.draw(photos, sent, more, out, chosen, rules, lambda said: print("  " + said, flush=True))
+    drawn = len(run.drawn)
+    if run.problem is not None:
+        billed = "it was not billed" if run.problem.free else "it may have been billed all the same"
+        sys.exit(f"\nIt stopped at picture {drawn + 1} of {more + 1}: "
+                 f"{looks.SAY.get(run.problem.kind, looks.SAY['unknown'])}\n  {run.problem.detail}\n"
+                 f"{drawn} {'picture was' if drawn == 1 else 'pictures were'} drawn and billed; the one that failed "
+                 f"was not drawn, and {billed}.\nWhat there is: {out / 'compare.html'}")
+    print(f"Done: {drawn} pictures. Open this page to compare them:\n  {out / 'compare.html'}")
+
+
 def check_looks(args: argparse.Namespace) -> None:
     """Say whether the AI pictures are on and, with --test, prove it by drawing one."""
     from . import imagegen, looks
 
     on, line = looks.status()
+    if args.test_photos is not None:
+        test_photos(args, on, line)
+        return
     print(f"AI pictures of outfits: {line}")
     if not on:
-        # The key of the service config/looks.toml names under [service] (Google, as the file comes).
-        where, export = {"openai": ("platform.openai.com", 'OPENAI_API_KEY="sk-…"'),
-                         "google": ("aistudio.google.com", 'GEMINI_API_KEY="…"')}.get(
-            looks.load_rules()["service"]["use"],
-            ("platform.openai.com or aistudio.google.com", 'OPENAI_API_KEY="sk-…"      (or GEMINI_API_KEY="…")'))
-        sys.exit(f"\nGet a key from {where}, then in this terminal:\n"
-                 f"  export {export}\n"
-                 "and start the app from the same terminal. To keep the key for every new terminal,\n"
-                 "add that line to the file ~/.zshrc.")
+        sys.exit(_key_help())
     if args.test_video is not None:
         # One clip of "See it move", from a sample picture: to look at with your own eyes, and to try another
         # name for the video model (--video-model) without touching config/looks.toml.
@@ -678,6 +757,13 @@ def main(argv: list[str] | None = None) -> None:
                               "unless another is named, e.g. cafe (billed, far more than a picture)")
     p_looks.add_argument("--video-model", metavar="NAME",
                          help="with --test-video: try this name for the video model instead of [videos] model")
+    p_looks.add_argument("--test-photos", metavar="FOLDER",
+                         help="draw the outfit in FOLDER (a photo of each of your own garments, named for what it "
+                              "is: “jumper navy merino.jpg”) from words alone and with the photos sent along; "
+                              "says what it costs and asks first")
+    p_looks.add_argument("--pictures", type=_whole(1, 9), default=3, metavar="N",
+                         help="with --test-photos: how many pictures to draw with the photos (default 3, at most 9)")
+    p_looks.add_argument("--yes", action="store_true", help="with --test-photos: draw without asking")
     p_looks.set_defaults(func=check_looks)
 
     from .guests import MOST, PAGE

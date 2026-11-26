@@ -357,6 +357,27 @@ Things to know:
 
 - The clothes in a picture are close to the products, not the products
   themselves: the service draws from words, not from the product photos.
+- **Would photos help? A test with your own garments.** Photograph each
+  garment of one outfit you own (flat, on a plain light ground, in daylight),
+  put the photos in a folder and name each for what it is, the kind first,
+  then colour and fabric: `jumper navy merino.jpg`, `trousers grey flannel.jpg`.
+  Then:
+
+  ```bash
+  python -m wardrobe looks --test-photos ~/Desktop/garment-test/outfit-1
+  ```
+
+  It says how it read each photo and about what the run costs, and asks before
+  it draws: one picture from the words alone, as the app draws today, and three
+  (`--pictures N`, up to nine) with the photos sent along as reference
+  pictures. Each run's pictures go into a new folder inside yours, with the
+  photos exactly as they were sent, the words sent, and `compare.html` to look
+  at them side by side. The photos are sent upright and resized, without where
+  and when they were taken (on a Mac, which also reads an iPhone's HEIC files;
+  elsewhere they must be JPEG or PNG). The model is always the house model, and
+  nothing is kept by the app. Use photos you took of garments you own: a
+  store's product photos need the store's written permission first. The rules
+  are in `wardrobe/phototest.py`.
 - **Your model**, on the Profile page, sets who wears the outfits: age, height,
   build, skin, hair, beard. Profile is one screen with the model in the middle:
   a drawn figure (`wardrobe/figure.py`, no AI) takes each choice at once, and
