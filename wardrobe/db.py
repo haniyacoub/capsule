@@ -15,6 +15,7 @@ Look around with `sqlite3 data/wardrobe.db`:
     SELECT key, status, last_import_at FROM stores;          -- the store feeds (feeds/)
     SELECT store, name, price, colour, sizes_in_stock FROM products LIMIT 20;
     SELECT u.email, o.added_at FROM owners o JOIN users u ON u.id = o.user_id;   -- who runs Stilsmith (owner.py)
+    SELECT email, added_at FROM owners_to_be;       -- named as owners before they have an account (owner.py)
     SELECT u.email, p.added_at FROM pro p JOIN users u ON u.id = p.user_id;      -- Pro accounts (videos.py)
 """
 from __future__ import annotations
@@ -30,7 +31,7 @@ from datetime import datetime
 
 from . import paths, settings
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 LOCAL_USER_ID = 1
 
 # SQLite 3.51.0 and 3.51.1 can deadlock when threads of one process open and close connections at the same moment,
@@ -184,6 +185,19 @@ CREATE INDEX IF NOT EXISTS products_by_group ON products (store, group_id);
 SCHEMA_OWNERS = """
 CREATE TABLE IF NOT EXISTS owners (     -- `python -m wardrobe owner add | remove | list`
     user_id  INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL
+);
+"""
+
+
+# Added in version 12: an owner named before he has an account (owner.py). Behind Cloudflare Access (access.py),
+# `python -m wardrobe owner add EMAIL` for an address without an account is kept here, and the account that address
+# makes through Cloudflare's check becomes an owner at once (owner_at_last). A database from before gains this
+# table and nothing else changes.
+# (No semicolons inside the comments: the statements are split on them.)
+SCHEMA_OWNERS_TO_BE = """
+CREATE TABLE IF NOT EXISTS owners_to_be (   -- `python -m wardrobe owner add EMAIL`, while EMAIL has no account
+    email    TEXT PRIMARY KEY,
     added_at TEXT NOT NULL
 );
 """
@@ -376,6 +390,9 @@ def _migrate() -> None:
                 con.execute(statement)
         if version < 11:                               # once, as the settings it reads are never written again
             _plan_edited_from_before(con)
+        for statement in SCHEMA_OWNERS_TO_BE.split(";"):   # new in version 12, safe to repeat
+            if statement.strip():
+                con.execute(statement)
         con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 
@@ -622,6 +639,36 @@ def list_owners() -> list[dict]:
 def is_owner(user_id: int) -> bool:
     with connect() as con:
         return con.execute("SELECT 1 FROM owners WHERE user_id = ?", (user_id,)).fetchone() is not None
+
+
+def expect_owner(email: str) -> bool:
+    """Note that this address, which has no account yet, is to be an owner (owner_at_last makes it one).
+    False if it was noted already."""
+    with connect() as con:
+        cur = con.execute("INSERT OR IGNORE INTO owners_to_be (email, added_at) VALUES (?, ?)", (email, now_iso()))
+    return cur.rowcount == 1
+
+
+def owner_at_last(user_id: int, email: str) -> bool:
+    """The account just made for this address becomes an owner if the address was noted for it (expect_owner), and
+    the note goes. Only for an account made where Cloudflare has checked whose address it is (auth.checked): the
+    sign-up form checks no address, so an account made there never takes a note up. True if it became one."""
+    with connect() as con:
+        if con.execute("DELETE FROM owners_to_be WHERE email = ?", (email,)).rowcount != 1:
+            return False
+        con.execute("INSERT OR IGNORE INTO owners (user_id, added_at) VALUES (?, ?)", (user_id, now_iso()))
+    return True
+
+
+def forget_owner_to_be(email: str) -> bool:
+    """This address is no longer to become an owner. False if it was not noted."""
+    with connect() as con:
+        return con.execute("DELETE FROM owners_to_be WHERE email = ?", (email,)).rowcount == 1
+
+
+def owners_to_be() -> list[dict]:
+    with connect() as con:
+        return [dict(r) for r in con.execute("SELECT email, added_at FROM owners_to_be ORDER BY email")]
 
 
 def export_user() -> dict:

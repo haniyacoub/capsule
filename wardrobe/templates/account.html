@@ -20,6 +20,13 @@
 </section>
 {% endif %}
 
+{% if no_password %}
+{# An account made through Cloudflare's check (access.py): that check opens it, and it has no password to change. #}
+<section class="card">
+  <h2>Password</h2>
+  <p class="muted">This account has no password. Your email address is checked with a code before the site opens, and that logs you in.</p>
+</section>
+{% else %}
 <section class="card">
   <h2>Change password</h2>
   <form class="form" method="post" action="{{ url_for('auth.change_password') }}">{{ csrf_field() }}
@@ -31,6 +38,7 @@
   </form>
   <p class="muted small">Changing it logs you out on every other device.</p>
 </section>
+{% endif %}
 
 <section class="card">
   <h2>Your data</h2>
@@ -43,8 +51,10 @@
   <h2>Delete account</h2>
   <p class="muted">This deletes your account and everything in it straight away, including the model you built and your photo with the pictures made from it and their videos. You can't undo this.</p>
   <form class="form" method="post" action="{{ url_for('auth.delete_account') }}" data-confirm="Delete your account and everything in it? You can't undo this.">{{ csrf_field() }}
+    {% if not no_password %}
     <label class="field"><span>Your password, to confirm</span>
       <input type="password" name="current" autocomplete="current-password" required></label>
+    {% endif %}
     <button class="btn small">Delete my account</button>
   </form>
 </section>

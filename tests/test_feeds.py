@@ -178,7 +178,9 @@ VERSION_7_ADDS = [("index", "sqlite_autoindex_videos_1"), ("index", "video_reque
                   # … and version 9: the outfits a customer said no to (db.SCHEMA_YES, test_yes.py).
                   ("index", "sqlite_autoindex_outfits_declined_1"), ("table", "outfits_declined"),
                   # … and version 10: when the style chat was asked, for its daily limits (db.SCHEMA_CHAT).
-                  ("index", "chat_requests_at"), ("table", "chat_requests")]
+                  ("index", "chat_requests_at"), ("table", "chat_requests"),
+                  # … and version 12: owners named before they have an account (db.SCHEMA_OWNERS_TO_BE, test_access.py).
+                  ("index", "sqlite_autoindex_owners_to_be_1"), ("table", "owners_to_be")]
 
 # Version 9 also changes one table on purpose: saved_outfits gains the column `sig` (a saved outfit is an outfit he
 # said yes to), and every customer with a plan gains three settings (test_yes.py tests what they hold).
@@ -243,7 +245,7 @@ class Schema(FeedCase):
             self.assertEqual(sorted(con.execute("SELECT * FROM settings").fetchall()),
                              sorted(rows_before["settings"] + [(2, "kept_pieces", "[]"), (2, "spares", "[]"),
                                                                (2, "wardrobe_news", "true")]))
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 12)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master")), after)
@@ -277,7 +279,7 @@ class Schema(FeedCase):
             self.assertEqual(sorted((kind, name) for kind, name, _, _ in after - before),
                              sorted([("table", "owners"), ("table", "saved_outfits")] + VERSION_7_ADDS))
             self.assertEqual({t: con.execute(f"SELECT * FROM {t}").fetchall() for t in rows_before}, rows_before)  # nosec
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 12)
             self.assertEqual(con.execute("SELECT COUNT(*) FROM owners").fetchone()[0], 0, "nobody is an owner by itself")
 
     # Versions 9 and 10 were built side by side, each on a branch of its own, and each called itself version 9
@@ -301,12 +303,13 @@ class Schema(FeedCase):
         made = set(con.execute("SELECT type, name, tbl_name, sql FROM sqlite_master"))
         return made, {t: sorted(con.execute(f"SELECT * FROM {t}").fetchall()) for t in self.tables(con)}  # nosec
 
-    def test_this_version_is_11_and_a_fresh_database_has_both_new_tables(self):
-        self.assertEqual(db.SCHEMA_VERSION, 11)
+    def test_this_version_is_12_and_a_fresh_database_has_the_new_tables(self):
+        # (12: owners named before they have an account, owners_to_be. tests/test_access.py has its own tests.)
+        self.assertEqual(db.SCHEMA_VERSION, 12)
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
-            self.assertLessEqual({"outfits_declined", "chat_requests"}, self.tables(con))
+            self.assertLessEqual({"outfits_declined", "chat_requests", "owners_to_be"}, self.tables(con))
             self.assertIn("sig", [r[1] for r in con.execute("PRAGMA table_info(saved_outfits)")])
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 12)
 
     def test_a_database_at_version_8_gains_the_wardrobe_and_the_chat(self):
         with closing(sqlite3.connect(paths.DB_PATH)) as con:        # today's database, as version 8 left it
@@ -321,7 +324,7 @@ class Schema(FeedCase):
             self.assertEqual(con.execute("SELECT key, sig FROM saved_outfits").fetchall(), [("abc", "white-tee~indigo-jeans")])
             self.assertEqual(sorted(con.execute("SELECT key, value FROM settings WHERE user_id = 2")),
                              [("kept_pieces", "[]"), ("mode", '"cheapest"'), ("spares", "[]"), ("wardrobe_news", "true")])
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 12)
             after = self.everything(con)
         db.init()                                                   # starting again changes nothing
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
@@ -348,7 +351,7 @@ class Schema(FeedCase):
             self.assertEqual(rows_after.pop("chat_requests"), [])
             rows_after.pop("sqlite_sequence", None), rows.pop("sqlite_sequence", None)
             self.assertEqual(rows_after, rows, "every row is as it was")
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 12)
 
     def test_a_database_at_the_chats_version_9_gains_the_wardrobe_and_keeps_its_chat_messages(self):
         # The branch with the style chat ran this database: it has chat_requests, with a message counted in it, and
@@ -366,13 +369,13 @@ class Schema(FeedCase):
             self.assertEqual(con.execute("SELECT user_id, at FROM chat_requests").fetchall(), [(2, 1000.5)])
             self.assertEqual(sorted(con.execute("SELECT key, value FROM settings WHERE user_id = 2")),
                              [("kept_pieces", "[]"), ("mode", '"cheapest"'), ("spares", "[]"), ("wardrobe_news", "true")])
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 12)
             after = self.everything(con)
         db.init()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(self.everything(con), after)
 
-    def test_a_database_at_version_11_is_left_as_it_is(self):
+    def test_a_database_at_version_12_is_left_as_it_is(self):
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.with_a_customer(con)
             con.execute("INSERT INTO saved_outfits VALUES (2, 'abc', 'x', 'Everyday', ?, 'white-tee~indigo-jeans')",
@@ -383,7 +386,7 @@ class Schema(FeedCase):
         db.init()
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
             self.assertEqual(self.everything(con), before)
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 12)
 
     def test_a_database_at_version_10_decides_once_whether_each_older_plan_was_edited(self):
         # Accounts from before the setting "plan_edited" have "slots_customised" instead (set by any change made by
@@ -414,7 +417,7 @@ class Schema(FeedCase):
 
         self.assertEqual(decided(), {2: "true", 3: "false", 4: "true", 6: "false"})
         with closing(sqlite3.connect(paths.DB_PATH)) as con:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 11)
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 12)
             self.assertEqual(con.execute("SELECT * FROM slots").fetchall(), slots, "no plan changes")
             # Once: should "slots_customised" change after all, nothing is decided again.
             con.execute("UPDATE settings SET value = 'false' WHERE user_id = 2 AND key = 'slots_customised'")

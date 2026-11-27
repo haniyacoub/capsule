@@ -11,6 +11,10 @@ production, an account marked in the database, with no setting to change and no 
     python -m wardrobe owner remove EMAIL
     python -m wardrobe owner list
 
+Behind Cloudflare Access (access.py) an owner can be named before he has an account: `owner add` then notes his
+address, and the account he makes with the one button under Cloudflare's check of that address is an owner from its
+first page. An account made with the sign-up form never takes such a note up: the form checks nobody's address.
+
 Anyone else who asks for an owner's page, signed in or not, gets exactly what an address that does
 not exist gets: Stilsmith's "We can't find that page". Nothing says the page is there, and only an
 owner's Account page links to it.
@@ -31,7 +35,7 @@ from urllib.parse import urlsplit
 from flask import Blueprint, abort, current_app, render_template, request, url_for
 from werkzeug.exceptions import HTTPException
 
-from . import auth, colours, db, settings
+from . import access, auth, colours, db, settings
 from .feeds import registry
 from .sizes import ALPHA
 
@@ -246,7 +250,8 @@ def add_commands(sub) -> None:
                                            "(/stores)")
     p_owner.set_defaults(func=list_owners)
     what = p_owner.add_subparsers(title="what to do (without one: list them)")
-    p_add = what.add_parser("add", help="mark an account as an owner (sign up on the site first)")
+    p_add = what.add_parser("add", help="mark an account as an owner (sign up on the site first; behind Cloudflare "
+                                        "Access, an address without an account is noted for when it has one)")
     p_add.add_argument("email")
     p_add.set_defaults(func=add_owner)
     p_remove = what.add_parser("remove", help="the account is no longer an owner")
@@ -263,6 +268,15 @@ def add_owner(args: argparse.Namespace) -> None:
     db.init()
     email = args.email.strip().lower()
     result = db.add_owner(email)
+    if result == "no account" and access.on():
+        # Behind Cloudflare Access the address is noted: the account it makes there, under Cloudflare's check of
+        # that very address, is an owner at once (db.owner_at_last).
+        print(f"{email} has no account yet" + (": noted." if db.expect_owner(email) else ": it was noted before.")
+              + "\nIt becomes an owner the moment it creates its account on the site with the one button "
+                "(\"Create my account\", no password): Cloudflare has then checked whose address it is.\n"
+                "An account made with the sign-up form and a password does not take this up, as the form checks "
+                "nobody's address: run this again once that account is there.")
+        return
     if result == "no account":
         sys.exit(f"There is no account with the address {email}. Sign up on the site with it first, then run this again.")
     print(f"{email} is an owner already." if result == "already" else
@@ -274,17 +288,22 @@ def add_owner(args: argparse.Namespace) -> None:
 def remove_owner(args: argparse.Namespace) -> None:
     db.init()
     email = args.email.strip().lower()
-    if not db.remove_owner(email):
+    was, noted = db.remove_owner(email), db.forget_owner_to_be(email)
+    if not was and not noted:
         sys.exit(f"{email} is not an owner. The owners: python -m wardrobe owner list")
-    print(f"{email} is no longer an owner, from its next page.")
+    print(f"{email} is no longer an owner, from its next page." if was else
+          f"{email} had no account yet: it will not become an owner when it makes one.")
 
 
 def list_owners(args: argparse.Namespace) -> None:
     db.init()
-    owners = db.list_owners()
-    if not owners:
+    owners, to_be = db.list_owners(), db.owners_to_be()
+    if not owners and not to_be:
         print("No owners yet. Mark your own account (sign up on the site first): python -m wardrobe owner add EMAIL")
     for row in owners:
         print(f"{row['email']:<40} owner since {when(row['added_at'])}")
+    for row in to_be:       # named before they have an account (behind Cloudflare Access: add_owner)
+        print(f"{row['email']:<40} no account yet: an owner from the moment it makes one under Cloudflare's check "
+              f"(noted {when(row['added_at'])})")
     if not settings.PRODUCTION:
         print(LOCAL_NOTE)

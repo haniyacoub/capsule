@@ -1,3 +1,6 @@
 # What the public service runs on. No Playwright: the collector is not part of it.
 flask>=3.1,<4
 gunicorn>=23
+# Behind Cloudflare Access (wardrobe/access.py): checks the signature of the token Cloudflare adds to each
+# request. Loaded only where ACCESS_TEAM and ACCESS_AUD are set.
+pyjwt[crypto]>=2.12,<3

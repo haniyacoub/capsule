@@ -6,7 +6,7 @@ On your own machine you don't need this: `python -m wardrobe` starts the app.
 """
 import logging
 
-from . import looks, settings
+from . import access, looks, settings
 from .app import create_app
 from .config import ConfigError
 
@@ -17,6 +17,8 @@ if settings.PRODUCTION and not settings.SMTP_URL:
 if settings.PRODUCTION and settings.on_this_machine():
     logging.getLogger("capsule").info("SITE_URL points at this machine: treated as a trial run, so when a picture "
                                       "fails the page shows the image service's own words.")
+if settings.PRODUCTION:
+    logging.getLogger("capsule").info("Cloudflare Access: %s", access.status())
 try:
     logging.getLogger("capsule").info("AI pictures of outfits: %s", looks.status()[1])
 except ConfigError as problem:

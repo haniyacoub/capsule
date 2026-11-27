@@ -53,6 +53,31 @@ Both cost money and need your name on them, so they are yours to set up.
    set `SITE_PASSWORD` in `deploy/app.env`: every page then first asks for it.
    For a second lock in front of the whole site, add the hostname under Access
    in Cloudflare Zero Trust and allow only the email addresses you invite.
+
+   **Behind Cloudflare Access nobody needs a second proof.** Cloudflare has
+   checked each visitor's email address with a code before a page opens, and
+   says whose it is in a signed token on every request. Set `ACCESS_TEAM` and
+   `ACCESS_AUD` in `deploy/app.env` (the example file says where each is found)
+   and Stilsmith reads that token (`wardrobe/access.py`):
+
+   - Someone you have put on Cloudflare's list opens the site, types the code
+     Cloudflare emails him, and on "Create account" finds his address and one
+     button: no form, no password. From then on Cloudflare's check opens his
+     account.
+   - An account with a password stays as it is. The check never opens it.
+   - Inviting someone is one step: add the address in Cloudflare (Zero Trust >
+     Access controls > Policies, open your policy, Configure, add it under
+     Include, Save policy; the menus move around).
+   - To make someone an owner before he has an account:
+     `docker compose -f deploy/compose.yaml exec app python -m wardrobe owner add EMAIL`.
+     The account he makes with the button is an owner from its first page.
+
+   After the restart the app's first lines say `Cloudflare Access: on …`, and
+   after the first visitor `the first token was checked and believed`. A line
+   `a request's token was not believed (InvalidAudienceError)` means the tag is
+   not this application's; nobody is let in or kept out by that, everyone just
+   gets the forms with a password. With `SITE_PASSWORD` or `INVITE_CODE` set
+   as well, those still ask for what they ask for.
 5. **Give it products.** On your own machine, `python -m wardrobe publish
    ./out` writes `out/store_catalog.json`; copy it to the server and into the
    app's data: `docker compose -f deploy/compose.yaml cp store_catalog.json app:/data/`.
