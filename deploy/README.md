@@ -65,9 +65,12 @@ Both cost money and need your name on them, so they are yours to set up.
      button: no form, no password. From then on Cloudflare's check opens his
      account.
    - An account with a password stays as it is. The check never opens it.
-   - Inviting someone is one step: add the address in Cloudflare (Zero Trust >
-     Access controls > Policies, open your policy, Configure, add it under
-     Include, Save policy; the menus move around).
+   - Inviting someone: add the address in Cloudflare (Zero Trust > Access
+     controls > Policies, open your policy, Configure, add it under Include,
+     Save policy; the menus move around), and make his account, so that he
+     never signs up:
+     `docker compose -f deploy/compose.yaml exec app python -m wardrobe account add EMAIL`.
+     He opens the site, types the code Cloudflare emails him, and is in.
    - To make someone an owner before he has an account:
      `docker compose -f deploy/compose.yaml exec app python -m wardrobe owner add EMAIL`.
      The account he makes with the button is an owner from its first page.

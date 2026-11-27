@@ -19,6 +19,7 @@
     python -m wardrobe stores [sync | end KEY]    the stores whose feeds Stilsmith may use (config/feeds.toml)
     python -m wardrobe feeds [--store KEY] [--from FILE]   import the approved stores' product feeds (feeds/)
     python -m wardrobe owner [add EMAIL | remove EMAIL]    who sees the owner's pages, such as /stores (owner.py)
+    python -m wardrobe account [add EMAIL]    behind Cloudflare Access: an account made for someone, who never signs up
     python -m wardrobe pro [add EMAIL | remove EMAIL]      Pro accounts: more AI videos a day (videos.py)
 """
 from __future__ import annotations
