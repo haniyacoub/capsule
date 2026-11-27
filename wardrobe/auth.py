@@ -12,7 +12,9 @@ which signs the account out everywhere else.
 Behind Cloudflare Access (access.py) someone whose email address Cloudflare has
 already checked needs no password: one button makes his account (checked), and
 from then on Cloudflare's check opens it (load_user). An account with a password
-is never opened that way.
+is never opened that way. The owner can also make such an account for someone
+beforehand (owner.py, `account add`): he then never signs up at all, and his
+first page is the welcome (_first_page).
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ from flask import (Blueprint, Flask, Response, abort, flash, g, redirect, render
                    session, url_for)
 from flask.sessions import SecureCookieSessionInterface, SessionMixin
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.wrappers import Response as Answer
 
 from . import access, db, guests, looks, mail, person, settings, shared
 from .onboarding import ensure_setup
@@ -60,11 +63,13 @@ class LoginCookie(SecureCookieSessionInterface):
 LEFT = "left"
 
 
-def load_user() -> None:
-    """Runs before every request: find the signed-in user and scope the database to them."""
+def load_user() -> Answer | None:
+    """Runs before every request: find the signed-in user and scope the database to them. (What it returns is
+    where someone goes whom Cloudflare's check has just logged in, when that is not the page he asked for:
+    _first_page.)"""
     g.user = None
     if request.endpoint in FILES:       # a file, the same for everyone: no account is looked up
-        return
+        return None
     user_id = session.get("uid")
     if user_id is not None:
         user = db.get_user(user_id)
@@ -72,12 +77,40 @@ def load_user() -> None:
             g.user = user
         else:
             session.clear()             # deleted account, signed out everywhere, or now somebody else's browser
+    let_in = False
     if g.user is None and _opens_a_page() and not session.get(LEFT):
         user = checked_account()
-        if user:        # Cloudflare has checked him, and his account was made through that check: he is in
+        if user:        # Cloudflare has checked him, and nothing but that check opens his account: he is in
             _fresh_cookie(user)
-            g.user = user
+            g.user, let_in = user, True
     g.user_token = db.set_user(g.user["id"] if g.user else None)
+    return _first_page() if let_in else None
+
+
+# Set in an account that was made for someone: the welcome then says what he agrees to by going on (_begin).
+AGREES = "agrees_at_welcome"
+
+
+def _begin() -> bool:
+    """Give an account that was made for someone (owner.py, `python -m wardrobe account add`) what the sign-up form
+    gives a new one, the first time he is in: its set-up and the welcome. True if this was that first time. What he
+    agrees to is said by the welcome's buttons then (welcome.html, AGREES): he never saw the sign-up page, where
+    it is said otherwise."""
+    if db.get_setting("slots_initialised"):
+        return False
+    ensure_setup()
+    db.set_setting("welcome", "new")
+    db.set_setting(AGREES, True)
+    return True
+
+
+def _first_page() -> Answer | None:
+    """Where someone goes whom Cloudflare's check has just logged in (load_user), if not to the page he asked for.
+    The first time, to the welcome (_begin), as after the sign-up form. And by the front door, to the welcome he
+    left before its end: it is offered once more, as logging in with a password does."""
+    if _begin() or (request.endpoint == "wardrobe" and db.get_setting("welcome") == "new"):
+        return redirect(url_for("welcome"))
+    return None
 
 
 def _opens_a_page() -> bool:
@@ -306,6 +339,8 @@ def checked():
         db.owner_at_last(user["id"], email)     # named as an owner before he had an account (owner.py)
         ensure_setup()
         db.set_setting("welcome", "new")        # first the welcome, as after the sign-up form
+        return redirect(url_for("welcome"))
+    if _begin():                                # an account made for him, opened for the first time
         return redirect(url_for("welcome"))
     if not request.values.get("next") and db.get_setting("welcome") == "new":
         return redirect(url_for("welcome"))     # he left the welcome before its end: it is offered once more

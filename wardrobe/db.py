@@ -651,7 +651,8 @@ def expect_owner(email: str) -> bool:
 
 def owner_at_last(user_id: int, email: str) -> bool:
     """The account just made for this address becomes an owner if the address was noted for it (expect_owner), and
-    the note goes. Only for an account made where Cloudflare has checked whose address it is (auth.checked): the
+    the note goes. Only for an account that nothing but Cloudflare's check of that very address opens: one made with
+    the one button under that check (auth.checked), or made for him by the owner (owner.py, `account add`). The
     sign-up form checks no address, so an account made there never takes a note up. True if it became one."""
     with connect() as con:
         if con.execute("DELETE FROM owners_to_be WHERE email = ?", (email,)).rowcount != 1:
@@ -669,6 +670,17 @@ def forget_owner_to_be(email: str) -> bool:
 def owners_to_be() -> list[dict]:
     with connect() as con:
         return [dict(r) for r in con.execute("SELECT email, added_at FROM owners_to_be ORDER BY email")]
+
+
+def accounts_with(password_hash: str) -> list[dict]:
+    """The accounts that hold exactly this in place of a password's hash (access.NO_PASSWORD: the accounts that
+    Cloudflare's check opens), with whether each has been opened yet: its plan is made at its first page."""
+    with connect() as con:
+        rows = con.execute(
+            "SELECT u.email, u.created_at, EXISTS (SELECT 1 FROM settings s WHERE s.user_id = u.id "
+            "AND s.key = 'slots_initialised') AS opened FROM users u WHERE u.password_hash = ? ORDER BY u.email",
+            (password_hash,)).fetchall()
+    return [dict(r) for r in rows]
 
 
 def export_user() -> dict:

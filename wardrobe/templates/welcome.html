@@ -57,6 +57,11 @@
       <button class="btn">{{ 'Continue' if step < steps|length else 'Show me outfits' }}</button>
       <button class="quiet" name="skip" value="1" formnovalidate>Skip</button>
     </div>
+    {# An account that was made for him (owner.py, `account add`): he never saw the sign-up page, where what he
+       agrees to is said under its button. So it is said here, by the buttons that take him on (auth._begin). #}
+    {% if agrees %}
+    <p class="muted small">By going on you agree to the <a href="{{ url_for('legal_page', name='terms') }}">terms of use</a> and confirm you are 18 or over. How {{ site_name }} uses your data: <a href="{{ url_for('legal_page', name='privacy') }}">privacy policy</a>.</p>
+    {% endif %}
     {# The other way to answer the last step, only where the style chat is on (`chat_on`: it is switched on and a key
        for the text model is set, stylechat.available): the chat on Profile, where he says it in his own words. It reads as a plain link
        and is a button of this form, so that what he ticked above is saved and the welcome is over, exactly as with

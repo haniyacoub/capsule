@@ -136,6 +136,13 @@ class BehindAccess(ProductionCase):
         """The words of the next page: the message a redirect left is on it."""
         return words(client.get(address).get_data(as_text=True))
 
+    def cli(self, *argv: str) -> str:
+        """What `python -m wardrobe …` prints, run where the site runs."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(list(argv))
+        return out.getvalue()
+
 
 class WhatATokenIsWorth(BehindAccess):
     def test_cloudflares_own_token_names_the_address(self):
@@ -669,12 +676,6 @@ class TheTwoSettings(ProductionCase):
 class OwnersNamedAhead(BehindAccess):
     """`python -m wardrobe owner add EMAIL` for an address that has no account yet (owner.py)."""
 
-    def cli(self, *argv: str) -> str:
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            main(list(argv))
-        return out.getvalue()
-
     def test_the_address_is_noted_and_its_account_is_an_owner_from_its_first_page(self):
         said = self.cli("owner", "add", " Olga@Example.com ")
         self.assertIn("olga@example.com has no account yet: noted.", said)
@@ -734,6 +735,134 @@ class OwnersNamedAhead(BehindAccess):
             self.assertEqual(con.execute("SELECT * FROM users").fetchall(), users)
             self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 12)
         self.assertTrue(db.expect_owner("olga@example.com"))
+
+
+class AccountsMadeForPeople(BehindAccess):
+    """`python -m wardrobe account add EMAIL` (owner.py): the owner makes someone's account, who then never signs
+    up. With his address on Cloudflare's list he opens the site, types Cloudflare's code, and is in."""
+
+    def test_he_never_signs_up_and_his_first_page_is_the_welcome(self):
+        said = self.cli("account", "add", " Bea@Example.com ")
+        self.assertIn("bea@example.com has an account now, without a password.", said)
+        self.assertIn("no sign-up", said)
+        self.assertEqual(db.get_user_by_email("bea@example.com")["password_hash"], access.NO_PASSWORD)
+        self.assertRegex(self.cli("account"), r"bea@example\.com\s+made .+, not opened yet")
+        bea = self.app.test_client()
+        first = bea.get("/", headers=by("bea@example.com"))
+        self.assertEqual((first.status_code, first.headers["Location"]), (302, "/welcome"))
+        self.assertEqual(self.who(bea), "bea@example.com")
+        page = bea.get("/welcome", headers=by("bea@example.com"))
+        self.assertEqual(page.status_code, 200, "the welcome itself, not a loop")
+        html = page.get_data(as_text=True)
+        self.assertIn("Step 1 of 3", words(html))
+        # He never saw the sign-up page: what he agrees to is said here, by the buttons that take him on.
+        self.assertIn("By going on you agree to the terms of use and confirm you are 18 or over.", words(html))
+        self.assertIn('href="/legal/terms"', html)
+        self.assertIn('href="/legal/privacy"', html)
+        self.assertRegex(self.cli("account", "list"), r"bea@example\.com\s+made .+, opened")
+        # The welcome is three steps, each of which he may skip, then his outfits: as for anyone new.
+        for step, onwards in (("/welcome", "/welcome/2"), ("/welcome/2", "/welcome/3"), ("/welcome/3", "/outfits")):
+            self.assertIn("By going on you agree", self.said(bea, step))
+            answer = self.post(bea, step, skip="1")
+            self.assertEqual((answer.status_code, answer.headers["Location"]), (302, onwards))
+        # From then on the front door is his own pages, with no log-in and no welcome in between.
+        another_day = self.app.test_client()
+        home = another_day.get("/", headers=by("bea@example.com"))
+        self.assertEqual(home.status_code, 200)
+        self.assertNotIn(b"Create a free account", home.data)
+        self.assertEqual(self.who(another_day), "bea@example.com")
+
+    def test_whichever_page_he_opens_first_the_welcome_comes_first_and_only_once(self):
+        self.cli("account", "add", "bea@example.com")
+        bea = self.app.test_client()
+        first = bea.get("/account", headers=by("bea@example.com"))
+        self.assertEqual((first.status_code, first.headers["Location"]), (302, "/welcome"))
+        self.assertEqual(bea.get("/account", headers=by("bea@example.com")).status_code, 200, "the page he asks for next")
+        # He left the welcome before its end. Another day, another page: that page. The front door: the welcome once
+        # more, as logging in with a password offers it.
+        another_day = self.app.test_client()
+        self.assertEqual(another_day.get("/profile", headers=by("bea@example.com")).status_code, 200)
+        third = self.app.test_client()
+        answer = third.get("/", headers=by("bea@example.com"))
+        self.assertEqual((answer.status_code, answer.headers["Location"]), (302, "/welcome"))
+        self.assertEqual(third.get("/", headers=by("bea@example.com")).status_code, 200, "his cookie carries him now")
+
+    def test_in_a_browser_someone_logged_out_of_it_takes_the_one_button_on_log_in(self):
+        self.cli("account", "add", "bea@example.com")
+        browser = self.newcomer("ada@example.com")
+        self.post(browser, "/logout")
+        self.assertIsNone(self.who(browser))
+        browser.get("/", headers=by("bea@example.com"))
+        self.assertIsNone(self.who(browser), "this browser asked to stay logged out")
+        self.assertIn(">Continue as bea@example.com</button>",
+                      browser.get("/login", headers=by("bea@example.com")).get_data(as_text=True))
+        answer = self.press(browser, "bea@example.com")
+        self.assertEqual((answer.status_code, answer.headers["Location"]), (302, "/welcome"), "his first time in")
+        self.assertIn("By going on you agree", self.said(browser, "/welcome"))
+
+    def test_what_he_agrees_to_is_said_at_the_welcome_only_to_someone_who_never_saw_the_sign_up_page(self):
+        ada = self.newcomer("ada@example.com")                          # the one button: it is said under it
+        self.assertNotIn("By going on you agree", self.said(ada, "/welcome"))
+        cy = self.member("cy@example.com")                              # the form: under its button too
+        self.assertNotIn("By going on you agree", self.said(cy, "/welcome"))
+
+    def test_an_owners_note_is_taken_up_when_the_account_is_made(self):
+        self.cli("owner", "add", "olga@example.com")
+        self.assertIn("python -m wardrobe account add olga@example.com", self.cli("owner", "add", "olga@example.com"))
+        said = self.cli("account", "add", "olga@example.com")
+        self.assertIn("olga@example.com has an account now, without a password, and is an owner (noted before).", said)
+        owners = self.cli("owner", "list")
+        self.assertRegex(owners, r"olga@example\.com\s+owner since ")
+        self.assertEqual(owners.count("olga@example.com"), 1, "once, as an owner: the note is used up")
+        olga = self.app.test_client()
+        self.assertEqual(olga.get("/", headers=by("olga@example.com")).headers["Location"], "/welcome")
+        self.assertEqual(olga.get("/stores", headers=by("olga@example.com")).status_code, 200)
+        # Without a note he is no owner, and the owner can mark the account as any other.
+        self.cli("account", "add", "bea@example.com")
+        self.assertFalse(db.is_owner(db.get_user_by_email("bea@example.com")["id"]))
+        self.assertIn("bea@example.com is now an owner", self.cli("owner", "add", "bea@example.com"))
+
+    def test_an_address_that_has_an_account_is_left_as_it_is(self):
+        self.member("cy@example.com")
+        self.cli("account", "add", "bea@example.com")
+        for address, kind in (("cy@example.com", "with a password: it logs in with that"),
+                              ("bea@example.com", "without a password: Cloudflare's check opens it"),
+                              (guests.EXAMPLE_EMAIL, "one of Stilsmith's own, which nobody logs in to")):
+            before = db.get_user_by_email(address)
+            with self.assertRaises(SystemExit) as refused:
+                self.cli("account", "add", address)
+            self.assertEqual(str(refused.exception), f"{address} has an account already, {kind}. Nothing was changed.")
+            self.assertEqual(db.get_user_by_email(address), before)
+        with self.assertRaises(SystemExit) as refused:
+            self.cli("account", "add", "not an address")
+        self.assertEqual(str(refused.exception), "'not an address' is not an email address.")
+
+    def test_nothing_but_cloudflares_check_of_his_address_opens_it(self):
+        self.cli("account", "add", "bea@example.com")
+        stranger = self.app.test_client()
+        for headers in (PAGE, by("eve@example.com"), {**PAGE, access.HEADER: token("bea@example.com", exp=1)}):
+            answer = stranger.get("/account", headers=headers)
+            self.assertEqual((answer.status_code, answer.headers["Location"]), (302, "/login?next=/account"))
+        self.assertEqual(self.post(stranger, "/login", email="bea@example.com", password="").status_code, 401)
+        self.assertEqual(self.post(stranger, "/signup", email="bea@example.com", password=PASSWORD).status_code, 400,
+                         "the form cannot take the address either")
+        self.assertIsNone(self.who(stranger))
+        self.assertRegex(self.cli("account"), r"bea@example\.com\s+made .+, not opened yet")
+
+    def test_without_cloudflare_access_the_command_refuses(self):
+        with mock.patch.object(settings, "ACCESS_AUD", ""):
+            for argv in (("account", "add", "bea@example.com"), ("account",), ("account", "list")):
+                with self.assertRaises(SystemExit) as refused:
+                    self.cli(*argv)
+                self.assertIn("Cloudflare Access is not set up here (ACCESS_TEAM and ACCESS_AUD): nothing could open it.",
+                              str(refused.exception))
+        self.assertIsNone(db.get_user_by_email("bea@example.com"))
+
+    def test_the_list_says_so_when_there_are_none(self):
+        self.member("cy@example.com")                                   # (an account with a password is not listed)
+        said = self.cli("account")
+        self.assertIn("No accounts without a password yet. Make one for someone: python -m wardrobe account add EMAIL", said)
+        self.assertNotIn("cy@example.com", said)
 
 
 if __name__ == "__main__":

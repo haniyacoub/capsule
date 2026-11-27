@@ -677,8 +677,9 @@ python -m wardrobe stores end musterhaus    # a programme ended: all its product
   On your own machine you are the owner; in production, sign up, then mark the
   account: `python -m wardrobe owner add you@example.com` (also `owner remove`,
   `owner list`). Anyone else gets "We can't find that page" there. Behind
-  Cloudflare Access an owner can be named before he has an account
-  (PRODUCTION.md, "Behind Cloudflare Access").
+  Cloudflare Access an owner can be named before he has an account, and
+  `python -m wardrobe account add EMAIL` makes someone's account for him, so
+  that he never signs up (PRODUCTION.md, "Behind Cloudflare Access").
 
 ## Checks
 

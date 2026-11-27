@@ -15,6 +15,15 @@ Behind Cloudflare Access (access.py) an owner can be named before he has an acco
 address, and the account he makes with the one button under Cloudflare's check of that address is an owner from its
 first page. An account made with the sign-up form never takes such a note up: the form checks nobody's address.
 
+Also behind Cloudflare Access, the owner can make someone's account for him, so that he never signs up:
+
+    python -m wardrobe account add EMAIL     an account for this address, without a password
+    python -m wardrobe account               those accounts, and whether each has been opened yet
+
+Put the address on Cloudflare's list as well. Its owner then opens the site, types the code Cloudflare emails him,
+and is in: his first page is the welcome. Nothing but Cloudflare's check of that very address opens such an account,
+so an owner's note for the address is taken up when the account is made.
+
 Anyone else who asks for an owner's page, signed in or not, gets exactly what an address that does
 not exist gets: Stilsmith's "We can't find that page". Nothing says the page is there, and only an
 owner's Account page links to it.
@@ -258,6 +267,14 @@ def add_commands(sub) -> None:
     p_remove.add_argument("email")
     p_remove.set_defaults(func=remove_owner)
     what.add_parser("list", help="the owners").set_defaults(func=list_owners)
+    p_account = sub.add_parser("account", help="behind Cloudflare Access: accounts made for people, who then never "
+                                               "sign up (their address's check by Cloudflare logs them in)")
+    p_account.set_defaults(func=list_accounts)
+    what = p_account.add_subparsers(title="what to do (without one: list them)")
+    p_add = what.add_parser("add", help="make the account for this address, without a password")
+    p_add.add_argument("email")
+    p_add.set_defaults(func=add_account)
+    what.add_parser("list", help="the accounts without a password").set_defaults(func=list_accounts)
 
 
 LOCAL_NOTE = ("On your own machine (CAPSULE_ENV=local) you are the owner anyway, with no login. "
@@ -274,6 +291,8 @@ def add_owner(args: argparse.Namespace) -> None:
         print(f"{email} has no account yet" + (": noted." if db.expect_owner(email) else ": it was noted before.")
               + "\nIt becomes an owner the moment it creates its account on the site with the one button "
                 "(\"Create my account\", no password): Cloudflare has then checked whose address it is.\n"
+                "Or make its account for it now, so that it never signs up: python -m wardrobe account add "
+                f"{email}\n"
                 "An account made with the sign-up form and a password does not take this up, as the form checks "
                 "nobody's address: run this again once that account is there.")
         return
@@ -283,6 +302,44 @@ def add_owner(args: argparse.Namespace) -> None:
           f"{email} is now an owner: its Account page links to the store catalogues (/stores), from its next page.")
     if not settings.PRODUCTION:
         print(LOCAL_NOTE)
+
+
+NEEDS_ACCESS = ("An account without a password is opened by Cloudflare's check of its address, and Cloudflare Access "
+                "is not set up here (ACCESS_TEAM and ACCESS_AUD): nothing could open it. People sign up on the site.")
+
+
+def add_account(args: argparse.Namespace) -> None:
+    """An account for this address, made by the owner: its owner never signs up. It has no password, so nothing
+    but Cloudflare's check of that very address opens it (auth.load_user), and its first page is the welcome."""
+    db.init()
+    if not access.on():
+        sys.exit(NEEDS_ACCESS)
+    email = auth._email(args.email)
+    if email is None:
+        sys.exit(f"{args.email.strip()!r} is not an email address.")
+    user_id = None if db.get_user_by_email(email) else db.create_user(email, access.NO_PASSWORD)
+    if user_id is None:
+        user = db.get_user_by_email(email)
+        kind = ("without a password: Cloudflare's check opens it" if user and user["password_hash"] == access.NO_PASSWORD
+                else "with a password: it logs in with that" if user and user["password_hash"]
+                else f"one of {settings.SITE_NAME}'s own, which nobody logs in to")
+        sys.exit(f"{email} has an account already, {kind}. Nothing was changed.")
+    owner = db.owner_at_last(user_id, email)
+    print(f"{email} has an account now, without a password" + (", and is an owner (noted before)." if owner else ".")
+          + "\nWith the address on your Cloudflare Access list, its owner opens the site, types the code Cloudflare "
+            "emails him, and is in: no sign-up. His first page is the welcome.")
+
+
+def list_accounts(args: argparse.Namespace) -> None:
+    db.init()
+    if not access.on():
+        sys.exit(NEEDS_ACCESS)
+    accounts = db.accounts_with(access.NO_PASSWORD)
+    if not accounts:
+        print("No accounts without a password yet. Make one for someone: python -m wardrobe account add EMAIL")
+    for row in accounts:
+        print(f"{row['email']:<40} made {when(row['created_at'])}, "
+              + ("opened" if row["opened"] else "not opened yet"))
 
 
 def remove_owner(args: argparse.Namespace) -> None:

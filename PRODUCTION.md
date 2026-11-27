@@ -326,10 +326,17 @@ it, and lets through only the addresses on your list. With `ACCESS_TEAM` and
   none, and so do the team's keys while they cannot be fetched: people then
   get the forms with a password. No header that merely says an address is
   read. Without the two settings no token is read at all.
+- **An account made for someone, who then never signs up:**
+  `python -m wardrobe account add EMAIL` makes the account for an address,
+  without a password. With the address on Cloudflare's list too, its owner
+  opens the site, types Cloudflare's code, and is in: his first page is the
+  welcome, which says by its buttons what he agrees to (he never saw the
+  sign-up page). `python -m wardrobe account` lists these accounts and whether
+  each has been opened yet.
 - **An owner named ahead:** `python -m wardrobe owner add EMAIL` for an
-  address without an account notes it, and the account that address makes with
-  the button is an owner from its first page. An account made with the form
-  never takes such a note up.
+  address without an account notes it. The account made for that address
+  (`account add`), or the one it makes with the button, is an owner from its
+  first page. An account made with the form never takes such a note up.
 - **Deleting such an account** asks for no password: Cloudflare's check of its
   address on that request stands in for it.
 - **The day Cloudflare Access is taken away** (the site opens to everyone),

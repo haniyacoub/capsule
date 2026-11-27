@@ -54,7 +54,7 @@ NAV = [
 # Pages anyone may open without an account (production mode).
 PUBLIC = {"static", "wardrobe", "about_page", "legal_page", "healthz", "robots_txt", "mock_image",
           "auth.signup", "auth.login", "auth.forgot", "auth.reset",
-          "auth.checked",       # the one button of someone Cloudflare Access has checked (access.py): it asks him who he is
+          "auth.checked",       # the one button of someone Cloudflare Access has checked (access.py)
           "favicon"}
 LEGAL_PAGES = {"impressum": "Impressum", "privacy": "Privacy policy", "terms": "Terms of use"}
 # The date of the words a customer agrees to when he uploads his photo (the box on Profile, profile.html). It is
@@ -2442,6 +2442,8 @@ def create_app() -> Flask:
         if step not in WELCOME:
             abort(404)
         current = profile_mod.load()
+        # An account that was made for him (owner.py, `account add`): what he agrees to is said by the buttons here.
+        agrees = bool(db.get_setting(auth.AGREES))
 
         def onwards():
             if step < len(WELCOME):
@@ -2456,7 +2458,7 @@ def create_app() -> Flask:
 
         if request.method in ("GET", "HEAD"):
             return render_template("welcome.html", step=step, steps=WELCOME, profile=current, plain=True,
-                                   sizes_given=not profile_mod.sizes_unconfirmed(current),
+                                   agrees=agrees, sizes_given=not profile_mod.sizes_unconfirmed(current),
                                    answered=profile_mod.answered(current), given=None,
                                    chat_on=stylechat.available(),
                                    budget=budget_choices(current) if step == 2 else None)
@@ -2472,7 +2474,8 @@ def create_app() -> Flask:
             if any(given.values()) and not all(given.values()):
                 flash("Give all four sizes, or skip this step.")
                 return render_template("welcome.html", step=step, steps=WELCOME, profile=current, plain=True,
-                                       sizes_given=False, answered=profile_mod.answered(current), given=given), 400
+                                       agrees=agrees, sizes_given=False, answered=profile_mod.answered(current),
+                                       given=given), 400
             if not any(given.values()):
                 return onwards()
             sent.update(given)
